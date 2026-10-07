@@ -1,0 +1,208 @@
+orm:
+  term: ORM (объектно-реляционное отображение)
+  def: >-
+    Библиотека, которая сопоставляет классы приложения с таблицами базы: генерирует SQL по
+    операциям с объектами и превращает строки результата в объекты. В .NET это EF Core,
+    NHibernate; Dapper называют micro-ORM.
+  q: object-relational mapping ORM
+  wiki: ORM
+db-context:
+  term: DbContext
+  def: >-
+    Главный класс EF Core: сессия работы с базой, которая выполняет запросы, отслеживает изменения
+    сущностей и сохраняет их через `SaveChanges`. Рассчитан на одну единицу работы и не
+    потокобезопасен.
+  q: EF Core DbContext lifetime
+  docs: https://learn.microsoft.com/ef/core/dbcontext-configuration/
+ef-model:
+  term: Модель EF Core
+  def: >-
+    Метаданные о сущностях: свойства, ключи, связи, имена таблиц и типы столбцов. EF строит её
+    один раз на тип контекста по соглашениям, атрибутам и Fluent API и по ней генерирует SQL и
+    миграции.
+  q: EF Core model building
+  docs: https://learn.microsoft.com/ef/core/modeling/
+fluent-api:
+  term: Fluent API
+  def: >-
+    Конфигурация модели EF Core кодом в `OnModelCreating` или в классах
+    `IEntityTypeConfiguration<T>`: `HasKey`, `HasMaxLength`, `HasOne().WithMany()`. Имеет приоритет
+    над атрибутами и соглашениями.
+  q: EF Core Fluent API configuration
+  docs: https://learn.microsoft.com/ef/core/modeling/#use-fluent-api-to-configure-a-model
+ef-provider:
+  term: Провайдер базы данных EF Core
+  def: >-
+    NuGet-пакет, который учит EF Core работать с конкретной СУБД: переводит запросы в её диалект
+    SQL, сопоставляет типы и генерирует миграции. Например,
+    `Microsoft.EntityFrameworkCore.SqlServer` и `Npgsql.EntityFrameworkCore.PostgreSQL`.
+  q: EF Core database providers
+  docs: https://learn.microsoft.com/ef/core/providers/
+change-tracker:
+  term: Трекер изменений (change tracker)
+  def: >-
+    Часть `DbContext`, которая хранит отслеживаемые сущности, их состояния и исходные значения. По
+    разнице между исходными и текущими значениями `SaveChanges` строит `INSERT`, `UPDATE` и
+    `DELETE`.
+  q: EF Core change tracking
+  docs: https://learn.microsoft.com/ef/core/change-tracking/
+entity-state:
+  term: Состояние сущности (EntityState)
+  def: >-
+    Метка, по которой EF Core решает, что делать с сущностью при `SaveChanges`: `Added` —
+    вставить, `Modified` — обновить, `Deleted` — удалить, `Unchanged` и `Detached` — ничего.
+  q: EF Core EntityState
+  docs: https://learn.microsoft.com/ef/core/change-tracking/#entity-states
+identity-resolution:
+  term: Identity resolution
+  def: >-
+    Гарантия, что одна строка базы представлена в контексте одним объектом. Отслеживающие запросы
+    EF Core возвращают уже загруженный экземпляр; `AsNoTracking` создаёт новый объект на каждое
+    вхождение строки.
+  q: EF Core identity resolution
+  docs: https://learn.microsoft.com/ef/core/querying/tracking#identity-resolution
+navigation-property:
+  term: Навигационное свойство
+  def: >-
+    Свойство сущности, которое ссылается на связанную сущность (`order.Customer`) или на коллекцию
+    связанных (`order.Lines`). По навигациям EF строит `JOIN` и загружает связанные данные.
+  q: EF Core navigation property
+  docs: https://learn.microsoft.com/ef/core/modeling/relationships/navigations
+n-plus-one:
+  term: Проблема N+1
+  def: >-
+    Антипаттерн доступа к данным: один запрос загружает список из N элементов, а затем для каждого
+    выполняется ещё один запрос за связанными данными. Типичная причина — ленивая загрузка в
+    цикле.
+  q: N+1 query problem ORM
+eager-loading:
+  term: Жадная загрузка (eager loading)
+  def: >-
+    Загрузка связанных данных в том же запросе, что и основные: в EF Core — `Include` и
+    `ThenInclude`, которые превращаются в `JOIN` или, со split query, в отдельные запросы.
+  q: EF Core eager loading Include
+  docs: https://learn.microsoft.com/ef/core/querying/related-data/eager
+lazy-loading:
+  term: Ленивая загрузка (lazy loading)
+  def: >-
+    Загрузка навигационного свойства отдельным запросом при первом обращении к нему. В EF Core
+    включается пакетом `Microsoft.EntityFrameworkCore.Proxies` и `UseLazyLoadingProxies()` и легко
+    приводит к N+1.
+  q: EF Core lazy loading proxies
+  docs: https://learn.microsoft.com/ef/core/querying/related-data/lazy
+cartesian-explosion:
+  term: Cartesian explosion (декартов взрыв)
+  def: >-
+    Рост числа строк результата, когда один запрос соединяет несколько коллекций одного уровня:
+    строки каждой коллекции умножаются друг на друга. Заказ с 10 строками и 10 платежами даёт 100
+    строк.
+  q: EF Core cartesian explosion
+  docs: https://learn.microsoft.com/ef/core/querying/single-split-queries#cartesian-explosion
+split-query:
+  term: Split query (разделённый запрос)
+  def: >-
+    Режим EF Core 5+, в котором `Include` коллекций выполняется отдельными SQL-запросами вместо
+    одного с `JOIN`. Включается `AsSplitQuery()`; убирает декартов взрыв ценой лишних round trip и
+    без общей согласованности.
+  q: EF Core AsSplitQuery
+  docs: https://learn.microsoft.com/ef/core/querying/single-split-queries
+ef-migration:
+  term: Миграция EF Core
+  def: >-
+    Класс с методами `Up` и `Down`, который переводит схему базы от одной версии модели к
+    следующей. Создаётся командой `dotnet ef migrations add` по разнице модели и снапшота.
+  q: EF Core migrations
+  docs: https://learn.microsoft.com/ef/core/managing-schemas/migrations/
+model-snapshot:
+  term: Снапшот модели (model snapshot)
+  def: >-
+    Файл `<Context>ModelSnapshot.cs` с описанием модели после последней миграции. С ним EF
+    сравнивает текущую модель, чтобы сгенерировать следующую миграцию; в командной работе он
+    источник конфликтов.
+  q: EF Core model snapshot migrations
+  docs: https://learn.microsoft.com/ef/core/managing-schemas/migrations/teams
+migrations-history-table:
+  term: Таблица истории миграций
+  def: >-
+    Служебная таблица `__EFMigrationsHistory` в базе со списком применённых миграций и версией EF.
+    По ней `database update`, bundle и идемпотентный скрипт определяют, что ещё не применено.
+  q: __EFMigrationsHistory
+  docs: https://learn.microsoft.com/ef/core/managing-schemas/migrations/history-table
+migration-bundle:
+  term: Migration bundle
+  def: >-
+    Исполняемый файл с миграциями проекта, который собирают в CI командой
+    `dotnet ef migrations bundle` (EF Core 6+). Применяет недостающие миграции без SDK и исходного
+    кода.
+  q: EF Core migration bundle efbundle
+  docs: https://learn.microsoft.com/ef/core/managing-schemas/migrations/applying#bundles
+execute-update:
+  term: ExecuteUpdate и ExecuteDelete
+  def: >-
+    Методы EF Core 7+, которые выполняют `UPDATE` или `DELETE` по LINQ-фильтру одной командой, без
+    загрузки сущностей и без трекера изменений. Возвращают число затронутых строк.
+  q: EF Core ExecuteUpdate ExecuteDelete
+  docs: https://learn.microsoft.com/ef/core/saving/execute-insert-update-delete
+save-changes-batching:
+  term: Пакетирование SaveChanges (batching)
+  def: >-
+    Отправка нескольких команд `INSERT`, `UPDATE`, `DELETE` за один сетевой round trip. На SQL
+    Server EF Core по умолчанию кладёт в пакет до 42 команд; предел задаёт `MaxBatchSize`.
+  q: EF Core SaveChanges batching MaxBatchSize
+  docs: https://learn.microsoft.com/ef/core/performance/efficient-updating#batching
+dbcontext-pooling:
+  term: Пул контекстов (DbContext pooling)
+  def: >-
+    Переиспользование экземпляров `DbContext`: при освобождении контекст сбрасывается и
+    возвращается в пул. Включается `AddDbContextPool` или `PooledDbContextFactory`; с пулом
+    соединений ADO.NET не связан.
+  q: EF Core AddDbContextPool
+  docs: https://learn.microsoft.com/ef/core/performance/advanced-performance-topics#dbcontext-pooling
+compiled-query:
+  term: Компилированный запрос (compiled query)
+  def: >-
+    LINQ-запрос, заранее превращённый в делегат через `EF.CompileQuery` или `EF.CompileAsyncQuery`.
+    При вызове EF не строит и не сравнивает дерево выражений, что экономит время на горячих путях.
+  q: EF Core compiled queries
+  docs: https://learn.microsoft.com/ef/core/performance/advanced-performance-topics#compiled-queries
+ado-net:
+  term: ADO.NET
+  def: >-
+    Базовый API доступа к данным в .NET: `DbConnection`, `DbCommand`, `DbDataReader`, параметры и
+    транзакции. На нём построены провайдеры вроде `Microsoft.Data.SqlClient` и Npgsql, а поверх —
+    EF Core и Dapper.
+  q: ADO.NET overview
+  docs: https://learn.microsoft.com/dotnet/framework/data/adonet/ado-net-overview
+  wiki: ADO.NET
+dapper:
+  term: Dapper
+  def: >-
+    Micro-ORM от авторов Stack Overflow: методы расширения над `IDbConnection` (`Query`,
+    `Execute`), которые выполняют ваш SQL с параметрами и раскладывают столбцы по свойствам
+    объектов. Не отслеживает изменения и не генерирует SQL.
+  q: Dapper micro ORM
+  docs: https://github.com/DapperLib/Dapper
+sql-injection:
+  term: SQL-инъекция
+  def: >-
+    Уязвимость, при которой данные пользователя вклеиваются в текст SQL и меняют сам запрос.
+    Защита — передавать значения параметрами, а не склеивать строки.
+  q: SQL injection prevention parameters
+  docs: https://learn.microsoft.com/sql/relational-databases/security/sql-injection
+  wiki: Внедрение SQL-кода
+optimistic-concurrency:
+  term: Оптимистическая блокировка (optimistic concurrency)
+  def: >-
+    Подход к параллельным правкам без удержания блокировок: при сохранении проверяется, что строка
+    не изменилась с момента чтения, а при конфликте операция отклоняется. Противоположность —
+    пессимистическая блокировка строки на время работы.
+  q: optimistic concurrency control
+  docs: https://learn.microsoft.com/ef/core/saving/concurrency
+concurrency-token:
+  term: Токен конкурентности (concurrency token)
+  def: >-
+    Свойство, исходное значение которого EF Core добавляет в `WHERE` при `UPDATE` и `DELETE`. Если
+    строку успели изменить, затронуто ноль строк, и EF бросает `DbUpdateConcurrencyException`. На
+    SQL Server обычно `rowversion`, в PostgreSQL — `xmin`.
+  q: EF Core concurrency token rowversion
+  docs: https://learn.microsoft.com/ef/core/saving/concurrency

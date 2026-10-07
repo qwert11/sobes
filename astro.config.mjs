@@ -39,6 +39,11 @@ export default defineConfig({
           items: [{ autogenerate: { directory: 'aspnet' } }],
         },
         {
+          label: 'Базы данных',
+          translations: { uk: 'Бази даних', en: 'Databases' },
+          items: [{ autogenerate: { directory: 'db' } }],
+        },
+        {
           label: 'Глоссарий',
           translations: { uk: 'Глосарій', en: 'Glossary' },
           slug: 'glossary',

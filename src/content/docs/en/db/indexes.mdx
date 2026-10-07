@@ -1,0 +1,929 @@
+---
+title: Indexes and query plans
+description: Clustered and nonclustered indexes, covering indexes and INCLUDE, SARGability, execution plans, parameter sniffing and Query Store, statistics, maintenance, filtered and columnstore.
+sidebar:
+  order: 2
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+How SQL Server finds rows: how indexes are built, why a predicate misses the index, how to read an execution plan, and where "fast in SSMS, slow in the app" comes from. Examples are in T-SQL; how PostgreSQL does the same is covered in [PostgreSQL vs SQL Server](/sobes/en/db/postgres/).
+
+**Before this topic:** [SQL and T-SQL](/sobes/en/db/sql/).
+
+<Q id="db.index.what-is-index" level="j">
+
+## What is an index, and how does a clustered index differ from a nonclustered one?
+
+<A short l="j">
+
+An index is a separate sorted structure (a <T k="b-tree">B-tree</T>) that lets the server find rows in a few page reads instead of reading the whole table. A <T k="clustered-index">clustered index</T> is the table itself sorted by its key, so there is only one, while there can be many <T k="nonclustered-index">nonclustered</T> ones: each is a separate copy of selected columns with a pointer back to the row.
+
+</A>
+
+<A short l="m">
+
+Both are B+ trees made of 8 KB pages, but the leaves of a clustered index hold the rows themselves, while the leaves of a nonclustered index hold the index key and a row pointer. That pointer is the <T k="clustering-key">clustering key</T>, or a physical RID for a table without a clustered index — a <T k="heap">heap</T>. An index speeds up reads but slows down writes: every `INSERT` and `DELETE` touches every index on the table.
+
+</A>
+
+<A short l="s">
+
+The clustered index defines how rows are stored, and its key is copied into every nonclustered index as the row pointer. That is why the clustering key should be narrow, unique, static and usually ever-increasing: a random GUID bloats every index and fragments pages. Every index is paid for in writes, transaction log, buffer pool memory and maintenance, so indexes are designed for real queries, not one per column.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+An index works like the index at the back of a book: key values are stored sorted, and the server finds what it needs in a few steps down the tree. That lookup is called a <T k="index-seek">seek</T>; reading the whole table from start to end is a scan.
+
+**How they differ**
+
+| | Clustered | Nonclustered |
+|---|---|---|
+| What the leaves hold | the table rows themselves | the key and a row pointer |
+| How many per table | one | many |
+| Created by default by | `PRIMARY KEY` | `UNIQUE`, `CREATE INDEX` |
+
+**Common mistake**
+
+Indexing every column "just in case". Each index slows down `INSERT`, `UPDATE` and `DELETE`, because the server maintains it together with the table.
+
+**Takeaway:** a clustered index is the table itself in key order; a nonclustered index is a separate pointer to its rows.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- An index is stored in 8 KB pages arranged as a B+ tree: root, intermediate levels, leaves. Even in a table with millions of rows, reaching a leaf takes 3–4 reads.
+- The leaves of a clustered index hold entire rows, so the table is stored in clustered key order.
+- The leaves of a nonclustered index hold the key and a row pointer. The server fetches any other columns from the table through that pointer.
+- A heap is a table without a clustered index. Rows have no order, and the row pointer is a RID: file, page, slot.
+
+**When to choose what**
+
+| Situation | Choice |
+|---|---|
+| Almost any OLTP table | a clustered index on a narrow, ever-increasing key |
+| Searches and joins on other columns | nonclustered indexes for those queries |
+| A staging table for bulk loads | a heap is acceptable |
+
+**Pitfalls**
+
+- **Write cost.** `INSERT` and `DELETE` touch every index, `UPDATE` touches those containing modified columns.
+- **Heaps and `UPDATE`.** A row that grows moves to another page and leaves a forwarding pointer behind — an extra read on every access.
+- **Non-unique clustered key.** The server adds a hidden 4-byte uniqueifier to it.
+
+**Takeaway:** a nonclustered index finds the key, then goes to the clustered index or the heap for the remaining columns.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- The clustering key is the row pointer in every nonclustered index. In a non-unique nonclustered index it is appended to the key; in a unique one it goes to the leaves as non-key columns.
+- Hence the requirements: narrow (copied into every index), unique (otherwise a uniqueifier), static (changing it rewrites the row in every index), ever-increasing (inserts go to the end).
+- A random GUID from `NEWID()` inserts rows into the middle of the index. Pages split (page split), end up half full, and the log and size grow.
+
+**Cost**
+
+- Every index is a copy of part of the data: disk, buffer pool and backup space.
+- Every modification logs changes to all affected indexes and locks their rows.
+- An ever-increasing key under many concurrent inserts hits the last page (last page insert contention). Since SQL Server 2019 there is the `OPTIMIZE_FOR_SEQUENTIAL_KEY` index option for this.
+
+**Trade-offs**
+
+- `IDENTITY` is a narrow, ever-increasing key with no business meaning. A GUID is handy to generate on the client but wide: make it a unique nonclustered key and cluster on `IDENTITY`, or use `NEWSEQUENTIALID()`.
+- Clustering on the document date speeds up period reports, but a non-unique key gets a uniqueifier.
+
+**How to check in production**
+
+- `sys.dm_db_index_usage_stats`: indexes with high `user_updates` and near-zero `user_seeks`, `user_scans`, `user_lookups` are candidates for removal. The counters reset when the server restarts.
+- `sys.dm_db_index_physical_stats` shows page counts and how full the pages are.
+
+**Takeaway:** the clustering key affects every index on the table, and every extra index is a tax on every write.
+
+</A>
+
+<Ex title="T-SQL">
+
+```sql
+DROP TABLE IF EXISTS dbo.Orders;
+CREATE TABLE dbo.Orders
+(
+    OrderId    int IDENTITY PRIMARY KEY,  -- PRIMARY KEY: clustered index by default
+    CustomerId int           NOT NULL,
+    OrderDate  date          NOT NULL,
+    Amount     decimal(12,2) NOT NULL
+);
+
+INSERT dbo.Orders (CustomerId, OrderDate, Amount)
+SELECT TOP (100000) n % 5000, DATEADD(day, n % 730, '20240101'), n % 1000
+FROM (SELECT CAST(ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS int) AS n
+      FROM sys.all_objects AS a CROSS JOIN sys.all_objects AS b) AS t;
+
+-- Nonclustered index: key CustomerId, plus OrderId — the clustering key
+CREATE INDEX IX_Orders_CustomerId ON dbo.Orders (CustomerId);
+
+SET STATISTICS IO ON;
+SELECT OrderId FROM dbo.Orders WHERE CustomerId = 42; -- Index Seek: a few reads
+SELECT OrderId FROM dbo.Orders WHERE Amount = 42;     -- Clustered Index Scan: whole table
+```
+
+</Ex>
+
+<Next>
+
+- How many clustered indexes can a table have? — One: rows can be stored in only one order.
+- Must the primary key be clustered? — No, that is just the default; `PRIMARY KEY NONCLUSTERED` leaves the clustered index free for another column.
+- What does a nonclustered index store besides its own columns? — A row pointer: the clustering key, or a RID for a heap.
+- Why is a random GUID a bad clustering key? — 16 bytes in every index and inserts at random places with page splits.
+- How do you find unused indexes? — `sys.dm_db_index_usage_stats`: lots of updates and no reads.
+
+</Next>
+
+<Src>
+
+- [Clustered and nonclustered indexes](https://learn.microsoft.com/sql/relational-databases/indexes/clustered-and-nonclustered-indexes-described)
+- [Index architecture and design guide](https://learn.microsoft.com/sql/relational-databases/sql-server-index-design-guide)
+- [Heaps (tables without clustered indexes)](https://learn.microsoft.com/sql/relational-databases/indexes/heaps-tables-without-clustered-indexes)
+
+</Src>
+
+</Q>
+
+<Q id="db.index.covering" level="m">
+
+## What is a covering index, why use INCLUDE, and how do you order columns in a composite index?
+
+<A short l="j">
+
+A <T k="covering-index">covering index</T> contains every column a query needs, so the server answers from that index alone without touching the table. Columns used for searching and sorting go into the key, and columns that are only returned go into `INCLUDE`.
+
+</A>
+
+<A short l="m">
+
+If a nonclustered index finds the row but lacks some columns, the <T k="execution-plan">execution plan</T> gets a <T k="key-lookup">Key Lookup</T> — a separate seek into the clustered index for every row. <T k="included-column">Included columns</T> live only in the leaves and remove the lookup without widening the key. In a composite key, equality columns come first, then one range column: columns after the range no longer narrow the seek.
+
+</A>
+
+<A short l="s">
+
+Covering is a trade-off between reads and writes: every included column makes the index bigger and `UPDATE` more expensive. Key order decides which part of the predicate becomes a seek, whether the index returns rows in the required order without a `Sort`, and which column gets the <T k="histogram">histogram</T> in the <T k="statistics">statistics</T>. So you design an index for a group of queries and treat missing index suggestions as a hint, not a recipe.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+A covering index has every column of the query: from `WHERE`, `JOIN`, `ORDER BY` and `SELECT`. The server reads only that index and never goes to the table.
+
+**How to use**
+
+1. Columns you filter and sort by go into the index key.
+2. Columns you only return go into `INCLUDE`.
+3. Example: `CREATE INDEX IX_Orders_Customer ON dbo.Orders (CustomerId, OrderDate) INCLUDE (Amount)`.
+
+**Common mistake**
+
+Writing `SELECT *`. Only the clustered index covers such a query; any nonclustered index has to fetch the rest of the row from the table.
+
+**Takeaway:** the key is for searching and sorting, `INCLUDE` is for columns the query only returns.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- Without covering, the plan is an Index Seek on the nonclustered index plus a Key Lookup for every row found, joined by Nested Loops.
+- 10 rows is cheap; 50,000 rows means 50,000 random seeks, and the optimizer switches to scanning the table. The tipping point is often below a few percent of the rows.
+- Included columns live only at the leaf level. They are not sorted, not used for seeking and do not count toward the key size limit.
+
+**Key column order**
+
+1. A seek works only on a key prefix: an index on `(A, B)` can seek on `A` or on `A` and `B`, but not on `B` alone.
+2. Equality columns first, then the range column. With an index on `(OrderDate, CustomerId)`, the predicate `CustomerId = @c AND OrderDate >= @d` reads the whole date range and checks `CustomerId` on every row.
+3. Among equality columns, Microsoft recommends putting the more selective one first — the one that filters out more rows.
+
+**Pitfalls**
+
+Missing index suggestions in a plan don't specify column order and often duplicate existing indexes.
+
+**Rule of thumb**
+
+Key: equalities, then a range or sort column; columns that are only returned go into `INCLUDE`.
+
+**Takeaway:** a covering index removes the Key Lookup, and key order decides which part of the predicate becomes a seek.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- An Index Seek in the plan has two properties: Seek Predicates narrow the range read from the B-tree, Predicate is a residual check on every row read. A good index moves as much of the condition as possible into Seek Predicates.
+- The statistics histogram is built only on the first key column; the rest get only average density for prefixes. The leading column also drives estimate accuracy.
+- An index in `ORDER BY` or `GROUP BY` order removes the `Sort` along with its sort memory, and `TOP (n)` stops after n rows.
+
+**Cost**
+
+- A wide `INCLUDE` nearly duplicates the table and doubles the write volume.
+- An `UPDATE` to an included column updates the index too.
+
+**Trade-offs**
+
+- One index serving several queries beats five similar ones: `(CustomerId)`, `(CustomerId, OrderDate)` and `(CustomerId) INCLUDE (Amount)` collapse into `(CustomerId, OrderDate) INCLUDE (Amount)`.
+- `sys.dm_db_missing_index_details` splits columns into equality, inequality and included, but ignores existing indexes and write cost.
+
+**How to check in production**
+
+- A Key Lookup with a large Actual Number of Rows in the actual plan is a covering candidate.
+- `user_lookups` in `sys.dm_db_index_usage_stats` shows how many lookups hit the clustered index.
+
+**Takeaway:** design indexes for a set of queries: key prefix for seeking, order for sorting, `INCLUDE` for covering — and every column is paid for in writes.
+
+</A>
+
+<Ex title="T-SQL">
+
+```sql
+DROP TABLE IF EXISTS dbo.Orders;
+CREATE TABLE dbo.Orders
+(
+    OrderId    int IDENTITY PRIMARY KEY,
+    CustomerId int           NOT NULL,
+    OrderDate  date          NOT NULL,
+    Amount     decimal(12,2) NOT NULL
+);
+INSERT dbo.Orders (CustomerId, OrderDate, Amount)
+SELECT TOP (100000) n % 5000, DATEADD(day, n % 730, '20240101'), n % 1000
+FROM (SELECT CAST(ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS int) AS n
+      FROM sys.all_objects AS a CROSS JOIN sys.all_objects AS b) AS t;
+
+-- Equality (CustomerId) before range (OrderDate); Amount is only returned
+CREATE INDEX IX_Orders_Customer_Date
+    ON dbo.Orders (CustomerId, OrderDate) INCLUDE (Amount);
+
+SELECT OrderDate, Amount
+FROM dbo.Orders
+WHERE CustomerId = 42 AND OrderDate >= '20250101'
+ORDER BY OrderDate;  -- Index Seek with no Key Lookup and no Sort
+-- Without INCLUDE (Amount) the plan would have a Key Lookup per row
+```
+
+</Ex>
+
+<Next>
+
+- How does `INCLUDE` differ from adding the column to the key? — An included column lives only in the leaves: not sorted, not seekable, not counted toward the key limit.
+- Why does the optimizer ignore an index that matches the `WHERE`? — Too many Key Lookups: scanning the table is cheaper.
+- Does an index on `(A, B)` help `WHERE B = 1`? — Not as a seek; at best as a scan of a narrower index instead of the table.
+- Why put `DESC` in an index key? — For mixed sorts like `ORDER BY A, B DESC`; a single direction can be read backwards anyway.
+- Should you create every index from the missing index DMVs? — No: they have no column order, overlap each other and ignore write cost.
+
+</Next>
+
+<Src>
+
+- [Create indexes with included columns](https://learn.microsoft.com/sql/relational-databases/indexes/create-indexes-with-included-columns)
+- [Tune nonclustered indexes with missing index suggestions](https://learn.microsoft.com/sql/relational-databases/indexes/tune-nonclustered-missing-index-suggestions)
+- [Index architecture and design guide](https://learn.microsoft.com/sql/relational-databases/sql-server-index-design-guide)
+
+</Src>
+
+</Q>
+
+<Q id="db.index.sargability" level="m">
+
+## What is a SARGable predicate, and why do functions, `LIKE '%x'` and implicit conversions break index seeks?
+
+<A short l="j">
+
+A predicate is <T k="sargable">SARGable</T> (from "search argument") when the column appears as is and the server can seek on its index: `OrderDate >= '20250101'`, `Name LIKE 'Jo%'`. Wrap the column in a function, as in `YEAR(OrderDate) = 2025`, and the server computes it for every row and reads the whole index.
+
+</A>
+
+<A short l="m">
+
+A seek is possible when the predicate can be turned into a range of index keys, so a function, arithmetic on the column or `LIKE '%x'` turns a seek into a scan. An <T k="implicit-conversion">implicit conversion</T> does the same: by <T k="data-type-precedence">data type precedence</T>, an `nvarchar` parameter forces the `varchar` column to be converted. It's a .NET classic: ADO.NET sends a string as `nvarchar` by default, so set the parameter type and length explicitly.
+
+</A>
+
+<A short l="s">
+
+SARGability is a property of the predicate and the index together: does the predicate become range boundaries in the B-tree or a check on every row read. `nvarchar` against a `varchar` column gives a scan under a SQL <T k="sql-server-collation">collation</T>, and under a Windows collation a seek on a computed range, but with a poor row estimate and a plan warning. Fix it with the parameter type in the app, consistent types in the schema and indexed <T k="computed-column">computed columns</T>; find it via the `PlanAffectingConvert` warning in the <T k="plan-cache">plan cache</T>.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+A SARGable predicate is one the server can use to seek in an index instead of checking every row. The column appears without functions or calculations.
+
+**How to use**
+
+| Not SARGable | SARGable |
+|---|---|
+| `YEAR(OrderDate) = 2025` | `OrderDate >= '20250101' AND OrderDate < '20260101'` |
+| `Price * 1.2 > 120` | `Price > 100` |
+| `LEFT(Name, 2) = 'Jo'` | `Name LIKE 'Jo%'` |
+| `ISNULL(Discount, 0) = 0` | `(Discount = 0 OR Discount IS NULL)` |
+
+**Common mistake**
+
+`LIKE '%son'` with a leading `%`. The index is sorted by the first characters, so such a search always reads the whole index.
+
+**Takeaway:** leave the column alone in the predicate — move calculations to the constant or parameter side.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+1. An index is sorted by column values, and a seek is possible when the predicate defines a range of those values.
+2. `YEAR(OrderDate)` is a different value. The optimizer can't derive its order from the index, so it evaluates the function for every row.
+3. When the two sides of a comparison have different types, SQL Server converts the lower-precedence type to the higher one. When the column gets converted, the plan shows `CONVERT_IMPLICIT` around it.
+
+**The .NET classic**
+
+- A `SqlParameter` with a string value gets type `NVarChar`, and `AddWithValue` takes the length from the value itself.
+- A `varchar` column ranks below `nvarchar` and is converted on every row: a scan instead of a seek.
+- Strings of different lengths produce declarations like `nvarchar(5)` and `nvarchar(6)`, with a separate plan for each.
+
+**Pitfalls**
+
+- The reverse is safe: a `varchar` parameter against an `nvarchar` column converts the parameter, not the column.
+- A `varchar` code column against an `int` parameter: `int` wins, the column is converted — a scan, plus an error on the first non-numeric value.
+
+**Rule of thumb**
+
+Parameter type and length match the column: `SqlDbType.VarChar` with `Size`, `DbString { IsAnsi = true }` in Dapper, `IsUnicode(false)` mapping in EF Core.
+
+**Takeaway:** a function, a calculation or a mismatched type on the column side turns a seek into a scan.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- For a seek, the optimizer builds range boundaries in the B-tree. Whatever can't become a boundary turns into a residual predicate checked on every row read.
+- The optimizer rewrites some expressions itself: `CAST(CreatedAt AS date) = @d` on `datetime2` becomes a dynamic range (`GetRangeThroughConvert`).
+- For `nvarchar` versus `varchar`, the collation decides. Under a Windows collation (`Cyrillic_General_CI_AS`, `Latin1_General_CI_AS`) both types sort the same way, and the server seeks on a computed range. Under a SQL collation (`SQL_Latin1_General_CP1_CI_AS`) the orders differ, and you get a scan.
+
+**Cost**
+
+Even a "rescued" seek gets a poor row estimate. The plan shows the warning `Type conversion in expression ... may affect "CardinalityEstimate"`, followed by wrong join choices and memory grants.
+
+**Trade-offs**
+
+- Rewriting the query is cheapest: a range instead of `YEAR()`, an explicit `NULL` check instead of `ISNULL`.
+- If you need the expression as is, add an indexed computed column: the optimizer matches the same expression in the query to it.
+- A B-tree can't fix `LIKE '%x'`: use full-text search, a column holding the reversed string, or an external search engine.
+
+**How to check in production**
+
+Search for `PlanAffectingConvert` in the plan XML from `sys.dm_exec_query_stats` and `sys.dm_exec_query_plan`, sorted by logical reads.
+
+**Takeaway:** SARGability decides whether a predicate becomes a seek boundary or a per-row check, and implicit conversions are the most common invisible cause of scans in .NET apps.
+
+</A>
+
+<Ex title="T-SQL">
+
+```sql
+DROP TABLE IF EXISTS dbo.Products;
+CREATE TABLE dbo.Products
+(
+    ProductId int IDENTITY PRIMARY KEY,
+    Sku       varchar(20) COLLATE SQL_Latin1_General_CP1_CI_AS NOT NULL,
+    CreatedAt datetime2   NOT NULL
+);
+INSERT dbo.Products (Sku, CreatedAt)
+SELECT TOP (100000) CONCAT('SKU-', n), DATEADD(minute, n * 10, '20240101')
+FROM (SELECT CAST(ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS int) AS n
+      FROM sys.all_objects AS a CROSS JOIN sys.all_objects AS b) AS t;
+CREATE INDEX IX_Products_Sku ON dbo.Products (Sku);
+CREATE INDEX IX_Products_CreatedAt ON dbo.Products (CreatedAt);
+
+DECLARE @n nvarchar(20) = N'SKU-42', @v varchar(20) = 'SKU-42';
+SELECT ProductId FROM dbo.Products WHERE Sku = @n; -- Index Scan: CONVERT_IMPLICIT on Sku
+SELECT ProductId FROM dbo.Products WHERE Sku = @v; -- Index Seek
+
+SELECT ProductId FROM dbo.Products WHERE YEAR(CreatedAt) = 2025; -- Index Scan
+SELECT ProductId FROM dbo.Products
+WHERE CreatedAt >= '20250101' AND CreatedAt < '20260101';        -- Index Seek
+```
+
+</Ex>
+
+<Ex title="C#">
+
+```csharp
+// NuGet: Microsoft.Data.SqlClient
+using System.Data;
+using Microsoft.Data.SqlClient;
+
+await using var connection = new SqlConnection(
+    "Server=.;Database=Shop;Integrated Security=true;TrustServerCertificate=true");
+await connection.OpenAsync();
+const string sql = "SELECT ProductId FROM dbo.Products WHERE Sku = @sku";
+
+// Bad: string → nvarchar(6), the varchar column is converted on every row
+await using var bad = new SqlCommand(sql, connection);
+bad.Parameters.AddWithValue("@sku", "SKU-42");
+
+// Good: same type and length as the column — a seek and one plan for any value
+await using var good = new SqlCommand(sql, connection);
+good.Parameters.Add("@sku", SqlDbType.VarChar, 20).Value = "SKU-42";
+
+Console.WriteLine(await good.ExecuteScalarAsync());
+```
+
+</Ex>
+
+<Next>
+
+- Why is `WHERE YEAR(OrderDate) = 2025` slow? — The function on the column is evaluated per row; use a date range.
+- Which is worse: an `nvarchar` parameter against a `varchar` column or the reverse? — The first: the column is converted; in the second the parameter is converted and the seek survives.
+- How do you speed up `LIKE '%term%'`? — Not with a regular index; use full-text search or an external engine.
+- What's wrong with `AddWithValue`? — The type is inferred from the value (`string` → `nvarchar`) and the length from the string: wrong type and a bloated plan cache.
+- How do you find implicit conversions on a server? — `PlanAffectingConvert` warnings in cached plan XML.
+
+</Next>
+
+<Src>
+
+- [Data type precedence](https://learn.microsoft.com/sql/t-sql/data-types/data-type-precedence-transact-sql)
+- [Configuring parameters (ADO.NET)](https://learn.microsoft.com/sql/connect/ado-net/configure-parameters)
+- [Indexes on computed columns](https://learn.microsoft.com/sql/relational-databases/indexes/indexes-on-computed-columns)
+
+</Src>
+
+</Q>
+
+<Q id="db.index.execution-plan" level="m">
+
+## How do you read an execution plan: seek, scan and lookup, estimated vs actual plans, join operators, warnings?
+
+<A short l="j">
+
+An execution plan is a tree of operators the server uses to run a query: Index Seek searches the index, Scan reads everything, Key Lookup fetches extra columns from the table. The estimated plan shows what the server intends to do; the actual plan also shows how many rows really went through each operator.
+
+</A>
+
+<A short l="m">
+
+You read a plan right to left, from the data sources to the result, and compare estimated and actual rows at each operator. A gap of an order of magnitude means the <T k="cardinality-estimation">cardinality estimate</T> was wrong, and so were the operator choices that followed. <T k="nested-loops">Nested Loops</T> suits a small outer input, <T k="hash-match">Hash Match</T> large unsorted inputs, <T k="merge-join">Merge Join</T> inputs already sorted on the join key.
+
+</A>
+
+<A short l="s">
+
+An actual plan is the same optimizer estimate plus runtime counters, so the cost percentages in it are still estimates. Look at estimated versus actual rows, executions on the inner side of Nested Loops, the <T k="memory-grant">memory grant</T> and tempdb spills on Sort and Hash. In production you get the actual plan without rerunning the query: from `sys.dm_exec_query_plan_stats` since SQL Server 2019, otherwise via Extended Events.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+An execution plan is the recipe SQL Server follows to run a query. In SSMS, `Ctrl+L` shows the estimated plan without running the query, and `Ctrl+M` turns on the actual plan for the next run.
+
+**Main access operators**
+
+| Operator | What it does |
+|---|---|
+| Index Seek | searches by index key — cheap |
+| Index Scan, Clustered Index Scan, Table Scan | reads the whole index or table |
+| Key Lookup, RID Lookup | fetches columns from the table for each row |
+
+**How to use**
+
+1. Read right to left: data flows from the tables to the `SELECT`.
+2. Arrow thickness is the row count.
+3. A yellow triangle is a warning: hover over the operator.
+
+**Common mistake**
+
+Treating every scan as bad. For a small table, or when you need almost every row, a scan is faster than thousands of seeks.
+
+**Takeaway:** the plan shows how the server gets its rows; look first for scans of big tables, lookups and warnings.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- The optimizer estimates each operator's row count from statistics and picks the cheapest of the plans it considered.
+- The estimated plan is the compilation result. The actual plan adds Actual Number of Rows, Number of Executions, time and reads per operator.
+- The key signal is Estimated vs Actual Rows. An order-of-magnitude miss points to stale statistics, a non-SARGable predicate, or a plan compiled for different parameter values.
+
+**When to choose what**
+
+| Join | Good when | Cost |
+|---|---|---|
+| Nested Loops | small outer input, indexed inner input | one inner seek per outer row |
+| Hash Match | large unsorted inputs | memory for the hash table, waits for the build |
+| Merge Join | both inputs sorted on the key | a Sort if the order isn't already there |
+
+**Pitfalls**
+
+- Cost percentages are estimates, even in an actual plan.
+- On the inner side of Nested Loops, the row estimate is per execution while the actual count is the total. Divide the actual by Number of Executions.
+
+**Rule of thumb**
+
+Start with operators that have the biggest estimate-versus-actual gap and the most reads, then look at warnings.
+
+**Takeaway:** a plan is the optimizer's decisions based on estimates; find the spot where the estimate diverged from reality.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- Control flows left to right: the root operator asks its children for rows, while data flows right to left. That is why a `TOP` on the left can stop a scan on the right after the first rows.
+- Sort and Hash Match get a memory grant before they start, based on the row estimate. An underestimate causes a tempdb spill; an overestimate makes other queries wait for memory (`RESOURCE_SEMAPHORE`).
+- Since SQL Server 2017, <T k="batch-mode">batch mode</T> has the Adaptive Join: it picks Hash or Nested Loops based on the actual row count.
+
+**Warnings worth knowing**
+
+- `PlanAffectingConvert` — an implicit conversion affects a seek or an estimate.
+- Spill to tempdb — the memory grant wasn't enough.
+- No Join Predicate — a join condition is missing.
+- Columns With No Statistics, Excessive Grant, and the Missing Index hint.
+
+**How to check in production**
+
+- A plan from the cache (`sys.dm_exec_query_plan`) is an estimated plan with no actual rows.
+- Since SQL Server 2019, lightweight profiling is on by default. With `LAST_QUERY_PLAN_STATS = ON`, `sys.dm_exec_query_plan_stats` returns the last actual plan.
+- For a running query — `sys.dm_exec_query_statistics_xml` or Live Query Statistics.
+
+**Takeaway:** read an actual plan as a history of estimates: wherever the estimate diverged from reality, you'll find wrong joins, memory and operation order.
+
+</A>
+
+<Ex title="T-SQL">
+
+```sql
+DROP TABLE IF EXISTS dbo.OrderLines, dbo.Orders;
+CREATE TABLE dbo.Orders (OrderId int PRIMARY KEY, CustomerId int NOT NULL);
+CREATE TABLE dbo.OrderLines
+(
+    OrderId int NOT NULL, LineNum int NOT NULL, Qty int NOT NULL,
+    PRIMARY KEY (OrderId, LineNum)
+);
+INSERT dbo.Orders (OrderId, CustomerId)
+SELECT TOP (50000) n, n % 1000
+FROM (SELECT CAST(ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS int) AS n
+      FROM sys.all_objects AS a CROSS JOIN sys.all_objects AS b) AS t;
+INSERT dbo.OrderLines (OrderId, LineNum, Qty)
+SELECT OrderId, 1, CustomerId % 7 FROM dbo.Orders;
+
+SET STATISTICS IO, TIME ON;  -- in SSMS, turn on the actual plan: Ctrl+M
+-- Hints are for the experiment only: one query, three join algorithms
+SELECT SUM(l.Qty) FROM dbo.Orders AS o JOIN dbo.OrderLines AS l ON l.OrderId = o.OrderId
+OPTION (LOOP JOIN);   -- 50,000 seeks into the inner index: the most reads
+SELECT SUM(l.Qty) FROM dbo.Orders AS o JOIN dbo.OrderLines AS l ON l.OrderId = o.OrderId
+OPTION (MERGE JOIN);  -- two ordered scans, no sorting
+SELECT SUM(l.Qty) FROM dbo.Orders AS o JOIN dbo.OrderLines AS l ON l.OrderId = o.OrderId
+OPTION (HASH JOIN);   -- in-memory hash table: see Memory Grant in the SELECT properties
+```
+
+</Ex>
+
+<Next>
+
+- Why can cost percentages in an actual plan mislead you? — They are the optimizer's estimates, not measurements.
+- How does a Key Lookup differ from a RID Lookup? — The first seeks by clustering key, the second by the row's physical address in a heap.
+- When is Hash Match better than Nested Loops? — When both inputs are large and the inner side has no suitable index.
+- What does a tempdb spill warning mean? — The operator ran out of granted memory: the row estimate was too low.
+- How do you get the actual plan of a production query? — `sys.dm_exec_query_plan_stats` with `LAST_QUERY_PLAN_STATS` (SQL Server 2019+) or Extended Events.
+
+</Next>
+
+<Src>
+
+- [Display an actual execution plan](https://learn.microsoft.com/sql/relational-databases/performance/display-an-actual-execution-plan)
+- [Showplan logical and physical operators reference](https://learn.microsoft.com/sql/relational-databases/showplan-logical-and-physical-operators-reference)
+- [Query profiling infrastructure](https://learn.microsoft.com/sql/relational-databases/performance/query-profiling-infrastructure)
+
+</Src>
+
+</Q>
+
+<Q id="db.index.parameter-sniffing" level="s">
+
+## What are parameter sniffing and the plan cache, and how do you diagnose and fix sniffing problems?
+
+<A short l="j">
+
+SQL Server compiles a plan for a parameterized query once, for the values of the first call, and puts it in the plan cache. That is <T k="parameter-sniffing">parameter sniffing</T>: if the first value was rare and later ones are common, every call gets a plan that's bad for it.
+
+</A>
+
+<A short l="m">
+
+Stored procedures and `sp_executesql` — which ADO.NET and EF Core use for parameterized queries — reuse the plan compiled for the first values. With skewed data one plan can't fit everyone: a seek plus lookups for a customer with 10 orders is a disaster for a customer with a million. Fix it per query: `OPTION (RECOMPILE)` for rare heavy queries, `OPTIMIZE FOR` a typical value, and <T k="query-store">Query Store</T> when you can't change the code.
+
+</A>
+
+<A short l="s">
+
+Sniffing is normal behavior that saves compilations; the problem is plan sensitivity to parameters on skewed data. The proof is several plans and widely varying durations for one `query_hash`, and `ParameterCompiledValue` differing from `ParameterRuntimeValue` in the plan XML. The fix is a trade-off between compile cost and stability: `RECOMPILE`, `OPTIMIZE FOR`, <T k="plan-forcing">plan forcing</T>, <T k="query-store-hints">Query Store hints</T>, or <T k="psp-optimization">PSP optimization</T> in SQL Server 2022.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **Plan cache** — memory where SQL Server keeps compiled plans so it doesn't recompile the query every time.
+- **Parameter sniffing** — on the first compilation the optimizer "peeks" at the parameter values and builds the plan for them.
+
+**Why it's a problem**
+
+Customer A has five orders, customer B half a million. If A comes first, the cache gets a plan with an index seek and a Key Lookup. For B that plan does half a million lookups, while scanning the table would be faster.
+
+**Common mistake**
+
+Fixing it by restarting the server or running `DBCC FREEPROCCACHE` with no arguments. That flushes every plan, and the bad one comes back on the next "unlucky" first call.
+
+**Takeaway:** the plan is compiled for the first parameter values and reused for all others.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+1. ADO.NET and EF Core send a parameterized query through `sp_executesql`. The query text together with the parameter declarations is part of the cache key.
+2. On the first call, the optimizer builds the plan from the histogram for the values passed and caches it.
+3. Calls with the same text, parameter types and session SET options reuse that plan.
+4. After a statistics update or cache eviction the plan is compiled again — for whichever call happens to come first.
+
+**When to choose what**
+
+| Tool | When |
+|---|---|
+| `OPTION (RECOMPILE)` | a rare, heavy query where compiling is cheaper than a bad plan |
+| `OPTIMIZE FOR (@p = ...)` | a typical value whose plan works for everyone |
+| `OPTIMIZE FOR UNKNOWN` | you want an average plan based on density, not on the first value |
+| Plan forcing | the code can't change, and a good plan existed before |
+
+**Pitfalls**
+
+- A local variable instead of a parameter (`DECLARE @c int = @CustomerId`) acts like `OPTIMIZE FOR UNKNOWN`: the plan is built from average density.
+- SSMS defaults to `ARITHABORT ON`, ADO.NET to `OFF`. Those are separate cache entries, so in SSMS the query is compiled fresh for your values and flies.
+
+**Takeaway:** sniffing saves compilations, and you fix it per query — for queries over skewed data.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- In the actual plan XML, every parameter has `ParameterCompiledValue` and `ParameterRuntimeValue`. A mismatch between them is direct proof.
+- Several `query_plan_hash` values for one `query_hash` and a wide spread between `min_elapsed_time` and `max_elapsed_time` in `sys.dm_exec_query_stats` signal parameter sensitivity.
+- Query Store arrived in SQL Server 2016 and is on by default for new databases since 2022. It keeps plans with their runtime statistics, and regressions show up in the Regressed Queries report.
+
+**Trade-offs**
+
+| Tool | Cost |
+|---|---|
+| `RECOMPILE` | CPU for a compilation on every call |
+| `sp_query_store_force_plan` | the plan stays fixed however the data grows |
+| Query Store hints, 2022+ | `RECOMPILE` or `OPTIMIZE FOR` without code changes — handy for EF queries |
+| PSP optimization, 2022+, level 160 | multiple plans for equality predicates only, more cache entries |
+
+SQL Server 2025 at compatibility level 170 added optional parameter plan optimization: for the `col = @p OR @p IS NULL` pattern it keeps separate plans for `NULL` and non-`NULL`.
+
+**How to check in production**
+
+- Query Store: a query with several plans and different durations. Force the good plan, then watch for regressions.
+- Reproduce with the same `sp_executesql`, the same parameter declarations and `SET ARITHABORT OFF`. A query from a trace with literals substituted is a different query: a literal gets its own plan, a local variable gets a density-based plan.
+
+**Takeaway:** fix sniffing per query and measurably: prove it with `ParameterCompiledValue`, choose between recompiling, pinning a plan and PSP, then check the other values.
+
+</A>
+
+<Ex title="T-SQL">
+
+```sql
+DROP TABLE IF EXISTS dbo.Orders;
+CREATE TABLE dbo.Orders
+(
+    OrderId    int IDENTITY PRIMARY KEY,
+    CustomerId int           NOT NULL,
+    Amount     decimal(12,2) NOT NULL
+);
+-- Skew: customer 1 has 100,000 orders, everyone else has one
+INSERT dbo.Orders (CustomerId, Amount)
+SELECT TOP (100000) 1, 10 FROM sys.all_objects AS a CROSS JOIN sys.all_objects AS b;
+INSERT dbo.Orders (CustomerId, Amount)
+SELECT TOP (1000) 1 + ROW_NUMBER() OVER (ORDER BY (SELECT NULL)), 10 FROM sys.all_objects;
+CREATE INDEX IX_Orders_CustomerId ON dbo.Orders (CustomerId);
+
+-- This is how ADO.NET and EF Core send the query
+DECLARE @sql nvarchar(200) = N'SELECT SUM(Amount) FROM dbo.Orders WHERE CustomerId = @c';
+EXEC sp_executesql @sql, N'@c int', @c = 2;  -- plan: Seek + Key Lookup, goes to the cache
+EXEC sp_executesql @sql, N'@c int', @c = 1;  -- same plan: 100,000 Key Lookups
+-- At compatibility level 160+, PSP optimization may build a second plan
+
+-- Without touching the app (SQL Server 2022+): find the query_id in Query Store and add a hint
+-- EXEC sys.sp_query_store_set_hints @query_id = 42, @query_hints = N'OPTION (RECOMPILE)';
+```
+
+</Ex>
+
+<Next>
+
+- Why is a query fast in SSMS and slow from the app? — Different SET options (`ARITHABORT`) mean different cache entries, and SSMS compiles a plan for your values.
+- How does `OPTIMIZE FOR UNKNOWN` differ from `RECOMPILE`? — The first builds one average plan from density, the second a fresh plan for every value at the cost of compilation.
+- How do you evict the bad plan of a single query? — `DBCC FREEPROCCACHE (plan_handle)` or `sp_recompile` for a procedure, not flushing the whole cache.
+- What does PSP optimization do? — For an equality on a skewed column it keeps several plan variants by cardinality range.
+- How do you fix the plan of an EF Core query without changing code? — Query Store: force a good plan or add a hint with `sys.sp_query_store_set_hints`.
+
+</Next>
+
+<Src>
+
+- [Parameter Sensitive Plan optimization](https://learn.microsoft.com/sql/relational-databases/performance/parameter-sensitive-plan-optimization)
+- [Query Store hints](https://learn.microsoft.com/sql/relational-databases/performance/query-store-hints)
+- [Query processing architecture guide: parameter sensitivity](https://learn.microsoft.com/sql/relational-databases/query-processing-architecture-guide#parameter-sensitivity)
+
+</Src>
+
+</Q>
+
+<Q id="db.index.statistics-maintenance" level="s">
+
+## Statistics, fragmentation and index maintenance: what matters, and when do you need filtered and columnstore indexes?
+
+<A short l="j">
+
+Statistics describe how a column's values are distributed (a histogram), and the optimizer uses them to estimate row counts, so they must stay fresh. A <T k="filtered-index">filtered index</T> holds only part of the rows, such as unprocessed tasks, while a <T k="columnstore-index">columnstore index</T> stores data by column and speeds up reports over millions of rows.
+
+</A>
+
+<A short l="m">
+
+Statistics update automatically once the number of changes crosses a threshold; since SQL Server 2016 that threshold for large tables is `SQRT(1000 * n)`. <T k="index-fragmentation">Fragmentation</T> and low <T k="page-density">page density</T> are fixed with `REORGANIZE` and `REBUILD`, but Microsoft advises measuring the effect instead of maintaining indexes by fixed thresholds. A filtered index suits a small hot slice of a table; columnstore suits analytics with compression and batch mode.
+
+</A>
+
+<A short l="s">
+
+Queries often get faster after a `REBUILD` not because of defragmentation but because the rebuild refreshed statistics with a full scan and plans recompiled. So update statistics first and keep `REBUILD` for low page density you've actually measured. A filtered index doesn't match a parameter that could fall outside the filter, and columnstore is expensive for singleton changes — choose both for a specific workload profile.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **Statistics** — an object with a histogram of a column's values: how many rows fall into each range. The optimizer uses it to choose a seek or a scan.
+- **Fragmentation** — the logical order of index pages no longer matches the physical order, and pages aren't full.
+- **Filtered index** — `CREATE INDEX ... WHERE Status = 0`: it contains only the matching rows.
+- **Columnstore** — stores each column separately and compressed, so aggregates over millions of rows read little data.
+
+**How to use**
+
+- Don't turn off automatic statistics updates (`AUTO_UPDATE_STATISTICS`).
+- After a bulk load, update statistics manually: `UPDATE STATISTICS dbo.Orders`.
+
+**Common mistake**
+
+A nightly `REBUILD` of every index "just in case". It loads the disks and the log, and often the only real benefit is the refreshed statistics.
+
+**Takeaway:** fresh statistics matter more than defragmentation; filtered and columnstore indexes are tools for specific data profiles.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- A histogram has up to 200 steps on the first statistics column, plus density for column prefixes.
+- At compatibility level 130+, the auto-update threshold is `MIN(500 + 0.2 * n, SQRT(1000 * n))` changes. For 2 million rows that's about 45,000, not 400,000.
+- With `AUTO_UPDATE_STATISTICS_ASYNC`, a query doesn't wait for the update: it compiles with the old statistics, and the new ones are built in the background.
+
+**Maintenance**
+
+| Operation | What it does |
+|---|---|
+| `UPDATE STATISTICS` | recomputes statistics, cheap |
+| `REORGANIZE` | compacts the leaf level, always online, leaves statistics alone |
+| `REBUILD` | recreates the index and its statistics with a full scan |
+
+**When to choose what**
+
+- Filtered — a small hot slice of a table (a queue, `IsDeleted = 0`) and uniqueness among non-`NULL` values.
+- Nonclustered columnstore — analytics directly on an OLTP table; clustered columnstore — data warehouse fact tables.
+
+**Pitfalls**
+
+- An index with `WHERE Status = 0` won't match `WHERE Status = @s`: a cached plan must work for any value. You need a literal or `OPTION (RECOMPILE)`.
+- Modifying a table with a filtered index fails under `QUOTED_IDENTIFIER OFF` — the sqlcmd default, and baked into procedures created with that setting.
+
+**Takeaway:** update statistics regularly, rebuild indexes based on measurements, and pick filtered and columnstore indexes for the data profile.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- `REBUILD` updates the index statistics as with `FULLSCAN`, and plans that depend on them recompile. Microsoft states plainly that the "after rebuild" effect often comes from the statistics.
+- Fragmentation hurts when sequential reads are much faster than random ones — on HDDs. On SSDs and for data in memory, page density matters more: `avg_page_space_used_in_percent` in `sys.dm_db_index_physical_stats`.
+- Columnstore splits a table into rowgroups of up to 1,048,576 rows and compresses each column into a segment with min and max values. A query skips segments outside the predicate, and batch mode processes rows in batches.
+- Small inserts go into the <T k="delta-store">delta store</T> — a regular B-tree; deletes in compressed rowgroups only mark rows.
+
+**Cost**
+
+- `REBUILD` writes to the log and needs space for a copy of the index. `ONLINE = ON` is Enterprise-only; resumable rebuild (`RESUMABLE = ON`) arrived in SQL Server 2017.
+- An `UPDATE` in columnstore is a delete mark plus an insert into the delta store. For singleton lookups on a clustered columnstore, add a B-tree index.
+
+**Trade-offs**
+
+- Ordered columnstore (`ORDER (...)`): clustered since SQL Server 2022, nonclustered since 2025. Better segment elimination, slower loads.
+- Batch mode without columnstore — batch mode on rowstore, SQL Server 2019 at compatibility level 150.
+
+**How to check in production**
+
+- `sys.dm_db_stats_properties`: `last_updated`, `rows_sampled`, `modification_counter`.
+- Measure the effect of maintenance in Query Store before and after, not by fragmentation percentage.
+
+**Takeaway:** maintain statistics regularly and indexes based on measurements; filtered and columnstore indexes win only on their own data profile.
+
+</A>
+
+<Ex title="T-SQL">
+
+```sql
+DROP TABLE IF EXISTS dbo.Tasks;
+CREATE TABLE dbo.Tasks
+(
+    TaskId    int IDENTITY PRIMARY KEY,
+    Status    tinyint   NOT NULL,  -- 0 = new, 1 = processed
+    CreatedAt datetime2 NOT NULL DEFAULT SYSUTCDATETIME()
+);
+INSERT dbo.Tasks (Status)
+SELECT TOP (100000) IIF(ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) % 1000 = 0, 0, 1)
+FROM sys.all_objects AS a CROSS JOIN sys.all_objects AS b;
+
+-- Filtered index: 100 new tasks out of 100,000
+CREATE INDEX IX_Tasks_New ON dbo.Tasks (CreatedAt) WHERE Status = 0;
+SELECT TOP (10) TaskId FROM dbo.Tasks WHERE Status = 0 ORDER BY CreatedAt; -- Seek on IX_Tasks_New
+
+-- When statistics were last updated and how many changes have piled up
+SELECT s.name, sp.last_updated, sp.rows, sp.modification_counter
+FROM sys.stats AS s
+CROSS APPLY sys.dm_db_stats_properties(s.object_id, s.stats_id) AS sp
+WHERE s.object_id = OBJECT_ID('dbo.Tasks');
+
+-- Page density and fragmentation
+SELECT index_id, avg_page_space_used_in_percent, avg_fragmentation_in_percent
+FROM sys.dm_db_index_physical_stats(DB_ID(), OBJECT_ID('dbo.Tasks'), NULL, NULL, 'SAMPLED');
+```
+
+</Ex>
+
+<Next>
+
+- Why did queries get faster after a `REBUILD`? — Usually because of statistics refreshed with `FULLSCAN` and recompiled plans, not defragmentation.
+- How does `REORGANIZE` differ from `REBUILD`? — The first compacts the leaf level online and leaves statistics alone; the second recreates the index and its statistics.
+- Why isn't a filtered index used with a parameter? — A cached plan must work for any value, and the value could fall outside the filter.
+- When is columnstore a bad idea? — Frequent singleton changes and single-row lookups in OLTP.
+- How can you tell statistics are stale? — `modification_counter` and `last_updated` in `sys.dm_db_stats_properties`, plus estimate-versus-actual gaps in the plan.
+
+</Next>
+
+<Src>
+
+- [Statistics](https://learn.microsoft.com/sql/relational-databases/statistics/statistics)
+- [Optimize index maintenance](https://learn.microsoft.com/sql/relational-databases/indexes/reorganize-and-rebuild-indexes)
+- [Columnstore indexes: overview](https://learn.microsoft.com/sql/relational-databases/indexes/columnstore-indexes-overview)
+
+</Src>
+
+</Q>

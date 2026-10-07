@@ -1,0 +1,225 @@
+inner-join:
+  term: Inner join (INNER JOIN)
+  def: >-
+    A join that returns only the pairs of rows from two tables that satisfy the condition in `ON`.
+    Rows without a match do not appear in the result.
+  q: INNER JOIN SQL Server
+  docs: https://learn.microsoft.com/sql/relational-databases/performance/joins
+  wiki: Join (SQL)
+outer-join:
+  term: Outer join (LEFT, RIGHT, FULL JOIN)
+  def: >-
+    A join that keeps rows of one or both tables even without a match and fills the other side's
+    columns with `NULL`. LEFT preserves the left table, RIGHT the right one, FULL both.
+  q: LEFT OUTER JOIN SQL Server
+  docs: https://learn.microsoft.com/sql/relational-databases/performance/joins
+  wiki: Join (SQL)
+cross-join:
+  term: Cross join (CROSS JOIN)
+  def: >-
+    A Cartesian product: every row of one table is combined with every row of the other, with no
+    condition. Used for grids such as "store × day".
+  q: CROSS JOIN SQL Server
+  docs: https://learn.microsoft.com/sql/t-sql/queries/from-transact-sql
+apply-operator:
+  term: APPLY operator (CROSS APPLY, OUTER APPLY)
+  def: >-
+    A T-SQL operator that evaluates the table expression on the right for each row on the left, and
+    that expression may reference the row's columns. CROSS APPLY drops rows with an empty result,
+    OUTER APPLY keeps them with `NULL`; the PostgreSQL counterpart is `LATERAL`.
+  q: CROSS APPLY OUTER APPLY T-SQL
+  docs: https://learn.microsoft.com/sql/t-sql/queries/from-transact-sql
+semi-join:
+  term: Semi join
+  def: >-
+    A join that returns rows of the left table that have at least one match on the right, without
+    multiplying them or adding columns. In SQL it is expressed with `EXISTS` or `IN`.
+  q: semi join EXISTS SQL Server
+  docs: https://learn.microsoft.com/sql/t-sql/language-elements/exists-transact-sql
+query-optimizer:
+  term: Query optimizer
+  def: >-
+    The DBMS component that uses the query text, statistics and indexes to pick the execution plan
+    with the lowest estimated cost. The query says what to get; the optimizer decides how.
+  q: SQL Server query optimizer
+  docs: https://learn.microsoft.com/sql/relational-databases/query-processing-architecture-guide
+aggregate-function:
+  term: Aggregate function
+  def: >-
+    A function that collapses a set of rows into one value: `COUNT`, `SUM`, `AVG`, `MIN`, `MAX`.
+    All of them except `COUNT(*)` skip `NULL`.
+  q: aggregate functions T-SQL
+  docs: https://learn.microsoft.com/sql/t-sql/functions/aggregate-functions-transact-sql
+logical-query-processing:
+  term: Logical query processing order
+  def: >-
+    The order in which SQL binds the parts of a `SELECT`: `FROM`, `WHERE`, `GROUP BY`, `HAVING`,
+    `SELECT`, `ORDER BY`. It defines which names are visible at each step; the physical execution
+    order is chosen by the optimizer.
+  q: logical query processing order SQL Server
+  docs: https://learn.microsoft.com/sql/t-sql/queries/select-transact-sql#logical-processing-order-of-the-select-statement
+grouping-sets:
+  term: GROUPING SETS, ROLLUP and CUBE
+  def: >-
+    `GROUP BY` extensions that compute aggregates over several column sets in one query: for
+    example, per store, per region and a grand total. The `GROUPING()` function tells a total row
+    apart from a regular group.
+  q: GROUPING SETS ROLLUP CUBE T-SQL
+  docs: https://learn.microsoft.com/sql/t-sql/queries/select-group-by-transact-sql
+cte:
+  term: CTE (common table expression)
+  def: >-
+    A named subquery declared with `WITH` before a statement and visible only within it. In SQL
+    Server a CTE's result is not stored: every reference re-executes the definition.
+  q: common table expression T-SQL
+  docs: https://learn.microsoft.com/sql/t-sql/queries/with-common-table-expression-transact-sql
+correlated-subquery:
+  term: Correlated subquery
+  def: >-
+    A subquery that references columns of the outer query and is therefore logically evaluated for
+    each of its rows. The optimizer often rewrites it as a join.
+  q: correlated subquery SQL Server
+  docs: https://learn.microsoft.com/sql/relational-databases/performance/subqueries
+recursive-cte:
+  term: Recursive CTE
+  def: >-
+    A CTE that references itself: the anchor part produces the initial rows, and the recursive part
+    after `UNION ALL` repeats while it returns rows. Used to walk hierarchies; in SQL Server the depth
+    is limited by `MAXRECURSION`, 100 by default.
+  q: recursive CTE T-SQL MAXRECURSION
+  docs: https://learn.microsoft.com/sql/t-sql/queries/recursive-common-table-expression-transact-sql
+three-valued-logic:
+  term: Three-valued logic
+  def: >-
+    In SQL a condition is TRUE, FALSE or UNKNOWN. Any comparison with `NULL` yields UNKNOWN, and
+    `WHERE`, `ON` and `HAVING` let through only TRUE — hence the `NOT IN` and `<>` traps.
+  q: SQL three-valued logic NULL
+  docs: https://learn.microsoft.com/sql/t-sql/language-elements/null-and-unknown-transact-sql
+  wiki: Three-valued logic
+anti-join:
+  term: Anti join (anti semi join)
+  def: >-
+    A join that returns rows of the left table that have no match on the right. In SQL it is written
+    with `NOT EXISTS`; `NOT IN` gives the same result only when the subquery has no `NULL`.
+  q: anti semi join NOT EXISTS SQL Server
+  docs: https://learn.microsoft.com/sql/t-sql/language-elements/exists-transact-sql
+window-function:
+  term: Window function
+  def: >-
+    A function with `OVER (...)` that computes a value over a set of rows related to the current one
+    and, unlike `GROUP BY`, does not collapse rows. Examples: `ROW_NUMBER`, `LAG`, `SUM() OVER`.
+  q: window functions T-SQL OVER
+  docs: https://learn.microsoft.com/sql/t-sql/queries/select-over-clause-transact-sql
+window-frame:
+  term: Window frame (ROWS, RANGE)
+  def: >-
+    The part of `OVER` that defines which rows relative to the current one take part in the
+    calculation. `ROWS` counts physical rows, `RANGE` uses sort key values; with `ORDER BY` and no
+    frame, `RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW` applies.
+  q: window frame ROWS vs RANGE SQL Server
+  docs: https://learn.microsoft.com/sql/t-sql/queries/select-over-clause-transact-sql#rows-or-range
+ranking-function:
+  term: Ranking functions
+  def: >-
+    `ROW_NUMBER`, `RANK`, `DENSE_RANK` and `NTILE` — window functions that number rows within a
+    partition. They differ in how they treat ties.
+  q: ranking functions T-SQL
+  docs: https://learn.microsoft.com/sql/t-sql/functions/ranking-functions-transact-sql
+window-spool:
+  term: Window Spool
+  def: >-
+    A SQL Server plan operator in row mode that stores the rows of a window frame. For `ROWS` with a
+    frame under 10,000 rows it works in memory; for `RANGE` it uses a worktable in tempdb, which is
+    noticeably slower.
+  q: SQL Server Window Spool ROWS RANGE performance
+  docs: https://learn.microsoft.com/sql/relational-databases/showplan-logical-and-physical-operators-reference
+stored-procedure:
+  term: Stored procedure
+  def: >-
+    A named set of T-SQL statements on the server, with parameters. It can modify data, control
+    transactions and return several result sets; its plan is cached on first execution.
+  q: stored procedure SQL Server
+  docs: https://learn.microsoft.com/sql/relational-databases/stored-procedures/stored-procedures-database-engine
+  wiki: Stored procedure
+dml-trigger:
+  term: DML trigger
+  def: >-
+    A procedure that SQL Server runs on its own on `INSERT`, `UPDATE` or `DELETE`. It fires once per
+    statement, and the changed rows are available in the `inserted` and `deleted` pseudo-tables.
+  q: DML trigger inserted deleted SQL Server
+  docs: https://learn.microsoft.com/sql/relational-databases/triggers/dml-triggers
+inline-tvf:
+  term: Inline table-valued function (inline TVF)
+  def: >-
+    A function of the form `RETURNS TABLE AS RETURN (SELECT ...)`. The optimizer substitutes its
+    text into the query like a parameterized view and builds a single plan.
+  q: inline table-valued function SQL Server
+  docs: https://learn.microsoft.com/sql/relational-databases/user-defined-functions/create-user-defined-functions-database-engine
+scalar-udf:
+  term: Scalar user-defined function (scalar UDF)
+  def: >-
+    A T-SQL function that returns a single value. Before SQL Server 2019 it runs once per row and
+    prevents a parallel plan; since 2019, at compatibility level 150, eligible functions are inlined
+    into the query.
+  q: scalar UDF inlining SQL Server 2019
+  docs: https://learn.microsoft.com/sql/relational-databases/user-defined-functions/scalar-udf-inlining
+mstvf:
+  term: Multi-statement table-valued function (MSTVF)
+  def: >-
+    A function that fills a table variable with several statements and returns it. The optimizer
+    cannot see inside it and estimates the result at a fixed 100 rows (one row before SQL Server
+    2014).
+  q: multi-statement table-valued function cardinality
+  docs: https://learn.microsoft.com/sql/relational-databases/performance/intelligent-query-processing-details#interleaved-execution-for-mstvfs
+xact-abort:
+  term: SET XACT_ABORT
+  def: >-
+    A session setting: with `ON`, any run-time error rolls back the whole transaction. The default is
+    `OFF`, where some errors roll back only one statement and a client timeout leaves the
+    transaction open.
+  q: SET XACT_ABORT ON timeout
+  docs: https://learn.microsoft.com/sql/t-sql/statements/set-xact-abort-transact-sql
+set-based:
+  term: Set-based approach
+  def: >-
+    A style where a set of rows is processed by one statement (`UPDATE ... JOIN`,
+    `INSERT ... SELECT`, `MERGE`) rather than by a loop over rows. The optimizer picks a plan for
+    the whole set, and the overhead is paid once.
+  q: set-based vs row-by-row SQL Server
+rbar:
+  term: RBAR (row by agonizing row)
+  def: >-
+    A tongue-in-cheek name for row-by-row processing: cursors, `WHILE` loops and per-row calls from
+    an application. The term was coined by Jeff Moden.
+  q: RBAR row by agonizing row
+cursor:
+  term: Cursor
+  def: >-
+    A T-SQL object that walks a query result one row at a time (`DECLARE CURSOR`, `FETCH NEXT`).
+    It is needed for actions that cannot be expressed as one statement; when you need one, declare
+    it `LOCAL FAST_FORWARD`.
+  q: T-SQL cursor FAST_FORWARD
+  docs: https://learn.microsoft.com/sql/t-sql/language-elements/declare-cursor-transact-sql
+merge-statement:
+  term: MERGE
+  def: >-
+    A statement that matches a source against a target table and, in one pass, runs `UPDATE`,
+    `INSERT` or `DELETE` per `WHEN` branch. It needs a unique source and `HOLDLOCK` for concurrent
+    upserts.
+  q: MERGE statement T-SQL HOLDLOCK
+  docs: https://learn.microsoft.com/sql/t-sql/statements/merge-transact-sql
+tvp:
+  term: Table-valued parameter (TVP)
+  def: >-
+    A parameter of a user-defined table type (`CREATE TYPE ... AS TABLE`) through which a client
+    passes a set of rows in one call. It is declared `READONLY` in a procedure and has no column
+    statistics.
+  q: table-valued parameters SqlClient
+  docs: https://learn.microsoft.com/sql/relational-databases/tables/use-table-valued-parameters-database-engine
+lock-escalation:
+  term: Lock escalation
+  def: >-
+    Replacing many fine-grained locks with a single table or partition lock. SQL Server attempts it
+    when one statement holds 5,000 or more locks on a single object.
+  q: SQL Server lock escalation threshold
+  docs: https://learn.microsoft.com/sql/relational-databases/sql-server-transaction-locking-and-row-versioning-guide#lock-escalation

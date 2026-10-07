@@ -1,0 +1,203 @@
+normalization:
+  term: Normalization
+  def: >-
+    Designing tables so that every fact is stored in one place. The steps of normalization are
+    called normal forms: 1NF, 2NF, 3NF, BCNF.
+  q: database normalization normal forms
+  wiki: Database normalization
+update-anomaly:
+  term: Update anomalies
+  def: >-
+    Errors that appear when one fact is stored in several rows: an update changes only some
+    copies, a delete removes unrelated data, and an insert is impossible without a related row.
+  q: insertion update deletion anomaly database
+denormalization:
+  term: Denormalization
+  def: >-
+    Deliberate duplication of data for faster reads: a total in a document header, a copied name,
+    a reporting table. It needs a mechanism that keeps the copies consistent.
+  q: denormalization database
+  wiki: Denormalization
+functional-dependency:
+  term: Functional dependency
+  def: >-
+    A relationship `X → Y`: the value of column set X uniquely determines the value of Y. Normal
+    forms are defined in terms of functional dependencies.
+  q: functional dependency database normalization
+  wiki: Functional dependency
+indexed-view:
+  term: Indexed view
+  def: >-
+    A view with a unique clustered index: SQL Server stores its result and updates it in the same
+    transaction as the base tables. It speeds up aggregates at the cost of more expensive writes.
+  q: SQL Server indexed view
+  docs: https://learn.microsoft.com/sql/relational-databases/views/create-indexed-views
+surrogate-key:
+  term: Surrogate key
+  def: >-
+    An artificial row identifier with no business meaning: a number from `IDENTITY` or
+    `SEQUENCE`, a GUID. It never changes, which makes it convenient for foreign keys.
+  q: surrogate key vs natural key
+  wiki: Surrogate key
+natural-key:
+  term: Natural key
+  def: >-
+    A key made of domain attributes: a product code, a tax ID, an ISO currency code. Meaningful to
+    people, but it can change and is often long.
+  q: natural key database
+  wiki: Natural key
+page-split:
+  term: Page split
+  def: >-
+    An insert into a full index page: SQL Server allocates a new page and moves part of the rows
+    into it. The result is extra log, fragmentation and half-empty pages.
+  q: SQL Server page split
+uuid-v7:
+  term: UUIDv7
+  def: >-
+    A UUID version from RFC 9562: the first 48 bits are milliseconds since the Unix epoch, the rest
+    are the version and random bits, so values grow over time. In .NET 9+ it is created with
+    `Guid.CreateVersion7()`.
+  q: UUID version 7 RFC 9562
+  docs: https://learn.microsoft.com/dotnet/api/system.guid.createversion7
+etl:
+  term: ETL (extract, transform, load)
+  def: >-
+    The process of moving data: extract it from sources, transform it to the target format and
+    load it. In the SQL Server world the classic tool is SSIS, the cloud one is Azure Data Factory.
+  q: ETL extract transform load
+  wiki: Extract, transform, load
+watermark:
+  term: Load watermark
+  def: >-
+    The saved boundary of the last load: the highest `rowversion` or modified date. The next run
+    reads only the rows past that boundary — this is how an incremental load works.
+  q: incremental load high watermark
+change-tracking:
+  term: Change tracking
+  def: >-
+    A SQL Server feature that, synchronously with every DML operation, records the keys of changed
+    rows and a version number. It answers "what changed since version N" but does not keep old
+    values.
+  q: SQL Server change tracking
+  docs: https://learn.microsoft.com/sql/relational-databases/track-changes/about-change-tracking-sql-server
+change-data-capture:
+  term: Change data capture (CDC)
+  def: >-
+    A SQL Server feature that asynchronously reads the transaction log and writes changes with
+    before and after values into change tables. It needs SQL Server Agent and the Standard or
+    Enterprise edition.
+  q: SQL Server change data capture
+  docs: https://learn.microsoft.com/sql/relational-databases/track-changes/about-change-data-capture-sql-server
+staging-table:
+  term: Staging table
+  def: >-
+    A table where a load first puts raw data from the source. From there the data is validated
+    and moved into the target tables with a set-based statement, and on a rerun staging is simply
+    truncated.
+  q: ETL staging table
+oltp:
+  term: OLTP (online transaction processing)
+  def: >-
+    A workload of many short transactions: a sale, an order, a payment. The schema is normalized,
+    and queries read and write a few rows by key.
+  q: OLTP vs OLAP
+  wiki: Online transaction processing
+olap:
+  term: OLAP (online analytical processing)
+  def: >-
+    An analytical workload: aggregates over millions of rows sliced by time, store and product.
+    The data usually lives in a separate warehouse with a star schema or in cubes.
+  q: OLAP online analytical processing
+  wiki: Online analytical processing
+readable-secondary:
+  term: Readable secondary replica
+  def: >-
+    A secondary replica of an Always On availability group that accepts read-only connections. Its
+    data lags the primary by the time it takes to ship and apply the log, and queries run under
+    snapshot isolation.
+  q: SQL Server readable secondary replica
+  docs: https://learn.microsoft.com/sql/database-engine/availability-groups/windows/active-secondaries-readable-secondary-replicas-always-on-availability-groups
+data-mart:
+  term: Data mart
+  def: >-
+    A separate database or schema for the reports of one area: sales, warehouse, finance. ETL fills
+    it, and its structure is built for aggregates rather than writes.
+  q: data mart
+  wiki: Data mart
+star-schema:
+  term: Star schema
+  def: >-
+    A warehouse model: a fact table with measures and keys (sales) in the center, surrounded by
+    denormalized dimension tables (date, store, product). A query is one level of joins plus an
+    aggregate.
+  q: star schema data warehouse
+  wiki: Star schema
+table-partitioning:
+  term: Table partitioning
+  def: >-
+    Storing one logical table in partitions by ranges of a column's values, for example by month.
+    A partition function defines the boundaries, a partition scheme maps them to filegroups.
+  q: SQL Server table partitioning
+  docs: https://learn.microsoft.com/sql/relational-databases/partitions/partitioned-tables-and-indexes
+partition-switching:
+  term: Partition switching
+  def: >-
+    `ALTER TABLE ... SWITCH`: moving a partition into or out of another table by changing metadata,
+    without copying rows. The basis of sliding-window archiving and fast loading.
+  q: SQL Server partition switching sliding window
+partition-elimination:
+  term: Partition elimination
+  def: >-
+    An optimization where a query filtering on the partitioning column reads only the partitions
+    it needs. Without such a filter the query touches every partition.
+  q: SQL Server partition elimination
+aligned-index:
+  term: Aligned index
+  def: >-
+    An index partitioned the same way as its table: the same partition function, or one with the
+    same boundaries and column. Partition switching works only with aligned indexes.
+  q: SQL Server aligned index partition
+availability-group:
+  term: Always On availability group
+  def: >-
+    SQL Server's high-availability feature: the primary replica ships the log to secondaries, and
+    on failure one of them becomes the primary. In Enterprise the secondaries can be opened for
+    reads.
+  q: SQL Server Always On availability groups
+  docs: https://learn.microsoft.com/sql/database-engine/availability-groups/windows/overview-of-always-on-availability-groups-sql-server
+sharding:
+  term: Sharding
+  def: >-
+    Horizontal splitting of data across several databases on different servers by a shard key, for
+    example by store. It scales writes but complicates cross-shard queries and transactions.
+  q: database sharding
+  docs: https://learn.microsoft.com/azure/architecture/patterns/sharding
+  wiki: Shard (database architecture)
+expand-contract:
+  term: Expand/contract (parallel change)
+  def: >-
+    A zero-downtime schema change technique: first expand the schema compatibly, then move the
+    application and data to it, and only then remove the old parts.
+  q: expand contract parallel change database migration
+backfill:
+  term: Backfill
+  def: >-
+    Filling a new column or table with historical data after it has been added. On large tables it
+    runs in batches so that transactions stay short.
+  q: database backfill batches
+schema-modification-lock:
+  term: Sch-M lock (schema modification)
+  def: >-
+    The lock DDL takes while changing an object. It is incompatible with every other lock, so while
+    it is waiting or held, all queries on the table stall.
+  q: SQL Server Sch-M lock
+  docs: https://learn.microsoft.com/sql/relational-databases/sql-server-transaction-locking-and-row-versioning-guide
+accelerated-database-recovery:
+  term: Accelerated database recovery (ADR)
+  def: >-
+    A SQL Server 2019+ feature that keeps row versions inside the database itself. Rollback and
+    crash recovery become almost instant, and the log can be truncated even during long
+    transactions.
+  q: SQL Server accelerated database recovery
+  docs: https://learn.microsoft.com/sql/relational-databases/accelerated-database-recovery-concepts

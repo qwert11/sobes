@@ -1,0 +1,199 @@
+normalization:
+  term: Нормализация
+  def: >-
+    Проектирование таблиц так, чтобы каждый факт хранился в одном месте. Ступени нормализации
+    называют нормальными формами: 1НФ, 2НФ, 3НФ, BCNF.
+  q: database normalization normal forms
+  wiki: Нормальная форма
+update-anomaly:
+  term: Аномалии изменения (update anomalies)
+  def: >-
+    Ошибки, которые возникают, когда один факт хранится в нескольких строках: при обновлении
+    меняют не все копии, при удалении теряют лишние данные, а при вставке не могут завести запись
+    без связанной.
+  q: insertion update deletion anomaly database
+denormalization:
+  term: Денормализация
+  def: >-
+    Сознательное дублирование данных ради скорости чтения: итог в шапке документа, копия
+    названия, отчётная таблица. Требует механизма, который держит копии согласованными.
+  q: denormalization database
+functional-dependency:
+  term: Функциональная зависимость
+  def: >-
+    Связь `X → Y`: значение набора колонок X однозначно определяет значение Y. На функциональных
+    зависимостях строятся определения нормальных форм.
+  q: functional dependency database normalization
+indexed-view:
+  term: Индексированное представление (indexed view)
+  def: >-
+    Представление с уникальным кластерным индексом: SQL Server хранит его результат и обновляет
+    в той же транзакции, что и базовые таблицы. Ускоряет агрегаты ценой более дорогой записи.
+  q: SQL Server indexed view
+  docs: https://learn.microsoft.com/sql/relational-databases/views/create-indexed-views
+surrogate-key:
+  term: Суррогатный ключ
+  def: >-
+    Искусственный идентификатор строки без смысла в предметной области: число из `IDENTITY` или
+    `SEQUENCE`, GUID. Не меняется, поэтому удобен для внешних ключей.
+  q: surrogate key vs natural key
+  wiki: Суррогатный ключ
+natural-key:
+  term: Естественный ключ
+  def: >-
+    Ключ из атрибутов предметной области: код товара, ИНН, ISO-код валюты. Понятен человеку, но
+    может меняться и бывает длинным.
+  q: natural key database
+page-split:
+  term: Разделение страницы (page split)
+  def: >-
+    Вставка в заполненную страницу индекса: SQL Server выделяет новую страницу и переносит в неё
+    часть строк. Это лишняя запись в журнал, фрагментация и полупустые страницы.
+  q: SQL Server page split
+uuid-v7:
+  term: UUIDv7
+  def: >-
+    Версия UUID из RFC 9562: первые 48 бит — время в миллисекундах от Unix-эпохи, остальное —
+    версия и случайные биты, поэтому значения растут со временем. В .NET 9+ создаётся через
+    `Guid.CreateVersion7()`.
+  q: UUID version 7 RFC 9562
+  docs: https://learn.microsoft.com/dotnet/api/system.guid.createversion7
+etl:
+  term: ETL (extract, transform, load)
+  def: >-
+    Процесс переноса данных: извлечь из источников, преобразовать к формату цели и загрузить. В
+    экосистеме SQL Server классический инструмент — SSIS, облачный — Azure Data Factory.
+  q: ETL extract transform load
+  wiki: ETL
+watermark:
+  term: Водяной знак загрузки (watermark)
+  def: >-
+    Сохранённая граница последней загрузки: максимальная `rowversion` или дата изменения.
+    Следующий запуск читает только строки за этой границей — так строится инкрементальная
+    загрузка.
+  q: incremental load high watermark
+change-tracking:
+  term: Change tracking (отслеживание изменений)
+  def: >-
+    Механизм SQL Server, который синхронно с каждой DML-операцией запоминает ключи изменённых
+    строк и номер версии. Отвечает на вопрос «что изменилось после версии N», но старые значения не
+    хранит.
+  q: SQL Server change tracking
+  docs: https://learn.microsoft.com/sql/relational-databases/track-changes/about-change-tracking-sql-server
+change-data-capture:
+  term: Change data capture (CDC)
+  def: >-
+    Механизм SQL Server, который асинхронно читает журнал транзакций и складывает изменения со
+    значениями до и после в таблицы изменений. Нужны SQL Server Agent и редакция Standard или
+    Enterprise.
+  q: SQL Server change data capture
+  docs: https://learn.microsoft.com/sql/relational-databases/track-changes/about-change-data-capture-sql-server
+staging-table:
+  term: Staging-таблица (промежуточная таблица)
+  def: >-
+    Таблица, куда загрузка сначала кладёт сырые данные из источника. Оттуда их проверяют и
+    переносят в целевые таблицы set-based запросом, а при повторе staging просто очищают.
+  q: ETL staging table
+oltp:
+  term: OLTP (online transaction processing)
+  def: >-
+    Нагрузка из множества коротких транзакций: продажа, заказ, оплата. Схема нормализована,
+    запросы читают и пишут немного строк по ключу.
+  q: OLTP vs OLAP
+  wiki: OLTP
+olap:
+  term: OLAP (online analytical processing)
+  def: >-
+    Аналитическая нагрузка: агрегаты по миллионам строк и срезы по времени, магазинам, товарам.
+    Данные обычно лежат в отдельном хранилище со схемой «звезда» или в кубах.
+  q: OLAP online analytical processing
+  wiki: OLAP
+readable-secondary:
+  term: Реплика для чтения (readable secondary)
+  def: >-
+    Вторичная реплика группы доступности Always On, к которой разрешены read-only подключения.
+    Данные отстают от первичной на время доставки и применения журнала, запросы идут под snapshot
+    isolation.
+  q: SQL Server readable secondary replica
+  docs: https://learn.microsoft.com/sql/database-engine/availability-groups/windows/active-secondaries-readable-secondary-replicas-always-on-availability-groups
+data-mart:
+  term: Витрина данных (data mart)
+  def: >-
+    Отдельная база или схема под отчёты одного направления: продажи, склад, финансы. Её наполняет
+    ETL, а структура заточена под агрегаты, а не под запись.
+  q: data mart
+  wiki: Витрина данных
+star-schema:
+  term: Схема «звезда» (star schema)
+  def: >-
+    Модель хранилища: в центре таблица фактов с мерами и ключами (продажи), вокруг —
+    денормализованные таблицы измерений (дата, магазин, товар). Запрос — один уровень соединений
+    и агрегат.
+  q: star schema data warehouse
+table-partitioning:
+  term: Партиционирование таблицы (секционирование)
+  def: >-
+    Хранение одной логической таблицы секциями по диапазонам значений колонки, например по
+    месяцам. Границы задаёт функция секционирования, размещение по файловым группам — схема
+    секционирования.
+  q: SQL Server table partitioning
+  docs: https://learn.microsoft.com/sql/relational-databases/partitions/partitioned-tables-and-indexes
+partition-switching:
+  term: Переключение секций (partition switching)
+  def: >-
+    `ALTER TABLE ... SWITCH`: перенос секции в другую таблицу или из неё сменой метаданных, без
+    копирования строк. Основа архивации «скользящим окном» и быстрой загрузки.
+  q: SQL Server partition switching sliding window
+partition-elimination:
+  term: Исключение секций (partition elimination)
+  def: >-
+    Оптимизация, при которой запрос с условием по колонке секционирования читает только нужные
+    секции. Без такого условия запрос обходит все секции.
+  q: SQL Server partition elimination
+aligned-index:
+  term: Выровненный индекс (aligned index)
+  def: >-
+    Индекс, секционированный так же, как его таблица: та же функция или функция с теми же
+    границами и колонкой. Только с выровненными индексами возможно переключение секций.
+  q: SQL Server aligned index partition
+availability-group:
+  term: Группа доступности Always On (availability group)
+  def: >-
+    Механизм высокой доступности SQL Server: первичная реплика отправляет журнал вторичным, и при
+    сбое одна из них становится первичной. В Enterprise вторичные реплики можно открыть для
+    чтения.
+  q: SQL Server Always On availability groups
+  docs: https://learn.microsoft.com/sql/database-engine/availability-groups/windows/overview-of-always-on-availability-groups-sql-server
+sharding:
+  term: Шардирование (sharding)
+  def: >-
+    Горизонтальное разделение данных по нескольким базам на разных серверах по ключу шардирования,
+    например по магазину. Масштабирует запись, но усложняет запросы и транзакции между шардами.
+  q: database sharding
+  docs: https://learn.microsoft.com/azure/architecture/patterns/sharding
+expand-contract:
+  term: Expand/contract (parallel change)
+  def: >-
+    Приём изменения схемы без простоя: сначала совместимо расширить схему, затем перевести на неё
+    приложение и данные, и только потом удалить старое.
+  q: expand contract parallel change database migration
+backfill:
+  term: Backfill (дозаполнение)
+  def: >-
+    Заполнение новой колонки или таблицы историческими данными после её добавления. На больших
+    таблицах выполняется пакетами, чтобы транзакции оставались короткими.
+  q: database backfill batches
+schema-modification-lock:
+  term: Блокировка Sch-M (schema modification)
+  def: >-
+    Блокировка, которую берёт DDL при изменении объекта. Несовместима ни с одной другой
+    блокировкой, поэтому пока она ждёт или удерживается, все запросы к таблице стоят.
+  q: SQL Server Sch-M lock
+  docs: https://learn.microsoft.com/sql/relational-databases/sql-server-transaction-locking-and-row-versioning-guide
+accelerated-database-recovery:
+  term: Ускоренное восстановление базы данных (ADR)
+  def: >-
+    Механизм SQL Server 2019+, который хранит версии строк в самой базе. Откат и восстановление
+    после сбоя становятся почти мгновенными, а журнал усекается даже при долгих транзакциях.
+  q: SQL Server accelerated database recovery
+  docs: https://learn.microsoft.com/sql/relational-databases/accelerated-database-recovery-concepts

@@ -1,0 +1,929 @@
+---
+title: Індекси й плани запитів
+description: Кластерний і некластерний індекс, покривні індекси та INCLUDE, SARGability, план виконання, parameter sniffing і Query Store, статистика, обслуговування, filtered і columnstore.
+sidebar:
+  order: 2
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+Як SQL Server знаходить рядки: будова індексів, чому умова не потрапляє в індекс, як читати план виконання і звідки береться «швидко в SSMS, повільно з застосунку». Приклади — на T-SQL; як те саме влаштовано в PostgreSQL, розібрано в темі [PostgreSQL проти SQL Server](/sobes/uk/db/postgres/).
+
+**Перед цією темою:** [SQL і T-SQL](/sobes/uk/db/sql/).
+
+<Q id="db.index.what-is-index" level="j">
+
+## Що таке індекс і чим кластерний індекс відрізняється від некластерного?
+
+<A short l="j">
+
+Індекс — окрема впорядкована структура (<T k="b-tree">B-дерево</T>), за якою сервер знаходить рядки за кілька читань сторінок, а не переглядає всю таблицю. <T k="clustered-index">Кластерний індекс</T> — це сама таблиця, відсортована за ключем, тому він один, а <T k="nonclustered-index">некластерних</T> може бути багато: кожен — окрема копія вибраних стовпців із посиланням на рядок.
+
+</A>
+
+<A short l="m">
+
+Обидва види — B+-дерева зі сторінок по 8 КБ, але в листках кластерного лежать самі рядки, а в листках некластерного — ключ індексу й вказівник на рядок. Вказівник — це <T k="clustering-key">ключ кластеризації</T>, а в таблиці без кластерного індексу, <T k="heap">купи</T>, — фізична адреса RID. Індекс прискорює читання, але сповільнює запис: кожен `INSERT` і `DELETE` змінює всі індекси таблиці.
+
+</A>
+
+<A short l="s">
+
+Кластерний індекс задає порядок зберігання рядків, а його ключ копіюється в кожен некластерний індекс як вказівник на рядок. Тому ключ кластеризації роблять вузьким, унікальним, незмінним і, як правило, зростаючим: випадковий GUID роздуває всі індекси й дробить сторінки. Кожен індекс оплачується записом, журналом, пам'яттю буферного пулу й обслуговуванням, тому індекси проєктують під реальні запити, а не під кожен стовпець.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+Індекс схожий на алфавітний покажчик у книжці: значення ключа зберігаються відсортованими, і сервер знаходить потрібне за кілька кроків по дереву. Такий пошук називають <T k="index-seek">seek</T>, а читання всієї таблиці підряд — scan.
+
+**Чим відрізняються**
+
+| | Кластерний | Некластерний |
+|---|---|---|
+| Що в листках | самі рядки таблиці | ключ і посилання на рядок |
+| Скільки на таблицю | один | багато |
+| Чим створюється за замовчуванням | `PRIMARY KEY` | `UNIQUE`, `CREATE INDEX` |
+
+**Типова помилка**
+
+Створювати індекс на кожен стовпець «про всяк випадок». Кожен індекс сповільнює `INSERT`, `UPDATE` і `DELETE`: сервер оновлює його разом із таблицею.
+
+**Підсумок:** кластерний індекс — це сама таблиця в порядку ключа, некластерний — окремий вказівник на її рядки.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+- Індекс зберігається в сторінках по 8 КБ, зібраних у B+-дерево: корінь, проміжні рівні, листки. Навіть у таблиці на мільйони рядків до потрібного листка 3–4 читання.
+- У листках кластерного індексу лежать рядки повністю, тому таблиця зберігається в порядку його ключа.
+- У листках некластерного — ключ і вказівник на рядок. Решту стовпців сервер дочитує з таблиці за вказівником.
+- Купа — таблиця без кластерного індексу. Рядки лежать без порядку, вказівник на рядок — RID: файл, сторінка, слот.
+
+**Коли що обирати**
+
+| Ситуація | Рішення |
+|---|---|
+| Майже будь-яка OLTP-таблиця | кластерний індекс за вузьким зростаючим ключем |
+| Пошук і з'єднання за іншими стовпцями | некластерні індекси під ці запити |
+| Проміжна таблиця для завантаження | купа допустима |
+
+**Пастки**
+
+- **Ціна запису.** `INSERT` і `DELETE` змінюють усі індекси, `UPDATE` — ті, де є змінені стовпці.
+- **Купа й `UPDATE`.** Рядок, що виріс, переїжджає на іншу сторінку, а на старому місці лишається forwarding pointer — зайве читання під час кожного звернення.
+- **Неунікальний кластерний ключ.** Сервер додає до нього прихований 4-байтовий uniqueifier.
+
+**Підсумок:** некластерний індекс знаходить ключ, а по решту стовпців іде в кластерний індекс або купу.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- Ключ кластеризації — вказівник на рядок у всіх некластерних індексах. У неунікальному некластерному індексі він дописується в кінець ключа, в унікальному — в листки як неключові стовпці.
+- Звідси вимоги до нього: вузький (копіюється в кожен індекс), унікальний (інакше uniqueifier), незмінний (зміна ключа переписує рядок у всіх індексах), зростаючий (вставки йдуть у кінець).
+- Випадковий GUID із `NEWID()` вставляє рядки в середину індексу. Сторінки розщеплюються (page split), заповнюються наполовину, ростуть журнал і обсяг.
+
+**Ціна**
+
+- Кожен індекс — копія частини даних: місце на диску, в буферному пулі й у бекапах.
+- Кожна модифікація пише в журнал зміни всіх зачеплених індексів і блокує їхні рядки.
+- Зростаючий ключ за великої кількості паралельних вставок упирається в останню сторінку (last page insert contention). Із SQL Server 2019 для цього є опція індексу `OPTIMIZE_FOR_SEQUENTIAL_KEY`.
+
+**Компроміси**
+
+- `IDENTITY` — вузький зростаючий ключ без сенсу для бізнесу. GUID зручно генерувати на клієнті, але він широкий: його роблять унікальним некластерним ключем, а кластеризують за `IDENTITY`, або беруть `NEWSEQUENTIALID()`.
+- Кластеризація за датою документа прискорює звіти за періоди, але неунікальний ключ отримає uniqueifier.
+
+**Як перевірити в продакшені**
+
+- `sys.dm_db_index_usage_stats`: індекси з великим `user_updates` і майже нульовими `user_seeks`, `user_scans`, `user_lookups` — кандидати на видалення. Лічильники обнуляються під час перезапуску сервера.
+- `sys.dm_db_index_physical_stats` показує кількість сторінок і їхню заповненість.
+
+**Підсумок:** ключ кластеризації впливає на всі індекси таблиці, а кожен зайвий індекс — податок на кожен запис.
+
+</A>
+
+<Ex title="T-SQL">
+
+```sql
+DROP TABLE IF EXISTS dbo.Orders;
+CREATE TABLE dbo.Orders
+(
+    OrderId    int IDENTITY PRIMARY KEY,  -- PRIMARY KEY: кластерний індекс за замовчуванням
+    CustomerId int           NOT NULL,
+    OrderDate  date          NOT NULL,
+    Amount     decimal(12,2) NOT NULL
+);
+
+INSERT dbo.Orders (CustomerId, OrderDate, Amount)
+SELECT TOP (100000) n % 5000, DATEADD(day, n % 730, '20240101'), n % 1000
+FROM (SELECT CAST(ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS int) AS n
+      FROM sys.all_objects AS a CROSS JOIN sys.all_objects AS b) AS t;
+
+-- Некластерний індекс: ключ CustomerId, до нього додано OrderId — ключ кластеризації
+CREATE INDEX IX_Orders_CustomerId ON dbo.Orders (CustomerId);
+
+SET STATISTICS IO ON;
+SELECT OrderId FROM dbo.Orders WHERE CustomerId = 42; -- Index Seek: кілька читань
+SELECT OrderId FROM dbo.Orders WHERE Amount = 42;     -- Clustered Index Scan: уся таблиця
+```
+
+</Ex>
+
+<Next>
+
+- Скільки кластерних індексів може бути в таблиці? — Один: рядки зберігаються лише в одному порядку.
+- Чи обов'язково первинний ключ кластерний? — Ні, це типова поведінка; `PRIMARY KEY NONCLUSTERED` залишає кластерний індекс для іншого стовпця.
+- Що зберігається в некластерному індексі, крім його стовпців? — Вказівник на рядок: ключ кластеризації або RID у купи.
+- Чим поганий випадковий GUID як кластерний ключ? — 16 байт у кожному індексі та вставки у випадкові місця з розщепленням сторінок.
+- Як знайти зайві індекси? — `sys.dm_db_index_usage_stats`: багато оновлень і немає читань.
+
+</Next>
+
+<Src>
+
+- [Clustered and nonclustered indexes](https://learn.microsoft.com/sql/relational-databases/indexes/clustered-and-nonclustered-indexes-described)
+- [Index architecture and design guide](https://learn.microsoft.com/sql/relational-databases/sql-server-index-design-guide)
+- [Heaps (tables without clustered indexes)](https://learn.microsoft.com/sql/relational-databases/indexes/heaps-tables-without-clustered-indexes)
+
+</Src>
+
+</Q>
+
+<Q id="db.index.covering" level="m">
+
+## Що таке покривний індекс, навіщо INCLUDE і як вибрати порядок стовпців у складеному індексі?
+
+<A short l="j">
+
+<T k="covering-index">Покривний індекс</T> містить усі стовпці, потрібні запиту, тому сервер відповідає з одного індексу й не звертається до таблиці. Стовпці для пошуку й сортування ставлять у ключ, а стовпці лише для виведення додають через `INCLUDE`.
+
+</A>
+
+<A short l="m">
+
+Якщо некластерний індекс знаходить рядок, але не містить потрібних стовпців, у <T k="execution-plan">плані виконання</T> з'являється <T k="key-lookup">Key Lookup</T> — окремий пошук у кластерному індексі на кожен рядок. <T k="included-column">Включені стовпці</T> зберігаються лише в листках і прибирають lookup, не розширюючи ключ. У складеному ключі спершу йдуть стовпці з рівністю, потім один стовпець із діапазоном: стовпці після діапазону пошук уже не звужують.
+
+</A>
+
+<A short l="s">
+
+Покриття — компроміс між читанням і записом: кожен включений стовпець збільшує індекс і ціну `UPDATE`. Порядок ключа вирішує, яка частина умови стане пошуком, чи віддасть індекс рядки в потрібному порядку без `Sort` і за яким стовпцем буде <T k="histogram">гістограма</T> <T k="statistics">статистики</T>. Тому індекс проєктують під групу запитів, а пропозиції missing index вважають підказкою, а не готовим рецептом.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+Покривний індекс — індекс, у якому є всі стовпці запиту: з `WHERE`, `JOIN`, `ORDER BY` і `SELECT`. Сервер читає лише його й не ходить у таблицю.
+
+**Як користуватися**
+
+1. Стовпці, за якими шукають і сортують, — у ключ індексу.
+2. Стовпці, які лише виводять, — в `INCLUDE`.
+3. Приклад: `CREATE INDEX IX_Orders_Customer ON dbo.Orders (CustomerId, OrderDate) INCLUDE (Amount)`.
+
+**Типова помилка**
+
+Писати `SELECT *`. Такий запит покриває лише кластерний індекс, і будь-якому некластерному доведеться дочитувати рядки з таблиці.
+
+**Підсумок:** ключ індексу — для пошуку й сортування, `INCLUDE` — для стовпців, які запит лише виводить.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+- Без покриття план — Index Seek по некластерному індексу і Key Lookup на кожен знайдений рядок, з'єднані Nested Loops.
+- 10 рядків — дешево, 50 000 — це 50 000 випадкових пошуків, і оптимізатор вибере scan таблиці. Поріг (tipping point) часто менший за кілька відсотків рядків.
+- Включені стовпці лежать лише на листковому рівні. Вони не сортуються, не беруть участі в пошуку й не входять до ліміту розміру ключа.
+
+**Порядок стовпців ключа**
+
+1. Пошук іде лише за префіксом ключа: індекс `(A, B)` шукає за `A` або за `A` і `B`, але не за самим `B`.
+2. Спершу стовпці з рівністю, потім стовпець із діапазоном. В індексі `(OrderDate, CustomerId)` умова `CustomerId = @c AND OrderDate >= @d` прочитає весь діапазон дат і перевірить `CustomerId` у кожному рядку.
+3. Серед стовпців із рівністю Microsoft радить першим ставити селективніший — той, що відбирає менше рядків.
+
+**Пастки**
+
+Пропозиції missing index у плані не задають порядок стовпців і часто дублюють наявні індекси.
+
+**Правило**
+
+У ключ — рівності, потім діапазон або сортування; стовпці лише для виведення — в `INCLUDE`.
+
+**Підсумок:** покривний індекс прибирає Key Lookup, а порядок ключа вирішує, яка частина умови стане пошуком.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- В Index Seek у плані дві властивості: Seek Predicates звужують діапазон читання по B-дереву, Predicate — залишкова перевірка кожного прочитаного рядка. Добрий індекс переносить максимум умови в Seek Predicates.
+- Гістограма статистики будується лише за першим стовпцем ключа, для решти є тільки середня щільність префіксів. Провідний стовпець впливає й на точність оцінок.
+- Індекс у порядку `ORDER BY` або `GROUP BY` прибирає `Sort` разом із пам'яттю під сортування, а `TOP (n)` зупиняється після n рядків.
+
+**Ціна**
+
+- Широкий `INCLUDE` майже дублює таблицю й подвоює обсяг запису.
+- `UPDATE` включеного стовпця оновлює й індекс.
+
+**Компроміси**
+
+- Один індекс під кілька запитів кращий за п'ять схожих: `(CustomerId)`, `(CustomerId, OrderDate)` і `(CustomerId) INCLUDE (Amount)` зводяться до `(CustomerId, OrderDate) INCLUDE (Amount)`.
+- `sys.dm_db_missing_index_details` ділить стовпці на equality, inequality та included, але не враховує наявні індекси й ціну запису.
+
+**Як перевірити в продакшені**
+
+- Key Lookup із великим Actual Number of Rows у фактичному плані — кандидат на покриття.
+- `user_lookups` у `sys.dm_db_index_usage_stats` показує, скільки lookup-ів припадає на кластерний індекс.
+
+**Підсумок:** індекс проєктують під набір запитів: префікс ключа — для пошуку, порядок — для сортування, `INCLUDE` — для покриття, і кожен стовпець оплачує запис.
+
+</A>
+
+<Ex title="T-SQL">
+
+```sql
+DROP TABLE IF EXISTS dbo.Orders;
+CREATE TABLE dbo.Orders
+(
+    OrderId    int IDENTITY PRIMARY KEY,
+    CustomerId int           NOT NULL,
+    OrderDate  date          NOT NULL,
+    Amount     decimal(12,2) NOT NULL
+);
+INSERT dbo.Orders (CustomerId, OrderDate, Amount)
+SELECT TOP (100000) n % 5000, DATEADD(day, n % 730, '20240101'), n % 1000
+FROM (SELECT CAST(ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS int) AS n
+      FROM sys.all_objects AS a CROSS JOIN sys.all_objects AS b) AS t;
+
+-- Рівність (CustomerId) перед діапазоном (OrderDate); Amount лише виводиться
+CREATE INDEX IX_Orders_Customer_Date
+    ON dbo.Orders (CustomerId, OrderDate) INCLUDE (Amount);
+
+SELECT OrderDate, Amount
+FROM dbo.Orders
+WHERE CustomerId = 42 AND OrderDate >= '20250101'
+ORDER BY OrderDate;  -- Index Seek без Key Lookup і без Sort
+-- Без INCLUDE (Amount) у плані був би Key Lookup на кожен рядок
+```
+
+</Ex>
+
+<Next>
+
+- Чим `INCLUDE` відрізняється від стовпця в ключі? — Включений стовпець лежить лише в листках: не сортується, не бере участі в пошуку, не входить до ліміту ключа.
+- Чому оптимізатор не бере індекс, хоча той підходить за `WHERE`? — Забагато Key Lookup: дешевше прочитати таблицю.
+- Чи допоможе індекс `(A, B)` запиту `WHERE B = 1`? — Seek — ні; хіба що scan вужчого індексу замість таблиці.
+- Навіщо `DESC` у ключі індексу? — Для змішаного сортування на кшталт `ORDER BY A, B DESC`; один напрямок сервер читає й у зворотний бік.
+- Створити всі індекси з missing index DMV? — Ні: вони без порядку стовпців, дублюють одне одного й не враховують ціну запису.
+
+</Next>
+
+<Src>
+
+- [Create indexes with included columns](https://learn.microsoft.com/sql/relational-databases/indexes/create-indexes-with-included-columns)
+- [Tune nonclustered indexes with missing index suggestions](https://learn.microsoft.com/sql/relational-databases/indexes/tune-nonclustered-missing-index-suggestions)
+- [Index architecture and design guide](https://learn.microsoft.com/sql/relational-databases/sql-server-index-design-guide)
+
+</Src>
+
+</Q>
+
+<Q id="db.index.sargability" level="m">
+
+## Що таке SARGable-умова і чому функції, `LIKE '%x'` та неявні перетворення типів ламають пошук за індексом?
+
+<A short l="j">
+
+Умова <T k="sargable">SARGable</T> (від search argument), якщо стовпець стоїть у ній як є і сервер може шукати за індексом: `OrderDate >= '20250101'`, `Name LIKE 'Jo%'`. Якщо обгорнути стовпець у функцію, як `YEAR(OrderDate) = 2025`, сервер обчислить її для кожного рядка й прочитає весь індекс.
+
+</A>
+
+<A short l="m">
+
+Seek можливий, коли умову можна перевести в діапазон ключів індексу, тому функція, арифметика над стовпцем або `LIKE '%x'` перетворюють пошук на scan. Те саме робить <T k="implicit-conversion">неявне перетворення</T>: за <T k="data-type-precedence">пріоритетом типів</T> `nvarchar`-параметр змушує конвертувати `varchar`-стовпець. Це класика .NET: рядок в ADO.NET за замовчуванням іде як `nvarchar`, тому тип і довжину параметра задають явно.
+
+</A>
+
+<A short l="s">
+
+SARGability — властивість пари «умова й індекс»: чи стане умова межами діапазону в B-дереві, чи перевіркою кожного прочитаного рядка. `nvarchar` проти `varchar`-стовпця за SQL-<T k="sql-server-collation">collation</T> дає scan, а за Windows-collation — seek за обчисленим діапазоном, але з поганою оцінкою рядків і попередженням у плані. Лікують типом параметра в застосунку, узгодженими типами в схемі й <T k="computed-column">обчислюваними стовпцями</T> з індексом, а знаходять за попередженням `PlanAffectingConvert` у <T k="plan-cache">кеші планів</T>.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+SARGable-умова — така, за якою сервер може шукати в індексі, а не перевіряти кожен рядок. Стовпець стоїть у ній без функцій і обчислень.
+
+**Як користуватися**
+
+| Не SARGable | SARGable |
+|---|---|
+| `YEAR(OrderDate) = 2025` | `OrderDate >= '20250101' AND OrderDate < '20260101'` |
+| `Price * 1.2 > 120` | `Price > 100` |
+| `LEFT(Name, 2) = 'Jo'` | `Name LIKE 'Jo%'` |
+| `ISNULL(Discount, 0) = 0` | `(Discount = 0 OR Discount IS NULL)` |
+
+**Типова помилка**
+
+`LIKE '%son'` із `%` на початку. Індекс відсортований за першими символами, тому такий пошук завжди читає індекс повністю.
+
+**Підсумок:** не чіпайте стовпець в умові — переносьте обчислення на бік константи або параметра.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+1. Індекс відсортований за значеннями стовпця, і seek можливий, якщо умова задає діапазон цих значень.
+2. `YEAR(OrderDate)` — уже інша величина. Оптимізатор не виводить її порядок з індексу й обчислює функцію для кожного рядка.
+3. Якщо типи сторін порівняння різні, SQL Server приводить тип із меншим пріоритетом до більшого. Коли приводиться стовпець, у плані видно `CONVERT_IMPLICIT` над ним.
+
+**Класика з .NET**
+
+- `SqlParameter` із рядковим значенням отримує тип `NVarChar`, а `AddWithValue` бере довжину із самого значення.
+- `varchar`-стовпець молодший за `nvarchar` і конвертується в кожному рядку: scan замість seek.
+- Рядки різної довжини дають оголошення `nvarchar(5)`, `nvarchar(6)` і окремий план на кожне.
+
+**Пастки**
+
+- Зворотний випадок безпечний: `varchar`-параметр проти `nvarchar`-стовпця конвертує параметр, а не стовпець.
+- `varchar`-стовпець із кодами проти `int`-параметра: `int` старший, конвертується стовпець — scan і помилка на першому нечисловому значенні.
+
+**Правило**
+
+Тип і довжина параметра збігаються зі стовпцем: `SqlDbType.VarChar` і `Size`, у Dapper — `DbString { IsAnsi = true }`, в EF Core — мапінг `IsUnicode(false)`.
+
+**Підсумок:** функція, обчислення або чужий тип на боці стовпця перетворюють seek на scan.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- Для seek оптимізатор будує межі діапазону в B-дереві. Усе, що не вдалося перетворити на межі, стає залишковим предикатом і перевіряється в кожному прочитаному рядку.
+- Частину виразів оптимізатор переписує сам: `CAST(CreatedAt AS date) = @d` для `datetime2` перетворюється на динамічний діапазон (`GetRangeThroughConvert`).
+- Для `nvarchar` проти `varchar` усе вирішує collation. За Windows-collation (`Cyrillic_General_CI_AS`, `Latin1_General_CI_AS`) порядок рядків в обох типів однаковий, і сервер шукає за обчисленим діапазоном. За SQL-collation (`SQL_Latin1_General_CP1_CI_AS`) порядок різний, і лишається scan.
+
+**Ціна**
+
+Навіть «врятований» seek отримує погану оцінку кількості рядків. У плані з'являється попередження `Type conversion in expression ... may affect "CardinalityEstimate"`, а за ним неправильні з'єднання й виділення пам'яті.
+
+**Компроміси**
+
+- Переписати запит найдешевше: діапазон замість `YEAR()`, явна перевірка `NULL` замість `ISNULL`.
+- Якщо вираз потрібен як є — обчислюваний стовпець з індексом: оптимізатор зіставить із ним такий самий вираз у запиті.
+- `LIKE '%x'` B-деревом не лікується: повнотекстовий індекс, стовпець з перевернутим рядком або зовнішній пошук.
+
+**Як перевірити в продакшені**
+
+Шукайте `PlanAffectingConvert` в XML планів із `sys.dm_exec_query_stats` і `sys.dm_exec_query_plan`, відсортованих за логічними читаннями.
+
+**Підсумок:** SARGability вирішує, чи стане умова межею пошуку, чи перевіркою кожного рядка, а неявні перетворення — найчастіша невидима причина scan у .NET-застосунках.
+
+</A>
+
+<Ex title="T-SQL">
+
+```sql
+DROP TABLE IF EXISTS dbo.Products;
+CREATE TABLE dbo.Products
+(
+    ProductId int IDENTITY PRIMARY KEY,
+    Sku       varchar(20) COLLATE SQL_Latin1_General_CP1_CI_AS NOT NULL,
+    CreatedAt datetime2   NOT NULL
+);
+INSERT dbo.Products (Sku, CreatedAt)
+SELECT TOP (100000) CONCAT('SKU-', n), DATEADD(minute, n * 10, '20240101')
+FROM (SELECT CAST(ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS int) AS n
+      FROM sys.all_objects AS a CROSS JOIN sys.all_objects AS b) AS t;
+CREATE INDEX IX_Products_Sku ON dbo.Products (Sku);
+CREATE INDEX IX_Products_CreatedAt ON dbo.Products (CreatedAt);
+
+DECLARE @n nvarchar(20) = N'SKU-42', @v varchar(20) = 'SKU-42';
+SELECT ProductId FROM dbo.Products WHERE Sku = @n; -- Index Scan: CONVERT_IMPLICIT над Sku
+SELECT ProductId FROM dbo.Products WHERE Sku = @v; -- Index Seek
+
+SELECT ProductId FROM dbo.Products WHERE YEAR(CreatedAt) = 2025; -- Index Scan
+SELECT ProductId FROM dbo.Products
+WHERE CreatedAt >= '20250101' AND CreatedAt < '20260101';        -- Index Seek
+```
+
+</Ex>
+
+<Ex title="C#">
+
+```csharp
+// NuGet: Microsoft.Data.SqlClient
+using System.Data;
+using Microsoft.Data.SqlClient;
+
+await using var connection = new SqlConnection(
+    "Server=.;Database=Shop;Integrated Security=true;TrustServerCertificate=true");
+await connection.OpenAsync();
+const string sql = "SELECT ProductId FROM dbo.Products WHERE Sku = @sku";
+
+// Погано: string → nvarchar(6), varchar-стовпець конвертується в кожному рядку
+await using var bad = new SqlCommand(sql, connection);
+bad.Parameters.AddWithValue("@sku", "SKU-42");
+
+// Добре: тип і довжина як у стовпця — seek і один план для будь-яких значень
+await using var good = new SqlCommand(sql, connection);
+good.Parameters.Add("@sku", SqlDbType.VarChar, 20).Value = "SKU-42";
+
+Console.WriteLine(await good.ExecuteScalarAsync());
+```
+
+</Ex>
+
+<Next>
+
+- Чому `WHERE YEAR(OrderDate) = 2025` повільний? — Функція над стовпцем обчислюється для кожного рядка; потрібен діапазон дат.
+- Що гірше: `nvarchar`-параметр до `varchar`-стовпця чи навпаки? — Перше: конвертується стовпець; у другому конвертується параметр, і seek зберігається.
+- Як прискорити `LIKE '%term%'`? — Звичайним індексом ніяк; повнотекстовий індекс або зовнішній пошук.
+- Чим поганий `AddWithValue`? — Тип виводиться зі значення (`string` → `nvarchar`), довжина — з довжини рядка: неправильний тип і роздутий кеш планів.
+- Як знайти неявні перетворення на сервері? — Попередження `PlanAffectingConvert` в XML закешованих планів.
+
+</Next>
+
+<Src>
+
+- [Data type precedence](https://learn.microsoft.com/sql/t-sql/data-types/data-type-precedence-transact-sql)
+- [Configuring parameters (ADO.NET)](https://learn.microsoft.com/sql/connect/ado-net/configure-parameters)
+- [Indexes on computed columns](https://learn.microsoft.com/sql/relational-databases/indexes/indexes-on-computed-columns)
+
+</Src>
+
+</Q>
+
+<Q id="db.index.execution-plan" level="m">
+
+## Як читати план виконання: seek, scan і lookup, оцінковий і фактичний план, оператори з'єднання, попередження?
+
+<A short l="j">
+
+План виконання — дерево операторів, якими сервер виконує запит: Index Seek шукає за індексом, Scan читає все підряд, Key Lookup дочитує стовпці з таблиці. Оцінковий план показує, що сервер збирається зробити, а фактичний — ще й скільки рядків реально пройшло через кожен оператор.
+
+</A>
+
+<A short l="m">
+
+План читають справа наліво, від джерел даних до результату, і в кожному операторі порівнюють оцінку рядків із фактом. Розбіжність на порядок означає, що помилилася <T k="cardinality-estimation">оцінка кардинальності</T>, а за нею й вибір операторів. <T k="nested-loops">Nested Loops</T> добрий для малого зовнішнього входу, <T k="hash-match">Hash Match</T> — для великих несортованих, <T k="merge-join">Merge Join</T> — для входів, відсортованих за ключем з'єднання.
+
+</A>
+
+<A short l="s">
+
+Фактичний план — та сама оцінка оптимізатора плюс лічильники виконання, тому вартість у відсотках у ньому лишається оцінковою. Дивляться на оцінку проти факту, кількість виконань внутрішньої сторони Nested Loops, <T k="memory-grant">виділення пам'яті</T> і скидання в tempdb у Sort і Hash. У продакшені фактичний план беруть без повторного запуску: із SQL Server 2019 — з `sys.dm_exec_query_plan_stats`, інакше — через Extended Events.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+План виконання — схема, за якою SQL Server виконує запит. У SSMS `Ctrl+L` показує оцінковий план без виконання, а `Ctrl+M` вмикає фактичний для наступного запуску.
+
+**Основні оператори доступу**
+
+| Оператор | Що робить |
+|---|---|
+| Index Seek | шукає за ключем індексу — дешево |
+| Index Scan, Clustered Index Scan, Table Scan | читає індекс або таблицю повністю |
+| Key Lookup, RID Lookup | дочитує стовпці з таблиці для кожного рядка |
+
+**Як користуватися**
+
+1. Читайте справа наліво: дані течуть від таблиць до `SELECT`.
+2. Товщина стрілки — кількість рядків.
+3. Жовтий трикутник — попередження: наведіть курсор на оператор.
+
+**Типова помилка**
+
+Вважати будь-який scan поганим. Маленьку таблицю або майже всі рядки scan прочитає швидше, ніж тисячі seek.
+
+**Підсумок:** план показує, як сервер добуває рядки; насамперед шукайте scan великих таблиць, lookup і попередження.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+- Оптимізатор оцінює кількість рядків кожного оператора за статистикою й вибирає найдешевший із розглянутих планів.
+- Оцінковий план — результат компіляції. Фактичний додає Actual Number of Rows, Number of Executions, час і читання по операторах.
+- Головний сигнал — Estimated проти Actual Rows. Помилка на порядок означає застарілу статистику, несаргабельну умову або план, скомпільований під інші значення параметрів.
+
+**Коли що обирати**
+
+| З'єднання | Коли добре | Ціна |
+|---|---|---|
+| Nested Loops | зовнішній вхід малий, у внутрішнього є індекс | пошук у внутрішньому на кожен зовнішній рядок |
+| Hash Match | великі несортовані входи | пам'ять під хеш-таблицю, чекає побудови таблиці |
+| Merge Join | обидва входи відсортовані за ключем | Sort, якщо готового порядку немає |
+
+**Пастки**
+
+- Відсотки вартості — оцінка навіть у фактичному плані.
+- На внутрішній стороні Nested Loops оцінка рядків дана на одне виконання, а факт — сума за всі. Діліть факт на Number of Executions.
+
+**Правило**
+
+Спершу оператори з найбільшою розбіжністю оцінки й факту та з найбільшою кількістю читань, потім попередження.
+
+**Підсумок:** план — це рішення оптимізатора на основі оцінок; шукайте місце, де оцінка розійшлася з фактом.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- Керування йде зліва направо: кореневий оператор запитує рядки в дочірніх, а дані течуть справа наліво. Тому `TOP` ліворуч може зупинити scan праворуч після перших рядків.
+- Sort і Hash Match отримують виділення пам'яті до старту, за оцінкою рядків. Недооцінка веде до скидання в tempdb, переоцінка — до очікування пам'яті іншими запитами (`RESOURCE_SEMAPHORE`).
+- Із SQL Server 2017 у <T k="batch-mode">пакетному режимі</T> (batch mode) є Adaptive Join: вибір між Hash і Nested Loops за фактичною кількістю рядків.
+
+**Попередження, які варто знати**
+
+- `PlanAffectingConvert` — неявне перетворення заважає seek або оцінці.
+- Spill to tempdb — забракло виділеної пам'яті.
+- No Join Predicate — пропущено умову з'єднання.
+- Columns With No Statistics, Excessive Grant і підказка Missing Index.
+
+**Як перевірити в продакшені**
+
+- План із кешу (`sys.dm_exec_query_plan`) — оцінковий, без фактичних рядків.
+- Із SQL Server 2019 lightweight profiling увімкнено за замовчуванням. Із `LAST_QUERY_PLAN_STATS = ON` останній фактичний план віддає `sys.dm_exec_query_plan_stats`.
+- Для запиту, що виконується, — `sys.dm_exec_query_statistics_xml` або Live Query Statistics.
+
+**Підсумок:** читайте фактичний план як історію оцінок: де оцінка розійшлася з фактом, там неправильні з'єднання, пам'ять і порядок операцій.
+
+</A>
+
+<Ex title="T-SQL">
+
+```sql
+DROP TABLE IF EXISTS dbo.OrderLines, dbo.Orders;
+CREATE TABLE dbo.Orders (OrderId int PRIMARY KEY, CustomerId int NOT NULL);
+CREATE TABLE dbo.OrderLines
+(
+    OrderId int NOT NULL, LineNum int NOT NULL, Qty int NOT NULL,
+    PRIMARY KEY (OrderId, LineNum)
+);
+INSERT dbo.Orders (OrderId, CustomerId)
+SELECT TOP (50000) n, n % 1000
+FROM (SELECT CAST(ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS int) AS n
+      FROM sys.all_objects AS a CROSS JOIN sys.all_objects AS b) AS t;
+INSERT dbo.OrderLines (OrderId, LineNum, Qty)
+SELECT OrderId, 1, CustomerId % 7 FROM dbo.Orders;
+
+SET STATISTICS IO, TIME ON;  -- у SSMS увімкніть фактичний план: Ctrl+M
+-- Підказки — лише для експерименту: один запит, три алгоритми з'єднання
+SELECT SUM(l.Qty) FROM dbo.Orders AS o JOIN dbo.OrderLines AS l ON l.OrderId = o.OrderId
+OPTION (LOOP JOIN);   -- 50 000 seek у внутрішній індекс: найбільше читань
+SELECT SUM(l.Qty) FROM dbo.Orders AS o JOIN dbo.OrderLines AS l ON l.OrderId = o.OrderId
+OPTION (MERGE JOIN);  -- два впорядковані scan, без сортування
+SELECT SUM(l.Qty) FROM dbo.Orders AS o JOIN dbo.OrderLines AS l ON l.OrderId = o.OrderId
+OPTION (HASH JOIN);   -- хеш-таблиця в пам'яті: Memory Grant у властивостях SELECT
+```
+
+</Ex>
+
+<Next>
+
+- Чому вартість у відсотках у фактичному плані може вводити в оману? — Це оцінка оптимізатора, а не вимірювання.
+- Чим Key Lookup відрізняється від RID Lookup? — Перший шукає за ключем кластеризації, другий — за фізичною адресою рядка в купі.
+- Коли Hash Match кращий за Nested Loops? — Коли обидва входи великі й на внутрішній стороні немає відповідного індексу.
+- Що означає попередження про скидання в tempdb? — Операторові забракло виділеної пам'яті: оцінку рядків занижено.
+- Як отримати фактичний план запиту з продакшену? — `sys.dm_exec_query_plan_stats` із `LAST_QUERY_PLAN_STATS` (SQL Server 2019+) або Extended Events.
+
+</Next>
+
+<Src>
+
+- [Display an actual execution plan](https://learn.microsoft.com/sql/relational-databases/performance/display-an-actual-execution-plan)
+- [Showplan logical and physical operators reference](https://learn.microsoft.com/sql/relational-databases/showplan-logical-and-physical-operators-reference)
+- [Query profiling infrastructure](https://learn.microsoft.com/sql/relational-databases/performance/query-profiling-infrastructure)
+
+</Src>
+
+</Q>
+
+<Q id="db.index.parameter-sniffing" level="s">
+
+## Що таке parameter sniffing і кеш планів, як діагностувати й лікувати проблему?
+
+<A short l="j">
+
+SQL Server компілює план параметризованого запиту один раз, під значення першого виклику, і кладе його в кеш планів. Це <T k="parameter-sniffing">parameter sniffing</T>: якщо перше значення було рідкісним, а наступні частими, усі виклики отримають невдалий для них план.
+
+</A>
+
+<A short l="m">
+
+Процедури та `sp_executesql`, через який ADO.NET і EF Core надсилають параметризовані запити, повторно використовують план, скомпільований під перші значення. За перекошених даних один план не підходить усім: seek із lookup для клієнта з 10 замовленнями — катастрофа для клієнта з мільйоном. Лікують точково: `OPTION (RECOMPILE)` для рідкісних важких запитів, `OPTIMIZE FOR` під типове значення, а без зміни коду — <T k="query-store">Query Store</T>.
+
+</A>
+
+<A short l="s">
+
+Sniffing — нормальна поведінка, що заощаджує компіляції; проблема — чутливість плану до параметрів за перекошених даних. Доказ — кілька планів і розкид часу в одного `query_hash`, а в XML плану `ParameterCompiledValue` відрізняється від `ParameterRuntimeValue`. Лікування — компроміс між ціною компіляції та стабільністю: `RECOMPILE`, `OPTIMIZE FOR`, <T k="plan-forcing">закріплення плану</T>, <T k="query-store-hints">підказки Query Store</T> або <T k="psp-optimization">PSP optimization</T> у SQL Server 2022.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+- **Кеш планів** — пам'ять, де SQL Server зберігає скомпільовані плани, щоб не компілювати запит заново.
+- **Parameter sniffing** — під час першої компіляції оптимізатор «підглядає» значення параметрів і будує план під них.
+
+**Чому це проблема**
+
+У клієнта A п'ять замовлень, у клієнта B — пів мільйона. Якщо першим прийшов A, у кеші опиниться план із пошуком за індексом і Key Lookup. Для B цей план зробить пів мільйона lookup, хоча швидше було б прочитати таблицю повністю.
+
+**Типова помилка**
+
+Лікувати проблему перезапуском сервера або `DBCC FREEPROCCACHE` без параметрів. Це скине всі плани, а поганий повернеться під час наступного «невдалого» першого виклику.
+
+**Підсумок:** план компілюється під перші значення параметрів і повторно використовується для всіх інших.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+1. ADO.NET і EF Core надсилають параметризований запит через `sp_executesql`. Текст запиту разом з оголошеннями параметрів — частина ключа кешу.
+2. Під час першого виклику оптимізатор будує план за гістограмою для переданих значень і кладе його в кеш.
+3. Виклики з тим самим текстом, типами параметрів і SET-параметрами сесії беруть готовий план.
+4. Після оновлення статистики або витіснення з кешу план компілюється заново — під значення того виклику, що прийде першим.
+
+**Коли що обирати**
+
+| Засіб | Коли |
+|---|---|
+| `OPTION (RECOMPILE)` | запит рідкісний і важкий, компіляція дешевша за поганий план |
+| `OPTIMIZE FOR (@p = ...)` | є типове значення, план під нього годиться всім |
+| `OPTIMIZE FOR UNKNOWN` | потрібен середній план за щільністю, а не за першим значенням |
+| Закріплення плану | код змінювати не можна, а добрий план уже був |
+
+**Пастки**
+
+- Локальна змінна замість параметра (`DECLARE @c int = @CustomerId`) діє як `OPTIMIZE FOR UNKNOWN`: план будується за середньою щільністю.
+- У SSMS за замовчуванням `ARITHABORT ON`, а в ADO.NET — `OFF`. Це різні записи в кеші, тому в SSMS запит компілюється заново під ваші значення й «літає».
+
+**Підсумок:** sniffing заощаджує компіляції, а лікують його точково — для запитів із перекошеними даними.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- В XML фактичного плану кожен параметр має `ParameterCompiledValue` і `ParameterRuntimeValue`. Їхня розбіжність — прямий доказ.
+- Кілька `query_plan_hash` на один `query_hash` і великий розкид `min_elapsed_time` і `max_elapsed_time` у `sys.dm_exec_query_stats` — ознака чутливості до параметрів.
+- Query Store з'явився в SQL Server 2016 і для нових баз увімкнений за замовчуванням із 2022. Він зберігає плани та їхню статистику виконання, регресію видно у звіті Regressed Queries.
+
+**Компроміси**
+
+| Засіб | Ціна |
+|---|---|
+| `RECOMPILE` | CPU на компіляцію під час кожного виклику |
+| `sp_query_store_force_plan` | план зафіксований за будь-якого зростання даних |
+| Підказки Query Store, 2022+ | `RECOMPILE` або `OPTIMIZE FOR` без зміни коду, зручно для запитів EF |
+| PSP optimization, 2022+, рівень 160 | кілька планів лише для предикатів-рівностей, більше записів у кеші |
+
+SQL Server 2025 на рівні сумісності 170 додав optional parameter plan optimization: для шаблону `col = @p OR @p IS NULL` — окремі плани для `NULL` і не-`NULL`.
+
+**Як перевірити в продакшені**
+
+- Query Store: запит із кількома планами й різним часом. Добрий план закріплюють, потім стежать за регресіями.
+- Відтворюють той самий `sp_executesql` з тим самим оголошенням параметрів і `SET ARITHABORT OFF`. Запит із трасування з підставленими літералами — уже інший запит: літерал дає свій план, локальна змінна — план за щільністю.
+
+**Підсумок:** sniffing лікують точково й вимірювано: довести за `ParameterCompiledValue`, вибрати між перекомпіляцією, фіксацією плану й PSP, перевірити інші значення.
+
+</A>
+
+<Ex title="T-SQL">
+
+```sql
+DROP TABLE IF EXISTS dbo.Orders;
+CREATE TABLE dbo.Orders
+(
+    OrderId    int IDENTITY PRIMARY KEY,
+    CustomerId int           NOT NULL,
+    Amount     decimal(12,2) NOT NULL
+);
+-- Перекіс: у клієнта 1 — 100 000 замовлень, в інших — по одному
+INSERT dbo.Orders (CustomerId, Amount)
+SELECT TOP (100000) 1, 10 FROM sys.all_objects AS a CROSS JOIN sys.all_objects AS b;
+INSERT dbo.Orders (CustomerId, Amount)
+SELECT TOP (1000) 1 + ROW_NUMBER() OVER (ORDER BY (SELECT NULL)), 10 FROM sys.all_objects;
+CREATE INDEX IX_Orders_CustomerId ON dbo.Orders (CustomerId);
+
+-- Так запит надсилають ADO.NET і EF Core
+DECLARE @sql nvarchar(200) = N'SELECT SUM(Amount) FROM dbo.Orders WHERE CustomerId = @c';
+EXEC sp_executesql @sql, N'@c int', @c = 2;  -- план: Seek + Key Lookup, потрапляє в кеш
+EXEC sp_executesql @sql, N'@c int', @c = 1;  -- той самий план: 100 000 Key Lookup
+-- На рівні сумісності 160+ PSP optimization може побудувати другий план
+
+-- Без зміни застосунку (SQL Server 2022+): знайти query_id у Query Store і додати підказку
+-- EXEC sys.sp_query_store_set_hints @query_id = 42, @query_hints = N'OPTION (RECOMPILE)';
+```
+
+</Ex>
+
+<Next>
+
+- Чому запит швидкий у SSMS і повільний із застосунку? — Різні SET-параметри (`ARITHABORT`) дають різні записи в кеші, і в SSMS план компілюється під ваші значення.
+- Чим `OPTIMIZE FOR UNKNOWN` відрізняється від `RECOMPILE`? — Перший будує один середній план за щільністю, другий — свіжий план під кожне значення ціною компіляції.
+- Як прибрати поганий план одного запиту? — `DBCC FREEPROCCACHE (plan_handle)` або `sp_recompile` для процедури, а не очищення всього кешу.
+- Що робить PSP optimization? — Для рівності за перекошеним стовпцем тримає кілька варіантів плану за діапазонами кардинальності.
+- Як виправити план запиту EF Core, не змінюючи код? — Query Store: закріпити добрий план або додати підказку через `sys.sp_query_store_set_hints`.
+
+</Next>
+
+<Src>
+
+- [Parameter Sensitive Plan optimization](https://learn.microsoft.com/sql/relational-databases/performance/parameter-sensitive-plan-optimization)
+- [Query Store hints](https://learn.microsoft.com/sql/relational-databases/performance/query-store-hints)
+- [Query processing architecture guide: parameter sensitivity](https://learn.microsoft.com/sql/relational-databases/query-processing-architecture-guide#parameter-sensitivity)
+
+</Src>
+
+</Q>
+
+<Q id="db.index.statistics-maintenance" level="s">
+
+## Статистика, фрагментація й обслуговування індексів: що важливо і коли потрібні filtered і columnstore індекси?
+
+<A short l="j">
+
+Статистика — відомості про розподіл значень стовпця (гістограма), за якими оптимізатор оцінює кількість рядків, і її треба тримати свіжою. <T k="filtered-index">Фільтрований індекс</T> зберігає лише частину рядків, наприклад необроблені завдання, а <T k="columnstore-index">columnstore-індекс</T> зберігає дані за стовпцями й прискорює звіти по мільйонах рядків.
+
+</A>
+
+<A short l="m">
+
+Статистика оновлюється автоматично, коли кількість змін перевищить поріг; із SQL Server 2016 для великих таблиць він дорівнює `SQRT(1000 * n)`. <T k="index-fragmentation">Фрагментацію</T> і низьку <T k="page-density">щільність сторінок</T> виправляють `REORGANIZE` і `REBUILD`, але Microsoft радить не обслуговувати індекси за фіксованими порогами, а вимірювати ефект. Фільтрований індекс добрий для малої гарячої частини таблиці, columnstore — для аналітики зі стисненням і пакетним режимом.
+
+</A>
+
+<A short l="s">
+
+Після `REBUILD` запити часто прискорюються не через дефрагментацію: перебудова оновила статистику з повним скануванням, і плани перекомпілювалися. Тому спершу оновлюють статистику, а `REBUILD` залишають для низької щільності сторінок, підтвердженої вимірюванням. Фільтрований індекс не підходить параметру, який може вийти за фільтр, а columnstore дорогий для точкових змін — обидва вибирають під конкретний профіль навантаження.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+- **Статистика** — об'єкт із гістограмою значень стовпця: скільки рядків припадає на кожен діапазон. За нею оптимізатор вирішує, seek чи scan.
+- **Фрагментація** — логічний порядок сторінок індексу розходиться з фізичним, а сторінки заповнені не до кінця.
+- **Фільтрований індекс** — `CREATE INDEX ... WHERE Status = 0`: у ньому лише відповідні рядки.
+- **Columnstore** — зберігає кожен стовпець окремо й стиснуто, тому агрегати по мільйонах рядків читають мало даних.
+
+**Як користуватися**
+
+- Автооновлення статистики (`AUTO_UPDATE_STATISTICS`) не вимикають.
+- Після масового завантаження статистику оновлюють вручну: `UPDATE STATISTICS dbo.Orders`.
+
+**Типова помилка**
+
+Нічний `REBUILD` усіх індексів «для профілактики». Він навантажує диск і журнал, а користь часто дає лише оновлена статистика.
+
+**Підсумок:** свіжа статистика важливіша за дефрагментацію, а filtered і columnstore — інструменти для особливих профілів даних.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+- Гістограма — до 200 кроків за першим стовпцем статистики, плюс щільність для префіксів стовпців.
+- На рівні сумісності 130+ поріг автооновлення — `MIN(500 + 0.2 * n, SQRT(1000 * n))` змін. Для 2 млн рядків це близько 45 000, а не 400 000.
+- Із `AUTO_UPDATE_STATISTICS_ASYNC` запит не чекає оновлення: він компілюється зі старою статистикою, а нова рахується у фоні.
+
+**Обслуговування**
+
+| Операція | Що робить |
+|---|---|
+| `UPDATE STATISTICS` | перераховує статистику, дешево |
+| `REORGANIZE` | ущільнює листки, завжди онлайн, статистику не чіпає |
+| `REBUILD` | перестворює індекс і статистику з повним скануванням |
+
+**Коли що обирати**
+
+- Filtered — мала гаряча частина таблиці (черга, `IsDeleted = 0`) та унікальність серед не-`NULL` значень.
+- Nonclustered columnstore — аналітика просто по OLTP-таблиці, clustered columnstore — таблиці фактів сховища.
+
+**Пастки**
+
+- Індекс `WHERE Status = 0` не підійде запиту `WHERE Status = @s`: закешований план мусить працювати за будь-якого значення. Потрібен літерал або `OPTION (RECOMPILE)`.
+- Зміна таблиці з фільтрованим індексом падає за `QUOTED_IDENTIFIER OFF` — так за замовчуванням у sqlcmd і в процедурах, створених із цим налаштуванням.
+
+**Підсумок:** статистику оновлюють регулярно, індекси перебудовують за вимірюваннями, filtered і columnstore вибирають під профіль даних.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- `REBUILD` оновлює статистику індексу як `FULLSCAN`, і залежні від неї плани перекомпілюються. Microsoft прямо пише, що ефект «після перебудови» часто дає саме статистика.
+- Фрагментація заважає, коли послідовне читання помітно швидше за випадкове, — на HDD. На SSD і для даних у пам'яті важливіша щільність сторінок: `avg_page_space_used_in_percent` у `sys.dm_db_index_physical_stats`.
+- Columnstore ділить таблицю на групи до 1 048 576 рядків (rowgroup) і стискає кожен стовпець у сегмент із min і max. Запит пропускає сегменти поза умовою, а пакетний режим обробляє рядки пачками.
+- Дрібні вставки потрапляють у <T k="delta-store">delta store</T> — звичайне B-дерево; видалення в стиснених групах лише позначає рядки.
+
+**Ціна**
+
+- `REBUILD` пише в журнал і потребує місця під копію індексу. `ONLINE = ON` є лише в Enterprise, відновлювана перебудова (`RESUMABLE = ON`) — із SQL Server 2017.
+- `UPDATE` у columnstore — це позначка видалення плюс вставка в delta store. Для пошуку окремих рядків поверх clustered columnstore додають B-tree індекс.
+
+**Компроміси**
+
+- Ordered columnstore (`ORDER (...)`): clustered — із SQL Server 2022, nonclustered — із 2025. Пропуск сегментів кращий, завантаження повільніше.
+- Пакетний режим без columnstore — batch mode on rowstore, SQL Server 2019 на рівні сумісності 150.
+
+**Як перевірити в продакшені**
+
+- `sys.dm_db_stats_properties`: `last_updated`, `rows_sampled`, `modification_counter`.
+- Ефект обслуговування вимірюють у Query Store до і після, а не за відсотком фрагментації.
+
+**Підсумок:** статистику обслуговують регулярно, індекси — за вимірюваннями, а filtered і columnstore виграють лише на своєму профілі даних.
+
+</A>
+
+<Ex title="T-SQL">
+
+```sql
+DROP TABLE IF EXISTS dbo.Tasks;
+CREATE TABLE dbo.Tasks
+(
+    TaskId    int IDENTITY PRIMARY KEY,
+    Status    tinyint   NOT NULL,  -- 0 — нове, 1 — оброблене
+    CreatedAt datetime2 NOT NULL DEFAULT SYSUTCDATETIME()
+);
+INSERT dbo.Tasks (Status)
+SELECT TOP (100000) IIF(ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) % 1000 = 0, 0, 1)
+FROM sys.all_objects AS a CROSS JOIN sys.all_objects AS b;
+
+-- Фільтрований індекс: 100 нових завдань зі 100 000
+CREATE INDEX IX_Tasks_New ON dbo.Tasks (CreatedAt) WHERE Status = 0;
+SELECT TOP (10) TaskId FROM dbo.Tasks WHERE Status = 0 ORDER BY CreatedAt; -- Seek по IX_Tasks_New
+
+-- Коли оновлювалася статистика і скільки змін накопичилося
+SELECT s.name, sp.last_updated, sp.rows, sp.modification_counter
+FROM sys.stats AS s
+CROSS APPLY sys.dm_db_stats_properties(s.object_id, s.stats_id) AS sp
+WHERE s.object_id = OBJECT_ID('dbo.Tasks');
+
+-- Щільність сторінок і фрагментація
+SELECT index_id, avg_page_space_used_in_percent, avg_fragmentation_in_percent
+FROM sys.dm_db_index_physical_stats(DB_ID(), OBJECT_ID('dbo.Tasks'), NULL, NULL, 'SAMPLED');
+```
+
+</Ex>
+
+<Next>
+
+- Чому після `REBUILD` запити прискорилися? — Частіше через статистику, оновлену з `FULLSCAN`, і перекомпіляцію планів, а не через дефрагментацію.
+- Чим `REORGANIZE` відрізняється від `REBUILD`? — Перший ущільнює листки онлайн і не чіпає статистику, другий перестворює індекс і статистику.
+- Чому фільтрований індекс не використовується з параметром? — Закешований план має працювати для будь-якого значення, а значення може вийти за фільтр.
+- Коли columnstore — погана ідея? — Часті точкові зміни й пошук окремих рядків в OLTP.
+- Як зрозуміти, що статистика застаріла? — `modification_counter` і `last_updated` у `sys.dm_db_stats_properties` та розбіжність оцінки й факту в плані.
+
+</Next>
+
+<Src>
+
+- [Statistics](https://learn.microsoft.com/sql/relational-databases/statistics/statistics)
+- [Optimize index maintenance](https://learn.microsoft.com/sql/relational-databases/indexes/reorganize-and-rebuild-indexes)
+- [Columnstore indexes: overview](https://learn.microsoft.com/sql/relational-databases/indexes/columnstore-indexes-overview)
+
+</Src>
+
+</Q>

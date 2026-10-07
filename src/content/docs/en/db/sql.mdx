@@ -1,0 +1,1057 @@
+---
+title: SQL and T-SQL
+description: JOINs, grouping and logical query processing order, subqueries and CTEs, window functions, procedures and functions, set-based thinking and TVPs.
+sidebar:
+  order: 1
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+The query language through the eyes of a retail system developer: joins, grouping, subqueries and CTEs, window functions, procedures and functions, working with sets instead of loops. The main dialect is T-SQL; where PostgreSQL behaves differently, it gets one line here, and the details are in [PostgreSQL vs SQL Server](/sobes/en/db/postgres/).
+
+<Q id="db.sql.joins" level="j">
+
+## What kinds of JOIN are there and how do they differ?
+
+<A short l="j">
+
+An <T k="inner-join">INNER JOIN</T> returns only the pairs of rows that satisfy the join condition, while <T k="outer-join">outer joins</T> (LEFT, RIGHT, FULL) also keep rows without a match and fill the other table's columns with `NULL`. That is why a list of all stores with their sales uses a LEFT JOIN: stores with no sales still show up.
+
+</A>
+
+<A short l="m">
+
+JOIN types differ in which unmatched rows survive: INNER keeps none, LEFT and RIGHT keep one side, FULL keeps both, and a <T k="cross-join">CROSS JOIN</T> builds every combination with no condition. T-SQL also has <T k="apply-operator">`APPLY`</T>: the right side is evaluated for each row on the left, which is how you get "the last N sales of each store". The main trap is putting a condition on the right table of a LEFT JOIN into `WHERE`: rows with `NULL` are dropped and the join silently becomes an inner join.
+
+</A>
+
+<A short l="s">
+
+Logically, a JOIN is a Cartesian product filtered by `ON`; an outer join then adds back the unmatched rows, and only after that does `WHERE` run. Physically, the <T k="query-optimizer">optimizer</T> picks Nested Loops, Merge or Hash, and can drop the join entirely if a unique key or a trusted foreign key allows it. The expensive mistakes are row multiplication on a non-unique join key, which inflates `SUM`, and `JOIN` plus `DISTINCT` where `EXISTS` was needed. In PostgreSQL, `APPLY` is called `LATERAL`.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+A JOIN combines rows of two tables using the condition in `ON`. The types differ in what happens to rows without a match.
+
+| Type | What it returns |
+|---|---|
+| `INNER JOIN` | only rows that have a match |
+| `LEFT JOIN` | all rows on the left; no match — `NULL` on the right |
+| `RIGHT JOIN` | the same for the right table |
+| `FULL JOIN` | all rows of both tables |
+| `CROSS JOIN` | every combination, no condition |
+
+**How to use**
+
+- Receipts with the store name — `INNER JOIN`.
+- All stores, even without sales — `LEFT JOIN` from stores to sales.
+- A "store × day" grid for a report with zeros — `CROSS JOIN` with a calendar.
+
+**Common mistake**
+
+A condition on the right table of a LEFT JOIN in `WHERE`: `WHERE s.SoldOn = '2026-10-01'`. Stores without sales have `NULL` there, the comparison is not true, and they disappear. Such a filter belongs in `ON`.
+
+**Takeaway:** the JOIN type decides what happens to unmatched rows; a filter on the right table of a LEFT JOIN goes into `ON`.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+1. Logically, the server builds all pairs of rows and keeps those where the `ON` condition is true.
+2. An outer join adds the unmatched rows of the preserved side, with `NULL` in place of the other side.
+3. Only then does `WHERE` filter the result.
+
+That is why for an INNER JOIN a condition in `ON` and in `WHERE` is equivalent, but for a LEFT JOIN it is not.
+
+**When to choose what**
+
+| Task | Construct |
+|---|---|
+| Is there a match; no columns needed from the right | `EXISTS` |
+| What exists in only one of two sources | `FULL JOIN` and a check for `NULL` |
+| Top-N or a function of each row's columns | `CROSS APPLY` or `OUTER APPLY` |
+
+`EXISTS` is a <T k="semi-join">semi join</T>: a left row is returned once, however many matches exist. `CROSS APPLY` behaves like an INNER JOIN, `OUTER APPLY` like a LEFT JOIN. A RIGHT JOIN is usually rewritten as a LEFT JOIN — it reads more easily.
+
+**Pitfalls**
+
+- **Row multiplication.** A one-to-many join repeats the header row for every detail, so `SUM(h.Total)` over receipt headers counts the total several times.
+- **`NULL` in the key.** `NULL = NULL` is not true, so rows with `NULL` in the join column never find a match.
+- **LEFT, then INNER.** `A LEFT JOIN B ... JOIN C ON C.Id = B.CId` drops rows of A without B: the inner join demands a match again.
+
+**Rule of thumb**
+
+Filters on the preserved side go into `WHERE`, filters on the joined side into `ON`. An existence check is `EXISTS`, not a JOIN with `DISTINCT`.
+
+**Takeaway:** an outer join adds back unmatched rows after `ON` but before `WHERE` — that is where nearly all the pitfalls come from.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- A logical JOIN does not prescribe an algorithm. The optimizer picks Nested Loops (few outer rows, an index on the inner side), Merge Join (both inputs sorted on the key) or Hash Match (large unsorted inputs). Details are in [Indexes and query plans](/sobes/en/db/indexes/).
+- `APPLY` logically invokes the right side for each row on the left. A subquery or an inline function is expanded into the plan, and the optimizer is free to rewrite it as a regular join.
+- **Join elimination.** The optimizer removes a LEFT JOIN to a table whose columns are not used if the key on the right is unique. It removes an INNER JOIN if there is a trusted (`WITH CHECK`) foreign key on a `NOT NULL` column.
+
+**Cost**
+
+- Row multiplication means not only a wrong total but also extra reads and memory for sorts and hash tables.
+- `JOIN` with `DISTINCT` first multiplies rows, then collapses them with a sort or a hash. `EXISTS` stops at the first match.
+
+**Trade-offs**
+
+- `CROSS APPLY (SELECT TOP (1) ... ORDER BY ...)` is fast with an index on key and date and a small number of outer rows. On millions of rows, numbering in a single pass wins.
+- In PostgreSQL the same is written as `CROSS JOIN LATERAL` and `LEFT JOIN LATERAL ... ON true`.
+
+**How to check in production**
+
+- In the actual plan, compare estimated and actual row counts after the join: an order-of-magnitude jump signals multiplication.
+- If a join was eliminated, the table is simply absent from the plan; if it is there, check that the keys are unique and trusted.
+
+**Takeaway:** a JOIN is a logical set operation; the optimizer picks the algorithm, but row counts and where the condition goes are on you.
+
+</A>
+
+<Ex title="T-SQL">
+
+```sql
+CREATE TABLE #Stores (StoreId int PRIMARY KEY, Name varchar(20));
+CREATE TABLE #Sales (SaleId int PRIMARY KEY, StoreId int, Amount int, SoldOn date);
+INSERT #Stores VALUES (1, 'Center'), (2, 'Station'), (3, 'Outskirts');
+INSERT #Sales VALUES (101, 1, 500, '2026-10-01'), (102, 2, 300, '2026-09-30'),
+                     (103, NULL, 70, '2026-10-01');
+
+-- All stores and their sales on October 1: the filter on the right table goes into ON
+SELECT st.Name, sa.Amount
+FROM #Stores AS st
+LEFT JOIN #Sales AS sa ON sa.StoreId = st.StoreId AND sa.SoldOn = '2026-10-01';
+-- Center 500, Station NULL, Outskirts NULL
+
+-- The same filter in WHERE drops rows with NULL: the LEFT JOIN became an inner join
+SELECT st.Name, sa.Amount
+FROM #Stores AS st
+LEFT JOIN #Sales AS sa ON sa.StoreId = st.StoreId
+WHERE sa.SoldOn = '2026-10-01';
+-- Center 500
+
+-- CROSS APPLY: the last sale of each store; stores without sales drop out
+SELECT st.Name, lastSale.Amount
+FROM #Stores AS st
+CROSS APPLY (SELECT TOP (1) sa.Amount FROM #Sales AS sa
+             WHERE sa.StoreId = st.StoreId ORDER BY sa.SoldOn DESC) AS lastSale;
+-- Center 500, Station 300
+```
+
+</Ex>
+
+<Next>
+
+- How does a condition in `ON` differ from one in `WHERE` for a LEFT JOIN? — In `WHERE`, unmatched rows are dropped and the LEFT JOIN becomes an inner join.
+- When do you need a FULL JOIN? — Reconciling two sources: finding rows that exist in only one of them.
+- How does CROSS APPLY differ from INNER JOIN? — The right side can reference the current left row's columns: a function, `TOP (N)` per row.
+- Why did the total grow after a JOIN? — A one-to-many join repeated rows; aggregate before joining.
+- How do you find stores without sales? — `NOT EXISTS`, or a LEFT JOIN with `WHERE sa.SaleId IS NULL`.
+
+</Next>
+
+<Src>
+
+- [Joins (SQL Server)](https://learn.microsoft.com/sql/relational-databases/performance/joins)
+- [FROM clause plus JOIN, APPLY, PIVOT](https://learn.microsoft.com/sql/t-sql/queries/from-transact-sql)
+- [PostgreSQL: LATERAL subqueries](https://www.postgresql.org/docs/current/queries-table-expressions.html#QUERIES-LATERAL)
+
+</Src>
+
+</Q>
+
+<Q id="db.sql.grouping-order" level="j">
+
+## How do GROUP BY and HAVING work, and in what order is a SELECT logically processed?
+
+<A short l="j">
+
+`GROUP BY` collects rows with equal column values into groups, <T k="aggregate-function">aggregate functions</T> (`SUM`, `COUNT`, `AVG`) compute one value per group, and `HAVING` filters the finished groups. A query is not processed in the order it is written: `FROM` → `WHERE` → `GROUP BY` → `HAVING` → `SELECT` → `ORDER BY`, which is why an alias from `SELECT` cannot be used in `WHERE`.
+
+</A>
+
+<A short l="m">
+
+The <T k="logical-query-processing">logical processing order</T> defines what is visible at each step: `WHERE` filters rows before grouping, `HAVING` filters groups after aggregation, and `SELECT` aliases are available only in `ORDER BY`. After `GROUP BY`, `SELECT` may contain only grouping columns and aggregates, and aggregates skip `NULL`, so `COUNT(col)` can be smaller than `COUNT(*)`. A condition that can be checked before grouping goes into `WHERE`: fewer rows reach the aggregation.
+
+</A>
+
+<A short l="s">
+
+The logical order is the order of name binding, not of execution: the optimizer reorders operations, pushes filters down and may evaluate an expression before `WHERE` has run. That is why `WHERE ISNUMERIC(Code) = 1 AND CAST(Code AS int) > 100` can fail on conversion, and `TRY_CAST` is the safe way. Physically, grouping is done by Stream Aggregate over sorted input or by Hash Aggregate, which needs memory and risks spilling to tempdb. Totals and subtotals in a single pass come from <T k="grouping-sets">`GROUPING SETS`</T>, `ROLLUP` and `CUBE`.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- `GROUP BY` splits rows into groups with equal values of the listed columns.
+- An aggregate function collapses a group into one value: `COUNT`, `SUM`, `AVG`, `MIN`, `MAX`.
+- `HAVING` is a filter on groups; aggregates are allowed in it.
+
+**Logical order**
+
+1. `FROM` and `JOIN` — the source of rows.
+2. `WHERE` — row filter.
+3. `GROUP BY` — groups.
+4. `HAVING` — group filter.
+5. `SELECT` — expressions and aliases.
+6. `DISTINCT`, then `ORDER BY`, then `TOP` or `OFFSET`.
+
+**How to use**
+
+Stores with revenue over 100: `GROUP BY StoreId`, then `HAVING SUM(Amount) > 100` and `ORDER BY Revenue DESC` by alias.
+
+**Common mistake**
+
+Writing `WHERE SUM(Amount) > 100`. At the `WHERE` step there are no groups yet — you need `HAVING`.
+
+**Takeaway:** `WHERE` filters rows, `HAVING` filters groups, and `SELECT` aliases are visible only in `ORDER BY`.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- After `GROUP BY`, each result row is a group. `SELECT` may contain grouping columns, aggregates and expressions over them; any other column is an error.
+- Aggregates skip `NULL`: `COUNT(*)` counts rows, `COUNT(Amount)` counts only non-null values, `AVG` divides by the number of non-`NULL` values.
+- In SQL Server, `AVG` over `int` returns `int`: an average of 400.5 becomes 400. For a fraction use `AVG(Amount * 1.0)` or a cast to `decimal`.
+- All `NULL` values in a grouping column fall into one group, even though `NULL = NULL` is not true.
+
+**When to choose what**
+
+| Condition | Where it goes |
+|---|---|
+| On source columns | `WHERE`: fewer rows reach grouping |
+| On an aggregate | `HAVING` |
+| On a `SELECT` alias | wrap the query in a subquery and filter outside |
+
+**Pitfalls**
+
+- **Conditional aggregation.** Revenue per category in one row is computed with `SUM(CASE WHEN Category = 'Milk' THEN Amount END)`. In PostgreSQL it is shorter: `SUM(Amount) FILTER (WHERE ...)`.
+- **Row order.** Only the outer `ORDER BY` guarantees it. Without it, any order is possible, even if it "was always by key".
+
+**Rule of thumb**
+
+Filter as early as possible: `WHERE` before `HAVING`. Move a repeated expression into a subquery or `CROSS APPLY (VALUES (...))` instead of copying it into `SELECT` and `GROUP BY`.
+
+**Takeaway:** the order `FROM` → `WHERE` → `GROUP BY` → `HAVING` → `SELECT` → `ORDER BY` explains which name and which condition is available where.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- The logical order is the order of name binding. Microsoft's documentation says explicitly that the query processor chooses the physical order and it may differ.
+- The optimizer moves `HAVING` conditions without aggregates below the grouping and pushes filters closer to the table read.
+- Grouping is done by Stream Aggregate (input sorted on the grouping keys, for example by an index) or Hash Aggregate (an in-memory hash table).
+
+**Cost**
+
+- Hash Aggregate and sorts get a <T k="memory-grant">memory grant</T> before they start. If the row estimate is too low, data spills to tempdb and the plan shows a spill warning.
+- An index whose key starts with the `GROUP BY` columns gives a Stream Aggregate with no sort.
+
+**Trade-offs**
+
+- The evaluation order of predicates is not guaranteed. `WHERE ISNUMERIC(Code) = 1 AND CAST(Code AS int) > 100` can fail; the safe version is `TRY_CAST(Code AS int) > 100`.
+- `GROUPING SETS`, `ROLLUP` and `CUBE` compute totals and subtotals in one pass. The `GROUPING()` function tells a total row apart from a group with a real `NULL`.
+- PostgreSQL allows a `SELECT` alias in `GROUP BY` and columns functionally dependent on the group's primary key; SQL Server does not.
+
+**How to check in production**
+
+- In the actual plan, look at the aggregate operator and spill warnings on Sort and Hash.
+- A large gap between estimated and actual rows before aggregation is a reason to check statistics; details are in [Indexes and query plans](/sobes/en/db/indexes/).
+
+**Takeaway:** the logical order explains name visibility, while the optimizer picks the physical one, so never rely on the evaluation order of conditions.
+
+</A>
+
+<Ex title="T-SQL">
+
+```sql
+-- Receipts: store and amount (NULL means the receipt is still open)
+SELECT StoreId,
+       COUNT(*)      AS Receipts,   -- all rows in the group
+       COUNT(Amount) AS Closed,     -- only non-NULL
+       SUM(Amount)   AS Revenue,
+       AVG(Amount)   AS AvgCheck    -- int: the fractional part is dropped
+FROM (VALUES (1, 500), (1, 301), (2, 70), (2, NULL), (3, 900), (4, 1000))
+     AS r(StoreId, Amount)
+WHERE StoreId <> 4                  -- row filter before grouping
+GROUP BY StoreId
+HAVING SUM(Amount) > 100            -- group filter after aggregation
+ORDER BY Revenue DESC;              -- a SELECT alias is visible only here
+-- StoreId Receipts Closed Revenue AvgCheck
+-- 3       1        1      900     900
+-- 1       2        2      801     400    (400.5 in PostgreSQL)
+-- Store 2 (revenue 70) was removed by HAVING, store 4 by WHERE.
+-- WHERE Revenue > 100 would fail: Invalid column name 'Revenue'
+```
+
+</Ex>
+
+<Next>
+
+- Why can't a `SELECT` alias be used in `WHERE`? — `WHERE` is logically processed before `SELECT`, so the name does not exist yet.
+- How does `COUNT(*)` differ from `COUNT(col)`? — The first counts rows, the second counts non-`NULL` values.
+- Can a `HAVING` condition have no aggregate? — It can, but it belongs in `WHERE`; the optimizer usually moves it there anyway.
+- What does `AVG` over an `int` column return? — `int` with the fraction dropped in SQL Server, `numeric` in PostgreSQL.
+- How do you get per-store totals and a grand total in one query? — `GROUP BY ROLLUP (StoreId)` or `GROUPING SETS`.
+
+</Next>
+
+<Src>
+
+- [SELECT: logical processing order](https://learn.microsoft.com/sql/t-sql/queries/select-transact-sql#logical-processing-order-of-the-select-statement)
+- [GROUP BY (Transact-SQL)](https://learn.microsoft.com/sql/t-sql/queries/select-group-by-transact-sql)
+- [AVG (Transact-SQL)](https://learn.microsoft.com/sql/t-sql/functions/avg-transact-sql)
+
+</Src>
+
+</Q>
+
+<Q id="db.sql.cte-subqueries" level="m">
+
+## Subqueries and CTEs: how do they differ, how does recursion work, and why does NOT IN break on NULL?
+
+<A short l="j">
+
+A subquery is a `SELECT` inside another query, and a <T k="cte">CTE</T> (`WITH name AS (...)`) is a named subquery declared before the query; a recursive CTE references itself and walks trees. For a "not in the list" check use `NOT EXISTS`: `NOT IN` over a subquery that contains `NULL` returns no rows at all.
+
+</A>
+
+<A short l="m">
+
+A CTE is a named table expression scoped to one statement: it reads top to bottom and can be referenced several times, but SQL Server does not materialize it, so every reference runs the query again. A <T k="recursive-cte">recursive CTE</T> is an anchor, `UNION ALL` and a recursive part that repeats while it returns rows; `MAXRECURSION` limits the depth, 100 by default. `NOT IN` is broken by <T k="three-valued-logic">three-valued logic</T>: a comparison with `NULL` yields UNKNOWN, while `NOT EXISTS` is an <T k="anti-join">anti join</T> without that trap.
+
+</A>
+
+<A short l="s">
+
+In SQL Server a CTE is syntax, not a temp table: two references mean two executions, so an expensive intermediate result goes into a `#temp` table with statistics. In PostgreSQL 12+ a CTE is inlined only when it is referenced once, and `MATERIALIZED` sets the behavior explicitly. Recursion runs through a spool one row at a time, so large hierarchies use `hierarchyid` or a closure table. `NOT IN` over a nullable column also complicates the plan, while `NOT EXISTS` gives a clean anti semi join.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **Subquery** — a query inside a query: scalar (one value in `SELECT`), table (in `FROM`) or a condition (`IN`, `EXISTS` in `WHERE`).
+- **<T k="correlated-subquery">Correlated subquery</T>** — references columns of the outer query: "sales of this store".
+- **CTE** (common table expression) — a named subquery: `WITH Recent AS (SELECT ...) SELECT ... FROM Recent`.
+- **Recursive CTE** — references itself. It walks trees: categories, org charts, product bundles.
+
+**Why**
+
+A CTE splits a complex query into steps with clear names, so it reads top to bottom like code.
+
+**Common mistake**
+
+`WHERE ProductId NOT IN (SELECT ProductId FROM Stops)` returns nothing when `Stops` contains `NULL`: a comparison with `NULL` gives neither "yes" nor "no". Use `NOT EXISTS`.
+
+**Takeaway:** a CTE is a named subquery; for "not in the list" use `NOT EXISTS`, not `NOT IN`.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+1. **Three-valued logic.** A condition is TRUE, FALSE or UNKNOWN. Any comparison with `NULL`, even `NULL = NULL`, yields UNKNOWN, and `WHERE` lets through only TRUE.
+2. **`NOT IN`.** `x NOT IN (2, NULL)` expands to `x <> 2 AND x <> NULL`. The second part is UNKNOWN, so the whole condition is not TRUE for any row.
+3. **Recursion.** The anchor runs first. Then the recursive part joins to the previous step's result until it returns an empty set. `UNION ALL` glues all steps together.
+4. **Materialization.** SQL Server does not store a CTE: two references mean two executions.
+
+**When to choose what**
+
+| Task | Choice |
+|---|---|
+| Does a related row exist | `EXISTS` or `NOT EXISTS` |
+| A short list of constants | `IN (1, 2, 3)` |
+| Steps of a complex query | CTE |
+| An intermediate result needed many times | temp table `#t` |
+
+**Pitfalls**
+
+- The statement before `WITH` must end with `;`, otherwise it is a syntax error.
+- `MAXRECURSION` defaults to 100: deeper means an error. `OPTION (MAXRECURSION 0)` removes the limit, and with it the protection against infinite loops.
+- `Status <> 'Closed'` does not return rows with `NULL` in `Status`. Add `OR Status IS NULL` or, since SQL Server 2022, write `Status IS DISTINCT FROM 'Closed'`.
+
+**Rule of thumb**
+
+For "not in the list" use `NOT EXISTS`. Declare columns `NOT NULL` where `NULL` makes no sense.
+
+**Takeaway:** `NULL` turns a comparison into UNKNOWN, so `NOT IN` and `<>` lose rows, while `NOT EXISTS` and `IS DISTINCT FROM` do not.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- SQL Server expands a CTE into the query like a view. Per the documentation, the result is not materialized: every outer reference re-executes the definition.
+- In PostgreSQL 12+ a side-effect-free CTE is inlined if it is referenced once and computed once if referenced several times. `MATERIALIZED` and `NOT MATERIALIZED` override that decision.
+- In the plan, a recursive CTE is a spool with a stack (`WITH STACK`) and nested loops: the recursive part processes rows one at a time.
+- `NOT IN` over a nullable column adds `NULL` checks to the plan; `NOT EXISTS` gives a single anti semi join.
+
+**Cost**
+
+- A CTE with three references reads the tables three times. A temp table is computed once and has statistics, while a table variable has no column statistics.
+- Recursion without an index on `ParentId` reads the table on every iteration.
+
+**Trade-offs**
+
+| Storing a hierarchy | Pro | Con |
+|---|---|---|
+| `ParentId` and a recursive CTE | simple, easy to change | traversal is expensive |
+| `hierarchyid` | a subtree is an index range | moving a branch is expensive |
+| Closure table | ancestors and descendants via a plain JOIN | an extra table to maintain on changes |
+
+Three-valued logic applies to constraints too: `CHECK` rejects only FALSE, so `NULL` passes it. A SQL Server unique index allows one `NULL`, PostgreSQL allows any number, and since version 15 you can use `NULLS NOT DISTINCT`.
+
+**How to check in production**
+
+- In the plan, look for the same table read repeatedly by different CTE references.
+- Searching `sys.sql_modules.definition` finds suspicious `NOT IN (SELECT` patterns.
+
+**Takeaway:** a CTE improves readability but does not cache its result, and `NULL` in negations is handled with `NOT EXISTS` or a `NOT NULL` constraint.
+
+</A>
+
+<Ex title="T-SQL">
+
+```sql
+DECLARE @Products TABLE (ProductId int NOT NULL);
+DECLARE @Stops TABLE (ProductId int NULL);     -- a stop list with an "empty" row
+INSERT @Products VALUES (1), (2), (3);
+INSERT @Stops VALUES (2), (NULL);
+
+SELECT ProductId FROM @Products
+WHERE ProductId NOT IN (SELECT ProductId FROM @Stops);
+-- empty: 1 <> NULL yields UNKNOWN, and the row is dropped
+
+SELECT p.ProductId FROM @Products AS p
+WHERE NOT EXISTS (SELECT 1 FROM @Stops AS s WHERE s.ProductId = p.ProductId);
+-- 1, 3
+```
+
+</Ex>
+
+<Ex title="T-SQL">
+
+```sql
+-- All subcategories of "Food" with their nesting level
+WITH Categories AS (
+    SELECT * FROM (VALUES (1, NULL, 'Food'), (2, 1, 'Dairy'), (3, 2, 'Cheese'),
+                          (4, 1, 'Bakery'), (5, NULL, 'Household')) AS c(Id, ParentId, Name)
+), Tree AS (
+    SELECT Id, Name, 0 AS Lvl FROM Categories WHERE Name = 'Food'   -- anchor
+    UNION ALL
+    SELECT c.Id, c.Name, t.Lvl + 1                                  -- recursive part
+    FROM Categories AS c
+    JOIN Tree AS t ON c.ParentId = t.Id
+)
+SELECT Id, Name, Lvl FROM Tree
+OPTION (MAXRECURSION 100);   -- 100 is the default anyway; 0 means no limit
+-- Food 0, Dairy 1, Bakery 1, Cheese 2 (row order is not guaranteed)
+```
+
+</Ex>
+
+<Next>
+
+- Is a CTE materialized in SQL Server? — No, every reference runs it again; for reuse, use a temp table.
+- Why did `NOT IN` return an empty result? — The subquery contains `NULL`, so the condition became UNKNOWN for every row.
+- What limits recursion depth? — `MAXRECURSION`: 100 by default, allowed from 0 to 32767, 0 means no limit.
+- Is there a difference between `IN` and `EXISTS` for a positive check? — Usually not: the optimizer builds the same semi join.
+- How do you write recursion in PostgreSQL? — `WITH RECURSIVE`; since version 14 there is `CYCLE` to guard against cycles.
+
+</Next>
+
+<Src>
+
+- [WITH common_table_expression (Transact-SQL)](https://learn.microsoft.com/sql/t-sql/queries/with-common-table-expression-transact-sql)
+- [IS DISTINCT FROM (Transact-SQL)](https://learn.microsoft.com/sql/t-sql/queries/is-distinct-from-transact-sql)
+- [PostgreSQL: WITH queries](https://www.postgresql.org/docs/current/queries-with.html)
+
+</Src>
+
+</Q>
+
+<Q id="db.sql.window-functions" level="m">
+
+## What are window functions and what problems do they solve?
+
+<A short l="j">
+
+A <T k="window-function">window function</T> computes a value over a set of rows related to the current one but, unlike `GROUP BY`, does not collapse them: every row stays in the result with its own value. With `OVER (PARTITION BY ... ORDER BY ...)` you number rows (`ROW_NUMBER`), take a value from the previous row (`LAG`) and compute a running total.
+
+</A>
+
+<A short l="m">
+
+A window is defined by `PARTITION BY` (the groups the calculation runs within), `ORDER BY` (the order) and a <T k="window-frame">frame</T>, `ROWS` or `RANGE` (which rows relative to the current one take part). Typical tasks are <T k="ranking-function">ranking</T> and top-N per group, comparing with a neighboring row via `LAG` and `LEAD`, running and moving totals, and removing duplicates. The main trap is the default frame `RANGE ... CURRENT ROW`: rows with equal sort keys get the same sum, and `LAST_VALUE` returns the current row.
+
+</A>
+
+<A short l="s">
+
+Window functions are evaluated at the `SELECT` step, after `WHERE` and `GROUP BY`, so you can filter on them only in an outer query. Their cost is a sort plus a <T k="window-spool">Window Spool</T> for the frame: the default `RANGE` writes to a worktable in tempdb, while `ROWS` with a frame under 10,000 rows works in memory. That is why running totals are written with `ROWS UNBOUNDED PRECEDING`, the sort is removed with an index, and <T k="batch-mode">batch mode</T> since SQL Server 2019 works without columnstore too.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+A window function is a function with `OVER (...)`. It sees a "window" of rows around the current one and returns a value for each row.
+
+| Function | What it does |
+|---|---|
+| `ROW_NUMBER()` | row number: 1, 2, 3 |
+| `RANK()`, `DENSE_RANK()` | position, taking ties into account |
+| `LAG()`, `LEAD()` | value from the previous or next row |
+| `SUM() OVER (...)` | sum over the window, for example a running one |
+
+**How to use**
+
+- `PARTITION BY StoreId` — compute separately for each store.
+- `ORDER BY SoldOn` — the order of rows within a store.
+- `LAG(Amount) OVER (PARTITION BY StoreId ORDER BY SoldOn)` — the previous day's revenue next to the current one.
+
+**Common mistake**
+
+Writing `WHERE ROW_NUMBER() OVER (...) = 1`. Window functions are allowed only in `SELECT` and `ORDER BY`, so you number rows in a CTE or subquery and filter outside.
+
+**Takeaway:** a window function adds a value computed over its window to each row and does not reduce the number of rows.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+1. `PARTITION BY` divides rows into partitions; the calculation restarts in each one.
+2. `ORDER BY` sets the order within a partition.
+3. The frame (`ROWS` or `RANGE`) selects rows relative to the current one. If there is an `ORDER BY` but no frame, `RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW` applies.
+
+**Ties**
+
+| Function | For revenue 900, 700, 700, 300 |
+|---|---|
+| `ROW_NUMBER` | 1, 2, 3, 4 — order among ties is undefined |
+| `RANK` | 1, 2, 2, 4 — with a gap |
+| `DENSE_RANK` | 1, 2, 2, 3 — no gap |
+
+**When to choose what**
+
+- Top-N per group and removing duplicates — `ROW_NUMBER` in a CTE and a filter on `rn` in the outer query.
+- "Everyone who shares a podium place" — `RANK` or `DENSE_RANK`.
+- Change versus the previous period — `LAG`; a running total — `SUM(...) OVER (... ROWS UNBOUNDED PRECEDING)`.
+
+**Pitfalls**
+
+- **Default `RANGE`.** Rows with the same `ORDER BY` key enter the frame together: two receipts on the same day get the same "running" total.
+- **`LAST_VALUE`.** With the default frame it returns the current row. You need `ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING`.
+- **Nondeterminism.** `ROW_NUMBER` over a non-unique key numbers ties arbitrarily — add a unique column to `ORDER BY`.
+
+**Rule of thumb**
+
+For running totals, always spell out the frame: `ROWS UNBOUNDED PRECEDING`.
+
+**Takeaway:** a window is a partition, an order and a frame; almost all mistakes come from the default frame and a non-unique sort.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- Window functions are evaluated at the `SELECT` step, after `GROUP BY` and `HAVING`, so they work on top of aggregates: `SUM(SUM(Amount)) OVER ()` puts the total revenue next to each store's revenue.
+- The plan needs input sorted by `PARTITION BY` and `ORDER BY`: either a Sort operator or an index in the right order.
+- In row mode the frame is held by a Window Spool: for `ROWS` with a frame under 10,000 rows it is in memory, for `RANGE` and large frames it is a worktable in tempdb.
+- In batch mode, aggregates are computed by Window Aggregate with no spool. Batch mode kicks in with columnstore, and since SQL Server 2019 also on regular tables at compatibility level 150.
+
+**Cost**
+
+- Sorting a large input means a memory grant and a risk of spilling to tempdb.
+- `RANGE` instead of `ROWS` in a running total over a unique key gives the same result but many times more reads.
+
+**Trade-offs**
+
+- A POC index (partition, order, covering: key from the `PARTITION BY` and `ORDER BY` columns, the rest in `INCLUDE`) removes the sort but makes writes more expensive.
+- Top-1 per group via `CROSS APPLY (SELECT TOP (1) ...)` wins when there are few groups and an index; `ROW_NUMBER` wins when there are many groups.
+- SQL Server 2022 added `WINDOW` (compatibility level 160) and `IGNORE NULLS` for `FIRST_VALUE`, `LAST_VALUE`, `LAG`, `LEAD`. `RANGE` with a numeric offset exists in PostgreSQL 11+ but not in SQL Server.
+
+**How to check in production**
+
+- In the actual plan: a Sort before the Window Spool, the execution mode (`Batch` or `Row`), spill warnings.
+- `SET STATISTICS IO ON`: heavy `Worktable` reads point to `RANGE` or a wide frame.
+
+**Takeaway:** a window function costs a sort and a spool; an explicit `ROWS` frame, a POC index and batch mode make it cheaper than self-joins and cursors.
+
+</A>
+
+<Ex title="T-SQL">
+
+```sql
+CREATE TABLE #Receipts (ReceiptId int PRIMARY KEY, StoreId int, SoldOn date, Amount int);
+INSERT #Receipts VALUES
+    (1, 1, '2026-10-01', 100), (2, 1, '2026-10-02', 150), (3, 1, '2026-10-02', 50),
+    (4, 1, '2026-10-03', 120), (5, 2, '2026-10-01', 80),  (6, 2, '2026-10-02', 90);
+
+SELECT ReceiptId, StoreId, Amount,
+       SUM(Amount) OVER (PARTITION BY StoreId ORDER BY SoldOn, ReceiptId
+                         ROWS UNBOUNDED PRECEDING) AS RunRows,
+       SUM(Amount) OVER (PARTITION BY StoreId ORDER BY SoldOn) AS RunRange,  -- RANGE frame
+       Amount - LAG(Amount) OVER (PARTITION BY StoreId ORDER BY SoldOn, ReceiptId) AS Delta
+FROM #Receipts;
+-- ReceiptId StoreId Amount RunRows RunRange Delta
+-- 1         1       100    100     100      NULL
+-- 2         1       150    250     300      50     -- RANGE: both receipts on 10/02
+-- 3         1       50     300     300      -100   -- get the end-of-day total
+-- 4         1       120    420     420      70
+-- 5         2       80     80      80       NULL   -- new partition: count restarts
+-- 6         2       90     170     170      10
+```
+
+</Ex>
+
+<Ex title="T-SQL">
+
+```sql
+-- Top 2 products by revenue in each store
+WITH Ranked AS (
+    SELECT StoreId, Product, Revenue,
+           ROW_NUMBER() OVER (PARTITION BY StoreId ORDER BY Revenue DESC, Product) AS Rn,
+           RANK()       OVER (PARTITION BY StoreId ORDER BY Revenue DESC) AS Rnk,
+           DENSE_RANK() OVER (PARTITION BY StoreId ORDER BY Revenue DESC) AS DenseRnk
+    FROM (VALUES (1, 'Milk', 900), (1, 'Bread', 700), (1, 'Eggs', 700), (1, 'Tea', 300),
+                 (2, 'Milk', 400), (2, 'Coffee', 650)) AS t(StoreId, Product, Revenue)
+)
+SELECT StoreId, Product, Revenue, Rn, Rnk, DenseRnk
+FROM Ranked
+WHERE Rn <= 2;   -- a window function cannot be used in the WHERE of the inner query
+-- 1 Milk   900 1 1 1
+-- 1 Bread  700 2 2 2   -- Eggs is cut: Rn = 3 although Rnk = 2; Tea has Rnk = 4, DenseRnk = 3
+-- 2 Coffee 650 1 1 1
+-- 2 Milk   400 2 2 2
+```
+
+</Ex>
+
+<Next>
+
+- How does `RANK` differ from `DENSE_RANK`? — `RANK` skips positions after ties, `DENSE_RANK` does not.
+- Why is the running total the same on two rows? — The default `RANGE` frame groups rows with equal sort keys.
+- How do you remove duplicates, keeping one row each? — `ROW_NUMBER() OVER (PARTITION BY key ...)` in a CTE and a `DELETE` from the CTE where the number is greater than 1.
+- How do you find continuous sales periods (gaps and islands)? — The difference between the date and `ROW_NUMBER` is constant within a period; group by it.
+- Can you filter on a window function in `WHERE`? — No, only in an outer query: windows are computed at the `SELECT` step.
+
+</Next>
+
+<Src>
+
+- [OVER clause (Transact-SQL)](https://learn.microsoft.com/sql/t-sql/queries/select-over-clause-transact-sql)
+- [Ranking functions (Transact-SQL)](https://learn.microsoft.com/sql/t-sql/functions/ranking-functions-transact-sql)
+- [PostgreSQL: Window functions](https://www.postgresql.org/docs/current/tutorial-window.html)
+
+</Src>
+
+</Q>
+
+<Q id="db.sql.procedures-functions" level="m">
+
+## Stored procedures, functions, views and triggers: what to use when?
+
+<A short l="j">
+
+A <T k="stored-procedure">stored procedure</T> changes data and controls the transaction, a function returns a value or a table inside a query, a view is a saved `SELECT`, and a <T k="dml-trigger">trigger</T> fires on its own on `INSERT`, `UPDATE` or `DELETE`. So "post a document" is written as a procedure, and a reusable data selection as a view or a function.
+
+</A>
+
+<A short l="m">
+
+A procedure is a unit of work with a transaction, error handling and multiple result sets; a function is an expression inside a query with no side effects. An <T k="inline-tvf">inline function</T> (`RETURNS TABLE AS RETURN (SELECT ...)`) is expanded into the plan like a parameterized view, while <T k="scalar-udf">scalar</T> and multi-statement functions are black boxes: before SQL Server 2019, a scalar function ran once per row and prevented parallelism. Procedures need the `SET XACT_ABORT ON` + `TRY/CATCH` pattern with a rollback and `THROW`, otherwise an error can leave an operation half done.
+
+</A>
+
+<A short l="s">
+
+The choice is between transparency to the optimizer and encapsulation: inline TVFs and views expand into the plan, while scalar UDFs and <T k="mstvf">multi-statement TVFs</T> hide their cost — the former run row by row, the latter are estimated at a fixed 100 rows. SQL Server 2019 inlines scalar UDFs, but with a long list of restrictions, checked via `sys.sql_modules.is_inlineable`. Triggers extend the modifying transaction, so they are kept short. <T k="xact-abort">`XACT_ABORT ON`</T> is mandatory also because `CATCH` does not catch a client timeout, and without it the transaction stays open.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+| Object | What it does | How to call |
+|---|---|---|
+| Procedure | any statements, transactions | `EXEC dbo.PostInvoice @id = 1` |
+| Scalar function | returns one value | `SELECT dbo.PriceWithVat(Price)` |
+| Table-valued function | returns a table | `FROM dbo.StoreSales(@storeId)` |
+| View | a saved `SELECT` | `FROM dbo.ActiveProducts` |
+| Trigger | reacts to table changes | fires on its own |
+
+**How to use**
+
+- A business operation that changes data — a procedure.
+- A reusable selection with a parameter — a table-valued function; without a parameter — a view.
+- Auditing and checks that a constraint cannot express — a trigger.
+
+**Common mistake**
+
+Assuming a trigger fires once per row. In SQL Server it fires once per statement, and the `inserted` and `deleted` tables hold all changed rows. `SELECT @id = Id FROM inserted` silently handles only one of them.
+
+**Takeaway:** a procedure changes data, functions and views feed data to queries, and a trigger reacts to changes.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- **Inline TVF** — a single `RETURN (SELECT ...)` expression. The optimizer substitutes it into the query like a view and sees indexes and statistics.
+- **Multi-statement TVF** — fills a table variable with several statements. The optimizer estimates it at 100 rows, and before SQL Server 2014 at one.
+- **Scalar UDF** — before SQL Server 2019 it runs once per row and makes the whole plan single-threaded.
+- **Procedure** — compiled on first call; the plan is cached and reused.
+
+**Error handling**
+
+1. At the start of the procedure — `SET XACT_ABORT, NOCOUNT ON`.
+2. `BEGIN TRY`, `BEGIN TRANSACTION`, the changes, `COMMIT`.
+3. In `BEGIN CATCH` — `IF @@TRANCOUNT > 0 ROLLBACK;` and `THROW;`.
+
+Without `XACT_ABORT`, some errors roll back only one statement, the transaction continues, and you can commit half an operation.
+
+**Pitfalls**
+
+- `THROW` honors `XACT_ABORT`, `RAISERROR` does not. New code uses `THROW`, and the statement before it ends with `;`.
+- `TRY/CATCH` does not catch compile errors and name resolution errors at the same level.
+- An `AFTER` trigger runs in the same transaction: a `ROLLBACK` inside it undoes the original statement too.
+
+**Rule of thumb**
+
+Return a table from a function only through an inline TVF. Rewrite a multi-statement one as an inline TVF or a procedure with a temp table.
+
+**Takeaway:** inline TVFs and views are transparent to the optimizer, scalar and multi-statement functions are not; a procedure without `XACT_ABORT` and `TRY/CATCH` is unsafe.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- Before SQL Server 2019, a scalar UDF is interpreted, row-by-row execution. The optimizer barely accounts for its cost, and parallelism is disallowed.
+- SQL Server 2019 at compatibility level 150 turns an eligible UDF into a subquery inside the plan. Functions with `GETDATE()`, table variables, CTEs, multiple `RETURN` statements and a number of other constructs are not inlined; the list of restrictions grew in cumulative updates.
+- Since SQL Server 2017 (level 140), interleaved execution first materializes a multi-statement TVF and then optimizes the rest of the query on the actual row count. It works only in read-only queries.
+
+**Cost**
+
+- `SET STATISTICS IO` does not show reads inside a scalar UDF: the query looks cheap but takes minutes.
+- A trigger extends the transaction of every write to the table and hides logic from whoever reads the procedure.
+
+**Trade-offs**
+
+- An inline TVF gives reuse without losing transparency, but only a single `SELECT` fits inside.
+- An indexed view stores its result and speeds up aggregates but makes every write to the base tables more expensive.
+- Change history is kept with temporal tables (SQL Server 2016+) instead of triggers, and change export with Change Tracking or CDC.
+- In PostgreSQL the main unit is the function; procedures with `COMMIT` inside appeared in version 11, and triggers are `FOR EACH ROW` or `FOR EACH STATEMENT`.
+
+**How to check in production**
+
+- `sys.dm_exec_function_stats` (SQL Server 2016+) shows the call count and CPU of every scalar function that was not inlined.
+- Transactions left open after timeouts show up in `sys.dm_tran_session_transactions` and `DBCC OPENTRAN`.
+
+**Takeaway:** choose the object by whether the optimizer can see inside it, and `XACT_ABORT ON` closes the hole left by client timeouts.
+
+</A>
+
+<Ex title="T-SQL">
+
+```sql
+CREATE TABLE dbo.Stock (ProductId int PRIMARY KEY, Qty int NOT NULL CHECK (Qty >= 0));
+INSERT dbo.Stock VALUES (1, 10), (2, 0);
+GO
+CREATE OR ALTER PROCEDURE dbo.MoveStock @from int, @to int, @qty int
+AS
+SET XACT_ABORT, NOCOUNT ON;  -- a run-time error rolls back the whole transaction
+BEGIN TRY
+    BEGIN TRANSACTION;
+    UPDATE dbo.Stock SET Qty = Qty + @qty WHERE ProductId = @to;
+    UPDATE dbo.Stock SET Qty = Qty - @qty WHERE ProductId = @from;  -- violates CHECK
+    COMMIT;
+END TRY
+BEGIN CATCH
+    IF @@TRANCOUNT > 0 ROLLBACK;  -- roll back if the transaction is still open
+    THROW;                        -- rethrow the original error to the client
+END CATCH;
+GO
+EXEC dbo.MoveStock @from = 2, @to = 1, @qty = 5;  -- error 547: CHECK conflict
+GO
+SELECT ProductId, Qty FROM dbo.Stock;  -- 1: 10, 2: 0 — the first UPDATE was rolled back too
+```
+
+</Ex>
+
+<Ex title="T-SQL" l="s">
+
+```sql
+-- Which scalar functions in the database can be inlined (SQL Server 2019+)
+SELECT o.name, m.is_inlineable
+FROM sys.sql_modules AS m
+JOIN sys.objects AS o ON o.object_id = m.object_id
+WHERE o.type = 'FN';  -- FN: scalar, IF: inline TVF, TF: multi-statement TVF
+```
+
+</Ex>
+
+<Next>
+
+- Why is a scalar UDF in `SELECT` slow? — Before SQL Server 2019 it runs once per row, prevents parallelism and is invisible in `STATISTICS IO`.
+- How does an inline TVF differ from a multi-statement one? — The inline one expands into the plan; the multi-statement one fills a table variable with a fixed row estimate.
+- How many times does a trigger fire on an `UPDATE` of a thousand rows? — Once; all rows are in `inserted` and `deleted`.
+- Why `SET XACT_ABORT ON` if you have `TRY/CATCH`? — `CATCH` does not catch a client timeout, while `XACT_ABORT` rolls the transaction back.
+- Why is `THROW` better than `RAISERROR`? — Without arguments it rethrows the original error, and it honors `XACT_ABORT`.
+
+</Next>
+
+<Src>
+
+- [Scalar UDF inlining](https://learn.microsoft.com/sql/relational-databases/user-defined-functions/scalar-udf-inlining)
+- [TRY...CATCH (Transact-SQL)](https://learn.microsoft.com/sql/t-sql/language-elements/try-catch-transact-sql)
+- [SET XACT_ABORT (Transact-SQL)](https://learn.microsoft.com/sql/t-sql/statements/set-xact-abort-transact-sql)
+
+</Src>
+
+</Q>
+
+<Q id="db.sql.set-based" level="s">
+
+## Why is set-based processing better than row-by-row, and how do you change data in bulk from .NET?
+
+<A short l="j">
+
+A <T k="set-based">set-based</T> approach is one `UPDATE`, `INSERT` or `MERGE` statement over the whole set of rows instead of a <T k="cursor">cursor</T> or a loop that handles rows one at a time. The server decides how to process the set, so one statement over a million rows is usually many times faster than a million small ones — both in T-SQL and in calls from C#.
+
+</A>
+
+<A short l="m">
+
+Row-by-row processing (<T k="rbar">RBAR</T>) pays overhead on every row: statement execution, locks, commit, and from an application a network round trip on top. Set-based code replaces the loop with one statement; <T k="merge-statement">`MERGE`</T> does an upsert but needs a unique source and `HOLDLOCK` under concurrent calls. A set of rows from .NET is passed as a <T k="tvp">table-valued parameter</T> (TVP) in one call, and very large changes are split into batches of a few thousand rows so the log does not balloon and <T k="lock-escalation">lock escalation</T> does not kick in.
+
+</A>
+
+<A short l="s">
+
+One statement means one plan, one log commit and freedom for the optimizer to choose a hash join, parallelism and batch mode, while row-by-row code pays all of that N times plus network latency. But a giant transaction is bad too: the log grows, locks escalate to the table, rollback takes long — so large changes are split into batches by key. `MERGE` has tricky behavior under concurrency, and OLTP teams often prefer `UPDATE` and `INSERT` with `UPDLOCK, SERIALIZABLE`. From .NET, thousands of rows go through a TVP, and hundreds of thousands through `SqlBulkCopy` into a staging table.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **Row by row** — a cursor or a `WHILE` loop over rows, or in C# a loop that issues a separate `UPDATE` per row.
+- **Set-based** — one statement over a set: `UPDATE ... FROM ... JOIN`, `INSERT ... SELECT`, `MERGE`.
+
+**Why**
+
+Every statement has a fixed cost: a plan, locks, a commit. Row-by-row code pays it on every row, and from an application it adds a network call: 100,000 calls at 1 ms each are 100 seconds of network alone.
+
+**How to use**
+
+- Reprice products from a price list — `UPDATE p SET Price = n.Price FROM Products AS p JOIN NewPrices AS n ON ...`.
+- Pass a list of rows from C# — a table-valued parameter, in one call.
+
+**Common mistake**
+
+A cursor out of procedural-language habit: "for each product, find the price and update it". Almost any such loop is one join and one `UPDATE`.
+
+**Takeaway:** think in sets: one statement over a set instead of a loop over rows.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- A cursor keeps a position in a result set and runs the loop body on every row. If you really need one, declare it `LOCAL FAST_FORWARD` — forward-only and read-only.
+- `MERGE` matches a source against a target table in one pass and runs `UPDATE`, `INSERT` or `DELETE` per `WHEN` branch. `OUTPUT $action` shows what was done to each row.
+- A TVP is a parameter of a table type (`CREATE TYPE ... AS TABLE`); in a procedure it is declared `READONLY`.
+
+**MERGE pitfalls**
+
+- Two source rows for one target row is an error: a row cannot be updated twice. The source must be unique by key.
+- `ON` holds only the matching key. Filtering the target in `ON` gives wrong results; filter in the `WHEN ... AND` branches.
+- Without `WITH (HOLDLOCK)`, concurrent upserts of the same key hit primary key violations.
+- `MERGE` must end with `;` (error 10713) and does not get simple parameterization, so replace literals with parameters.
+
+**When to choose what**
+
+| Volume from .NET | Method |
+|---|---|
+| A few values | regular parameters |
+| Up to thousands of rows | TVP or JSON with `OPENJSON` (SQL Server 2016+) |
+| Hundreds of thousands of rows | `SqlBulkCopy` into a staging table, then set-based |
+
+**Rule of thumb**
+
+A cursor only where each row needs a separate call: a procedure, dynamic SQL across databases. Everything else — one statement or batches.
+
+**Takeaway:** set-based means one statement over a set; `MERGE` and TVPs help, but each has its own safety rules.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- Every commit waits for the log to be written to disk. A row-by-row `INSERT` in autocommit means N log flushes and `WRITELOG` waits; one statement means one.
+- Set-based code gives the optimizer choices: a hash join instead of N index seeks, parallelism, batch mode.
+- If one statement takes 5,000 or more locks on a single table or index, SQL Server tries to replace them with a lock on the whole table.
+
+**Trade-offs**
+
+| Approach | Pro | Con |
+|---|---|---|
+| One statement | minimal overhead | long transaction, log growth, escalation |
+| Batches by key | short locks, the log gets freed | more code, no overall atomicity |
+| Row by row | control over each row | overhead and a round trip per row |
+
+- A batch is selected by a key range or by `TOP (N)` with a condition on an index. Otherwise each batch rescans the table.
+- In the FULL recovery model, only log backups free the log between batches.
+- Upsert without `MERGE`: `UPDATE ... WITH (UPDLOCK, SERIALIZABLE)`, and if `@@ROWCOUNT = 0` then `INSERT`, all in one transaction. PostgreSQL has the atomic `INSERT ... ON CONFLICT` for this, and `MERGE` since version 15.
+- A TVP has no column statistics: for large volumes, copy the data into a temp table.
+
+**How to check in production**
+
+- Query Store or `sys.dm_exec_query_stats`: a query with millions of executions at a fraction of a millisecond each is row-by-row processing from an application.
+- Frequent `WRITELOG` waits mean small commits; `sys.dm_exec_cursors` shows open cursors.
+
+**Takeaway:** set-based processing removes per-row overhead, and batching keeps one statement from becoming everyone else's problem.
+
+</A>
+
+<Ex title="T-SQL">
+
+```sql
+CREATE TABLE #SalesLog (Id int IDENTITY PRIMARY KEY, SoldAt datetime2 NOT NULL);
+INSERT #SalesLog (SoldAt)
+SELECT TOP (50000) DATEADD(DAY, -ABS(CHECKSUM(NEWID()) % 730), SYSDATETIME())
+FROM sys.all_objects AS a CROSS JOIN sys.all_objects AS b;
+
+DECLARE @batch int = 4000, @deleted int = 1;  -- batch below the escalation threshold
+WHILE @deleted > 0
+BEGIN
+    DELETE TOP (@batch) FROM #SalesLog
+    WHERE SoldAt < DATEADD(YEAR, -1, SYSDATETIME());
+    SET @deleted = @@ROWCOUNT;                -- each batch is its own transaction
+    -- WAITFOR DELAY '00:00:01';              -- a pause for the OLTP workload
+END;
+SELECT COUNT(*) AS LeftRows FROM #SalesLog;   -- only last year's sales remain
+```
+
+</Ex>
+
+<Ex title="T-SQL">
+
+```sql
+CREATE TABLE dbo.Prices (ProductId int PRIMARY KEY, Price decimal(10, 2) NOT NULL);
+GO
+-- Table type: the PRIMARY KEY keeps duplicates out of the MERGE source
+CREATE TYPE dbo.PriceList AS TABLE (ProductId int PRIMARY KEY, Price decimal(10, 2) NOT NULL);
+GO
+CREATE OR ALTER PROCEDURE dbo.UpsertPrices @Prices dbo.PriceList READONLY
+AS
+SET XACT_ABORT, NOCOUNT ON;
+MERGE dbo.Prices WITH (HOLDLOCK) AS t   -- HOLDLOCK: without it concurrent calls
+USING @Prices AS s                      -- hit PRIMARY KEY violations
+    ON t.ProductId = s.ProductId        -- ON holds only the matching key
+WHEN MATCHED AND t.Price <> s.Price THEN
+    UPDATE SET Price = s.Price
+WHEN NOT MATCHED BY TARGET THEN
+    INSERT (ProductId, Price) VALUES (s.ProductId, s.Price);  -- ';' is required
+GO
+DECLARE @p dbo.PriceList;
+INSERT @p VALUES (1, 49.90), (2, 15.00);
+EXEC dbo.UpsertPrices @Prices = @p;
+SELECT ProductId, Price FROM dbo.Prices;  -- 1: 49.90, 2: 15.00
+```
+
+</Ex>
+
+<Ex title="C#">
+
+```csharp
+// NuGet: Microsoft.Data.SqlClient
+using System.Data;
+using Microsoft.Data.SqlClient;
+
+// Columns and their order match the dbo.PriceList type on the server
+var prices = new DataTable();
+prices.Columns.Add("ProductId", typeof(int));
+prices.Columns.Add("Price", typeof(decimal));
+prices.Rows.Add(1, 49.90m);
+prices.Rows.Add(2, 15.00m);
+
+await using var connection = new SqlConnection(
+    "Server=.;Database=Shop;Integrated Security=true;TrustServerCertificate=true");
+await connection.OpenAsync();
+
+await using var command = new SqlCommand("dbo.UpsertPrices", connection)
+{
+    CommandType = CommandType.StoredProcedure
+};
+command.Parameters.Add(new SqlParameter("@Prices", SqlDbType.Structured)
+{
+    TypeName = "dbo.PriceList", // name of the table type on the server
+    Value = prices              // DataTable, DbDataReader or IEnumerable<SqlDataRecord>
+});
+
+// One call and one MERGE on the server instead of N separate UPDATEs and INSERTs
+await command.ExecuteNonQueryAsync();
+```
+
+</Ex>
+
+<Next>
+
+- When is a cursor justified? — When each row needs a separate call: a procedure, dynamic SQL per object.
+- Why does `MERGE` fail with a primary key violation under load? — Two sessions both found no key at the same time and both inserted; you need `HOLDLOCK`.
+- How do you delete 50 million rows without stalling the database? — In batches of a few thousand by key, each in its own transaction, with pauses.
+- How does a TVP differ from `SqlBulkCopy`? — A TVP is a call parameter with server-side logic; `SqlBulkCopy` streams rows into a table for large volumes.
+- How do you pass a list of ids in PostgreSQL? — As an array: `WHERE id = ANY(@ids)`; Npgsql sends `int[]` as an array.
+
+</Next>
+
+<Src>
+
+- [MERGE (Transact-SQL)](https://learn.microsoft.com/sql/t-sql/statements/merge-transact-sql)
+- [Table-valued parameters (ADO.NET)](https://learn.microsoft.com/sql/connect/ado-net/sql/table-valued-parameters)
+- [Lock escalation](https://learn.microsoft.com/sql/relational-databases/sql-server-transaction-locking-and-row-versioning-guide#lock-escalation)
+
+</Src>
+
+</Q>

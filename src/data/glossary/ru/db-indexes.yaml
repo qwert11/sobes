@@ -1,0 +1,248 @@
+b-tree:
+  term: B-дерево (B+-tree)
+  def: >-
+    Сбалансированное дерево страниц, в котором SQL Server хранит обычные (rowstore) индексы: корень,
+    промежуточные уровни и листья. Путь от корня до любого листа одинаковой длины, поэтому поиск по
+    ключу стоит несколько чтений страниц даже в огромной таблице.
+  q: SQL Server B-tree index structure
+  docs: https://learn.microsoft.com/sql/relational-databases/sql-server-index-design-guide
+  wiki: B+-дерево
+clustered-index:
+  term: Кластерный индекс (clustered index)
+  def: >-
+    Индекс, в листьях которого лежат сами строки таблицы, упорядоченные по ключу. У таблицы он один;
+    `PRIMARY KEY` по умолчанию создаёт именно его.
+  q: SQL Server clustered index
+  docs: https://learn.microsoft.com/sql/relational-databases/indexes/clustered-and-nonclustered-indexes-described
+nonclustered-index:
+  term: Некластерный индекс (nonclustered index)
+  def: >-
+    Отдельная от таблицы структура: ключ индекса и указатель на строку — ключ кластеризации или RID.
+    Колонки, которых нет в индексе, сервер дочитывает из таблицы.
+  q: SQL Server nonclustered index
+  docs: https://learn.microsoft.com/sql/relational-databases/indexes/clustered-and-nonclustered-indexes-described
+clustering-key:
+  term: Ключ кластеризации (clustering key)
+  def: >-
+    Колонки кластерного индекса. Ключ копируется в каждый некластерный индекс как указатель на
+    строку, поэтому его делают узким, уникальным и неизменяемым.
+  q: SQL Server clustering key guidelines
+  docs: https://learn.microsoft.com/sql/relational-databases/sql-server-index-design-guide#clustered-index-design-guidelines
+heap:
+  term: Куча (heap)
+  def: >-
+    Таблица без кластерного индекса. Строки лежат без определённого порядка, а некластерные индексы
+    ссылаются на них по физическому адресу RID — файл, страница, слот.
+  q: SQL Server heap table
+  docs: https://learn.microsoft.com/sql/relational-databases/indexes/heaps-tables-without-clustered-indexes
+index-seek:
+  term: Index Seek и Index Scan
+  def: >-
+    Два способа прочитать индекс. Seek спускается по B-дереву к нужному диапазону ключей и читает
+    только его, scan читает индекс или таблицу целиком.
+  q: SQL Server index seek vs index scan
+  docs: https://learn.microsoft.com/sql/relational-databases/showplan-logical-and-physical-operators-reference
+covering-index:
+  term: Покрывающий индекс (covering index)
+  def: >-
+    Индекс, в котором есть все колонки, нужные запросу, — в ключе или среди включённых. Запрос читает
+    только его и не обращается к таблице.
+  q: SQL Server covering index
+  docs: https://learn.microsoft.com/sql/relational-databases/indexes/create-indexes-with-included-columns
+included-column:
+  term: Включённые колонки (INCLUDE)
+  def: >-
+    Неключевые колонки некластерного индекса, которые хранятся только на листовом уровне. Они не
+    сортируются и не участвуют в поиске, зато покрывают запрос, не расширяя ключ.
+  q: SQL Server index included columns
+  docs: https://learn.microsoft.com/sql/relational-databases/indexes/create-indexes-with-included-columns
+key-lookup:
+  term: Key Lookup
+  def: >-
+    Оператор плана, который для каждой строки, найденной в некластерном индексе, ищет недостающие
+    колонки в кластерном индексе. Для кучи его аналог — RID Lookup. Дёшев для десятков строк и дорог
+    для тысяч.
+  q: SQL Server key lookup operator
+  docs: https://learn.microsoft.com/sql/relational-databases/showplan-logical-and-physical-operators-reference
+execution-plan:
+  term: План выполнения (execution plan)
+  def: >-
+    Дерево операторов, которыми SQL Server выполняет запрос: доступ к таблицам, соединения,
+    сортировки. Оценочный план — результат компиляции, фактический добавляет реальное число строк и
+    выполнений.
+  q: SQL Server execution plan
+  docs: https://learn.microsoft.com/sql/relational-databases/performance/execution-plans
+statistics:
+  term: Статистика (statistics)
+  def: >-
+    Объект с распределением значений колонок: гистограмма по первой колонке и плотность по префиксам.
+    По ней оптимизатор оценивает, сколько строк вернёт условие.
+  q: SQL Server statistics query optimizer
+  docs: https://learn.microsoft.com/sql/relational-databases/statistics/statistics
+histogram:
+  term: Гистограмма статистики (histogram)
+  def: >-
+    Часть статистики: до 200 шагов по значениям первой колонки. Для каждого шага известно, сколько
+    строк равно его границе и сколько лежит внутри диапазона.
+  q: SQL Server statistics histogram
+  docs: https://learn.microsoft.com/sql/relational-databases/statistics/statistics#histogram
+sargable:
+  term: SARGable-условие
+  def: >-
+    Условие, которое оптимизатор может превратить в диапазон поиска по индексу (от search argument).
+    Колонка стоит в нём без функций, вычислений и преобразований типа.
+  q: sargable predicate SQL Server
+implicit-conversion:
+  term: Неявное преобразование типов (implicit conversion)
+  def: >-
+    Приведение типов, которое SQL Server делает сам при сравнении значений разных типов; в плане оно
+    видно как `CONVERT_IMPLICIT`. Если преобразуется колонка, а не параметр, seek по её индексу обычно
+    невозможен.
+  q: SQL Server CONVERT_IMPLICIT index scan
+  docs: https://learn.microsoft.com/sql/t-sql/data-types/data-type-conversion-database-engine
+data-type-precedence:
+  term: Приоритет типов данных (data type precedence)
+  def: >-
+    Правило, по которому SQL Server выбирает общий тип для сравнения: тип с меньшим приоритетом
+    приводится к большему. `nvarchar` старше `varchar`, `int` старше строковых типов.
+  q: SQL Server data type precedence
+  docs: https://learn.microsoft.com/sql/t-sql/data-types/data-type-precedence-transact-sql
+sql-server-collation:
+  term: Collation в SQL Server (параметры сортировки)
+  def: >-
+    Правила сравнения и сортировки строк: кодовая страница, учёт регистра и диакритики.
+    Windows-collation (`Cyrillic_General_CI_AS`) сравнивает `varchar` и `nvarchar` по одним правилам,
+    SQL-collation (`SQL_Latin1_General_CP1_CI_AS`) — по разным.
+  q: SQL Server collation Windows vs SQL collation
+  docs: https://learn.microsoft.com/sql/relational-databases/collations/collation-and-unicode-support
+computed-column:
+  term: Вычисляемая колонка (computed column)
+  def: >-
+    Колонка, значение которой задано выражением от других колонок. Детерминированную вычисляемую
+    колонку можно проиндексировать, и оптимизатор использует индекс для запросов с тем же выражением.
+  q: SQL Server index on computed column
+  docs: https://learn.microsoft.com/sql/relational-databases/indexes/indexes-on-computed-columns
+plan-cache:
+  term: Кеш планов (plan cache)
+  def: >-
+    Область памяти, где SQL Server хранит скомпилированные планы для повторного использования. План
+    находится по тексту запроса с объявлениями параметров и по SET-параметрам сессии.
+  q: SQL Server plan cache reuse
+  docs: https://learn.microsoft.com/sql/relational-databases/query-processing-architecture-guide#execution-plan-caching-and-reuse
+cardinality-estimation:
+  term: Оценка кардинальности (cardinality estimation)
+  def: >-
+    Прогноз оптимизатора, сколько строк вернёт каждый оператор плана. Строится по статистике; от неё
+    зависят выбор соединений, порядок операций и объём выделенной памяти.
+  q: SQL Server cardinality estimation
+  docs: https://learn.microsoft.com/sql/relational-databases/performance/cardinality-estimation-sql-server
+nested-loops:
+  term: Nested Loops (вложенные циклы)
+  def: >-
+    Соединение, при котором для каждой строки внешнего входа ищутся совпадения во внутреннем.
+    Эффективно, когда внешний вход мал, а у внутреннего есть индекс по ключу соединения.
+  q: SQL Server nested loops join
+  docs: https://learn.microsoft.com/sql/relational-databases/performance/joins
+hash-match:
+  term: Hash Match
+  def: >-
+    Соединение или агрегация через хеш-таблицу: меньший вход загружается в память, больший
+    проверяется по ней. Подходит для больших несортированных входов, но требует выделения памяти.
+  q: SQL Server hash join
+  docs: https://learn.microsoft.com/sql/relational-databases/performance/joins
+merge-join:
+  term: Merge Join (соединение слиянием)
+  def: >-
+    Соединение двух входов, отсортированных по ключу соединения, за один проход по обоим. Очень
+    дёшево, если порядок даёт индекс; если нет, плану нужен дорогой Sort.
+  q: SQL Server merge join
+  docs: https://learn.microsoft.com/sql/relational-databases/performance/joins
+memory-grant:
+  term: Выделение памяти запросу (memory grant)
+  def: >-
+    Память, которую запрос резервирует до старта под сортировки и хеш-таблицы, исходя из оценки
+    числа строк. Завышенная оценка заставляет другие запросы ждать памяти, заниженная ведёт к сбросу
+    данных в tempdb (spill).
+  q: SQL Server memory grant spill
+  docs: https://learn.microsoft.com/sql/relational-databases/performance/intelligent-query-processing-memory-grant-feedback
+batch-mode:
+  term: Пакетный режим (batch mode)
+  def: >-
+    Режим выполнения, в котором оператор обрабатывает пачку строк за раз, а не по одной. Основной
+    режим для columnstore; с SQL Server 2019 на уровне совместимости 150 доступен и для обычных
+    таблиц.
+  q: SQL Server batch mode on rowstore
+  docs: https://learn.microsoft.com/sql/relational-databases/query-processing-architecture-guide#execution-modes
+parameter-sniffing:
+  term: Parameter sniffing (прослушивание параметров)
+  def: >-
+    Поведение оптимизатора: план компилируется под значения параметров первого вызова и
+    переиспользуется для остальных. Полезно при равномерных данных и вредно при перекошенных.
+  q: SQL Server parameter sniffing
+  docs: https://learn.microsoft.com/sql/relational-databases/query-processing-architecture-guide#parameter-sensitivity
+query-store:
+  term: Query Store
+  def: >-
+    Встроенное в базу хранилище истории запросов, их планов и статистики выполнения. Появился в
+    SQL Server 2016, для новых баз включён по умолчанию с SQL Server 2022; помогает найти регрессию
+    и закрепить план.
+  q: SQL Server Query Store
+  docs: https://learn.microsoft.com/sql/relational-databases/performance/monitoring-performance-by-using-the-query-store
+plan-forcing:
+  term: Форсирование плана (plan forcing)
+  def: >-
+    Закрепление конкретного плана из Query Store за запросом процедурой `sp_query_store_force_plan`.
+    Сервер компилирует запрос с этим планом, пока форсирование не снимут или план не станет
+    невозможным.
+  q: Query Store force plan
+  docs: https://learn.microsoft.com/sql/relational-databases/system-stored-procedures/sp-query-store-force-plan-transact-sql
+query-store-hints:
+  term: Подсказки Query Store (Query Store hints)
+  def: >-
+    Подсказки вроде `RECOMPILE` или `MAXDOP`, которые прикрепляются к запросу в Query Store через
+    `sys.sp_query_store_set_hints`, не меняя его текст. Доступны с SQL Server 2022.
+  q: SQL Server Query Store hints
+  docs: https://learn.microsoft.com/sql/relational-databases/performance/query-store-hints
+psp-optimization:
+  term: PSP optimization (Parameter Sensitive Plan)
+  def: >-
+    Механизм SQL Server 2022 на уровне совместимости 160: для запроса с перекошенными данными сервер
+    держит несколько вариантов плана и выбирает их по диапазону кардинальности текущего значения
+    параметра. Работает с предикатами-равенствами.
+  q: SQL Server parameter sensitive plan optimization
+  docs: https://learn.microsoft.com/sql/relational-databases/performance/parameter-sensitive-plan-optimization
+filtered-index:
+  term: Фильтрованный индекс (filtered index)
+  def: >-
+    Некластерный индекс с условием `WHERE`, который хранит только подходящие строки. Он меньше и
+    дешевле полного индекса, но используется, только если запрос гарантированно попадает в фильтр.
+  q: SQL Server filtered index
+  docs: https://learn.microsoft.com/sql/relational-databases/indexes/create-filtered-indexes
+columnstore-index:
+  term: Columnstore-индекс
+  def: >-
+    Индекс, который хранит данные по колонкам в сжатых сегментах по группам до 1 048 576 строк.
+    Ускоряет агрегаты по большим таблицам за счёт сжатия, пропуска сегментов и пакетного режима.
+  q: SQL Server columnstore index
+  docs: https://learn.microsoft.com/sql/relational-databases/indexes/columnstore-indexes-overview
+delta-store:
+  term: Delta store
+  def: >-
+    Обычное B-дерево внутри columnstore-индекса, куда попадают мелкие вставки. Когда в группе
+    набирается 1 048 576 строк, фоновый процесс tuple mover сжимает её в колоночный формат.
+  q: columnstore delta store tuple mover
+  docs: https://learn.microsoft.com/sql/relational-databases/indexes/columnstore-indexes-overview
+index-fragmentation:
+  term: Фрагментация индекса (index fragmentation)
+  def: >-
+    Расхождение логического порядка страниц индекса с физическим из-за расщеплений страниц. Мешает
+    большим последовательным чтениям; на SSD обычно важнее плотность страниц.
+  q: SQL Server index fragmentation
+  docs: https://learn.microsoft.com/sql/relational-databases/indexes/reorganize-and-rebuild-indexes
+page-density:
+  term: Плотность страниц (page density)
+  def: >-
+    Насколько заполнены страницы индекса — `avg_page_space_used_in_percent`. Полупустые страницы
+    требуют больше чтений и памяти буферного пула для тех же данных.
+  q: SQL Server page density index maintenance
+  docs: https://learn.microsoft.com/sql/relational-databases/indexes/reorganize-and-rebuild-indexes

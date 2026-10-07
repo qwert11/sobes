@@ -1,0 +1,180 @@
+transaction:
+  term: Transaction
+  def: >-
+    A group of database operations that runs as a single unit: either committed entirely
+    (`COMMIT`) or rolled back entirely (`ROLLBACK`).
+  q: SQL Server transaction
+  docs: https://learn.microsoft.com/sql/t-sql/language-elements/transactions-transact-sql
+  wiki: Database transaction
+acid:
+  term: ACID
+  def: >-
+    The four properties of a transaction: atomicity (all or nothing), consistency (constraints
+    hold), isolation (concurrent transactions don't see intermediate states) and durability
+    (committed data survives a crash).
+  q: ACID database transactions
+  docs: https://learn.microsoft.com/sql/relational-databases/sql-server-transaction-locking-and-row-versioning-guide#Basics
+  wiki: ACID
+write-ahead-log:
+  term: Transaction log (write-ahead log, WAL)
+  def: >-
+    A sequential log of changes that is written to disk before the data pages. On commit the
+    database waits for the log write, and after a crash it uses the log to redo committed work
+    and undo uncommitted work.
+  q: SQL Server transaction log write-ahead logging
+  docs: https://learn.microsoft.com/sql/relational-databases/sql-server-transaction-log-architecture-and-management-guide
+  wiki: Write-ahead logging
+autocommit:
+  term: Autocommit
+  def: >-
+    A mode in which every statement is its own transaction and is committed right after it runs.
+    The default mode in SQL Server, SqlClient and PostgreSQL.
+  q: SQL Server autocommit mode
+  docs: https://learn.microsoft.com/sql/relational-databases/sql-server-transaction-locking-and-row-versioning-guide#starting-transactions
+isolation-level:
+  term: Isolation level
+  def: >-
+    A transaction setting that defines which changes of concurrent transactions it sees and which
+    anomalies are allowed. The SQL standard defines four levels: READ UNCOMMITTED, READ
+    COMMITTED, REPEATABLE READ, SERIALIZABLE.
+  q: SQL Server transaction isolation levels
+  docs: https://learn.microsoft.com/sql/t-sql/statements/set-transaction-isolation-level-transact-sql
+  wiki: Isolation (database systems)
+dirty-read:
+  term: Dirty read
+  def: >-
+    An anomaly in which a transaction reads another transaction's changes that are not yet
+    committed and may be rolled back. Possible only under READ UNCOMMITTED, including via
+    `NOLOCK`.
+  q: dirty read isolation
+  docs: https://learn.microsoft.com/sql/relational-databases/sql-server-transaction-locking-and-row-versioning-guide#concurrency-effects
+non-repeatable-read:
+  term: Non-repeatable read
+  def: >-
+    An anomaly in which reading the same row again within a transaction returns a different value,
+    because another transaction changed and committed it.
+  q: non-repeatable read
+  docs: https://learn.microsoft.com/sql/relational-databases/sql-server-transaction-locking-and-row-versioning-guide#concurrency-effects
+phantom-read:
+  term: Phantom read
+  def: >-
+    An anomaly in which re-running a query with the same condition returns new or missing rows:
+    another transaction inserted or deleted matching records.
+  q: phantom read SQL
+  docs: https://learn.microsoft.com/sql/relational-databases/sql-server-transaction-locking-and-row-versioning-guide#concurrency-effects
+lost-update:
+  term: Lost update
+  def: >-
+    An anomaly in which two transactions read the same value, change it and write it back, and the
+    last write overwrites the first one's change. Typical of the "read in the app, write the new
+    value" pattern.
+  q: lost update concurrency
+  docs: https://learn.microsoft.com/sql/relational-databases/sql-server-transaction-locking-and-row-versioning-guide#concurrency-effects
+key-range-lock:
+  term: Key-range lock
+  def: >-
+    A lock on a range of index keys between existing rows. SERIALIZABLE or the `HOLDLOCK` hint
+    takes it so that no row can be inserted into a range that was read, which prevents phantoms.
+  q: SQL Server key-range locking
+  docs: https://learn.microsoft.com/sql/relational-databases/sql-server-transaction-locking-and-row-versioning-guide#key_range
+rcsi:
+  term: RCSI (read committed snapshot isolation)
+  def: >-
+    SQL Server's row-versioning implementation of READ COMMITTED: each statement reads data
+    committed before it started, without shared locks. Enabled by the `READ_COMMITTED_SNAPSHOT`
+    database option and on by default in Azure SQL Database.
+  q: SQL Server read committed snapshot isolation RCSI
+  docs: https://learn.microsoft.com/sql/relational-databases/sql-server-transaction-locking-and-row-versioning-guide#row-versioning-based-isolation-levels-in-the-database-engine
+snapshot-isolation:
+  term: SNAPSHOT isolation
+  def: >-
+    A row-versioning isolation level in SQL Server: the whole transaction sees data as of its first
+    data access. Trying to modify a row that was changed after that point fails the transaction
+    with error 3960.
+  q: SQL Server snapshot isolation
+  docs: https://learn.microsoft.com/dotnet/framework/data/adonet/sql/snapshot-isolation-in-sql-server
+  wiki: Snapshot isolation
+row-versioning:
+  term: Row versioning
+  def: >-
+    A mechanism in which changing a row keeps its previous committed version. Readers take the
+    suitable version instead of waiting for locks; RCSI and SNAPSHOT are built on it.
+  q: SQL Server row versioning
+  docs: https://learn.microsoft.com/sql/relational-databases/sql-server-transaction-locking-and-row-versioning-guide#Row_versioning
+version-store:
+  term: Version store
+  def: >-
+    Where SQL Server keeps previous row versions for RCSI, SNAPSHOT, triggers and online index
+    rebuilds. Without ADR it lives in tempdb, with ADR in the persistent version store of the
+    database itself.
+  q: SQL Server version store tempdb
+  docs: https://learn.microsoft.com/sql/relational-databases/sql-server-transaction-locking-and-row-versioning-guide#row-versioning-resource-usage
+write-skew:
+  term: Write skew
+  def: >-
+    A snapshot anomaly: two transactions read the same data, check a condition and change
+    different rows, and together they violate that condition. SNAPSHOT doesn't catch it,
+    SERIALIZABLE does.
+  q: write skew snapshot isolation
+  docs: https://www.postgresql.org/docs/current/transaction-iso.html#XACT-SERIALIZABLE
+lock-mode:
+  term: Lock mode
+  def: >-
+    The type of a lock, which defines what other locks it is compatible with. The main SQL Server
+    modes are S (read), U (read before modifying), X (modify) and the intent modes IS, IX, SIX.
+  q: SQL Server lock modes compatibility
+  docs: https://learn.microsoft.com/sql/relational-databases/sql-server-transaction-locking-and-row-versioning-guide#lock_modes
+intent-lock:
+  term: Intent lock
+  def: >-
+    A lock at an upper level of the hierarchy (page, table) that signals S or X locks below it.
+    It lets the engine quickly tell whether the whole table can be locked without checking every
+    row.
+  q: SQL Server intent locks IX IS
+  docs: https://learn.microsoft.com/sql/relational-databases/sql-server-transaction-locking-and-row-versioning-guide#intent
+deadlock-graph:
+  term: Deadlock graph
+  def: >-
+    An XML report of a deadlock: participants, resources held and awaited, lock modes, query text
+    and the victim. In SQL Server the `system_health` Extended Events session records it by
+    default (the `xml_deadlock_report` event).
+  q: SQL Server deadlock graph system_health
+  docs: https://learn.microsoft.com/sql/relational-databases/sql-server-deadlocks-guide
+nolock:
+  term: NOLOCK
+  def: >-
+    A SQL Server table hint equivalent to READ UNCOMMITTED: reading without shared locks. It gives
+    dirty data, missed and duplicated rows, and doesn't avoid schema locks or writer conflicts.
+  q: SQL Server NOLOCK hint problems
+  docs: https://learn.microsoft.com/sql/t-sql/queries/hints-transact-sql-table
+pessimistic-concurrency:
+  term: Pessimistic concurrency
+  def: >-
+    Concurrency control through locks: data is locked before it is changed, and competitors wait.
+    Pays off with frequent conflicts on short transactions.
+  q: pessimistic concurrency control
+  docs: https://learn.microsoft.com/sql/relational-databases/sql-server-transaction-locking-and-row-versioning-guide#types-of-concurrency
+rowversion:
+  term: rowversion
+  def: >-
+    A SQL Server data type: 8 bytes from a database-wide counter that change automatically on every
+    row modification. Used for the optimistic "nobody changed the row" check. The `timestamp`
+    synonym is deprecated.
+  q: SQL Server rowversion optimistic concurrency
+  docs: https://learn.microsoft.com/sql/t-sql/data-types/rowversion-transact-sql
+transaction-scope:
+  term: TransactionScope
+  def: >-
+    A System.Transactions class that creates an ambient transaction: connections opened inside the
+    block enlist in it automatically. Defaults to SERIALIZABLE and a 1-minute timeout.
+  q: TransactionScope .NET
+  docs: https://learn.microsoft.com/dotnet/framework/data/transactions/implementing-an-implicit-transaction-using-transaction-scope
+distributed-transaction:
+  term: Distributed transaction
+  def: >-
+    A transaction across several resources (databases, connections) that a coordinator commits
+    with two-phase commit. On Windows that is MSDTC; in .NET 7+ it is supported only on Windows
+    and must be enabled explicitly.
+  q: .NET distributed transactions MSDTC
+  docs: https://learn.microsoft.com/dotnet/framework/data/adonet/system-transactions-integration-with-sql-server
+  wiki: Distributed transaction

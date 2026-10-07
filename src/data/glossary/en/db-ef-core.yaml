@@ -1,0 +1,210 @@
+orm:
+  term: ORM (object-relational mapping)
+  def: >-
+    A library that maps application classes to database tables: it generates SQL from operations
+    on objects and turns result rows into objects. In .NET that's EF Core or NHibernate; Dapper is
+    called a micro-ORM.
+  q: object-relational mapping ORM
+  wiki: Object-relational mapping
+db-context:
+  term: DbContext
+  def: >-
+    The central EF Core class: a session with the database that runs queries, tracks entity changes
+    and saves them with `SaveChanges`. It's designed for a single unit of work and isn't
+    thread-safe.
+  q: EF Core DbContext lifetime
+  docs: https://learn.microsoft.com/ef/core/dbcontext-configuration/
+ef-model:
+  term: EF Core model
+  def: >-
+    Metadata about entities: properties, keys, relationships, table names and column types. EF
+    builds it once per context type from conventions, attributes and the Fluent API, and uses it to
+    generate SQL and migrations.
+  q: EF Core model building
+  docs: https://learn.microsoft.com/ef/core/modeling/
+fluent-api:
+  term: Fluent API
+  def: >-
+    Configuring the EF Core model in code, in `OnModelCreating` or in `IEntityTypeConfiguration<T>`
+    classes: `HasKey`, `HasMaxLength`, `HasOne().WithMany()`. It takes precedence over attributes
+    and conventions.
+  q: EF Core Fluent API configuration
+  docs: https://learn.microsoft.com/ef/core/modeling/#use-fluent-api-to-configure-a-model
+ef-provider:
+  term: EF Core database provider
+  def: >-
+    A NuGet package that teaches EF Core to work with a specific database: it translates queries
+    into that database's SQL dialect, maps types and generates migrations. For example,
+    `Microsoft.EntityFrameworkCore.SqlServer` and `Npgsql.EntityFrameworkCore.PostgreSQL`.
+  q: EF Core database providers
+  docs: https://learn.microsoft.com/ef/core/providers/
+change-tracker:
+  term: Change tracker
+  def: >-
+    The part of `DbContext` that holds tracked entities, their states and original values. From the
+    difference between original and current values, `SaveChanges` builds `INSERT`, `UPDATE` and
+    `DELETE` statements.
+  q: EF Core change tracking
+  docs: https://learn.microsoft.com/ef/core/change-tracking/
+entity-state:
+  term: Entity state (EntityState)
+  def: >-
+    The marker EF Core uses to decide what to do with an entity on `SaveChanges`: `Added` — insert,
+    `Modified` — update, `Deleted` — delete, `Unchanged` and `Detached` — nothing.
+  q: EF Core EntityState
+  docs: https://learn.microsoft.com/ef/core/change-tracking/#entity-states
+identity-resolution:
+  term: Identity resolution
+  def: >-
+    The guarantee that one database row is represented by one object in the context. EF Core
+    tracking queries return the instance that's already loaded; `AsNoTracking` creates a new object
+    for every occurrence of a row.
+  q: EF Core identity resolution
+  docs: https://learn.microsoft.com/ef/core/querying/tracking#identity-resolution
+navigation-property:
+  term: Navigation property
+  def: >-
+    An entity property that refers to a related entity (`order.Customer`) or a collection of
+    related ones (`order.Lines`). EF uses navigations to build `JOIN`s and load related data.
+  q: EF Core navigation property
+  docs: https://learn.microsoft.com/ef/core/modeling/relationships/navigations
+n-plus-one:
+  term: N+1 problem
+  def: >-
+    A data access anti-pattern: one query loads a list of N items, then one more query per item
+    fetches related data. The typical cause is lazy loading inside a loop.
+  q: N+1 query problem ORM
+eager-loading:
+  term: Eager loading
+  def: >-
+    Loading related data in the same query as the main data: in EF Core, `Include` and
+    `ThenInclude`, which become `JOIN`s or, with split query, separate queries.
+  q: EF Core eager loading Include
+  docs: https://learn.microsoft.com/ef/core/querying/related-data/eager
+lazy-loading:
+  term: Lazy loading
+  def: >-
+    Loading a navigation property with a separate query the first time it's accessed. In EF Core
+    it's enabled with the `Microsoft.EntityFrameworkCore.Proxies` package and
+    `UseLazyLoadingProxies()`, and it easily leads to N+1.
+  q: EF Core lazy loading proxies
+  docs: https://learn.microsoft.com/ef/core/querying/related-data/lazy
+cartesian-explosion:
+  term: Cartesian explosion
+  def: >-
+    The blow-up in result rows when one query joins several sibling collections: the rows of each
+    collection multiply with each other. An order with 10 lines and 10 payments yields 100 rows.
+  q: EF Core cartesian explosion
+  docs: https://learn.microsoft.com/ef/core/querying/single-split-queries#cartesian-explosion
+split-query:
+  term: Split query
+  def: >-
+    An EF Core 5+ mode where collection `Include`s run as separate SQL queries instead of one query
+    with `JOIN`s. Enabled with `AsSplitQuery()`; it removes cartesian explosion at the cost of
+    extra round trips and no shared consistency.
+  q: EF Core AsSplitQuery
+  docs: https://learn.microsoft.com/ef/core/querying/single-split-queries
+ef-migration:
+  term: EF Core migration
+  def: >-
+    A class with `Up` and `Down` methods that moves the database schema from one model version to
+    the next. Created with `dotnet ef migrations add` from the difference between the model and the
+    snapshot.
+  q: EF Core migrations
+  docs: https://learn.microsoft.com/ef/core/managing-schemas/migrations/
+model-snapshot:
+  term: Model snapshot
+  def: >-
+    The `<Context>ModelSnapshot.cs` file describing the model after the latest migration. EF
+    compares the current model with it to generate the next migration; in a team it's a source of
+    conflicts.
+  q: EF Core model snapshot migrations
+  docs: https://learn.microsoft.com/ef/core/managing-schemas/migrations/teams
+migrations-history-table:
+  term: Migrations history table
+  def: >-
+    The `__EFMigrationsHistory` system table in the database listing applied migrations and the EF
+    version. `database update`, bundles and idempotent scripts use it to find what hasn't been
+    applied.
+  q: __EFMigrationsHistory
+  docs: https://learn.microsoft.com/ef/core/managing-schemas/migrations/history-table
+migration-bundle:
+  term: Migration bundle
+  def: >-
+    An executable containing a project's migrations, built in CI with
+    `dotnet ef migrations bundle` (EF Core 6+). It applies missing migrations without the SDK or
+    source code.
+  q: EF Core migration bundle efbundle
+  docs: https://learn.microsoft.com/ef/core/managing-schemas/migrations/applying#bundles
+execute-update:
+  term: ExecuteUpdate and ExecuteDelete
+  def: >-
+    EF Core 7+ methods that run an `UPDATE` or `DELETE` from a LINQ filter as a single command,
+    without loading entities and without the change tracker. They return the number of affected
+    rows.
+  q: EF Core ExecuteUpdate ExecuteDelete
+  docs: https://learn.microsoft.com/ef/core/saving/execute-insert-update-delete
+save-changes-batching:
+  term: SaveChanges batching
+  def: >-
+    Sending several `INSERT`, `UPDATE` and `DELETE` commands in one network round trip. On SQL
+    Server EF Core puts up to 42 commands in a batch by default; `MaxBatchSize` sets the limit.
+  q: EF Core SaveChanges batching MaxBatchSize
+  docs: https://learn.microsoft.com/ef/core/performance/efficient-updating#batching
+dbcontext-pooling:
+  term: DbContext pooling
+  def: >-
+    Reusing `DbContext` instances: on disposal a context is reset and returned to the pool. Enabled
+    with `AddDbContextPool` or `PooledDbContextFactory`; unrelated to the ADO.NET connection pool.
+  q: EF Core AddDbContextPool
+  docs: https://learn.microsoft.com/ef/core/performance/advanced-performance-topics#dbcontext-pooling
+compiled-query:
+  term: Compiled query
+  def: >-
+    A LINQ query turned into a delegate ahead of time with `EF.CompileQuery` or
+    `EF.CompileAsyncQuery`. When it's invoked, EF doesn't build or compare the expression tree,
+    which saves time on hot paths.
+  q: EF Core compiled queries
+  docs: https://learn.microsoft.com/ef/core/performance/advanced-performance-topics#compiled-queries
+ado-net:
+  term: ADO.NET
+  def: >-
+    The base data access API in .NET: `DbConnection`, `DbCommand`, `DbDataReader`, parameters and
+    transactions. Providers such as `Microsoft.Data.SqlClient` and Npgsql are built on it, and EF
+    Core and Dapper sit on top.
+  q: ADO.NET overview
+  docs: https://learn.microsoft.com/dotnet/framework/data/adonet/ado-net-overview
+  wiki: ADO.NET
+dapper:
+  term: Dapper
+  def: >-
+    A micro-ORM from the Stack Overflow team: extension methods on `IDbConnection` (`Query`,
+    `Execute`) that run your SQL with parameters and map columns onto object properties. It doesn't
+    track changes or generate SQL.
+  q: Dapper micro ORM
+  docs: https://github.com/DapperLib/Dapper
+sql-injection:
+  term: SQL injection
+  def: >-
+    A vulnerability where user data is spliced into SQL text and changes the query itself. The
+    defense is passing values as parameters instead of concatenating strings.
+  q: SQL injection prevention parameters
+  docs: https://learn.microsoft.com/sql/relational-databases/security/sql-injection
+  wiki: SQL injection
+optimistic-concurrency:
+  term: Optimistic concurrency
+  def: >-
+    An approach to concurrent edits without holding locks: on save, the system checks that the row
+    hasn't changed since it was read, and rejects the operation on conflict. The opposite is
+    pessimistic locking of the row for the duration of the work.
+  q: optimistic concurrency control
+  docs: https://learn.microsoft.com/ef/core/saving/concurrency
+  wiki: Optimistic concurrency control
+concurrency-token:
+  term: Concurrency token
+  def: >-
+    A property whose original value EF Core adds to the `WHERE` of `UPDATE` and `DELETE`. If the row
+    was changed in the meantime, zero rows are affected and EF throws
+    `DbUpdateConcurrencyException`. On SQL Server it's usually `rowversion`, in PostgreSQL `xmin`.
+  q: EF Core concurrency token rowversion
+  docs: https://learn.microsoft.com/ef/core/saving/concurrency

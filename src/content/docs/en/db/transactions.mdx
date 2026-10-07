@@ -1,0 +1,838 @@
+---
+title: Transactions and locking
+description: ACID and the transaction log, isolation levels and anomalies, RCSI and SNAPSHOT versus MVCC in PostgreSQL, locks and deadlocks, optimistic concurrency and retries from .NET.
+sidebar:
+  order: 3
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+How a database keeps data intact under concurrent load: what a transaction guarantees, how isolation levels differ, how locks and row versions work in SQL Server and PostgreSQL, and how to write code that survives deadlocks and conflicts. For high-load OLTP systems this is one of the core interview topics.
+
+**Before this topic:** [SQL and T-SQL](/sobes/en/db/sql/), [Indexes and query plans](/sobes/en/db/indexes/).
+
+<Q id="db.tx.acid" level="j">
+
+## What is a transaction and what does ACID mean?
+
+<A short l="j">
+
+A <T k="transaction">transaction</T> is a group of operations that runs as a single unit: either all of it is committed (`COMMIT`) or all of it is rolled back (`ROLLBACK`). The <T k="acid">ACID</T> properties — atomicity, consistency, isolation and durability — guarantee, for example, that a transfer never debits one account without crediting the other.
+
+</A>
+
+<A short l="m">
+
+ACID describes how the database delivers that: atomicity and durability through the <T k="write-ahead-log">transaction log</T>, isolation through locks or row versions, consistency through schema constraints. By default SQL Server runs in <T k="autocommit">autocommit</T> mode, and without <T k="xact-abort">`SET XACT_ABORT ON`</T> many errors cancel only the failing statement, not the whole transaction. So an explicit transaction without error handling can commit half of the work.
+
+</A>
+
+<A short l="s">
+
+The price of ACID is in the log: on `COMMIT` SQL Server waits until the log records are on disk, writes data pages later, and after a crash rebuilds the database from the log. That makes transaction size a performance question: thousands of tiny autocommits are bound by log flushes, while one long transaction holds locks, blocks log truncation and takes a long time to roll back. <T k="accelerated-database-recovery">ADR</T> (SQL Server 2019+) makes rollback instant, and delayed durability trades part of the D for lower commit latency.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+A transaction is a sequence of operations the database executes as one logical unit of work. The classic example is a transfer: debit 100 from account A and credit it to account B.
+
+| Property | What it guarantees |
+|---|---|
+| Atomicity | all or nothing |
+| Consistency | keys, `CHECK` and foreign keys hold after the transaction |
+| Isolation | concurrent transactions don't see each other's intermediate states |
+| Durability | committed data survives a server crash |
+
+**How to use**
+
+`BEGIN TRAN` starts a transaction, `COMMIT` makes the changes permanent, `ROLLBACK` undoes them. Without `BEGIN TRAN`, every statement is its own transaction.
+
+**Common mistake**
+
+Assuming any error rolls the whole transaction back. In SQL Server a `CHECK` violation by default cancels only one statement, and the next `COMMIT` commits the rest.
+
+**Takeaway:** a transaction is all or nothing, and ACID spells out what exactly the database guarantees.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- **Modes.** Autocommit is the default in SQL Server and SqlClient. An explicit transaction is `BEGIN TRAN` … `COMMIT`. An implicit one is `SET IMPLICIT_TRANSACTIONS ON`: the transaction starts by itself, but you must end it yourself.
+- **Nesting.** There are no real nested transactions. An inner `BEGIN TRAN` increments `@@TRANCOUNT`, an inner `COMMIT` only decrements it, and `ROLLBACK` rolls everything back to the outermost `BEGIN TRAN`. A partial rollback needs a savepoint, `SAVE TRAN`.
+- **Errors.** Without `XACT_ABORT`, a key or `CHECK` violation aborts only the statement and the transaction stays open. With `XACT_ABORT ON`, any run-time error rolls back the whole transaction. In triggers it is on by default.
+
+**Pitfalls**
+
+- **Command timeout.** The client aborts the batch, but the transaction stays open and keeps its locks until the connection is closed or reused from the pool. `XACT_ABORT ON` covers this case too.
+- **`ROLLBACK` in a procedure.** Inside the caller's transaction it resets `@@TRANCOUNT` to zero, and the caller gets error 266 about a mismatched count.
+
+**Rule of thumb**
+
+A procedure with a transaction starts with `SET XACT_ABORT ON`, keeps the body in `BEGIN TRY`, and in `CATCH` does `IF @@TRANCOUNT > 0 ROLLBACK` and `THROW`.
+
+**Takeaway:** atomicity in SQL Server is not automatic: without `XACT_ABORT` and error handling a transaction commits half the work.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- **Write-ahead logging.** A change goes to the log first, then to the data page in memory. On `COMMIT` the server waits for the log write to disk (the `WRITELOG` wait), and dirty pages are written later by checkpoint and the lazy writer.
+- **Recovery.** After a crash the server reads the log: it redoes committed work and undoes uncommitted work. That is how A and D are delivered.
+- **ADR.** Available since SQL Server 2019, off by default. It versions changes in the persistent version store, so rollback and recovery are nearly instant even after a long transaction, and the log is truncated despite it.
+
+**Cost**
+
+- Every commit is a synchronous log write. A million single-row `INSERT`s in autocommit mean a million log flushes; batches of a few thousand rows per transaction are much faster.
+- A long transaction holds locks, prevents log truncation (`log_reuse_wait_desc = ACTIVE_TRANSACTION`) and, without ADR, takes long to roll back.
+
+**Trade-offs**
+
+- Delayed durability (SQL Server 2014+) acknowledges the commit before the log reaches disk: lower latency, but the last transactions are lost on a crash. The PostgreSQL counterpart is `synchronous_commit = off`.
+- The I in ACID is a scale, not an absolute: the default isolation level allows some anomalies for the sake of concurrency.
+
+**How to check in production**
+
+- `DBCC OPENTRAN` and `sys.dm_tran_database_transactions` show the oldest open transaction.
+- A large share of `WRITELOG` in `sys.dm_os_wait_stats` points to too-frequent commits or a slow log disk.
+
+**Takeaway:** durability is paid for with a synchronous log write on commit, so transaction size is a trade-off between the number of log flushes and how long locks are held.
+
+</A>
+
+<Ex title="T-SQL">
+
+```sql
+CREATE TABLE dbo.Accounts (Id int PRIMARY KEY, Balance money CHECK (Balance >= 0));
+INSERT dbo.Accounts VALUES (1, 50), (2, 0);
+
+-- Pitfall: without XACT_ABORT an error cancels only its own statement
+BEGIN TRAN;
+UPDATE dbo.Accounts SET Balance = Balance + 100 WHERE Id = 2; -- succeeds
+UPDATE dbo.Accounts SET Balance = Balance - 100 WHERE Id = 1; -- Msg 547: CHECK violation
+COMMIT; -- commits half the transfer: account 2 now has 100
+
+-- Correct: any error rolls back the whole transaction
+SET XACT_ABORT ON;
+BEGIN TRY
+    BEGIN TRAN;
+    UPDATE dbo.Accounts SET Balance = Balance - 100 WHERE Id = 1;
+    UPDATE dbo.Accounts SET Balance = Balance + 100 WHERE Id = 2;
+    COMMIT;
+END TRY
+BEGIN CATCH
+    IF @@TRANCOUNT > 0 ROLLBACK; -- the whole transfer is rolled back
+    THROW;                       -- rethrow the error to the client
+END CATCH;
+```
+
+</Ex>
+
+<Next>
+
+- What happens if the second of three `UPDATE`s in a transaction fails? — Without `XACT_ABORT` only that statement is cancelled; the transaction stays open and `COMMIT` commits the rest.
+- Does SQL Server have nested transactions? — No: an inner `COMMIT` decrements `@@TRANCOUNT`, `ROLLBACK` rolls back everything; partial rollback is done with `SAVE TRAN`.
+- Why doesn't a commit write data pages to disk? — The log is enough: the pages can be rebuilt from it after a crash.
+- Why is a bulk insert in autocommit mode slow? — Each statement is a separate commit and a separate synchronous log flush.
+- What is delayed durability? — A commit that doesn't wait for the log write: faster, but the last transactions may be lost on a crash.
+
+</Next>
+
+<Src>
+
+- [Transaction locking and row versioning guide](https://learn.microsoft.com/sql/relational-databases/sql-server-transaction-locking-and-row-versioning-guide)
+- [SET XACT_ABORT](https://learn.microsoft.com/sql/t-sql/statements/set-xact-abort-transact-sql)
+- [Accelerated database recovery](https://learn.microsoft.com/sql/relational-databases/accelerated-database-recovery-concepts)
+
+</Src>
+
+</Q>
+
+<Q id="db.tx.isolation-levels" level="m">
+
+## What isolation levels are there and which anomalies do they prevent?
+
+<A short l="j">
+
+An <T k="isolation-level">isolation level</T> defines what a transaction sees of the changes made by concurrent transactions. The standard defines four levels, from READ UNCOMMITTED to SERIALIZABLE: the higher the level, the fewer anomalies such as a <T k="dirty-read">dirty read</T>, but the more waiting; SQL Server defaults to READ COMMITTED.
+
+</A>
+
+<A short l="m">
+
+The levels differ in which anomalies they allow: READ COMMITTED prevents only dirty reads, REPEATABLE READ also prevents <T k="non-repeatable-read">non-repeatable reads</T>, and SERIALIZABLE also prevents <T k="phantom-read">phantoms</T>. In SQL Server without row versioning this is done with locks: the higher the level, the longer read locks are held and the more often sessions wait. A <T k="lost-update">lost update</T> in the "read, compute, write" pattern is not caught by READ COMMITTED; you prevent it with an atomic `UPDATE` or a lock taken on read.
+
+</A>
+
+<A short l="s">
+
+An isolation level is a trade-off between correctness and concurrency, and in lock-based SQL Server it sets how long read locks live: until the row is read, until the end of the transaction, or over the whole key range. Write locks are held until the end of the transaction at every level, so READ UNCOMMITTED doesn't speed up writes. SERIALIZABLE doesn't mean serial execution, only a result equivalent to some serial order, and you pay for it with range locks and deadlocks. That is why the level is raised selectively, for a specific transaction or table.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+An isolation level is a transaction setting that defines how much concurrent transactions can interfere with it. It is set with `SET TRANSACTION ISOLATION LEVEL`.
+
+**Anomalies**
+
+- **Dirty read** — you see changes another transaction hasn't committed yet and may still roll back.
+- **Non-repeatable read** — reading a row again returns a different value: someone changed it.
+- **Phantom** — re-running a query with the same condition finds new rows: someone inserted them.
+- **Lost update** — two transactions read a value, change it and write it back; the first write is lost.
+
+**How to use**
+
+SQL Server defaults to READ COMMITTED: no dirty reads, the other anomalies are possible.
+
+**Common mistake**
+
+Adding `WITH (NOLOCK)` "for speed". That is READ UNCOMMITTED: the query reads data that may later be rolled back.
+
+**Takeaway:** the isolation level decides which anomalies you accept for the sake of concurrency.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+In SQL Server without row versioning, the levels differ in their read (S) locks. Write (X) locks live until the end of the transaction at every level.
+
+- **READ UNCOMMITTED** — reads without S locks.
+- **READ COMMITTED** — the S lock is released right after the row is read.
+- **REPEATABLE READ** — S locks on rows read are held until the end of the transaction.
+- **SERIALIZABLE** — adds <T k="key-range-lock">key-range locks</T>: no row can be inserted into a range that was read.
+
+**When to choose what**
+
+| Level | Prevents | Still possible |
+|---|---|---|
+| READ UNCOMMITTED | — | everything |
+| READ COMMITTED | dirty reads | non-repeatable reads, phantoms, lost updates |
+| REPEATABLE READ | + non-repeatable reads | phantoms; a lost update turns into a deadlock |
+| SERIALIZABLE | + phantoms | nothing, but the most locking |
+
+**Pitfalls**
+
+- **Lost update under READ COMMITTED.** `SELECT Qty`, a calculation in the app and `UPDATE SET Qty = @new` lose concurrent changes. An atomic `UPDATE ... SET Qty = Qty - @n` is safe.
+- **Conversion deadlock.** Under REPEATABLE READ both transactions hold S on the row and wait for each other's X.
+- **Row versions.** Besides the four standard levels, SQL Server has RCSI and SNAPSHOT — they are covered in the next question.
+
+**Rule of thumb**
+
+Keep READ COMMITTED and add protection against a specific anomaly selectively: an atomic statement, a hint on one table or a row version check.
+
+**Takeaway:** each higher level holds read locks longer and closes one more anomaly at the cost of waiting.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- The SQL standard defines the levels by the anomalies they forbid, not by mechanism. SQL Server implements them with locks by default, PostgreSQL with data snapshots, so the same names behave differently: REPEATABLE READ in PostgreSQL doesn't allow phantoms either.
+- A range lock is placed on index keys. Without a suitable index, SERIALIZABLE locks the entire scanned range, effectively the table.
+- Lock-based READ COMMITTED doesn't guarantee consistency even within one statement: if a row's index key changes during a scan, the row can be read twice or missed.
+
+**Cost**
+
+- The longer S locks live, the more `LCK_M_*` waits and conversion deadlocks you get.
+- SERIALIZABLE pays with range locks and rolled-back deadlock victims.
+
+**Trade-offs**
+
+- You can raise the level for a single table with a hint: `WITH (HOLDLOCK)` is SERIALIZABLE for that table only.
+- `SET TRANSACTION ISOLATION LEVEL` inside a procedure applies until it returns, then the caller's level is restored.
+- The client sets the session level too: `TransactionScope` in .NET opens SERIALIZABLE by default.
+
+**How to check in production**
+
+- `sys.dm_exec_sessions.transaction_isolation_level` shows each session's level: 2 is READ COMMITTED, 4 is SERIALIZABLE.
+- In a deadlock graph every process has an `isolationlevel` attribute. An unexpected `serializable (4)` usually leads to a `TransactionScope` with default settings.
+
+**Takeaway:** a level's name is a contract about anomalies, while its cost depends on the implementation; in SQL Server that cost is how long read locks live.
+
+</A>
+
+<Ex title="T-SQL">
+
+```sql
+-- Database without RCSI. Session 1
+SET TRANSACTION ISOLATION LEVEL READ COMMITTED;
+BEGIN TRAN;
+SELECT Qty FROM dbo.Stock WHERE ProductId = 1; -- 10
+
+-- Session 2 (autocommit)
+UPDATE dbo.Stock SET Qty = 5 WHERE ProductId = 1; -- doesn't wait: the S lock is already released
+
+-- Session 1
+SELECT Qty FROM dbo.Stock WHERE ProductId = 1; -- 5: non-repeatable read
+COMMIT;
+
+-- Under REPEATABLE READ session 2 would wait for session 1 to commit,
+-- and both SELECTs would return 10
+```
+
+</Ex>
+
+<Next>
+
+- What is the default level in SQL Server and in Azure SQL Database? — READ COMMITTED; in Azure SQL Database it runs on row versions (RCSI) by default.
+- Does REPEATABLE READ prevent phantoms? — Not in SQL Server, you need SERIALIZABLE; in PostgreSQL, yes.
+- How do you avoid a lost update without raising the level? — An atomic `UPDATE ... SET x = x - @n`, `UPDLOCK` on read, or a `rowversion` check.
+- Does `NOLOCK` speed up writes? — No: write locks are held until the end of the transaction at every level.
+- Can you raise the level for a single table? — Yes, with the `REPEATABLEREAD` or `SERIALIZABLE` (`HOLDLOCK`) hints.
+
+</Next>
+
+<Src>
+
+- [SET TRANSACTION ISOLATION LEVEL](https://learn.microsoft.com/sql/t-sql/statements/set-transaction-isolation-level-transact-sql)
+- [Isolation levels in the Database Engine](https://learn.microsoft.com/sql/relational-databases/sql-server-transaction-locking-and-row-versioning-guide#isolation-levels-in-the-database-engine)
+- [PostgreSQL: Transaction isolation](https://www.postgresql.org/docs/current/transaction-iso.html)
+
+</Src>
+
+</Q>
+
+<Q id="db.tx.snapshot-rcsi" level="m">
+
+## What are RCSI and SNAPSHOT in SQL Server and how do they relate to MVCC in PostgreSQL?
+
+<A short l="j">
+
+<T k="rcsi">RCSI</T> and <T k="snapshot-isolation">SNAPSHOT</T> are SQL Server modes in which reads take no row locks and instead get the latest committed <T k="row-versioning">row version</T>. So reads don't wait for writes and don't block them; in PostgreSQL every read works this way — that is <T k="mvcc">MVCC</T>.
+
+</A>
+
+<A short l="m">
+
+Both modes are built on row versions: on a change, the previous version is copied to the <T k="version-store">version store</T>, and a reader picks the one it needs. RCSI is READ COMMITTED with a snapshot as of the start of each statement, enabled by a database option; SNAPSHOT gives a snapshot for the whole transaction and fails with error 3960 if a row was changed after the snapshot began. The cost is space for versions and up to 14 bytes per row, while PostgreSQL pays for the same with versions inside the table and VACUUM.
+
+</A>
+
+<A short l="s">
+
+RCSI and SNAPSHOT make reads in SQL Server optimistic: readers and writers stop blocking each other, but writers still conflict. RCSI is a change of default that Microsoft recommends for most applications unless the code relies on blocking reads; SNAPSHOT is a deliberate choice that requires retrying on 3960 and carries the risk of <T k="write-skew">write skew</T>. Conceptually RCSI matches PostgreSQL's READ COMMITTED and SNAPSHOT matches its REPEATABLE READ, but SQL Server keeps old versions separately while PostgreSQL keeps them right in the table.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+Row versioning: when a row changes, SQL Server keeps its previous committed version. A reader takes that version instead of waiting for the lock to be released.
+
+| Mode | What a read sees |
+|---|---|
+| RCSI, option `READ_COMMITTED_SNAPSHOT` | data committed before the statement started |
+| SNAPSHOT, option `ALLOW_SNAPSHOT_ISOLATION` | data committed before the transaction started |
+
+**Why**
+
+Without versions, a `SELECT` under READ COMMITTED waits for the writing transaction to finish. A sales report shouldn't queue behind order processing.
+
+**How to use**
+
+- RCSI is enabled for the whole database, no code changes needed.
+- SNAPSHOT is allowed for the database, and a transaction requests it explicitly: `SET TRANSACTION ISOLATION LEVEL SNAPSHOT`.
+
+**Common mistake**
+
+Thinking versions remove all locking. Two `UPDATE`s of the same row still wait for each other.
+
+**Takeaway:** with row versions, readers don't wait for writers and writers don't wait for readers.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+1. With the option on, every change copies the previous row version to the version store and stamps it with a transaction sequence number.
+2. RCSI takes a snapshot at the start of each statement. SNAPSHOT takes it at the first data access after `BEGIN TRAN`, not at `BEGIN TRAN` itself.
+3. Readers take only a `Sch-S` lock on the table, no row or page locks.
+4. An `UPDATE` under RCSI finds rows with U locks, like regular READ COMMITTED, and raises no conflicts. Under SNAPSHOT it checks whether anyone changed the row after the snapshot began and fails with error 3960 on a conflict.
+
+**When to choose what**
+
+| Aspect | RCSI | SNAPSHOT |
+|---|---|---|
+| Snapshot | per statement | per transaction |
+| Write conflict | none, the writer waits | error 3960, retry needed |
+| Code change | not needed | `SET TRANSACTION ISOLATION LEVEL SNAPSHOT` |
+
+**Pitfalls**
+
+- **Code relied on blocking reads.** "Read the stock level and decide" used to wait for an unfinished write, and now sees the old version. Such places are protected with a `READCOMMITTEDLOCK` or `UPDLOCK` hint.
+- **Turning RCSI on** requires no other connections in the database: usually `WITH ROLLBACK IMMEDIATE` in a maintenance window.
+- **DDL under SNAPSHOT.** Metadata isn't versioned: a schema change by another session causes error 3961.
+
+**Rule of thumb**
+
+RCSI is a sensible default for OLTP. SNAPSHOT is for long consistent reads such as reports, or where you are ready to retry the transaction on 3960.
+
+**Takeaway:** RCSI is a per-statement snapshot without conflicts, SNAPSHOT is a per-transaction snapshot with write-conflict detection.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- Versioning adds up to 14 bytes to a row when it changes, hence page splits and table growth.
+- Without ADR, versions live in tempdb; with ADR (SQL Server 2019+) they live in the persistent version store (PVS) of the database itself.
+- Versions are kept while the oldest active transaction needs them. One forgotten open transaction bloats tempdb or PVS.
+
+**SQL Server and PostgreSQL**
+
+| Need | SQL Server | PostgreSQL |
+|---|---|---|
+| Per-statement snapshot | RCSI, database option | READ COMMITTED, the default |
+| Per-transaction snapshot | SNAPSHOT, conflict — 3960 | REPEATABLE READ, conflict — 40001 |
+| Full serializability | lock-based SERIALIZABLE | SERIALIZABLE (SSI), error 40001 |
+| Old versions | tempdb or PVS | in the table itself, cleaned by VACUUM |
+
+**Trade-offs**
+
+- **Write skew.** A snapshot doesn't catch a conflict when transactions change different rows based on the same condition. Two on-call doctors each check "at least two on shift" and both leave — nobody is on shift. In SQL Server you need SERIALIZABLE or `UPDLOCK` on the rows read; in PostgreSQL, SERIALIZABLE.
+- Reading through a long version chain is slower than reading the current row.
+
+**How to check in production**
+
+- `sys.dm_tran_version_store_space_usage` shows version space in tempdb per database, `sys.dm_tran_persistent_version_store_stats` shows PVS with ADR.
+- `sys.dm_tran_active_snapshot_database_transactions` lists the oldest transactions holding versions.
+
+**Takeaway:** versions trade read locks for space and conflict detection, and the main enemy of both designs is long transactions that keep old versions from being cleaned up.
+
+</A>
+
+<Ex title="T-SQL">
+
+```sql
+ALTER DATABASE Shop SET ALLOW_SNAPSHOT_ISOLATION ON;
+-- RCSI: ALTER DATABASE Shop SET READ_COMMITTED_SNAPSHOT ON WITH ROLLBACK IMMEDIATE;
+
+-- Session 1
+SET TRANSACTION ISOLATION LEVEL SNAPSHOT;
+BEGIN TRAN;
+SELECT Qty FROM dbo.Stock WHERE ProductId = 1; -- 10: the snapshot is taken here
+
+-- Session 2 (autocommit)
+UPDATE dbo.Stock SET Qty = 7 WHERE ProductId = 1; -- doesn't wait for session 1
+
+-- Session 1
+SELECT Qty FROM dbo.Stock WHERE ProductId = 1; -- 10: the version from the snapshot
+UPDATE dbo.Stock SET Qty = Qty - 1 WHERE ProductId = 1;
+-- Msg 3960: Snapshot isolation transaction aborted due to update conflict...
+-- The transaction is rolled back and must be retried as a whole
+```
+
+</Ex>
+
+<Next>
+
+- Do writers block each other under RCSI? — Yes, `UPDATE` takes U and X locks as usual; versions remove only the reader–writer conflict.
+- When does a SNAPSHOT transaction's snapshot start? — At the first data access after `BEGIN TRAN`, not at `BEGIN TRAN` itself.
+- What is write skew and does SNAPSHOT catch it? — Two transactions change different rows based on the same condition they read; SNAPSHOT doesn't catch it.
+- Where are versions stored when ADR is on? — In the persistent version store inside the database, not in tempdb.
+- How is PostgreSQL's REPEATABLE READ similar to SNAPSHOT? — A per-transaction snapshot and serialization error 40001 on a write conflict.
+
+</Next>
+
+<Src>
+
+- [Row versioning-based isolation levels](https://learn.microsoft.com/sql/relational-databases/sql-server-transaction-locking-and-row-versioning-guide#row-versioning-based-isolation-levels-in-the-database-engine)
+- [PostgreSQL: Transaction isolation](https://www.postgresql.org/docs/current/transaction-iso.html)
+
+</Src>
+
+</Q>
+
+<Q id="db.tx.locks-deadlocks" level="m">
+
+## How do locks and deadlocks work in SQL Server and how do you avoid them?
+
+<A short l="j">
+
+A lock is a marker a transaction places to protect a row, page or table, and its <T k="lock-mode">mode</T> defines compatibility: a read takes a shared (S) lock, a write an exclusive (X) one, and an incompatible request waits. A <T k="deadlock">deadlock</T> is two transactions waiting for each other in a cycle; SQL Server finds the cycle, rolls one of them back with error 1205, and that transaction has to be retried.
+
+</A>
+
+<A short l="m">
+
+SQL Server locks resources hierarchically — a key or row, a page, a table — and places <T k="intent-lock">intent locks</T> (IS, IX) on the upper levels to check conflicts quickly. The U mode is taken while looking for rows to modify: it is compatible with S but not with another U, which prevents conversion deadlocks. Deadlocks are reduced with a consistent access order, short transactions and indexes, but never fully eliminated, so a retry on 1205 is mandatory.
+
+</A>
+
+<A short l="s">
+
+Locks are a shared server resource: a statement that piles up thousands of locks on a table triggers <T k="lock-escalation">escalation</T> to a table lock, and long transactions turn rare waits into blocking chains. Deadlocks are analyzed with the <T k="deadlock-graph">deadlock graph</T> from the `system_health` session and fixed at the cause — access order, a missing index, the "read then modify" pattern — rather than hidden behind retries. <T k="nolock">`NOLOCK`</T> is not a cure: it doesn't touch writer conflicts and pays for the missing waits with wrong data, while the honest fix for readers is RCSI.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+A lock marks that a transaction is working with a resource. A transaction needing an incompatible lock waits.
+
+| Lock | Who takes it | Compatible with |
+|---|---|---|
+| S, shared | reads | other S locks |
+| X, exclusive | `INSERT`, `UPDATE`, `DELETE` | nothing |
+
+**How a deadlock happens**
+
+1. Transaction A updated an order and holds X on its row.
+2. Transaction B updated a product's stock and holds X on it.
+3. A wants the stock row, B wants the order: both wait forever.
+
+SQL Server detects the cycle, rolls back the victim transaction and returns error 1205 to it.
+
+**How to avoid it**
+
+- Access tables in the same order.
+- Keep transactions short, with no waiting for the user.
+
+**Common mistake**
+
+Not handling 1205. The victim transaction is already rolled back, and without a retry the operation is lost.
+
+**Takeaway:** a deadlock is a mutual wait on locks that the server breaks by rolling back one transaction.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- **Granularity.** Locks are taken on an index key or row, a page, a table. Before X on a row, the server places IX on the page and the table, so a request to lock the table doesn't have to check every row.
+- **Modes.** S — read, U — read with intent to modify, X — modify, IS and IX — intent, Sch-S and Sch-M — schema stability and schema modification.
+- **Compatibility.** S is compatible with S and U, U with S but not with U, X with nothing.
+- **Deadlock.** The lock monitor finds a wait cycle within seconds and rolls back the victim with error 1205.
+
+**Pitfalls**
+
+- **Conversion deadlock.** Two transactions under REPEATABLE READ read a row (S) and both want X. `UPDLOCK` on the read makes the second one wait right away.
+- **Two-index deadlock.** A `SELECT` holds S on a nonclustered index key and goes to the clustered index, while an `UPDATE` holds X on the clustered key and modifies the nonclustered one. A covering index or RCSI helps.
+- **`NOLOCK`.** It is READ UNCOMMITTED: uncommitted data, rows missed or read twice during scans, error 601 on data movement. It doesn't remove deadlocks between writers.
+
+**Rule of thumb**
+
+One access order for tables, short transactions without external calls, indexes for `UPDATE` and `DELETE` predicates, retry the transaction on 1205.
+
+**Takeaway:** almost every deadlock is a different access order or a lock conversion, fixed with ordering, an index or `UPDLOCK`.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- Escalation fires when a statement acquires at least 5,000 locks on a single table reference, or when locks take too much memory. Row and page locks are replaced by a table lock, or a partition lock with `LOCK_ESCALATION = AUTO`.
+- The monitor searches for cycles every 5 seconds, and more often after a deadlock is found, down to 100 ms. The victim is the session with the lower `DEADLOCK_PRIORITY`, and on a tie the transaction that is cheaper to roll back.
+- The `system_health` session is on by default and records `xml_deadlock_report`: processes, resources, modes, query text, isolation levels.
+
+**Cost**
+
+- Escalation to a table lock stops all other writers. Bulk changes are split into batches of a few thousand rows.
+- `NOLOCK` doesn't resolve writer conflicts and produces wrong reports, while RCSI removes the reader–writer conflict without dirty data.
+
+**Trade-offs**
+
+- Optimized locking (SQL Server 2025, always on in Azure SQL Database) releases a row lock right after the change and holds only a single transaction ID lock until the end of the transaction. It requires ADR, gives the full benefit with RCSI, and makes escalation rare.
+- `LOCK_ESCALATION = DISABLE` and trace flags 1211 and 1224 remove escalation at the cost of memory, up to error 1204.
+
+**How to check in production**
+
+- Who blocks whom — `blocking_session_id` and a `wait_type` like `LCK_M_X` in `sys.dm_exec_requests`, details in `sys.dm_tran_locks`.
+- Long waits — the blocked process report (`blocked process threshold`) in Extended Events.
+- Deadlocks — the graph from `system_health`; escalations — the `lock_escalation` event.
+
+**Takeaway:** locks are a finite shared resource; deadlocks are diagnosed with the graph and fixed in code and indexes, and retries are only a safety net.
+
+</A>
+
+<Ex title="T-SQL">
+
+```sql
+-- Session 1
+BEGIN TRAN;
+UPDATE dbo.Orders SET Status = 2 WHERE OrderId = 1;     -- X on the order row
+
+-- Session 2
+BEGIN TRAN;
+UPDATE dbo.Stock SET Qty = Qty - 1 WHERE ProductId = 1; -- X on the stock row
+UPDATE dbo.Orders SET Status = 3 WHERE OrderId = 1;     -- waits for session 1
+
+-- Session 1
+UPDATE dbo.Stock SET Qty = Qty - 1 WHERE ProductId = 1; -- waits for session 2: a cycle
+-- A few seconds later one of the sessions gets Msg 1205:
+-- Transaction (Process ID 53) was deadlocked on lock resources with another process
+-- and has been chosen as the deadlock victim. Rerun the transaction.
+-- Fix: in both transactions touch Stock first, then Orders
+```
+
+</Ex>
+
+<Ex l="s" title="T-SQL: diagnostics">
+
+```sql
+-- Who is blocking whom right now
+SELECT r.session_id, r.blocking_session_id, r.wait_type, r.wait_time, t.text
+FROM sys.dm_exec_requests AS r
+CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) AS t
+WHERE r.blocking_session_id <> 0;
+
+-- Recent deadlocks from the system_health ring buffer
+SELECT x.ev.value('@timestamp', 'datetime2') AS deadlock_time,
+       x.ev.query('.') AS deadlock_report
+FROM (SELECT CAST(t.target_data AS xml) AS target_data
+      FROM sys.dm_xe_session_targets AS t
+      JOIN sys.dm_xe_sessions AS s ON s.address = t.event_session_address
+      WHERE s.name = N'system_health' AND t.target_name = N'ring_buffer') AS d
+CROSS APPLY d.target_data.nodes('RingBufferTarget/event[@name="xml_deadlock_report"]') AS x(ev)
+ORDER BY deadlock_time DESC;
+```
+
+</Ex>
+
+<Next>
+
+- What is a U lock and why does it exist? — A read with intent to modify: compatible with S but not with U, so two "read then write" transactions don't end up in a conversion deadlock.
+- How does SQL Server pick the deadlock victim? — By `DEADLOCK_PRIORITY`; on equal priority, the transaction that is cheapest to roll back.
+- When does lock escalation happen? — At 5,000 locks by one statement on a single table reference, or under lock memory pressure.
+- Where do you get a deadlock graph if nothing was configured? — From the `system_health` session: the `xml_deadlock_report` event is captured by default.
+- Why is `NOLOCK` not a solution? — It trades waiting for wrong data and doesn't help with writer conflicts; readers have RCSI.
+
+</Next>
+
+<Src>
+
+- [Deadlocks guide](https://learn.microsoft.com/sql/relational-databases/sql-server-deadlocks-guide)
+- [Lock modes and compatibility](https://learn.microsoft.com/sql/relational-databases/sql-server-transaction-locking-and-row-versioning-guide#lock_modes)
+- [Optimized locking](https://learn.microsoft.com/sql/relational-databases/performance/optimized-locking)
+
+</Src>
+
+</Q>
+
+<Q id="db.tx.concurrency-control" level="s">
+
+## Optimistic or pessimistic concurrency: how do you protect data and retry transactions from .NET?
+
+<A short l="j">
+
+<T k="pessimistic-concurrency">Pessimistic concurrency</T> locks the data first and then changes it, while <T k="optimistic-concurrency">optimistic concurrency</T> takes no locks on read and checks on write that nobody changed the row, for example via a <T k="rowversion">`rowversion`</T> column. The optimistic approach suits rare conflicts like editing a product card, the pessimistic one suits hot rows like stock levels.
+
+</A>
+
+<A short l="m">
+
+The optimistic scheme is `UPDATE ... WHERE Id = @id AND RowVer = @rv` plus a check that exactly one row changed; on a conflict the data is reloaded or shown to the user. The pessimistic one is `SELECT ... WITH (UPDLOCK)` in a short transaction, and for "check, then insert" it is `UPDLOCK, HOLDLOCK`, otherwise two sessions insert a duplicate. Both are combined with retrying the whole transaction on 1205 and 3960, and a retry is safe only if the operation is <T k="idempotency">idempotent</T>.
+
+</A>
+
+<A short l="s">
+
+The choice is between the cost of waiting and the cost of retrying: with frequent conflicts on hot rows it is cheaper to wait on a lock, with rare ones to check the version and occasionally retry. In .NET an explicit `DbTransaction` is simpler and more predictable, while <T k="transaction-scope">`TransactionScope`</T> opens SERIALIZABLE by default, loses its transaction after `await` without `TransactionScopeAsyncFlowOption.Enabled`, and needs a <T k="distributed-transaction">distributed transaction</T> as soon as a second connection is open at the same time. The whole unit of work is retried with backoff and jitter, and an unknown `COMMIT` outcome after a dropped connection is handled with an idempotency key.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **Pessimistic** — "a conflict is likely": lock the row, change it, commit. Others wait.
+- **Optimistic** — "a conflict is rare": read without locks, and on write check that the row hasn't changed.
+
+**How to use**
+
+1. Add a `RowVer rowversion` column to the table — SQL Server changes it on every row modification.
+2. Read the row together with `RowVer`.
+3. Update with the condition `WHERE Id = @id AND RowVer = @rowVer`.
+4. Zero rows changed means someone got there first: reload the data and tell the user.
+
+**Common mistake**
+
+Keeping a transaction open while the user edits a form. Locks hang for minutes, while this scenario calls for the optimistic approach.
+
+**Takeaway:** the pessimistic approach waits up front, the optimistic one checks at write time.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- **`rowversion`** — 8 bytes from a database-wide counter, incremented on every `INSERT` and `UPDATE` of the row. The `timestamp` synonym is deprecated. In EF Core such a column is a concurrency token, and a conflict surfaces as `DbUpdateConcurrencyException`; details are in the EF Core topic.
+- **`UPDLOCK`** — a U lock taken on read and held until the end of the transaction: a second reader with the same hint waits, a plain reader doesn't.
+- **`UPDLOCK, HOLDLOCK`** — adds a range lock: nobody can insert a row into the checked range. This is how "insert if missing" works without duplicates.
+- **An atomic statement** often beats both: `UPDATE ... SET Qty = Qty - @n WHERE Id = @id AND Qty >= @n` and a check of `@@ROWCOUNT`.
+
+**When to choose what**
+
+| Situation | Approach |
+|---|---|
+| A user edits for minutes | optimistic, `rowversion` |
+| A hot row: stock level, counter | atomic `UPDATE` or `UPDLOCK` |
+| A job queue in a table | `UPDLOCK, READPAST`; in PostgreSQL `FOR UPDATE SKIP LOCKED` |
+
+**Pitfalls**
+
+- Errors 1205 and 3960 have already rolled the transaction back — retry it as a whole.
+- Lock timeout 1222 cancels only the statement, and the transaction stays open: roll it back explicitly.
+
+**Takeaway:** one row and arithmetic — an atomic `UPDATE`; long editing — `rowversion`; complex logic on hot data — `UPDLOCK` in a short transaction.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+| Aspect | `DbTransaction` | `TransactionScope` |
+|---|---|---|
+| Enlistment | passed to every command | the connection enlists on `Open` |
+| Default level | the session level, usually READ COMMITTED | SERIALIZABLE, 1-minute timeout |
+| `await` inside | works | needs `TransactionScopeAsyncFlowOption.Enabled` |
+| Two connections | not possible | escalates to a distributed transaction |
+
+A distributed transaction goes through MSDTC. In .NET 7+ it works only on Windows and only after `TransactionManager.ImplicitDistributedTransactions = true`; otherwise you get an exception.
+
+**Trade-offs**
+
+- **Retry.** Retry the whole unit of work: a new connection, a new transaction, freshly read data. Limit the attempts and add a delay with jitter, or the victims collide again. EF Core's `EnableRetryOnFailure` treats 1205, 3960 and 1222 as transient errors.
+- **Side effects.** An HTTP call or a message inside the retried block goes out twice. A database transaction doesn't cover external systems; that is what the outbox and sagas are for, covered under integrations.
+- **Unknown commit outcome.** If the connection drops during `COMMIT`, the client doesn't know whether the transaction committed. A retry is safe only for an idempotent operation, for example with a unique `RequestId` key in an operations table.
+
+**How to check in production**
+
+- Metrics for retries and errors 1205 and 3960: when they grow, look for the cause in the deadlock graph instead of adding attempts.
+- `RangeS-S` in `sys.dm_tran_locks` and `serializable` in deadlock graphs are the trace of a `TransactionScope` with default settings.
+
+**Takeaway:** you choose between waiting and retrying, and a retry is reliable only when the whole transaction is retried and the operation is idempotent.
+
+</A>
+
+<Ex title="T-SQL">
+
+```sql
+-- @id, @price, @rowVer, @n are procedure parameters
+-- Optimistic: update only if nobody changed the row
+UPDATE dbo.Products SET Price = @price
+WHERE ProductId = @id AND RowVer = @rowVer;
+IF @@ROWCOUNT = 0
+    THROW 50001, 'Concurrency conflict: reload and retry.', 1;
+
+-- Pessimistic: "insert if missing" without duplicates
+SET XACT_ABORT ON;
+BEGIN TRAN;
+IF EXISTS (SELECT 1 FROM dbo.Stock WITH (UPDLOCK, HOLDLOCK) WHERE ProductId = @id)
+    UPDATE dbo.Stock SET Qty = Qty + @n WHERE ProductId = @id;
+ELSE
+    INSERT dbo.Stock (ProductId, Qty) VALUES (@id, @n); -- the range is locked: nobody can insert a duplicate
+COMMIT;
+```
+
+</Ex>
+
+<Ex title="C#: retry on deadlock">
+
+```csharp
+// NuGet: Microsoft.Data.SqlClient
+using System.Data;
+using Microsoft.Data.SqlClient;
+
+var cs = "Server=.;Database=Shop;Integrated Security=true;TrustServerCertificate=true";
+
+// The whole transaction is retried: a new connection, a new transaction
+await WithRetryAsync(async () =>
+{
+    await using var conn = new SqlConnection(cs);
+    await conn.OpenAsync();
+    await using var tx = (SqlTransaction)await conn.BeginTransactionAsync(IsolationLevel.ReadCommitted);
+    await using var cmd = new SqlCommand(
+        "UPDATE dbo.Stock SET Qty = Qty - 1 WHERE ProductId = @id AND Qty > 0", conn, tx);
+    cmd.Parameters.AddWithValue("@id", 1);
+    await cmd.ExecuteNonQueryAsync();
+    await tx.CommitAsync();
+});
+
+static async Task WithRetryAsync(Func<Task> action, int attempts = 3)
+{
+    for (var i = 1; ; i++)
+    {
+        try { await action(); return; }
+        // 1205 — deadlock victim, 3960 — SNAPSHOT conflict: the server has already rolled back
+        catch (SqlException ex) when (ex.Number is 1205 or 3960 && i < attempts)
+        {
+            await Task.Delay(Random.Shared.Next(50, 200) * i); // delay with jitter
+        }
+    }
+}
+```
+
+</Ex>
+
+<Ex title="C#: TransactionScope">
+
+```csharp
+// NuGet: Microsoft.Data.SqlClient
+using System.Transactions;
+using Microsoft.Data.SqlClient;
+
+var cs = "Server=.;Database=Shop;Integrated Security=true;TrustServerCertificate=true";
+
+// Defaults: SERIALIZABLE and a 1-minute timeout; without AsyncFlow the transaction is lost after await
+using (var scope = new TransactionScope(
+    TransactionScopeOption.Required,
+    new TransactionOptions { IsolationLevel = IsolationLevel.ReadCommitted, Timeout = TimeSpan.FromSeconds(30) },
+    TransactionScopeAsyncFlowOption.Enabled))
+{
+    await using var conn = new SqlConnection(cs);
+    await conn.OpenAsync(); // the connection enlists in the ambient transaction by itself
+    await using var cmd = new SqlCommand("UPDATE dbo.Stock SET Qty = Qty - 1 WHERE ProductId = 1", conn);
+    await cmd.ExecuteNonQueryAsync();
+
+    // A second connection open at the same time would escalate to a distributed transaction
+    scope.Complete(); // without Complete — rollback on Dispose
+}
+```
+
+</Ex>
+
+<Next>
+
+- How does `UPDLOCK` differ from `XLOCK`? — U is compatible with S, so plain readers don't wait; X blocks them too.
+- Why does `IF NOT EXISTS ... INSERT` without hints produce duplicates? — Between the check and the insert another session manages to insert the same row; `UPDLOCK, HOLDLOCK` lock the range.
+- What isolation level does `new TransactionScope()` use? — SERIALIZABLE with a 1-minute timeout; set `TransactionOptions` explicitly.
+- On 1205, do you retry the statement or the transaction? — The whole transaction: the server has already rolled it back entirely.
+- Why is 1222 trickier than 1205? — The transaction stays open after it, and without an explicit rollback the next statements run inside it.
+
+</Next>
+
+<Src>
+
+- [Types of concurrency](https://learn.microsoft.com/sql/relational-databases/sql-server-transaction-locking-and-row-versioning-guide#types-of-concurrency)
+- [rowversion](https://learn.microsoft.com/sql/t-sql/data-types/rowversion-transact-sql)
+- [Implementing an implicit transaction using TransactionScope](https://learn.microsoft.com/dotnet/framework/data/transactions/implementing-an-implicit-transaction-using-transaction-scope)
+
+</Src>
+
+</Q>

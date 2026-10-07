@@ -1,0 +1,226 @@
+inner-join:
+  term: Внутреннее соединение (INNER JOIN)
+  def: >-
+    Соединение, которое возвращает только пары строк двух таблиц, для которых выполнилось условие
+    в `ON`. Строки без пары в результат не попадают.
+  q: INNER JOIN SQL Server
+  docs: https://learn.microsoft.com/sql/relational-databases/performance/joins
+  wiki: Join (SQL)
+outer-join:
+  term: Внешнее соединение (LEFT, RIGHT, FULL JOIN)
+  def: >-
+    Соединение, которое сохраняет строки одной или обеих таблиц даже без пары и подставляет `NULL`
+    вместо колонок другой стороны. LEFT сохраняет левую таблицу, RIGHT — правую, FULL — обе.
+  q: LEFT OUTER JOIN SQL Server
+  docs: https://learn.microsoft.com/sql/relational-databases/performance/joins
+  wiki: Join (SQL)
+cross-join:
+  term: Перекрёстное соединение (CROSS JOIN)
+  def: >-
+    Декартово произведение: каждая строка одной таблицы соединяется с каждой строкой другой, без
+    условия. Используют для сеток вроде «магазин × день».
+  q: CROSS JOIN SQL Server
+  docs: https://learn.microsoft.com/sql/t-sql/queries/from-transact-sql
+apply-operator:
+  term: Оператор APPLY (CROSS APPLY, OUTER APPLY)
+  def: >-
+    Оператор T-SQL, который вычисляет табличное выражение справа для каждой строки слева, и это
+    выражение может ссылаться на её колонки. CROSS APPLY отбрасывает строки с пустым результатом,
+    OUTER APPLY сохраняет их с `NULL`; в PostgreSQL аналог — `LATERAL`.
+  q: CROSS APPLY OUTER APPLY T-SQL
+  docs: https://learn.microsoft.com/sql/t-sql/queries/from-transact-sql
+semi-join:
+  term: Полусоединение (semi join)
+  def: >-
+    Соединение, которое возвращает строки левой таблицы, у которых есть хотя бы одна пара справа,
+    не размножая их и не добавляя колонок. В SQL его выражают через `EXISTS` или `IN`.
+  q: semi join EXISTS SQL Server
+  docs: https://learn.microsoft.com/sql/t-sql/language-elements/exists-transact-sql
+query-optimizer:
+  term: Оптимизатор запросов (query optimizer)
+  def: >-
+    Компонент СУБД, который по тексту запроса, статистике и индексам выбирает план выполнения с
+    наименьшей оценочной стоимостью. Запрос описывает, что нужно получить, а оптимизатор решает,
+    как это сделать.
+  q: SQL Server query optimizer
+  docs: https://learn.microsoft.com/sql/relational-databases/query-processing-architecture-guide
+aggregate-function:
+  term: Агрегатная функция
+  def: >-
+    Функция, которая сворачивает набор строк в одно значение: `COUNT`, `SUM`, `AVG`, `MIN`, `MAX`.
+    Все они, кроме `COUNT(*)`, пропускают `NULL`.
+  q: aggregate functions T-SQL
+  docs: https://learn.microsoft.com/sql/t-sql/functions/aggregate-functions-transact-sql
+logical-query-processing:
+  term: Логический порядок обработки запроса
+  def: >-
+    Порядок, в котором SQL связывает части `SELECT`: `FROM`, `WHERE`, `GROUP BY`, `HAVING`,
+    `SELECT`, `ORDER BY`. Он определяет, какие имена видны на каждом шаге, а физический порядок
+    выполнения выбирает оптимизатор.
+  q: logical query processing order SQL Server
+  docs: https://learn.microsoft.com/sql/t-sql/queries/select-transact-sql#logical-processing-order-of-the-select-statement
+grouping-sets:
+  term: GROUPING SETS, ROLLUP и CUBE
+  def: >-
+    Расширения `GROUP BY`, которые в одном запросе считают агрегаты по нескольким наборам колонок:
+    например, по магазину, по региону и общий итог. Функция `GROUPING()` отличает строку итога от
+    обычной группы.
+  q: GROUPING SETS ROLLUP CUBE T-SQL
+  docs: https://learn.microsoft.com/sql/t-sql/queries/select-group-by-transact-sql
+cte:
+  term: CTE (обобщённое табличное выражение)
+  def: >-
+    Именованный подзапрос, объявленный через `WITH` перед инструкцией и видимый только в ней. В SQL
+    Server результат CTE не сохраняется: каждое обращение выполняет определение заново.
+  q: common table expression T-SQL
+  docs: https://learn.microsoft.com/sql/t-sql/queries/with-common-table-expression-transact-sql
+correlated-subquery:
+  term: Коррелированный подзапрос
+  def: >-
+    Подзапрос, который ссылается на колонки внешнего запроса и поэтому логически вычисляется для
+    каждой его строки. Оптимизатор часто переписывает его в соединение.
+  q: correlated subquery SQL Server
+  docs: https://learn.microsoft.com/sql/relational-databases/performance/subqueries
+recursive-cte:
+  term: Рекурсивный CTE
+  def: >-
+    CTE, который ссылается сам на себя: якорная часть даёт начальные строки, а рекурсивная через
+    `UNION ALL` повторяется, пока возвращает строки. Им обходят иерархии; в SQL Server глубину
+    ограничивает `MAXRECURSION`, по умолчанию 100.
+  q: recursive CTE T-SQL MAXRECURSION
+  docs: https://learn.microsoft.com/sql/t-sql/queries/recursive-common-table-expression-transact-sql
+three-valued-logic:
+  term: Трёхзначная логика
+  def: >-
+    В SQL условие бывает TRUE, FALSE или UNKNOWN. Любое сравнение с `NULL` даёт UNKNOWN, а `WHERE`,
+    `ON` и `HAVING` пропускают только TRUE — отсюда ловушки `NOT IN` и `<>`.
+  q: SQL three-valued logic NULL
+  docs: https://learn.microsoft.com/sql/t-sql/language-elements/null-and-unknown-transact-sql
+  wiki: Трёхзначная логика
+anti-join:
+  term: Антисоединение (anti semi join)
+  def: >-
+    Соединение, которое возвращает строки левой таблицы, не имеющие ни одной пары справа. В SQL его
+    пишут через `NOT EXISTS`; `NOT IN` даёт тот же результат, только если в подзапросе нет `NULL`.
+  q: anti semi join NOT EXISTS SQL Server
+  docs: https://learn.microsoft.com/sql/t-sql/language-elements/exists-transact-sql
+window-function:
+  term: Оконная функция
+  def: >-
+    Функция с `OVER (...)`, которая считает значение по набору строк, связанных с текущей, и, в
+    отличие от `GROUP BY`, не сворачивает строки. Примеры — `ROW_NUMBER`, `LAG`, `SUM() OVER`.
+  q: window functions T-SQL OVER
+  docs: https://learn.microsoft.com/sql/t-sql/queries/select-over-clause-transact-sql
+window-frame:
+  term: Рамка окна (ROWS, RANGE)
+  def: >-
+    Часть `OVER`, которая задаёт, какие строки относительно текущей входят в расчёт. `ROWS` считает
+    физические строки, `RANGE` — значения ключа сортировки; при `ORDER BY` без рамки действует
+    `RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW`.
+  q: window frame ROWS vs RANGE SQL Server
+  docs: https://learn.microsoft.com/sql/t-sql/queries/select-over-clause-transact-sql#rows-or-range
+ranking-function:
+  term: Функции ранжирования
+  def: >-
+    `ROW_NUMBER`, `RANK`, `DENSE_RANK` и `NTILE` — оконные функции, которые нумеруют строки внутри
+    секции. Они различаются обработкой равных значений.
+  q: ranking functions T-SQL
+  docs: https://learn.microsoft.com/sql/t-sql/functions/ranking-functions-transact-sql
+window-spool:
+  term: Window Spool
+  def: >-
+    Оператор плана SQL Server в row mode, который хранит строки рамки окна. Для `ROWS` с рамкой меньше
+    10 000 строк он работает в памяти, для `RANGE` — с рабочей таблицей в tempdb, что заметно
+    медленнее.
+  q: SQL Server Window Spool ROWS RANGE performance
+  docs: https://learn.microsoft.com/sql/relational-databases/showplan-logical-and-physical-operators-reference
+stored-procedure:
+  term: Хранимая процедура
+  def: >-
+    Именованный набор инструкций T-SQL на сервере с параметрами. Может менять данные, управлять
+    транзакциями и возвращать несколько наборов строк; план кэшируется при первом выполнении.
+  q: stored procedure SQL Server
+  docs: https://learn.microsoft.com/sql/relational-databases/stored-procedures/stored-procedures-database-engine
+  wiki: Хранимая процедура
+dml-trigger:
+  term: DML-триггер
+  def: >-
+    Процедура, которую SQL Server вызывает сам при `INSERT`, `UPDATE` или `DELETE`. Срабатывает
+    один раз на инструкцию, а изменённые строки доступны в псевдотаблицах `inserted` и `deleted`.
+  q: DML trigger inserted deleted SQL Server
+  docs: https://learn.microsoft.com/sql/relational-databases/triggers/dml-triggers
+inline-tvf:
+  term: Встраиваемая табличная функция (inline TVF)
+  def: >-
+    Функция вида `RETURNS TABLE AS RETURN (SELECT ...)`. Оптимизатор подставляет её текст в запрос,
+    как параметризованное представление, и строит общий план.
+  q: inline table-valued function SQL Server
+  docs: https://learn.microsoft.com/sql/relational-databases/user-defined-functions/create-user-defined-functions-database-engine
+scalar-udf:
+  term: Скалярная пользовательская функция (scalar UDF)
+  def: >-
+    Функция T-SQL, которая возвращает одно значение. До SQL Server 2019 вызывается на каждую строку
+    и запрещает параллельный план; с 2019 на уровне совместимости 150 подходящие функции
+    встраиваются в запрос.
+  q: scalar UDF inlining SQL Server 2019
+  docs: https://learn.microsoft.com/sql/relational-databases/user-defined-functions/scalar-udf-inlining
+mstvf:
+  term: Многооператорная табличная функция (multi-statement TVF)
+  def: >-
+    Функция, которая заполняет табличную переменную несколькими инструкциями и возвращает её.
+    Оптимизатор не видит её содержимое и оценивает результат в фиксированные 100 строк, а до SQL
+    Server 2014 — в одну.
+  q: multi-statement table-valued function cardinality
+  docs: https://learn.microsoft.com/sql/relational-databases/performance/intelligent-query-processing-details#interleaved-execution-for-mstvfs
+xact-abort:
+  term: SET XACT_ABORT
+  def: >-
+    Настройка сеанса: при `ON` любая ошибка выполнения откатывает всю транзакцию. По умолчанию
+    `OFF`, и часть ошибок откатывает только одну инструкцию, а таймаут клиента оставляет транзакцию
+    открытой.
+  q: SET XACT_ABORT ON timeout
+  docs: https://learn.microsoft.com/sql/t-sql/statements/set-xact-abort-transact-sql
+set-based:
+  term: Set-based подход (работа с множествами)
+  def: >-
+    Стиль, при котором набор строк обрабатывают одной инструкцией (`UPDATE ... JOIN`,
+    `INSERT ... SELECT`, `MERGE`), а не циклом по строкам. Оптимизатор выбирает план для всего
+    набора, а накладные расходы платятся один раз.
+  q: set-based vs row-by-row SQL Server
+rbar:
+  term: RBAR (row by agonizing row)
+  def: >-
+    Ироничное название построчной обработки: курсоры, циклы `WHILE` и вызовы из приложения на
+    каждую строку. Термин ввёл Джефф Моден.
+  q: RBAR row by agonizing row
+cursor:
+  term: Курсор
+  def: >-
+    Объект T-SQL, который проходит результат запроса по одной строке (`DECLARE CURSOR`,
+    `FETCH NEXT`). Нужен для действий, которые нельзя выразить одной инструкцией; если он нужен,
+    его объявляют `LOCAL FAST_FORWARD`.
+  q: T-SQL cursor FAST_FORWARD
+  docs: https://learn.microsoft.com/sql/t-sql/language-elements/declare-cursor-transact-sql
+merge-statement:
+  term: MERGE
+  def: >-
+    Инструкция, которая сопоставляет источник с целевой таблицей и за один проход выполняет
+    `UPDATE`, `INSERT` или `DELETE` по веткам `WHEN`. Требует уникального источника и `HOLDLOCK`
+    при параллельных upsert.
+  q: MERGE statement T-SQL HOLDLOCK
+  docs: https://learn.microsoft.com/sql/t-sql/statements/merge-transact-sql
+tvp:
+  term: Табличный параметр (table-valued parameter, TVP)
+  def: >-
+    Параметр пользовательского табличного типа (`CREATE TYPE ... AS TABLE`), через который клиент
+    передаёт набор строк одним вызовом. В процедуре объявляется `READONLY`, статистики по его
+    колонкам нет.
+  q: table-valued parameters SqlClient
+  docs: https://learn.microsoft.com/sql/relational-databases/tables/use-table-valued-parameters-database-engine
+lock-escalation:
+  term: Эскалация блокировок (lock escalation)
+  def: >-
+    Замена множества мелких блокировок одной блокировкой таблицы или секции. SQL Server пытается её
+    выполнить, когда одна инструкция держит 5000 и больше блокировок на одном объекте.
+  q: SQL Server lock escalation threshold
+  docs: https://learn.microsoft.com/sql/relational-databases/sql-server-transaction-locking-and-row-versioning-guide#lock-escalation

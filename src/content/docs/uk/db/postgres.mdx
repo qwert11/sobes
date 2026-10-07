@@ -1,0 +1,843 @@
+---
+title: PostgreSQL проти SQL Server
+description: Відмінності діалекту й типів, MVCC і VACUUM, типи індексів, JSONB і діагностика через EXPLAIN ANALYZE та pg_stat_statements.
+sidebar:
+  order: 5
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+Що змінюється для розробника, який роками писав на T-SQL і перейшов на PostgreSQL: діалект і типи, версії рядків і VACUUM, індекси, JSONB і діагностика запитів. Версії на жовтень 2026 — PostgreSQL 18 і SQL Server 2025; PostgreSQL 19 готується до виходу.
+
+**Перед цією темою:** [Індекси й плани запитів](/sobes/uk/db/indexes/), [Транзакції та блокування](/sobes/uk/db/transactions/).
+
+<Q id="db.pg.differences" level="j">
+
+## Чим PostgreSQL відрізняється від SQL Server на практиці?
+
+<A short l="j">
+
+PostgreSQL розуміє той самий SQL, але має свій діалект: імена без лапок зводяться до нижнього регістру, замість `TOP` пишуть `LIMIT`, замість `IDENTITY(1,1)` — <T k="identity-column">`GENERATED AS IDENTITY`</T>, а вставку-або-оновлення роблять через <T k="upsert">`INSERT ... ON CONFLICT`</T>. Тому запит із SQL Server майже ніколи не переноситься без правок.
+
+</A>
+
+<A short l="m">
+
+Відмінності є на трьох рівнях: імена, типи й синтаксис. Імена без лапок PostgreSQL зводить до нижнього регістру, рядки порівнює з урахуванням регістру, а типи в нього багатші: `text`, справжній `boolean`, <T k="timestamptz">`timestamptz`</T>, `uuid`, масиви. Upsert пишуть через `ON CONFLICT`: він атомарний без підказок блокування, а `MERGE` у SQL Server для того самого потребує `HOLDLOCK`.
+
+</A>
+
+<A short l="s">
+
+Синтаксис переноситься механічно, дорого коштують відмінності в семантиці. Порівняння рядків чутливе до регістру, `timestamptz` зберігає момент часу без вихідного зсуву, унікальний індекс пропускає кілька `NULL`, а <T k="sequence">послідовність</T> identity не зсувається під час вставки явних id. Процедура не віддає результат `SELECT`, як у SQL Server, міжбазових запитів немає, а роль баз усередині сервера грають схеми, тому міграцію з SQL Server планують як зміну семантики, а не як заміну ключових слів.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+PostgreSQL і SQL Server розуміють стандартний SQL, але кожен має свій діалект. Основа — `SELECT`, `JOIN`, `GROUP BY` — збігається, відрізняються імена, типи й службові конструкції.
+
+**Як користуватися**
+
+| T-SQL | PostgreSQL |
+|---|---|
+| `SELECT TOP 10 ...` | `... LIMIT 10` |
+| `int IDENTITY(1,1)` | `int GENERATED ALWAYS AS IDENTITY` |
+| `nvarchar(100)`, `bit` | `text` або `varchar(100)`, `boolean` |
+| `GETDATE()`, `ISNULL(a, b)` | `now()`, `coalesce(a, b)` |
+| `OUTPUT inserted.Id` | `RETURNING id` |
+| `[Order]` | `"order"` |
+
+**Типова помилка**
+
+Створити таблицю `"Users"` у лапках, а потім написати `SELECT * FROM Users`. Без лапок ім'я перетворюється на `users`, і PostgreSQL відповість, що таблиці немає. Так буває з таблицями EF Core і Prisma: за замовчуванням вони створюють імена з великими літерами в лапках.
+
+**Підсумок:** основа SQL спільна, а імена, типи й службові конструкції доведеться перевчити.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+- **Імена.** Ідентифікатор без лапок зводиться до нижнього регістру: `Users` і `users` — одне ім'я, `"Users"` — інше. Тому в PostgreSQL прийнято `snake_case`.
+- **Схеми.** Ієрархія «база → схема → таблиця», схема за замовчуванням — `public`, порядок пошуку задає <T k="search-path">`search_path`</T>. Запит до іншої бази того самого сервера можливий лише через розширення `postgres_fdw` або `dblink`.
+- **Автоінкремент.** `GENERATED ... AS IDENTITY` (з PostgreSQL 10) — стандартна заміна старого `serial`. Під капотом в обох послідовність.
+
+**Коли що обирати**
+
+| SQL Server | PostgreSQL | Відмінність |
+|---|---|---|
+| `nvarchar(n)` | `text`, `varchar(n)` | база зазвичай в UTF-8, префікс `N` не потрібен |
+| `bit` | `boolean` | `WHERE is_active` без `= 1` |
+| `datetimeoffset` | `timestamptz` | зберігає момент в UTC, зсув не зберігає |
+| `uniqueidentifier` | `uuid` | `gen_random_uuid()`, з PostgreSQL 18 — `uuidv7()` |
+| немає | `int[]`, `text[]` | масиви замість TVP і `STRING_SPLIT` |
+
+**Пастки**
+
+- **Регістр рядків.** `'Abc' = 'abc'` — `false`. Без урахування регістру шукають через `ILIKE`, `lower()` з індексом за виразом або недетерміновану <T k="collation">collation</T>.
+- **Identity після явних id.** Вставка з явними id під час перенесення даних не зсуває послідовність, і наступна звичайна вставка падає на дублікаті ключа. Виправляється `setval`. SQL Server у тій самій ситуації сам зсуває поточне значення identity.
+- **Upsert.** `INSERT ... ON CONFLICT` атомарний за паралельних вставок. `MERGE` є з PostgreSQL 15, але гонку двох вставок він не закриває.
+
+**Правило**
+
+Імена — `snake_case` без лапок, рядки — `text`, час — `timestamptz`, ключі — identity, upsert — `ON CONFLICT`.
+
+**Підсумок:** під час переїзду ламається не синтаксис, а регістр імен і рядків, час із поясом і послідовності.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- **Upsert.** `ON CONFLICT` спирається на унікальний індекс і гарантує один із двох результатів — вставку або оновлення — навіть за високої конкуренції. У SQL Server `MERGE` без `HOLDLOCK` за паралельних вставок ловить порушення унікальності, а з `HOLDLOCK` тримає блокування діапазону.
+- **Процедури й функції.** Набір рядків повертає функція `RETURNS TABLE`, її викликають у `FROM`. Процедура (`CALL`, з PostgreSQL 11) вміє `COMMIT` усередині, але не віддає результат `SELECT`, як процедура SQL Server.
+- **Час.** `now()` — час початку транзакції, а не оператора; поточний час дає `clock_timestamp()`.
+- **`NULL` в унікальному індексі.** PostgreSQL за замовчуванням пропускає кілька `NULL` (заборона — `NULLS NOT DISTINCT`, з PostgreSQL 15), SQL Server — лише один.
+
+**Ціна**
+
+Процедури з кількома наборами результатів переписують на функції або переносять у застосунок. Код, розрахований на регістронезалежну collation SQL Server, — на `lower()`, `citext` або ICU-collation.
+
+**Компроміси**
+
+- `text` проти `varchar(n)`: зберігаються й працюють однаково, довжина — бізнес-правило, а не оптимізація.
+- Випадковий `gen_random_uuid()` розкидає вставки по B-дереву, а `uuidv7()` упорядкований за часом і вставляється майже як послідовність.
+- Npgsql EF Core і Prisma за замовчуванням створюють імена в лапках (`"Orders"`). Єдиний `snake_case` (`EFCore.NamingConventions`, `@@map` у Prisma) звільняє ручний SQL від лапок.
+
+**Як перевірити в продакшені**
+
+Після перенесення даних порівняйте `last_value` з `pg_sequences` з `max(id)` кожної таблиці. Реальні імена й типи колонок показують `\d table` у psql та `information_schema.columns`.
+
+**Підсумок:** синтаксис перекладається механічно, а семантику — регістр, час, `NULL`, послідовності й процедури — перевіряють свідомо.
+
+</A>
+
+<Ex title="PostgreSQL">
+
+```sql
+CREATE TABLE app.users (
+    id         bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    email      text NOT NULL UNIQUE,      -- розрізняє регістр: Ann@ і ann@ — різні
+    is_active  boolean NOT NULL DEFAULT true,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    tags       text[] NOT NULL DEFAULT '{}'
+);
+
+-- Upsert: атомарно вставити або оновити й повернути id
+INSERT INTO app.users (email) VALUES ('ann@example.com')
+ON CONFLICT (email) DO UPDATE SET is_active = true
+RETURNING id;
+
+-- LIMIT/OFFSET замість TOP і OFFSET ... FETCH
+SELECT id, email FROM app.users
+WHERE is_active AND 'admin' = ANY (tags)
+ORDER BY id
+LIMIT 20 OFFSET 40;
+
+SELECT timestamptz '2026-10-07 12:00+05' AT TIME ZONE 'UTC';  -- 2026-10-07 07:00:00
+```
+
+</Ex>
+
+<Ex title="T-SQL">
+
+```sql
+CREATE TABLE app.Users (
+    Id        bigint IDENTITY(1,1) PRIMARY KEY,
+    Email     nvarchar(320) NOT NULL UNIQUE,  -- за CI-collation Ann@ і ann@ — дублікат
+    IsActive  bit NOT NULL DEFAULT 1,
+    CreatedAt datetimeoffset NOT NULL DEFAULT SYSDATETIMEOFFSET()
+);
+
+-- Upsert: без HOLDLOCK паралельні вставки ловлять порушення унікальності
+MERGE app.Users WITH (HOLDLOCK) AS t
+USING (VALUES (N'ann@example.com')) AS s (Email) ON t.Email = s.Email
+WHEN MATCHED THEN UPDATE SET IsActive = 1
+WHEN NOT MATCHED THEN INSERT (Email) VALUES (s.Email)
+OUTPUT inserted.Id;
+
+SELECT Id, Email FROM app.Users
+WHERE IsActive = 1
+ORDER BY Id
+OFFSET 40 ROWS FETCH NEXT 20 ROWS ONLY;
+```
+
+</Ex>
+
+<Next>
+
+- Чому `SELECT * FROM Users` не знаходить таблицю, створену EF Core? — Її створено як `"Users"` у лапках, а ім'я без лапок зводиться до `users`.
+- Чим `GENERATED ALWAYS` відрізняється від `BY DEFAULT`? — `ALWAYS` не приймає явне значення без `OVERRIDING SYSTEM VALUE`, `BY DEFAULT` приймає.
+- Як зробити унікальний email без урахування регістру? — Унікальний індекс за `lower(email)`, тип `citext` або недетермінована ICU-collation.
+- Що поверне `now()` двічі в одній транзакції? — Той самий час початку транзакції; поточний — `clock_timestamp()`.
+- Чи можна звернутися до таблиці із сусідньої бази? — Лише через `postgres_fdw` або `dblink`; усередині однієї бази дані розділяють схемами.
+
+</Next>
+
+<Src>
+
+- [Lexical Structure: Identifiers and Key Words](https://www.postgresql.org/docs/current/sql-syntax-lexical.html#SQL-SYNTAX-IDENTIFIERS)
+- [INSERT: ON CONFLICT Clause](https://www.postgresql.org/docs/current/sql-insert.html#SQL-ON-CONFLICT)
+- [MERGE (Transact-SQL): concurrency considerations](https://learn.microsoft.com/sql/t-sql/statements/merge-transact-sql)
+
+</Src>
+
+</Q>
+
+<Q id="db.pg.mvcc-vacuum" level="m">
+
+## Як влаштовано MVCC у PostgreSQL і навіщо потрібен VACUUM?
+
+<A short l="j">
+
+<T k="mvcc">MVCC</T> (багатоверсійність) означає, що `UPDATE` не перезаписує рядок, а створює його нову версію, тому читачі не чекають на записувачів. Старі версії стають <T k="dead-tuple">мертвими</T> й лишаються в таблиці, доки їх не прибере <T k="vacuum">VACUUM</T>, — зазвичай його запускає фоновий autovacuum.
+
+</A>
+
+<A short l="m">
+
+Кожна версія рядка зберігає `xmin` — транзакцію, яка її створила, і `xmax` — транзакцію, яка її видалила або замінила; за ними й за знімком транзакція вирішує, яку версію бачити. SQL Server з RCSI виносить старі версії в окреме сховище, а PostgreSQL тримає їх просто в таблиці, тому без VACUUM таблиця й індекси розростаються (<T k="table-bloat">bloat</T>). Ціна — фонова робота autovacuum, яку на великих гарячих таблицях доводиться налаштовувати.
+
+</A>
+
+<A short l="s">
+
+У PostgreSQL версії живуть у самій таблиці: `UPDATE` — це вставка нової версії й позначка старої, тому відкат миттєвий, а за прибирання платить VACUUM. Він прибирає мертві версії, оновлює visibility map для index-only scan і заморожує старі рядки, захищаючи 32-бітний лічильник транзакцій від <T k="xid-wraparound">wraparound</T>. <T k="hot-update">HOT-оновлення</T> звільняють індекси від зайвих записів, якщо індексовані колонки не змінювалися й на сторінці є місце. Головний ворог — довга транзакція або забутий слот реплікації: доки вони тримають горизонт видимості, VACUUM не може прибрати нічого новішого.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+MVCC (multi-version concurrency control) — спосіб паралельної роботи, за якого база зберігає кілька версій рядка. Читач бачить версію, актуальну на момент свого знімка, і не чекає на транзакцію, що пише.
+
+**Як це працює**
+
+1. `UPDATE` не змінює рядок на місці: створює нову версію, а стару позначає видаленою.
+2. `DELETE` лише позначає версію видаленою.
+3. Коли стару версію вже ніхто не може побачити, вона стає мертвою.
+4. VACUUM віддає місце мертвих версій під нові рядки. Зазвичай його запускає фоновий autovacuum.
+
+**Типова помилка**
+
+Вимкнути autovacuum, «щоб не заважав». Таблиці почнуть рости, запити сповільняться, а в межі база зупинить запис, захищаючись від переповнення лічильника транзакцій.
+
+**Підсумок:** у PostgreSQL кожна зміна залишає сміття, і VACUUM — штатне прибирання, а не обслуговування за бажанням.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+- Кожна версія рядка має приховані колонки `xmin` (хто створив) і `xmax` (хто видалив або замінив).
+- Знімок (snapshot) фіксує, які транзакції завершилися на момент його створення. Версію видно, якщо транзакцію `xmin` зафіксовано до знімка, а `xmax` порожній або його транзакцію на момент знімка не зафіксовано.
+- У Read Committed знімок береться на кожен оператор, тому PostgreSQL поводиться як SQL Server з RCSI, а не як Read Committed на блокуваннях.
+
+**Порівняння з SQL Server**
+
+| | SQL Server (RCSI, SNAPSHOT) | PostgreSQL |
+|---|---|---|
+| Де старі версії | version store у `tempdb`, з ADR — у самій базі | у тій самій таблиці |
+| Хто прибирає | фонове очищення | VACUUM і autovacuum |
+| Коли ввімкнено | за налаштуванням бази | завжди |
+
+**Пастки**
+
+- **Bloat.** Якщо autovacuum не встигає, мертві версії накопичуються, і запити читають зайві сторінки. Звичайний VACUUM місце ОС не повертає, а `VACUUM FULL` повертає, але блокує таблицю повністю (`ACCESS EXCLUSIVE`).
+- **Пороги.** Autovacuum приходить, коли мертвих рядків більше ніж 50 плюс 20 % таблиці; з PostgreSQL 18 поріг не перевищує 100 млн рядків. Для великих гарячих таблиць `autovacuum_vacuum_scale_factor` знижують.
+- **Довгі транзакції.** Доки відкрита стара транзакція, VACUUM не видаляє версії, які вона ще може побачити.
+
+**Правило**
+
+Autovacuum не вимикають, а налаштовують; транзакції тримають короткими.
+
+**Підсумок:** MVCC у PostgreSQL платить за неблокувальне читання сміттям у таблиці, а VACUUM — частина цієї ціни.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- **Відкат.** Undo-журналу немає: скасовану транзакцію позначають у `pg_xact`, і її версії просто стають невидимими. У SQL Server без ADR відкат програє журнал назад і триває пропорційно виконаній роботі.
+- **HOT (heap-only tuple).** Якщо не змінилася жодна індексована колонка й на сторінці є місце, нова версія лягає туди ж без нових записів в індексах. Ланцюжок старих версій вичищає звичайне звернення до сторінки, без VACUUM. `fillfactor` нижче 100 залишає місце під HOT.
+- **Заморожування.** Номер транзакції — 32 біти й порівнюється за модулем 2³², тому раз на ~2 млрд транзакцій старі рядки треба заморозити. Після `autovacuum_freeze_max_age` (200 млн) запускається примусовий VACUUM. За 40 млн до межі йдуть попередження, за 3 млн база перестає видавати нові номери транзакцій.
+
+**Ціна**
+
+Кожне не-HOT оновлення — нові записи в усіх індексах і у WAL. Часті `UPDATE` однієї колонки широкої таблиці коштують дорожче, ніж оновлення на місці в SQL Server.
+
+**Компроміси**
+
+- Агресивний autovacuum (менший `scale_factor`, більший `vacuum_cost_limit`) витрачає I/O, зате тримає bloat під контролем.
+- Індекс на колонці, яку часто оновлюють, вимикає HOT для її оновлень — користь індексу має це переважувати.
+
+**Як перевірити в продакшені**
+
+- `pg_stat_user_tables`: `n_dead_tup`, `last_autovacuum`, частка `n_tup_hot_upd` у `n_tup_upd`.
+- `age(datfrozenxid)` з `pg_database` — запас до wraparound.
+- `backend_xmin` у `pg_stat_activity` і `pg_replication_slots` — хто тримає горизонт.
+
+**Підсумок:** версії в самій таблиці роблять відкат дешевим, а оновлення дорогими; VACUUM, HOT і короткі транзакції тримають цю ціну під контролем.
+
+</A>
+
+<Ex title="PostgreSQL">
+
+```sql
+-- Приховані колонки версії
+SELECT xmin, xmax, ctid, id, status FROM orders WHERE id = 1;
+-- 750 | 0 | (0,1) | 1 | new
+
+UPDATE orders SET status = 'paid' WHERE id = 1;
+
+SELECT xmin, xmax, ctid, id, status FROM orders WHERE id = 1;
+-- 751 | 0 | (0,2) | 1 | paid   -- нова версія з новим ctid, (0,1) стала мертвою
+
+-- Скільки сміття й коли приходив autovacuum
+SELECT relname, n_live_tup, n_dead_tup, n_tup_hot_upd, last_autovacuum
+FROM pg_stat_user_tables
+ORDER BY n_dead_tup DESC
+LIMIT 10;
+
+-- Велика гаряча таблиця: чистити за 2 % мертвих рядків, а не за 20 %
+ALTER TABLE orders SET (autovacuum_vacuum_scale_factor = 0.02);
+```
+
+</Ex>
+
+<Next>
+
+- Чому таблиця росте, хоча рядків не додається? — Мертві версії від `UPDATE` і `DELETE`: autovacuum не встигає або його тримає довга транзакція.
+- Чим `VACUUM` відрізняється від `VACUUM FULL`? — Перший звільняє місце для повторного використання без блокування запису, другий переписує таблицю під `ACCESS EXCLUSIVE`; онлайн-альтернатива — розширення `pg_repack`.
+- Що таке transaction ID wraparound? — Переповнення 32-бітного лічильника транзакцій; VACUUM заморожує старі рядки, інакше база зупинить запис.
+- Чому відкат у PostgreSQL миттєвий? — Undo немає: транзакцію позначають скасованою, і її версії стають невидимими.
+- Як Npgsql EF Core робить оптимістичне блокування? — Через системну колонку `xmin` як concurrency token: `[Timestamp] public uint Version`.
+
+</Next>
+
+<Src>
+
+- [MVCC: Introduction](https://www.postgresql.org/docs/current/mvcc-intro.html)
+- [Routine Vacuuming](https://www.postgresql.org/docs/current/routine-vacuuming.html)
+- [Heap-Only Tuples (HOT)](https://www.postgresql.org/docs/current/storage-hot.html)
+
+</Src>
+
+</Q>
+
+<Q id="db.pg.indexes" level="m">
+
+## Які типи індексів є в PostgreSQL і коли який?
+
+<A short l="j">
+
+За замовчуванням `CREATE INDEX` створює B-tree — він підходить для рівності, діапазонів і сортування, як звичайний індекс SQL Server. Для масивів, JSONB і повнотекстового пошуку потрібен <T k="gin-index">GIN</T>, для геоданих і перетину діапазонів — <T k="gist-index">GiST</T>, для величезних таблиць, що ростуть за часом, — <T k="brin-index">BRIN</T>.
+
+</A>
+
+<A short l="m">
+
+Тип індексу обирають за оператором у запиті: B-tree — `=`, `<`, `BETWEEN`, `ORDER BY`; GIN — «містить» (`@>`, `&&`, `?`) для масивів, JSONB і повнотекстового пошуку; GiST — перетин і пошук найближчих; BRIN — діапазони за фізично впорядкованими даними. Фільтрований індекс SQL Server тут називається <T k="partial-index">частковим</T>, а замість індексу за обчислюваним стовпцем будують <T k="expression-index">індекс за виразом</T>. Кластерного індексу немає: таблиця — <T k="heap-table">купа</T>, і всі індекси, включно з первинним ключем, указують на фізичну адресу рядка.
+
+</A>
+
+<A short l="s">
+
+Усі таблиці PostgreSQL — купи, а індекси зберігають адресу версії рядка, тому тип індексу обирають під оператор, а не під фізичний порядок. GIN швидкий на пошук і дорогий на запис, BRIN у рази менший за B-tree, але корисний лише за кореляції значень із порядком рядків, а `CLUSTER` упорядковує таблицю один раз і під ексклюзивним блокуванням. Index-only scan залежить від VACUUM, а `CREATE INDEX` без `CONCURRENTLY` блокує запис на весь час побудови. Тому в продакшені індекси створюють лише `CONCURRENTLY` і перевіряють, що невдала побудова не залишила невалідний індекс.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+Індекс — окрема структура, за якою база знаходить рядки без читання всієї таблиці. У PostgreSQL кілька типів індексів, і кожен прискорює свої операції.
+
+**Як користуватися**
+
+| Тип | Для чого |
+|---|---|
+| B-tree (за замовчуванням) | `=`, `<`, `>`, `BETWEEN`, `ORDER BY` |
+| GIN | масиви, JSONB, повнотекстовий пошук |
+| GiST | геодані, діапазони, пошук найближчих |
+| BRIN | величезні таблиці, де значення росте з порядком вставки |
+| Hash | лише `=`; майже завжди вистачає B-tree |
+
+Тип задають через `USING`: `CREATE INDEX ON orders USING gin (tags);`.
+
+**Типова помилка**
+
+Чекати, що B-tree прискорить `LIKE '%abc%'` або пошук усередині JSONB. Для підрядків потрібен GIN із розширення `pg_trgm`, для JSONB — GIN за колонкою.
+
+**Підсумок:** B-tree — за замовчуванням, інші типи — під особливі оператори: «містить», «перетинається», «найближчий».
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+- Таблиця — купа без порядку, первинний ключ — звичайний унікальний B-tree. Аналога кластерного індексу немає.
+- **Частковий індекс** з `WHERE status = 'new'` — аналог фільтрованого індексу SQL Server: маленький і працює для запитів з тією самою умовою.
+- **Індекс за виразом** `ON users (lower(email))` будується без обчислюваного стовпця, але запит має містити той самий вираз.
+- **`INCLUDE`** (з PostgreSQL 11) додає неключові колонки для index-only scan, як у SQL Server.
+
+**Коли що обирати**
+
+| Умова в запиті | Індекс |
+|---|---|
+| `id = 42`, `ORDER BY created_at` | B-tree |
+| `tags @> ARRAY['vip']`, `attrs @> '...'` | GIN |
+| `name ILIKE '%ann%'` | GIN з `gin_trgm_ops` (`pg_trgm`) |
+| перетин періодів, найближчі точки | GiST |
+| свіжі події в журналі на сотні ГБ | BRIN за часом |
+
+**Пастки**
+
+- `CREATE INDEX` блокує `INSERT`, `UPDATE` і `DELETE` на весь час побудови. У продакшені пишуть `CREATE INDEX CONCURRENTLY`.
+- `LIKE 'abc%'` використовує B-tree лише за collation `C` або з класом операторів `text_pattern_ops`.
+- Унікальний індекс пропускає кілька `NULL`; заборона — `NULLS NOT DISTINCT` (PostgreSQL 15+).
+
+**Правило**
+
+Починайте з B-tree; інший тип беріть, коли в запиті оператор, якого B-tree не вміє.
+
+**Підсумок:** індекс обирають за оператором, а частковий індекс та індекс за виразом замінюють фільтровані індекси й обчислювані стовпці SQL Server.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- Індекс зберігає `ctid` — адресу версії рядка в купі. Не-HOT `UPDATE` дає рядку новий `ctid` і нові записи в усіх індексах. У SQL Server некластерний індекс зберігає ключ кластерного, і оновлення неіндексованої колонки його не зачіпає.
+- Index-only scan пропускає читання купи лише для сторінок, які visibility map позначила як «видимі всім». Без свіжого VACUUM він перетворюється на звичайний index scan.
+- `CLUSTER` перевпорядковує таблицю за індексом один раз під `ACCESS EXCLUSIVE`; нові рядки цей порядок не підтримують.
+- З PostgreSQL 18 B-tree вміє skip scan і використовує складений індекс без умови на першу колонку.
+
+**Ціна**
+
+- GIN дорогий на запис: кожен елемент масиву або ключ JSONB — окремий запис в індексі. `fastupdate` прискорює вставку через список очікування, але пошук цим списком повільніший.
+- `CONCURRENTLY` двічі сканує таблицю, чекає на завершення поточних транзакцій і не працює всередині транзакції. Міграції, які все загортають у транзакцію, виконують його окремо — в Alembic через `autocommit_block()`.
+- Після збою `CONCURRENTLY` залишається індекс `INVALID`: запити його не використовують, а запис обслуговує.
+
+**Компроміси**
+
+- BRIN на порядки менший за B-tree, але лише доки значення корелюють із фізичним порядком рядків.
+- Кожен зайвий індекс на колонці, яку часто оновлюють, вимикає HOT для її оновлень.
+
+**Як перевірити в продакшені**
+
+- `idx_scan = 0` у `pg_stat_user_indexes` — кандидати на видалення.
+- `pg_index.indisvalid = false` — сліди невдалих `CONCURRENTLY`.
+
+**Підсумок:** індекс у PostgreSQL указує на версію рядка, тому індекси дорожчі на запис, ніж у SQL Server; тип обирають за оператором, а створюють `CONCURRENTLY`.
+
+</A>
+
+<Ex title="PostgreSQL">
+
+```sql
+-- Частковий індекс: аналог фільтрованого індексу SQL Server
+CREATE INDEX CONCURRENTLY ix_orders_new
+    ON orders (created_at) WHERE status = 'new';
+
+-- Індекс за виразом замість обчислюваного стовпця
+CREATE UNIQUE INDEX CONCURRENTLY ux_users_email_lower
+    ON users (lower(email));
+SELECT id FROM users WHERE lower(email) = lower('Ann@Example.com');  -- використовує індекс
+
+-- Покривний індекс для index-only scan
+CREATE INDEX CONCURRENTLY ix_orders_customer
+    ON orders (customer_id) INCLUDE (total);
+
+-- GIN для масивів, BRIN для журналу, що росте за часом
+CREATE INDEX CONCURRENTLY ix_orders_tags ON orders USING gin (tags);
+CREATE INDEX CONCURRENTLY ix_events_at ON events USING brin (occurred_at);
+
+-- Побудова CONCURRENTLY впала: індекс залишився невалідним
+SELECT indexrelid::regclass FROM pg_index WHERE NOT indisvalid;
+```
+
+</Ex>
+
+<Next>
+
+- Чому в PostgreSQL немає кластерного індексу? — Таблиця — купа, а за MVCC версії рядка живуть за різними адресами; `CLUSTER` упорядковує лише один раз.
+- Чому запит з `lower(email)` не використовує індекс за `email`? — Індекс за виразом спрацьовує, лише якщо запит містить той самий вираз, і навпаки.
+- Що робити з індексом після невдалого `CREATE INDEX CONCURRENTLY`? — `DROP INDEX CONCURRENTLY` і створити заново або `REINDEX INDEX CONCURRENTLY`.
+- Коли BRIN марний? — Коли значення не корелюють із фізичним порядком рядків: кожен діапазон блоків покриває майже всі значення.
+- Навіщо Hash, якщо є B-tree? — Майже ні навіщо: лише рівність; іноді він компактніший для довгих ключів.
+
+</Next>
+
+<Src>
+
+- [Index Types](https://www.postgresql.org/docs/current/indexes-types.html)
+- [Partial Indexes](https://www.postgresql.org/docs/current/indexes-partial.html)
+- [CREATE INDEX: Building Indexes Concurrently](https://www.postgresql.org/docs/current/sql-createindex.html#SQL-CREATEINDEX-CONCURRENTLY)
+
+</Src>
+
+</Q>
+
+<Q id="db.pg.jsonb" level="m">
+
+## JSONB: коли зберігати JSON у реляційній базі і як його індексувати?
+
+<A short l="j">
+
+<T k="jsonb">`jsonb`</T> — тип PostgreSQL для JSON у розібраному двійковому вигляді: усередині нього шукають операторами `->`, `->>`, `@>` і будують за ним індекси. JSON у таблиці добрий для даних змінної структури — атрибутів товару, налаштувань, відповіді зовнішнього API, — а те, за чим фільтрують і зв'язують таблиці, тримають у звичайних колонках.
+
+</A>
+
+<A short l="m">
+
+`json` зберігає вихідний текст і розбирає його під час кожного звернення, а `jsonb` зберігає розібране дерево: без дублів ключів і вихідного порядку, зате з операторами й індексами. Для `@>` і <T k="jsonpath">jsonpath</T> будують GIN — `jsonb_path_ops` менший за стандартний, але не вміє перевірку ключа `?`, — а для одного поля вистачає B-tree за виразом `(attrs ->> 'brand')`. JSONB доречний для розріджених атрибутів, що змінюються, але схеми, обмежень і статистики за ключами він не дає.
+
+</A>
+
+<A short l="s">
+
+JSONB — компроміс між схемою й гнучкістю: він замінює таблиці <T k="eav">EAV</T> і колонки «про всяк випадок», але переносить контроль структури в застосунок. Документ зберігається цілком, великий іде в <T k="toast">TOAST</T>, тому зміна одного ключа переписує все значення, створює нову версію рядка й роздуває WAL. Розподілу значень усередині документа планувальник не знає: статистику йому дають індекс за виразом або `CREATE STATISTICS` за виразом. У SQL Server схоже з'явилося лише у версії 2025 — двійковий тип `json` і `CREATE JSON INDEX`, а до того були `nvarchar` та індекс за обчислюваним стовпцем.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+`jsonb` — тип колонки, у якій лежить JSON-документ. PostgreSQL зберігає його розібраним і вміє шукати всередині.
+
+**Навіщо**
+
+Для даних, структура яких змінюється від рядка до рядка: характеристики товарів, налаштування користувача, сира відповідь зовнішнього API.
+
+**Як користуватися**
+
+- `attrs -> 'size'` — вкладене значення як `jsonb`.
+- `attrs ->> 'brand'` — значення як `text`; число отримують приведенням: `(attrs ->> 'weight')::numeric`.
+- `attrs @> '{"color": "red"}'` — документ містить указану пару. Цей оператор прискорює GIN-індекс.
+
+**Типова помилка**
+
+Скласти в JSONB усе підряд, включно із зовнішніми ключами й полями для фільтрів. База перестає перевіряти типи й зв'язки, а запити втрачають індекси й статистику.
+
+**Підсумок:** JSONB — для гнучкої частини даних, а те, за чим шукають і зв'язують, — у звичайні колонки.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+| | `json` | `jsonb` |
+|---|---|---|
+| Зберігання | вихідний текст | розібране двійкове дерево |
+| Пробіли, порядок, дублі ключів | зберігаються | губляться, перемагає останній ключ |
+| Оператори `@>`, `?` і GIN | немає | є |
+
+**Коли що обирати**
+
+- Пошук «документ містить» за будь-якими ключами — GIN за колонкою: `USING gin (attrs jsonb_path_ops)`. Він менший за стандартний `jsonb_ops`, але не підтримує перевірку наявності ключа (`?`, `?|`, `?&`).
+- Фільтр і сортування за одним відомим полем — B-tree за виразом `((attrs ->> 'brand'))`.
+- Поле бере участь у зв'язках та обмеженнях — окрема колонка.
+
+**Пастки**
+
+- `->` повертає `jsonb`, `->>` — `text`. `attrs -> 'n' = 5` — помилка типів; пишуть `(attrs ->> 'n')::int = 5` або `attrs @> '{"n": 5}'`.
+- GIN розуміє лише свої оператори: `attrs ->> 'color' = 'red'` його не використовує, а `attrs @> '{"color": "red"}'` використовує.
+- Ключі порівнюються з урахуванням регістру: `Color` і `color` — різні ключі.
+
+**Правило**
+
+Спершу колонки, JSONB — для справді змінної частини; індекс підбирають під оператор у `WHERE`.
+
+**Підсумок:** `jsonb` — за замовчуванням, GIN — для пошуку за вмістом, B-tree за виразом — для одного гарячого поля.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- Якщо рядок ширший за ~2 КБ, великі значення стискаються й виносяться в TOAST. Щоб прочитати один ключ, документ розпаковують цілком.
+- Зміна одного ключа (`jsonb_set`, `attrs['color'] = ...`) переписує все значення: нова версія рядка й WAL пропорційно розміру документа. Документація радить тримати документи невеликими: будь-яка зміна блокує рядок цілком.
+- Статистики за ключами всередині документа немає, і селективність умов на JSONB планувальник бере за замовчуванням. Індекс за виразом або `CREATE STATISTICS` за виразом (PostgreSQL 14+) дають йому реальні дані.
+- Стандарт SQL/JSON: конструктори та `IS JSON` — з PostgreSQL 16, `JSON_VALUE`, `JSON_QUERY`, `JSON_EXISTS` і `JSON_TABLE` — з PostgreSQL 17. `JSON_VALUE` і `JSON_QUERY` є і в SQL Server, а роль `JSON_TABLE` там грає `OPENJSON`.
+
+**SQL Server для порівняння**
+
+- До 2025 — JSON у `nvarchar(max)`, функції `JSON_VALUE` і `OPENJSON`, а індекс — за обчислюваним стовпцем з `JSON_VALUE`.
+- SQL Server 2025 — двійковий тип `json`, метод `modify` для зміни на місці, `JSON_CONTAINS` і `CREATE JSON INDEX`, якому потрібен кластерний первинний ключ.
+
+**Компроміси**
+
+JSONB проти EAV: простіші запити й менше з'єднань, але немає зовнішніх ключів, типів і `NOT NULL` за ключами. Їх замінюють `CHECK` з `jsonb_path_exists` або перевіркою в застосунку.
+
+**Як перевірити в продакшені**
+
+`pg_column_size(attrs)` показує реальний розмір документів, `EXPLAIN` — чи обрано GIN (`Bitmap Index Scan`) і наскільки схибила оцінка рядків.
+
+**Підсумок:** JSONB дає гнучкість ціною статистики, дорогих часткових оновлень і контролю схеми; зберігайте в ньому невеликі документи й індексуйте під конкретні оператори.
+
+</A>
+
+<Ex title="PostgreSQL">
+
+```sql
+CREATE TABLE products (
+    id    bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    name  text NOT NULL,
+    attrs jsonb NOT NULL DEFAULT '{}'
+);
+
+-- GIN для пошуку за вмістом: @>, @?, @@
+CREATE INDEX ix_products_attrs ON products USING gin (attrs jsonb_path_ops);
+-- B-tree за одним гарячим полем
+CREATE INDEX ix_products_brand ON products ((attrs ->> 'brand'));
+
+SELECT id, name, attrs -> 'size' AS size        -- jsonb
+FROM products
+WHERE attrs @> '{"color": "red"}'               -- використовує GIN
+  AND (attrs ->> 'weight')::numeric < 2.5;      -- ->> повертає text
+
+SELECT id FROM products WHERE attrs ->> 'brand' = 'acme';  -- B-tree за виразом
+
+-- SQL/JSON (PostgreSQL 17+): стандартний синтаксис, як у SQL Server
+SELECT JSON_VALUE(attrs, '$.weight' RETURNING numeric) FROM products;
+```
+
+</Ex>
+
+<Ex title="T-SQL">
+
+```sql
+-- До SQL Server 2025: JSON у nvarchar, індекс за обчислюваним стовпцем
+ALTER TABLE dbo.Products
+    ADD Brand AS CAST(JSON_VALUE(Attrs, '$.brand') AS nvarchar(100));
+CREATE INDEX IX_Products_Brand ON dbo.Products (Brand);
+
+-- SQL Server 2025: двійковий тип json і JSON-індекс
+CREATE TABLE dbo.Items (
+    Id    bigint IDENTITY PRIMARY KEY,  -- JSON-індексу потрібен кластерний PK
+    Attrs json NOT NULL
+);
+CREATE JSON INDEX IX_Items_Attrs ON dbo.Items (Attrs);
+
+SELECT Id FROM dbo.Items WHERE JSON_VALUE(Attrs, '$.color') = 'red';
+```
+
+</Ex>
+
+<Next>
+
+- Чим `json` відрізняється від `jsonb`? — `json` зберігає текст як є, `jsonb` — розібране дерево без дублів ключів і з підтримкою індексів.
+- Чому GIN не використовується для `attrs ->> 'brand' = 'acme'`? — GIN підтримує `@>`, `?`, `@?`, `@@`; для `->>` потрібен B-tree за виразом.
+- Коли JSONB гірший за звичайні колонки? — Коли за полями фільтрують і зв'язують таблиці, потрібні обмеження й точна статистика.
+- Як оновити один ключ? — `jsonb_set` або підписка `attrs['color'] = '"blue"'`; на диску однаково переписується все значення.
+
+</Next>
+
+<Src>
+
+- [JSON Types](https://www.postgresql.org/docs/current/datatype-json.html)
+- [JSON Functions and Operators](https://www.postgresql.org/docs/current/functions-json.html)
+- [JSON data type — SQL Server](https://learn.microsoft.com/sql/t-sql/data-types/json-data-type)
+
+</Src>
+
+</Q>
+
+<Q id="db.pg.explain" level="s">
+
+## Як діагностувати продуктивність PostgreSQL?
+
+<A short l="j">
+
+Повільний запит розбирають через <T k="explain-analyze">`EXPLAIN ANALYZE`</T>: він виконує запит і показує план із реальним часом і кількістю рядків на кожному кроці. Найважчі запити всього застосунку показує розширення <T k="pg-stat-statements">`pg_stat_statements`</T> — найближчий аналог Query Store.
+
+</A>
+
+<A short l="m">
+
+Діагностика йде згори вниз: `pg_stat_statements` знаходить запити з найбільшим сумарним часом, `EXPLAIN (ANALYZE, BUFFERS)` показує, де в плані час і читання, а розбіжність оцінки рядків із фактом указує на застарілу статистику — її оновлює `ANALYZE`. Сортування й хеші, що пішли на диск, лікує <T k="work-mem">`work_mem`</T>, але він виділяється на кожну операцію в кожному з'єднанні. Повільні плани в продакшені ловить <T k="auto-explain">`auto_explain`</T>, а не ручний запуск.
+
+</A>
+
+<A short l="s">
+
+Продуктивність PostgreSQL визначають не лише плани, а й процесна модель і MVCC. Кожне з'єднання — окремий процес, тому сотні з'єднань від подів зводять через пул Npgsql і <T k="pgbouncer">PgBouncer</T> у режимі транзакцій, жертвуючи сесійними можливостями. Довга транзакція або сесія `idle in transaction` тримає <T k="xmin-horizon">горизонт</T> VACUUM, і bloat сповільнює всю базу. Спільного кешу планів немає, а підготовлений запит після п'яти виконань може перейти на generic-план — місцевий варіант parameter sniffing, який лікують `plan_cache_mode`.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+`EXPLAIN` показує план, який обрав планувальник, а `EXPLAIN ANALYZE` ще й виконує запит і додає фактичні цифри. У SQL Server це передбачуваний і фактичний плани виконання.
+
+**Як користуватися**
+
+1. Знайдіть повільний запит: у журналі або в `pg_stat_statements`.
+2. Виконайте для нього `EXPLAIN (ANALYZE, BUFFERS)`. З PostgreSQL 18 `BUFFERS` вмикається разом з `ANALYZE` сам.
+3. Шукайте вузол із найбільшим `actual time`, `Seq Scan` великою таблицею й сильну розбіжність `rows` в оцінці та факті.
+4. Після виправлення порівняйте план і час ще раз.
+
+**Типова помилка**
+
+Запустити `EXPLAIN ANALYZE` для `UPDATE` або `DELETE` у продакшені. Запит виконується по-справжньому, тому його загортають у `BEGIN` і `ROLLBACK`.
+
+**Підсумок:** `EXPLAIN ANALYZE` — фактичний план із реальними часом і рядками, головний інструмент розбору одного запиту.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+- **`pg_stat_statements`** накопичує статистику за нормалізованими запитами: виклики, сумарний і середній час, рядки, читання блоків. Підключається через `shared_preload_libraries` і `CREATE EXTENSION`. На відміну від Query Store, планів не зберігає.
+- **`EXPLAIN (ANALYZE, BUFFERS)`** показує на кожному вузлі оцінку й факт: `rows`, `loops`, час, `shared hit` (з кешу) і `read` (з диска). Час і рядки вказано на один прохід — множте на `loops`.
+- **Статистика** — часті значення й гістограми за колонками в `pg_stats`. Її збирає `ANALYZE`, зазвичай сам autovacuum.
+
+**Коли що обирати**
+
+| Симптом у плані | Що робити |
+|---|---|
+| оцінка `rows` хибить у десятки разів | `ANALYZE`, `CREATE STATISTICS` для пов'язаних колонок |
+| `Sort Method: external merge Disk` | підняти `work_mem` для запиту або ролі |
+| `Seq Scan` і великий `Rows Removed by Filter` | індекс під умову |
+| багато `read` за малої кількості рядків | bloat або невдалий індекс |
+
+**Пастки**
+
+- `work_mem` (4 МБ за замовчуванням) — ліміт на одне сортування чи хеш, а не на запит: складний запит у 100 з'єднаннях може зайняти його сотні разів.
+- `EXPLAIN ANALYZE` вимірює час кожного вузла, і на швидких запитах це помітно завищує підсумок.
+
+**Правило**
+
+Спершу `pg_stat_statements` за `total_exec_time`, потім `EXPLAIN (ANALYZE, BUFFERS)` для лідерів списку.
+
+**Підсумок:** `pg_stat_statements` каже, що лагодити, а `EXPLAIN ANALYZE` — чому повільно.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- **Процес на з'єднання.** Кожне з'єднання — окремий процес ОС зі своєю пам'яттю, `max_connections` за замовчуванням 100. Сотні з'єднань від подів з'їдають пам'ять ще до запитів.
+- **Пули.** Npgsql тримає пул у клієнті (за замовчуванням до 100 з'єднань на рядок підключення). PgBouncer у режимі `transaction` видає серверне з'єднання на час транзакції, але ламає `SET`, `LISTEN` і сесійні advisory-блокування. Протокольні prepared statements він підтримує з версії 1.21 (`max_prepared_statements`), а в Npgsql за ним ставлять `No Reset On Close=true`.
+- **Горизонт xmin.** Найстаріша транзакція, слот реплікації або репліка з `hot_standby_feedback` не дають VACUUM видалити новіші версії. Година в `idle in transaction` — година накопичення bloat у всій базі.
+- **Плани.** Спільного кешу планів, як у SQL Server, немає: план живе в сесії в підготовленого запиту. Після п'яти виконань PostgreSQL може перейти на generic-план без урахування значень параметрів; лікується `plan_cache_mode = force_custom_plan`.
+
+**Компроміси**
+
+- `auto_explain` з `log_analyze` пише фактичні плани повільних запитів, але вимірює кожен запит; `log_timing = off` знижує ціну.
+- `statement_timeout`, `idle_in_transaction_session_timeout` і `transaction_timeout` (PostgreSQL 17+) захищають базу; їх ставлять на роль застосунку, а не на весь сервер.
+
+**Як перевірити в продакшені**
+
+- `pg_stat_activity`: `state`, `xact_start`, `backend_xmin`, `wait_event`; `pg_blocking_pids(pid)` — хто кого блокує.
+- `temp_blks_written` у `pg_stat_statements` — запити, яким бракує `work_mem`.
+
+**Підсумок:** у PostgreSQL продуктивність — це плани плюс з'єднання й горизонт VACUUM: пул, короткі транзакції та `pg_stat_statements` важливіші за точкове налаштування запитів.
+
+</A>
+
+<Ex title="PostgreSQL">
+
+```sql
+-- Найдорожчі запити за сумарним часом
+SELECT calls, round(total_exec_time) AS total_ms,
+       round(mean_exec_time::numeric, 1) AS mean_ms, rows, query
+FROM pg_stat_statements
+ORDER BY total_exec_time DESC
+LIMIT 10;
+
+-- Фактичний план; DML — у транзакції з відкатом
+BEGIN;
+EXPLAIN (ANALYZE, BUFFERS)
+UPDATE orders SET status = 'paid' WHERE customer_id = 42;
+ROLLBACK;
+
+-- Хто тримає горизонт VACUUM і кого блокує
+SELECT pid, state, now() - xact_start AS xact_age, backend_xmin,
+       pg_blocking_pids(pid) AS blocked_by, left(query, 60) AS query
+FROM pg_stat_activity
+WHERE xact_start IS NOT NULL
+ORDER BY xact_start;
+```
+
+</Ex>
+
+<Ex title="EXPLAIN ANALYZE, PostgreSQL 18">
+
+```sql
+EXPLAIN (ANALYZE, COSTS OFF)
+SELECT g FROM generate_series(1, 300000) AS g ORDER BY g DESC;
+
+-- Sort (actual time=72.339..85.677 rows=300000.00 loops=1)
+--   Sort Key: g DESC
+--   Sort Method: external merge  Disk: 3528kB        -- забракло work_mem
+--   Buffers: shared hit=3, temp read=954 written=955  -- BUFFERS без запиту
+--   ->  Function Scan on generate_series g (actual time=18.384..34.475 rows=300000.00 loops=1)
+-- Execution Time: 104.038 ms
+```
+
+Після `SET work_mem = '64MB'` сортування йде в пам'ять: `Sort Method: quicksort`.
+
+</Ex>
+
+<Ex title="Npgsql">
+
+```csharp
+// NuGet: Npgsql
+using Npgsql;
+
+// Пряме підключення: пул Npgsql і автопідготовка частих запитів
+await using var dataSource = NpgsqlDataSource.Create(
+    "Host=db;Database=shop;Username=app;Password=secret;" +
+    "Maximum Pool Size=50;Max Auto Prepare=20;Command Timeout=30");
+// За PgBouncer у режимі transaction додайте: No Reset On Close=true
+
+await using var cmd = dataSource.CreateCommand(
+    "SELECT count(*) FROM orders WHERE status = $1");
+cmd.Parameters.Add(new NpgsqlParameter { Value = "paid" }); // позиційний $1
+Console.WriteLine(await cmd.ExecuteScalarAsync());
+```
+
+</Ex>
+
+<Next>
+
+- Чим `EXPLAIN` відрізняється від `EXPLAIN ANALYZE`? — Перший показує оцінку без виконання, другий виконує запит і додає факт.
+- Чому `actual rows` у внутрішньому вузлі Nested Loop треба множити? — Значення вказано на один прохід, а проходів — `loops`.
+- Чим `pg_stat_statements` відрізняється від Query Store? — Накопичує агрегати за нормалізованими запитами, але не зберігає плани й не вміє їх фіксувати.
+- Навіщо PgBouncer, якщо в Npgsql є пул? — Пул Npgsql живе в одному процесі застосунку, а PgBouncer зводить з'єднання всіх подів до невеликої кількості серверних процесів.
+- Що робити із сесією `idle in transaction`? — Знайти в `pg_stat_activity`, завершити `pg_terminate_backend`, поставити `idle_in_transaction_session_timeout` і виправити код, який не закриває транзакцію.
+
+</Next>
+
+<Src>
+
+- [Using EXPLAIN](https://www.postgresql.org/docs/current/using-explain.html)
+- [pg_stat_statements](https://www.postgresql.org/docs/current/pgstatstatements.html)
+- [Npgsql: Connection String Parameters](https://www.npgsql.org/doc/connection-string-parameters.html)
+
+</Src>
+
+</Q>

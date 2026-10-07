@@ -215,8 +215,25 @@ html:has(.tb) {
   padding-inline-start: 1.15rem;
 }
 
+/* Таблицы в ответах — по ширине карточки (у Starlight они блочные и уезжают в прокрутку). */
+.sl-markdown-content .q table {
+  display: table;
+  width: 100%;
+}
+
 /* На телефоне каждый пиксель ширины — тексту. */
 @media (max-width: 50rem) {
+  .sl-markdown-content .q table {
+    font-size: var(--sl-text-sm);
+  }
+  .sl-markdown-content .q :is(th, td) {
+    padding: 0.4rem 0.5rem 0.4rem 0;
+    hyphens: auto;
+    overflow-wrap: anywhere;
+  }
+  .sl-markdown-content .q :is(th, td) code {
+    overflow-wrap: anywhere;
+  }
   .sl-markdown-content .q {
     padding: 0.75rem 0.7rem 0.6rem;
   }

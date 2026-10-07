@@ -1,0 +1,176 @@
+transaction:
+  term: Транзакція
+  def: >-
+    Група операцій із базою, яка виконується як одне ціле: або фіксується повністю (`COMMIT`),
+    або повністю скасовується (`ROLLBACK`).
+  q: SQL Server transaction
+  docs: https://learn.microsoft.com/sql/t-sql/language-elements/transactions-transact-sql
+  wiki: Транзакція (бази даних)
+acid:
+  term: ACID
+  def: >-
+    Чотири властивості транзакції: атомарність (все або нічого), узгодженість (дотримано
+    обмежень), ізоляція (паралельні транзакції не бачать проміжних станів) і довговічність
+    (зафіксоване переживе збій).
+  q: ACID database transactions
+  docs: https://learn.microsoft.com/sql/relational-databases/sql-server-transaction-locking-and-row-versioning-guide#Basics
+  wiki: ACID
+write-ahead-log:
+  term: Журнал транзакцій (write-ahead log, WAL)
+  def: >-
+    Послідовний журнал змін, який пишеться на диск раніше за сторінки даних. Під час коміту база
+    чекає запису журналу, а після збою відновлює за ним зафіксоване й відкочує незафіксоване.
+  q: SQL Server transaction log write-ahead logging
+  docs: https://learn.microsoft.com/sql/relational-databases/sql-server-transaction-log-architecture-and-management-guide
+autocommit:
+  term: Автокоміт (autocommit)
+  def: >-
+    Режим, у якому кожен оператор — окрема транзакція й фіксується одразу після виконання. Режим
+    за замовчуванням у SQL Server, SqlClient і PostgreSQL.
+  q: SQL Server autocommit mode
+  docs: https://learn.microsoft.com/sql/relational-databases/sql-server-transaction-locking-and-row-versioning-guide#starting-transactions
+isolation-level:
+  term: Рівень ізоляції (isolation level)
+  def: >-
+    Налаштування транзакції, яке визначає, які зміни паралельних транзакцій вона бачить і які
+    аномалії допустимі. Стандарт SQL задає чотири рівні: READ UNCOMMITTED, READ COMMITTED,
+    REPEATABLE READ, SERIALIZABLE.
+  q: SQL Server transaction isolation levels
+  docs: https://learn.microsoft.com/sql/t-sql/statements/set-transaction-isolation-level-transact-sql
+dirty-read:
+  term: Брудне читання (dirty read)
+  def: >-
+    Аномалія, за якої транзакція читає зміни іншої транзакції, ще не зафіксовані й здатні
+    відкотитися. Можливе лише на READ UNCOMMITTED, зокрема через `NOLOCK`.
+  q: dirty read isolation
+  docs: https://learn.microsoft.com/sql/relational-databases/sql-server-transaction-locking-and-row-versioning-guide#concurrency-effects
+non-repeatable-read:
+  term: Неповторюване читання (non-repeatable read)
+  def: >-
+    Аномалія, за якої повторне читання того самого рядка в транзакції дає інше значення, бо його
+    змінила й зафіксувала інша транзакція.
+  q: non-repeatable read
+  docs: https://learn.microsoft.com/sql/relational-databases/sql-server-transaction-locking-and-row-versioning-guide#concurrency-effects
+phantom-read:
+  term: Фантомне читання (phantom read)
+  def: >-
+    Аномалія, за якої повторний запит із тією самою умовою повертає нові або зниклі рядки: інша
+    транзакція вставила чи видалила відповідні записи.
+  q: phantom read SQL
+  docs: https://learn.microsoft.com/sql/relational-databases/sql-server-transaction-locking-and-row-versioning-guide#concurrency-effects
+lost-update:
+  term: Втрачене оновлення (lost update)
+  def: >-
+    Аномалія, за якої дві транзакції читають одне значення, змінюють його й записують, і запис
+    останньої затирає зміну першої. Типова для шаблону «прочитав у застосунку — записав нове
+    значення».
+  q: lost update concurrency
+  docs: https://learn.microsoft.com/sql/relational-databases/sql-server-transaction-locking-and-row-versioning-guide#concurrency-effects
+key-range-lock:
+  term: Діапазонне блокування (key-range lock)
+  def: >-
+    Блокування діапазону ключів індексу між наявними рядками. Його ставить SERIALIZABLE або хінт
+    `HOLDLOCK`, щоб у прочитаний діапазон не можна було вставити рядок, тобто щоб не було
+    фантомів.
+  q: SQL Server key-range locking
+  docs: https://learn.microsoft.com/sql/relational-databases/sql-server-transaction-locking-and-row-versioning-guide#key_range
+rcsi:
+  term: RCSI (read committed snapshot isolation)
+  def: >-
+    Реалізація READ COMMITTED у SQL Server на версіях рядків: кожен оператор читає дані,
+    зафіксовані до його початку, без розділюваних блокувань. Вмикається опцією бази
+    `READ_COMMITTED_SNAPSHOT`, в Azure SQL Database увімкнена за замовчуванням.
+  q: SQL Server read committed snapshot isolation RCSI
+  docs: https://learn.microsoft.com/sql/relational-databases/sql-server-transaction-locking-and-row-versioning-guide#row-versioning-based-isolation-levels-in-the-database-engine
+snapshot-isolation:
+  term: Ізоляція SNAPSHOT (snapshot isolation)
+  def: >-
+    Рівень ізоляції SQL Server на версіях рядків: уся транзакція бачить дані на момент свого
+    першого звернення до них. За спроби змінити рядок, який уже змінили після цього моменту,
+    транзакція падає з помилкою 3960.
+  q: SQL Server snapshot isolation
+  docs: https://learn.microsoft.com/dotnet/framework/data/adonet/sql/snapshot-isolation-in-sql-server
+row-versioning:
+  term: Версіонування рядків (row versioning)
+  def: >-
+    Механізм, за якого зміна рядка зберігає його попередню зафіксовану версію. Читачі беруть
+    відповідну версію замість очікування блокувань; на ньому побудовані RCSI і SNAPSHOT.
+  q: SQL Server row versioning
+  docs: https://learn.microsoft.com/sql/relational-databases/sql-server-transaction-locking-and-row-versioning-guide#Row_versioning
+version-store:
+  term: Сховище версій (version store)
+  def: >-
+    Місце, де SQL Server зберігає попередні версії рядків для RCSI, SNAPSHOT, тригерів і
+    онлайн-перебудови індексів. Без ADR — у tempdb, з ADR — у persistent version store самої
+    бази.
+  q: SQL Server version store tempdb
+  docs: https://learn.microsoft.com/sql/relational-databases/sql-server-transaction-locking-and-row-versioning-guide#row-versioning-resource-usage
+write-skew:
+  term: Write skew (асиметрія запису)
+  def: >-
+    Аномалія знімків: дві транзакції читають ті самі дані, перевіряють умову й змінюють різні
+    рядки, і разом порушують цю умову. SNAPSHOT її не ловить, ловить SERIALIZABLE.
+  q: write skew snapshot isolation
+  docs: https://www.postgresql.org/docs/current/transaction-iso.html#XACT-SERIALIZABLE
+lock-mode:
+  term: Режим блокування (lock mode)
+  def: >-
+    Тип блокування, який визначає, з якими іншими блокуваннями воно сумісне. Основні режими SQL
+    Server — S (читання), U (читання перед зміною), X (зміна) і намірні IS, IX, SIX.
+  q: SQL Server lock modes compatibility
+  docs: https://learn.microsoft.com/sql/relational-databases/sql-server-transaction-locking-and-row-versioning-guide#lock_modes
+intent-lock:
+  term: Намірне блокування (intent lock)
+  def: >-
+    Блокування на верхньому рівні ієрархії (сторінка, таблиця), яке повідомляє, що нижче вже
+    стоять S або X. Дає змогу швидко зрозуміти, чи можна заблокувати всю таблицю, не
+    перевіряючи кожен рядок.
+  q: SQL Server intent locks IX IS
+  docs: https://learn.microsoft.com/sql/relational-databases/sql-server-transaction-locking-and-row-versioning-guide#intent
+deadlock-graph:
+  term: Граф дедлоку (deadlock graph)
+  def: >-
+    XML-звіт про дедлок: учасники, утримувані й очікувані ресурси, режими блокувань, тексти
+    запитів і жертва. У SQL Server його за замовчуванням пише сесія Extended Events
+    `system_health` (подія `xml_deadlock_report`).
+  q: SQL Server deadlock graph system_health
+  docs: https://learn.microsoft.com/sql/relational-databases/sql-server-deadlocks-guide
+nolock:
+  term: NOLOCK
+  def: >-
+    Табличний хінт SQL Server, рівнозначний READ UNCOMMITTED: читання без розділюваних блокувань.
+    Дає брудні дані, пропуски й повтори рядків і не знімає блокувань схеми та конфліктів
+    записувачів.
+  q: SQL Server NOLOCK hint problems
+  docs: https://learn.microsoft.com/sql/t-sql/queries/hints-transact-sql-table
+pessimistic-concurrency:
+  term: Песимістична конкуренція (pessimistic concurrency)
+  def: >-
+    Керування паралельним доступом через блокування: дані блокують до зміни, і конкуренти
+    чекають. Вигідна за частих конфліктів на коротких транзакціях.
+  q: pessimistic concurrency control
+  docs: https://learn.microsoft.com/sql/relational-databases/sql-server-transaction-locking-and-row-versioning-guide#types-of-concurrency
+rowversion:
+  term: rowversion
+  def: >-
+    Тип даних SQL Server: 8 байт із лічильника бази, які автоматично змінюються під час кожної
+    зміни рядка. Використовується для оптимістичної перевірки «рядок ніхто не змінював». Синонім
+    `timestamp` застарів.
+  q: SQL Server rowversion optimistic concurrency
+  docs: https://learn.microsoft.com/sql/t-sql/data-types/rowversion-transact-sql
+transaction-scope:
+  term: TransactionScope
+  def: >-
+    Клас System.Transactions, який створює ambient-транзакцію: з'єднання, відкриті всередині
+    блоку, входять у неї самі. За замовчуванням рівень SERIALIZABLE і таймаут 1 хвилина.
+  q: TransactionScope .NET
+  docs: https://learn.microsoft.com/dotnet/framework/data/transactions/implementing-an-implicit-transaction-using-transaction-scope
+distributed-transaction:
+  term: Розподілена транзакція (distributed transaction)
+  def: >-
+    Транзакція над кількома ресурсами (базами, з'єднаннями), яку координатор фіксує
+    двофазним комітом. У Windows це MSDTC; у .NET 7+ підтримується лише на Windows і
+    вмикається явно.
+  q: .NET distributed transactions MSDTC
+  docs: https://learn.microsoft.com/dotnet/framework/data/adonet/system-transactions-integration-with-sql-server
+  wiki: Розподілена транзакція

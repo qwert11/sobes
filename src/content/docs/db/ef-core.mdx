@@ -1,0 +1,1144 @@
+---
+title: EF Core
+description: DbContext и модель, отслеживание изменений, загрузка связей и N+1, миграции в команде, производительность, EF против Dapper и новое в EF Core 9 и 10.
+sidebar:
+  order: 4
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+Как EF Core превращает LINQ в SQL и строки обратно в объекты, как отслеживает изменения, грузит связанные данные и живёт с миграциями в команде. Кандидата с опытом EF спрашивают не «что такое `DbSet`», а почему запрос тормозит, откуда N+1 и как выкатывать схему.
+
+**Перед этой темой:** [Коллекции и LINQ](/sobes/dotnet/collections-linq/), [Транзакции и блокировки](/sobes/db/transactions/).
+
+<Q id="db.ef.basics" level="j">
+
+## Что такое EF Core и как он устроен: `DbContext`, `DbSet`, модель и перевод LINQ в SQL?
+
+<A short l="j">
+
+EF Core — <T k="orm">ORM</T> от Microsoft: он сопоставляет классы C# с таблицами и позволяет писать запросы на LINQ вместо SQL. Работа идёт через <T k="db-context">`DbContext`</T> — сессию с базой, где `DbSet<T>` представляет таблицу, а `SaveChanges` записывает изменения объектов обратно.
+
+</A>
+
+<A short l="m">
+
+EF строит <T k="ef-model">модель</T> — сущности, ключи, связи и их отображение на таблицы — по соглашениям, атрибутам и <T k="fluent-api">Fluent API</T>, причём Fluent API главнее. Запрос к `DbSet<T>` остаётся деревом выражений, пока его не перебирают; тогда <T k="ef-provider">провайдер базы данных</T> переводит дерево в SQL своего диалекта, а EF превращает строки в объекты. Цена абстракции — SQL пишете не вы, поэтому его проверяют через `ToQueryString()` и логи.
+
+</A>
+
+<A short l="s">
+
+`DbContext` совмещает <T k="unit-of-work">единицу работы</T> с трекером изменений и построитель запросов поверх модели, которая строится один раз на тип контекста и кэшируется. Модель — единый источник правды: из неё EF генерирует SQL, код материализации и миграции, поэтому расхождение модели со схемой всплывает в рантайме, а не при компиляции. Провайдер (SQL Server, Npgsql) задаёт диалект и семантику: регистр строк, `null` и коллации определяет база, а не C#. Абстракция протекает, поэтому опытный разработчик держит в голове генерируемый SQL и знает, когда перейти на сырой SQL.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+EF Core — ORM: библиотека, которая отображает классы на таблицы. Вы работаете с объектами, SQL генерирует EF.
+
+**Из чего состоит**
+
+- **`DbContext`** — сессия работы с базой: выполняет запросы и сохраняет изменения.
+- **`DbSet<T>`** — свойство контекста для запросов к таблице: `db.Orders.Where(...)`.
+- **Сущность** — обычный класс с ключом. Свойство `Id` или `OrderId` EF считает ключом по соглашению.
+- **Провайдер** — пакет под конкретную базу: `Microsoft.EntityFrameworkCore.SqlServer`, `Npgsql.EntityFrameworkCore.PostgreSQL`.
+
+**Как пользоваться**
+
+1. Унаследуйте контекст от `DbContext` и объявите `DbSet<T>`.
+2. Запрос выполнится при `ToListAsync()` или `FirstOrDefaultAsync()`.
+3. Изменения объектов сохранит `SaveChangesAsync()`.
+
+**Частая ошибка**
+
+Не задать длину строк. По умолчанию `string` на SQL Server становится `nvarchar(max)`, и такой столбец не может быть ключом индекса.
+
+**Итог:** `DbContext` — сессия с базой, `DbSet<T>` — таблица, LINQ — запрос, а SQL пишет провайдер.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+1. **Модель.** При первом использовании типа контекста EF строит модель: сущности, ключи, связи, имена таблиц и типы столбцов. Модель кэшируется.
+2. **Конфигурация.** Приоритет: Fluent API в `OnModelCreating`, затем атрибуты (`[MaxLength]`, `[Table]`), затем соглашения (`Id` — ключ, `CustomerId` — внешний ключ).
+3. **Запрос.** LINQ строит дерево выражений. При переборе EF ищет его в кэше запросов, при промахе переводит в SQL через провайдер.
+4. **Материализация.** Строки результата становятся объектами, сущности по умолчанию попадают в трекер изменений.
+
+**Когда что выбирать**
+
+| Способ конфигурации | Когда |
+|---|---|
+| Соглашения | всё, что им соответствует |
+| Атрибуты | простые ограничения рядом со свойством: `[MaxLength]`, `[Precision]` |
+| Fluent API | связи и каскадное удаление, фильтрованные индексы, конвертеры значений, глобальные фильтры |
+
+**Ловушки**
+
+- **Протекающая абстракция.** Не всякое выражение переводится в SQL. С EF Core 3.0 непереводимый `Where` бросает исключение, а не выполняется в памяти.
+- **Конфигурация вразнобой.** Если атрибут и Fluent API противоречат друг другу, побеждает Fluent API, и по классу сущности этого не видно.
+
+**Правило**
+
+Сущности — простые классы, конфигурация — в классах `IEntityTypeConfiguration<T>` через `ApplyConfigurationsFromAssembly`, сгенерированный SQL — под контролем.
+
+**Итог:** EF один раз строит модель и по ней переводит каждый LINQ-запрос в SQL через провайдер.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- Модель строится при первом обращении к типу контекста. Для сотен сущностей это заметная часть холодного старта, поэтому её генерируют заранее: `dotnet ef dbcontext optimize` (compiled model). С EF Core 9 такая модель подхватывается без `UseModel`, если лежит в сборке контекста. Есть ограничения: например, не поддерживаются lazy-loading-прокси.
+- Конвейер запроса: дерево выражений → раскрытие навигаций → SQL-дерево провайдера → текст SQL и делегат материализации. Результат кэшируется по форме дерева, захваченные переменные становятся параметрами.
+- Сам `DbContext` лёгкий: соединение берётся из пула ADO.NET на время команды и сразу возвращается, если нет открытой транзакции.
+
+**Компромиссы**
+
+- **Продуктивность против контроля.** Типобезопасные запросы, трекинг и миграции экономят код, но каждый неочевидный запрос надо проверить глазами.
+- **Семантика провайдера.** Один LINQ на SQL Server и PostgreSQL даёт разный SQL: коллация SQL Server обычно нечувствительна к регистру, PostgreSQL — чувствительна. InMemory-провайдер этого не покажет, поэтому тестируют на настоящей базе.
+- **Модель против схемы.** Ошибку маппинга компилятор не видит, она приходит как `SqlException: Invalid column name`.
+
+**Как проверить в проде**
+
+- SQL и время команд пишет категория логов `Microsoft.EntityFrameworkCore.Database.Command`. Значения параметров видны только с `EnableSensitiveDataLogging`, в проде его не включают.
+- Время первой операции после старта показывает цену построения модели.
+
+**Итог:** EF Core — компилятор LINQ в SQL поверх общей модели; его ценность — продуктивность, цена — обязанность понимать генерируемый SQL.
+
+</A>
+
+<Ex>
+
+```csharp
+// NuGet: Microsoft.EntityFrameworkCore.SqlServer
+using Microsoft.EntityFrameworkCore;
+
+using var db = new ShopContext();
+var maxPrice = 100m;
+
+// LINQ строит дерево выражений, провайдер SQL Server переводит его в SQL
+var query = db.Products
+    .Where(p => p.Price < maxPrice)
+    .OrderBy(p => p.Name)
+    .Select(p => new { p.Id, p.Name });
+
+// ToQueryString не обращается к базе: только показывает SQL
+Console.WriteLine(query.ToQueryString());
+
+public class ShopContext : DbContext
+{
+    public DbSet<Product> Products => Set<Product>();
+
+    protected override void OnConfiguring(DbContextOptionsBuilder options)
+        => options.UseSqlServer("Server=.;Database=Shop;Trusted_Connection=True");
+
+    // Fluent API: главнее атрибутов и соглашений
+    protected override void OnModelCreating(ModelBuilder model)
+        => model.Entity<Product>(e =>
+        {
+            e.ToTable("Products", "sales");               // схема и имя таблицы
+            e.Property(p => p.Name).HasMaxLength(200);    // nvarchar(200), а не nvarchar(max)
+            e.Property(p => p.Price).HasPrecision(18, 2); // decimal(18,2)
+        });
+}
+
+public class Product
+{
+    public int Id { get; set; }                // ключ по соглашению
+    public required string Name { get; set; }
+    public decimal Price { get; set; }
+}
+```
+
+Вывод (EF Core 10): переменная `maxPrice` стала параметром, константа попала бы в SQL как есть.
+
+```sql
+DECLARE @maxPrice decimal(18,2) = 100.0;
+
+SELECT [p].[Id], [p].[Name]
+FROM [sales].[Products] AS [p]
+WHERE [p].[Price] < @maxPrice
+ORDER BY [p].[Name]
+```
+
+</Ex>
+
+<Next>
+
+- Когда строится модель? — При первом использовании типа контекста, затем кэшируется на весь процесс.
+- Что главнее: атрибуты или Fluent API? — Fluent API; атрибуты главнее соглашений.
+- Как увидеть SQL запроса? — `ToQueryString()` без выполнения или логирование через `LogTo` и `ILogger`.
+- Во что превращается `string` на SQL Server по умолчанию? — В `nvarchar(max)`; длину задают `HasMaxLength` или `[MaxLength]`.
+- Почему InMemory-провайдер плох для тестов запросов? — Он не реляционный: нет SQL, транзакций и семантики настоящей базы.
+
+</Next>
+
+<Src>
+
+- [Overview of Entity Framework Core](https://learn.microsoft.com/ef/core/)
+- [Creating and configuring a model](https://learn.microsoft.com/ef/core/modeling/)
+- [How queries work](https://learn.microsoft.com/ef/core/querying/how-query-works)
+
+</Src>
+
+</Q>
+
+<Q id="db.ef.tracking" level="j">
+
+## Как работает отслеживание изменений и `SaveChanges`?
+
+<A short l="j">
+
+<T k="change-tracker">Трекер изменений</T> запоминает каждую сущность, загруженную контекстом или добавленную в него, и её <T k="entity-state">состояние</T>: `Added`, `Unchanged`, `Modified`, `Deleted`. `SaveChanges` отправляет в базу `INSERT`, `UPDATE` и `DELETE` только для изменённого, а данные только для чтения загружают через `AsNoTracking()`.
+
+</A>
+
+<A short l="m">
+
+Отслеживающий запрос сохраняет снимок исходных значений сущности, и `DetectChanges` перед сохранением находит изменённые свойства, поэтому `UPDATE` содержит только их. Трекер выполняет <T k="identity-resolution">identity resolution</T>: одна строка — один объект в контексте, а уже отслеживаемая сущность не перезаписывается данными из базы. Все команды одного `SaveChanges` идут в одной транзакции; цена трекинга — память на снимки и время на сравнение.
+
+</A>
+
+<A short l="s">
+
+Трекер — это identity map плюс снимки исходных значений, и `DetectChanges` сравнивает их со всеми отслеживаемыми сущностями, поэтому долгоживущий контекст замедляет каждый следующий `SaveChanges` и копит память. `SaveChanges` упорядочивает команды по внешним ключам, пакетирует их и выполняет в транзакции; с EF Core 7 одиночную команду он отправляет без явной транзакции. Отключённые сценарии ломают эту модель: для DTO из API EF не знает исходных значений и либо пишет все столбцы через `Update`, либо требует явно отметить изменённое. Поэтому контекст живёт одну бизнес-операцию.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+Контекст следит за загруженными сущностями. Вы меняете свойства обычных объектов, а EF сам решает, какой SQL нужен.
+
+**Состояния сущности**
+
+| Состояние | Что сделает `SaveChanges` |
+|---|---|
+| `Added` | `INSERT` |
+| `Unchanged` | ничего |
+| `Modified` | `UPDATE` изменённых столбцов |
+| `Deleted` | `DELETE` |
+| `Detached` | ничего: контекст не знает об объекте |
+
+**Как пользоваться**
+
+1. Загрузите сущность запросом — она `Unchanged`.
+2. Измените свойство — к сохранению она станет `Modified`.
+3. `Add` и `Remove` переводят объект в `Added` и `Deleted`.
+4. `await db.SaveChangesAsync()` отправит все изменения разом.
+
+**Частая ошибка**
+
+Загружать с отслеживанием данные только для показа. Для чтения пишите `AsNoTracking()`: запрос быстрее и не занимает память трекера.
+
+**Итог:** меняйте объекты, а SQL по их изменениям соберёт `SaveChanges`.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+1. **Запрос.** Отслеживающий запрос материализует сущность и запоминает снимок её значений. Если сущность с таким ключом уже отслеживается, возвращается тот же объект без перезаписи свойств.
+2. **Изменения.** `DetectChanges` сравнивает текущие значения со снимком. Его автоматически вызывают `SaveChanges`, `Entry` и `ChangeTracker.Entries`.
+3. **Сохранение.** `SaveChanges` строит команды, выполняет их в транзакции, записывает в сущности сгенерированные ключи и переводит их в `Unchanged`.
+
+**Когда что выбирать**
+
+| Режим | Когда |
+|---|---|
+| Отслеживание (по умолчанию) | будете менять и сохранять |
+| `AsNoTracking()` | только чтение: списки, отчёты, GET в API |
+| `AsNoTrackingWithIdentityResolution()` (EF Core 5+) | только чтение, но одна строка должна быть одним объектом |
+
+**Ловушки**
+
+- **Дубликаты без трекинга.** С EF Core 3.0 `AsNoTracking` создаёт новый объект на каждое вхождение строки: заказы с `Include(o => o.Customer)` получат столько копий клиента, сколько у него заказов.
+- **`Update` для DTO.** `db.Update(entity)` помечает `Modified` все свойства всего графа, и `UPDATE` перепишет даже неизменённое.
+- **Второй экземпляр с тем же ключом.** `Attach` дубликата даёт `InvalidOperationException: The instance of entity type ... cannot be tracked`.
+
+**Правило**
+
+Читаете — `AsNoTracking()`. Меняете — загрузите сущность, измените свойства, вызовите `SaveChanges`.
+
+**Итог:** трекер — снимки плюс identity map, а `SaveChanges` превращает разницу в SQL одной транзакцией.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- На каждую сущность трекер хранит запись: состояние, исходные значения, флаги изменённых свойств. Identity map — словарь «ключ → запись» для каждого типа.
+- `DetectChanges` обходит все отслеживаемые сущности. Его цена растёт линейно с их числом и платится при каждом `SaveChanges`.
+- `SaveChanges` сортирует команды по зависимостям, пакетирует их и выполняет в транзакции. Если транзакция откатилась, состояния в трекере остаются прежними, и повторный вызов попробует снова.
+
+**Цена**
+
+- Снимок — копия значений каждой отслеживаемой сущности: память растёт с числом строк.
+- Контекст в singleton или в длинном фоновом цикле копит сущности, и каждый `SaveChanges` медленнее предыдущего. Лечится коротким контекстом или `ChangeTracker.Clear()` между пачками.
+
+**Компромиссы**
+
+- Для сервисов, которые в основном читают, — `UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking)` в настройках и `AsTracking()` точечно.
+- DTO из API: загрузить сущность и применить `Entry(entity).CurrentValues.SetValues(dto)` — лишний `SELECT`, зато точный `UPDATE`. Или `Attach` и отметить изменённые свойства вручную — без `SELECT`, но полнота на вас.
+- Атомарен только один вызов `SaveChanges`. Несколько вызовов или смесь с `ExecuteUpdate` объединяет явная транзакция.
+
+**Как проверить в проде**
+
+- В отладке `ChangeTracker.DebugView.LongView` показывает состояния и значения всех сущностей контекста.
+- Метрики EF Core 9+ (meter `Microsoft.EntityFrameworkCore`) и счётчики `dotnet-counters`: активные контексты и частота `SaveChanges`. Растущее число контекстов — утечка.
+
+**Итог:** трекинг стоит памяти и CPU пропорционально числу сущностей, поэтому контекст короткий, чтение — без трекинга, а отключённые сущности обновляют явно.
+
+</A>
+
+<Ex>
+
+```csharp
+// NuGet: Microsoft.EntityFrameworkCore.Sqlite
+using Microsoft.EntityFrameworkCore;
+
+await using var db = new ShopContext();
+await db.Database.OpenConnectionAsync();   // база :memory: живёт, пока открыто соединение
+await db.Database.EnsureCreatedAsync();
+
+var order = new Order { Status = "New" };
+db.Orders.Add(order);
+Console.WriteLine(db.Entry(order).State);  // Added
+await db.SaveChangesAsync();               // INSERT, Id пришёл из базы
+Console.WriteLine(db.Entry(order).State);  // Unchanged
+
+order.Status = "Paid";                     // обычное присваивание
+Console.WriteLine(db.Entry(order).State);  // Modified
+
+// Identity resolution: тот же объект, свойства не перезаписаны
+var same = await db.Orders.SingleAsync(o => o.Id == order.Id);
+Console.WriteLine($"{ReferenceEquals(same, order)} {same.Status}"); // True Paid
+
+// Без трекинга: новый объект с данными из базы
+var copy = await db.Orders.AsNoTracking().SingleAsync(o => o.Id == order.Id);
+Console.WriteLine($"{ReferenceEquals(copy, order)} {copy.Status}"); // False New
+
+await db.SaveChangesAsync();               // UPDATE "Orders" SET "Status" = @p0 WHERE "Id" = @p1
+
+public class ShopContext : DbContext
+{
+    public DbSet<Order> Orders => Set<Order>();
+
+    protected override void OnConfiguring(DbContextOptionsBuilder options)
+        => options.UseSqlite("Data Source=:memory:");
+}
+
+public class Order
+{
+    public int Id { get; set; }
+    public required string Status { get; set; }
+}
+```
+
+</Ex>
+
+<Next>
+
+- Перезапишет ли повторный запрос изменённую отслеживаемую сущность? — Нет, вернёт тот же объект с вашими изменениями.
+- Чем `Attach` отличается от `Update`? — `Attach` ставит `Unchanged`, `Update` — `Modified` всем свойствам графа.
+- Когда `DetectChanges` вызывается сам? — В `SaveChanges`, `Entry`, `ChangeTracker.Entries` и `HasChanges`.
+- Как сбросить трекер, не создавая контекст заново? — `ChangeTracker.Clear()` (EF Core 5+).
+- Что останется в трекере после неудачного `SaveChanges`? — Прежние состояния: транзакция откатилась, изменения не приняты, вызов можно повторить.
+
+</Next>
+
+<Src>
+
+- [Change tracking in EF Core](https://learn.microsoft.com/ef/core/change-tracking/)
+- [Tracking vs. no-tracking queries](https://learn.microsoft.com/ef/core/querying/tracking)
+- [Basic SaveChanges](https://learn.microsoft.com/ef/core/saving/basic)
+
+</Src>
+
+</Q>
+
+<Q id="db.ef.loading" level="m">
+
+## Как загружать связанные данные и что такое проблема N+1?
+
+<A short l="j">
+
+Связанные данные — объекты в <T k="navigation-property">навигационных свойствах</T>, например строки заказа в `order.Lines`, и обычный запрос их не загружает. Их подгружают `Include` в том же запросе или проекцией через `Select`, а <T k="n-plus-one">проблема N+1</T> — это один запрос за списком плюс по запросу на каждый его элемент.
+
+</A>
+
+<A short l="m">
+
+Есть три способа: <T k="eager-loading">жадная загрузка</T> `Include`/`ThenInclude` одним запросом с `JOIN`, явная через `Entry(...).Collection(...).LoadAsync()` и <T k="lazy-loading">ленивая</T> через прокси при первом обращении к свойству. Ленивая загрузка в цикле и даёт N+1: запросов не видно в коде, а страница из 50 заказов превращается в 51 обращение к базе. `Include` двух коллекций одного уровня умножает строки (<T k="cartesian-explosion">cartesian explosion</T>), поэтому коллекции разносят по запросам через `AsSplitQuery`, а для чтения лучше проекция в DTO.
+
+</A>
+
+<A short l="s">
+
+N+1 бьёт по задержке: каждый лишний запрос — сетевой round trip, и время ответа растёт линейно с числом строк, поэтому lazy loading в веб-API — скрытый антипаттерн. `Include` грузит всё одним запросом, но с EF Core 3.0 одноуровневые коллекции дают декартово произведение строк, а <T k="split-query">split query</T> меняет его на несколько запросов без согласованности между ними. Для чтения проекция через `Select` выигрывает у обоих: в SQL уходят только нужные столбцы и агрегаты, трекинга нет. Решение подтверждают логи SQL: число команд на запрос и объём строк.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+Навигационное свойство — ссылка на связанную сущность (`order.Customer`) или коллекция (`order.Lines`). Обычный запрос загружает только саму сущность, навигации остаются `null` или пустыми.
+
+**Как пользоваться**
+
+- `Include(o => o.Lines)` — загрузить строки заказа в том же запросе.
+- `ThenInclude(l => l.Product)` — следующий уровень: продукт каждой строки.
+- `Select(o => new { o.Id, LineCount = o.Lines.Count })` — взять только нужные поля.
+
+**Что такое N+1**
+
+1. Один запрос загружает N заказов.
+2. Код в цикле обращается к `order.Lines`, и ленивая загрузка делает запрос на каждый заказ.
+3. Итого N+1 запросов вместо одного.
+
+**Частая ошибка**
+
+Включить ленивую загрузку, «чтобы не думать». Код выглядит так же, а число запросов растёт вместе с данными.
+
+**Итог:** связанные данные грузят явно — `Include` или проекцией, иначе получится N+1.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+| Способ | Как включить | Запросов |
+|---|---|---|
+| Жадная | `Include`, `ThenInclude`; с EF Core 5 — с фильтром внутри | 1 или по одному на коллекцию со split query |
+| Явная | `db.Entry(order).Collection(o => o.Lines).LoadAsync()` | +1 на вызов |
+| Ленивая | пакет `Microsoft.EntityFrameworkCore.Proxies`, `UseLazyLoadingProxies()`, `virtual`-навигации | +1 на первое обращение к каждой навигации |
+
+**Когда что выбирать**
+
+- Ответ API или отчёт — проекция в DTO через `Select`.
+- Нужно изменить граф — `Include` того, что будете менять.
+- Две и более коллекции одного уровня — `AsSplitQuery()`.
+
+**Ловушки**
+
+- **Cartesian explosion.** `Include(o => o.Lines).Include(o => o.Payments)`: заказ с 10 строками и 10 платежами даст 100 строк результата. Если режим не задан, EF пишет в лог `MultipleCollectionIncludeWarning`.
+- **Ленивая загрузка.** Синхронный запрос в геттере свойства и N+1 в циклах и при сериализации в JSON: сериализатор обходит все навигации.
+- **Split query и пагинация.** До EF Core 10 со `Skip`/`Take` сортировка должна быть уникальной, иначе запросы вернут несогласованные данные.
+
+**Правило**
+
+Для чтения — проекция, для изменения — `Include` нужного. Ленивую загрузку в веб-приложениях не включают.
+
+**Итог:** число запросов и объём строк выбирают явно: проекцией, `Include` или split query.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- С EF Core 3.0 `Include` коллекций — один запрос с `LEFT JOIN` и `ORDER BY` по ключам; EF Core 2.x делал отдельные запросы. На этом переходе многие проекты и получили cartesian explosion, а явный `AsSplitQuery` появился в EF Core 5.0.
+- Split query повторяет фильтр и сортировку корня в запросе каждой коллекции. Без MARS результаты предыдущих запросов буферизуются в памяти.
+- Агрегат в проекции (`o.Lines.Sum(...)`) становится коррелированным подзапросом: считает база, в приложение приходит одно число.
+
+**Цена**
+
+| Вариант | Чем платим |
+|---|---|
+| Ленивая загрузка | N round trip, синхронный I/O в геттере |
+| Один запрос с `JOIN` | строк — произведение размеров коллекций, столбцы родителя дублируются |
+| Split query | +1 round trip на коллекцию, согласованность только под `SNAPSHOT` или `SERIALIZABLE` |
+
+**Компромиссы**
+
+- Глобальный `UseQuerySplittingBehavior(SplitQuery)` спасает от взрыва строк, но добавляет round trip каждому `Include` и меняет согласованность всех запросов разом. Чаще его включают точечно.
+- Чем дальше база от приложения, тем дороже лишние round trip и тем выгоднее один запрос.
+
+**Как проверить в проде**
+
+- В трассировке OpenTelemetry N+1 выглядит как лесенка одинаковых `SELECT` внутри одного HTTP-запроса.
+- `MultipleCollectionIncludeWarning` в логах и число прочитанных строк в плане выполнения выдают взрыв `JOIN`.
+
+**Итог:** N+1 бьёт по задержке, общий `JOIN` — по объёму, split query — по согласованности; проекция обходит все три, когда данные нужны для чтения.
+
+</A>
+
+<Ex>
+
+```csharp
+// NuGet: Microsoft.EntityFrameworkCore.SqlServer
+using Microsoft.EntityFrameworkCore;
+
+using var db = new ShopContext();
+
+// Жадная загрузка: один запрос с LEFT JOIN; фильтр внутри Include — с EF Core 5
+var eager = db.Orders.Include(o => o.Lines.Where(l => l.Quantity > 0));
+
+// Проекция: только нужные столбцы, агрегаты считает база, трекинга нет
+var totals = db.Orders.Select(o => new
+{
+    o.Id,
+    Lines = o.Lines.Count,
+    Total = o.Lines.Sum(l => l.Quantity * l.Price)
+});
+Console.WriteLine(totals.ToQueryString());
+
+// N+1: запрос за заказами и ещё по одному на каждый заказ — так работает ленивая загрузка
+async Task PrintLineCountsSlowly()
+{
+    foreach (var order in await db.Orders.ToListAsync())
+    {
+        await db.Entry(order).Collection(o => o.Lines).LoadAsync(); // +1 запрос
+        Console.WriteLine(order.Lines.Count);
+    }
+}
+
+public class ShopContext : DbContext
+{
+    public DbSet<Order> Orders => Set<Order>();
+
+    protected override void OnConfiguring(DbContextOptionsBuilder options)
+        => options.UseSqlServer("Server=.;Database=Shop;Trusted_Connection=True");
+}
+
+public class Order
+{
+    public int Id { get; set; }
+    public List<OrderLine> Lines { get; set; } = [];
+}
+
+public class OrderLine
+{
+    public int Id { get; set; }
+    public int OrderId { get; set; }
+    public int Quantity { get; set; }
+    [Precision(18, 2)] public decimal Price { get; set; }
+}
+```
+
+SQL проекции (EF Core 10): два коррелированных подзапроса, из базы приходят три числа на заказ.
+
+```sql
+SELECT [o].[Id], (
+    SELECT COUNT(*)
+    FROM [OrderLine] AS [o0]
+    WHERE [o].[Id] = [o0].[OrderId]) AS [Lines], (
+    SELECT COALESCE(SUM(CAST([o1].[Quantity] AS decimal(18,2)) * [o1].[Price]), 0.0)
+    FROM [OrderLine] AS [o1]
+    WHERE [o].[Id] = [o1].[OrderId]) AS [Total]
+FROM [Orders] AS [o]
+```
+
+</Ex>
+
+<Next>
+
+- Почему N+1 трудно заметить? — Запросы спрятаны в геттерах и сериализаторе, виден только рост времени ответа.
+- Что такое filtered include? — `Include(o => o.Lines.Where(...))` с EF Core 5: загружается часть коллекции.
+- Чем опасен `AsSplitQuery` со `Skip` и `Take`? — Запросы могут увидеть разные данные; до EF Core 10 нужна уникальная сортировка.
+- Как грузится связь «один к одному» в split query? — Всегда через `JOIN` в том же запросе, разделяются только коллекции.
+- Работает ли ленивая загрузка у сущностей из `AsNoTracking`? — С EF Core 8 да, раньше нет.
+
+</Next>
+
+<Src>
+
+- [Loading related data](https://learn.microsoft.com/ef/core/querying/related-data/)
+- [Single vs. split queries](https://learn.microsoft.com/ef/core/querying/single-split-queries)
+- [Efficient querying](https://learn.microsoft.com/ef/core/performance/efficient-querying)
+
+</Src>
+
+</Q>
+
+<Q id="db.ef.migrations" level="m">
+
+## Как работать с миграциями в команде и при выкладке?
+
+<A short l="j">
+
+<T k="ef-migration">Миграция</T> — класс C#, который переводит схему базы от одной версии модели к следующей: `dotnet ef migrations add` создаёт её по изменениям модели, `dotnet ef database update` применяет. Применённые миграции EF записывает в таблицу <T k="migrations-history-table">`__EFMigrationsHistory`</T>, поэтому их хранят в Git вместе с кодом и не правят после применения.
+
+</A>
+
+<A short l="m">
+
+Миграция — это методы `Up` и `Down` плюс <T k="model-snapshot">снапшот модели</T>, с которым EF сравнивает текущую модель при следующем `migrations add`. Миграции из параллельных веток расходятся в снапшоте, и после слияния свою пересоздают поверх чужой, а сгенерированный код читают всегда: переименование свойства EF превратит в удаление и добавление столбца. На прод миграции выкатывают отдельным шагом — <T k="idempotency">идемпотентным</T> SQL-скриптом для ревью или <T k="migration-bundle">migration bundle</T> в CI/CD, а не `Database.Migrate()` при старте приложения.
+
+</A>
+
+<A short l="s">
+
+Миграции — упорядоченная цепочка со снимком модели в каждой, поэтому параллельные миграции из веток пересоздают, а не сортируют, а `has-pending-model-changes` в CI ловит забытые. `Database.Migrate()` на старте даёт приложению права на DDL и лишает SQL ревью, а несколько экземпляров до EF Core 9 гонялись за схему — блокировка EF Core 9 убрала гонку, но не долгий старт всех подов. Поэтому схему выкатывают отдельным шагом конвейера под отдельной учёткой: скриптом или bundle. Каждая миграция обязана быть совместима с предыдущей версией кода, иначе rolling deploy сломается.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+Миграция — шаг изменения схемы. EF сравнивает модель с прошлым снимком и генерирует код: `CreateTable`, `AddColumn`, `CreateIndex`.
+
+**Как пользоваться**
+
+1. Измените модель: добавьте свойство или сущность.
+2. `dotnet ef migrations add AddOrderComment` создаст файл миграции, `.Designer.cs` и обновит `ShopContextModelSnapshot.cs`.
+3. Прочитайте сгенерированный код.
+4. `dotnet ef database update` применит миграцию к локальной базе.
+5. Закоммитьте все три файла.
+
+**Что лежит в базе**
+
+Таблица `__EFMigrationsHistory` — список применённых миграций. По ней EF понимает, что ещё не применено.
+
+**Частая ошибка**
+
+Править или удалять миграцию, уже применённую к общей базе. Она записана в истории, поэтому ошибку исправляют новой миграцией.
+
+**Итог:** миграция — код изменения схемы плюс снимок модели; применённые миграции не меняют, а исправляют новыми.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+- **Три файла.** Миграция с `Up` и `Down`, `.Designer.cs` с моделью на её момент и общий `ModelSnapshot` — модель после последней миграции.
+- **`migrations add`** сравнивает текущую модель со снапшотом и генерирует разницу.
+- **`migrations remove`** удаляет последнюю миграцию и откатывает снапшот. Безопасно, пока её не применили к общей базе.
+
+**Когда что выбирать**
+
+| Способ применения | Когда |
+|---|---|
+| `dotnet ef database update` | локальная разработка |
+| `migrations script --idempotent` | ревью и запуск DBA, базы в разном состоянии |
+| `migrations bundle` (EF Core 6+) | шаг CI/CD без SDK и исходников |
+
+**Ловушки**
+
+- **Параллельные ветки.** A и B добавили миграции в своих ветках; снапшот B не знает об изменениях A, а Git часто сливает снапшот без конфликта. Отмените слияние, уберите свою миграцию, влейте чужие изменения и создайте миграцию заново. Сортировать файлы и править снапшот руками нельзя.
+- **Переименование.** EF не отличает его от удаления и добавления: сгенерирует `DropColumn` и `AddColumn`, данные пропадут. Замените на `RenameColumn`.
+- **Данные в миграции.** Только `migrationBuilder.Sql(...)` или `InsertData`/`UpdateData`, не `DbContext` и классы сущностей: старая миграция должна работать, даже когда сущности изменились.
+
+**Правило**
+
+Сгенерированную миграцию читают как чужой PR, а применяют на прод отдельным шагом конвейера.
+
+**Итог:** снапшот делает миграции цепочкой, поэтому конфликты веток решают пересозданием, а выкладку — отдельным шагом.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- `Migrate()`, `database update` и bundle читают `__EFMigrationsHistory` и применяют недостающие миграции по порядку. С EF Core 9 перед этим берётся блокировка на уровне базы, и второй экземпляр ждёт, а не применяет те же миграции параллельно.
+- EF Core 9 оборачивал все ожидающие миграции в одну транзакцию, EF Core 10 вернул транзакцию на каждую миграцию. Часть DDL не транзакционна, и EF 9+ предупреждает, если такая операция смешана с другими в одной миграции.
+- С EF Core 9 `Migrate()` бросает исключение, если модель расходится с последней миграцией (`PendingModelChangesWarning`) или если его обернули в свою транзакцию.
+- В EF Core 11 (выходит в ноябре 2026) снапшот будет хранить id последней миграции, и разошедшиеся ветки дадут конфликт слияния в Git.
+
+**Почему не `Database.Migrate()` на старте**
+
+- Приложению нужны права на DDL, хотя в проде ему хватает прав на данные.
+- SQL никто не видит до выполнения, откат не подготовлен.
+- Долгая миграция задерживает старт всех экземпляров, а оркестратор может перезапустить под посреди неё.
+
+**Компромиссы**
+
+- Скрипт даёт ревью и контроль DBA, но применяется чужими средствами — блокировка EF в нём не участвует.
+- Bundle — один артефакт из CI с блокировкой и сидингом, но его SQL заранее не посмотреть. Запускают его с явными `ASPNETCORE_ENVIRONMENT` и `--connection`.
+- Схема и код выкатываются в разное время, поэтому миграция совместима со старой версией приложения. Подробно — в теме [Проектирование и эксплуатация](/sobes/db/design/).
+
+**Как проверить в проде**
+
+- `__EFMigrationsHistory` сверяют с `dotnet ef migrations list`.
+- `dotnet ef migrations has-pending-model-changes` (EF Core 8+) в CI падает, если модель изменили без миграции.
+
+**Итог:** миграции применяют отдельным шагом под отдельной учёткой; блокировка EF Core 9 защищает от гонки, но не заменяет ревью и совместимость схемы.
+
+</A>
+
+<Ex>
+
+```csharp
+// NuGet: Microsoft.EntityFrameworkCore.SqlServer
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Migrations;
+
+await using var db = new ShopContext();
+
+// Тест в CI: модель изменили, а миграцию забыли (EF Core 8+, база не нужна)
+if (db.Database.HasPendingModelChanges())
+    throw new InvalidOperationException("Add a migration");
+
+// Что ещё не применено к этой базе — по таблице __EFMigrationsHistory
+foreach (var id in await db.Database.GetPendingMigrationsAsync())
+    Console.WriteLine(id); // 20261007120000_RenameCustomerName
+
+// Создано dotnet ef migrations add RenameCustomerName и исправлено вручную.
+// Атрибуты [DbContext] и [Migration] лежат в файле .Designer.cs
+public partial class RenameCustomerName : Migration
+{
+    protected override void Up(MigrationBuilder migrationBuilder)
+    {
+        // Сгенерировалось DropColumn("Name") + AddColumn("FullName"): данные пропали бы
+        migrationBuilder.RenameColumn(name: "Name", table: "Customers", newName: "FullName");
+
+        // Данные — через SQL, а не через DbContext: старая миграция не должна зависеть от сущностей
+        migrationBuilder.Sql("UPDATE Customers SET FullName = LTRIM(RTRIM(FullName))");
+    }
+
+    protected override void Down(MigrationBuilder migrationBuilder)
+        => migrationBuilder.RenameColumn(name: "FullName", table: "Customers", newName: "Name");
+}
+
+public class ShopContext : DbContext
+{
+    public DbSet<Customer> Customers => Set<Customer>();
+
+    protected override void OnConfiguring(DbContextOptionsBuilder options)
+        => options.UseSqlServer("Server=.;Database=Shop;Trusted_Connection=True");
+}
+
+public class Customer
+{
+    public int Id { get; set; }
+    public required string FullName { get; set; }
+}
+```
+
+```bash
+dotnet ef migrations has-pending-model-changes            # CI: не забыли ли миграцию (EF Core 8+)
+dotnet ef migrations script --idempotent -o migrate.sql   # скрипт для ревью и DBA
+dotnet ef migrations bundle --self-contained -r linux-x64 -o efbundle
+./efbundle --connection "$DEPLOY_CONNECTION"              # шаг выкладки под учёткой с правами на схему
+```
+
+</Ex>
+
+<Next>
+
+- Что делать, если две ветки добавили миграции? — Отменить слияние, убрать свою, влить чужую и создать свою заново.
+- Можно ли удалить применённую миграцию? — Не с общей базы: добавляют исправляющую миграцию.
+- Чем идемпотентный скрипт отличается от обычного? — Проверяет `__EFMigrationsHistory` и применяет только недостающие миграции.
+- Что изменилось в `Migrate()` в EF Core 9? — Блокировка от параллельного применения и исключение, если модель изменена без миграции.
+- Как поймать забытую миграцию до выкладки? — `dotnet ef migrations has-pending-model-changes` в CI или `HasPendingModelChanges()` в тесте.
+
+</Next>
+
+<Src>
+
+- [Managing migrations](https://learn.microsoft.com/ef/core/managing-schemas/migrations/managing)
+- [Applying migrations](https://learn.microsoft.com/ef/core/managing-schemas/migrations/applying)
+- [Migrations in team environments](https://learn.microsoft.com/ef/core/managing-schemas/migrations/teams)
+
+</Src>
+
+</Q>
+
+<Q id="db.ef.performance" level="m">
+
+## Как сделать EF Core быстрым?
+
+<A short l="j">
+
+Главное — не брать из базы лишнего: выбирать только нужные столбцы через `Select`, читать без отслеживания через `AsNoTracking()` и фильтровать в SQL, а не в памяти. Массовые изменения с EF Core 7 делают одной командой через <T k="execute-update">`ExecuteUpdate` и `ExecuteDelete`</T>, не загружая сущности.
+
+</A>
+
+<A short l="m">
+
+Скорость EF определяют форма SQL и число round trip: проекции, `AsNoTracking`, отсутствие N+1 и <T k="save-changes-batching">пакетирование команд</T> `SaveChanges` дают основной выигрыш. Массовые операции — `ExecuteUpdateAsync` и `ExecuteDeleteAsync` (EF Core 7+), но они не синхронизируют трекер, поэтому их не смешивают с отслеживаемыми изменениями тех же строк. Накладные расходы самого EF снимают <T k="dbcontext-pooling">пул контекстов</T> и <T k="compiled-query">компилированные запросы</T> на горячих путях, а результат проверяют по логам SQL.
+
+</A>
+
+<A short l="s">
+
+Оптимизируют сверху вниз по цене: сначала форма SQL и индексы, потом число round trip (пакетирование, `ExecuteUpdate`), и только потом CPU и аллокации самого EF — трекинг, разбор запроса, создание контекста. Пул контекстов и компилированные запросы по бенчмаркам Microsoft экономят порядка 100–350 мкс на операцию — это заметно лишь при тысячах запросов в секунду. Важнее стабильность кэша запросов: константы в деревьях, собранных через `Expression`, дают новую форму на каждое значение, и EF перекомпилирует запрос, а база копит планы. Всё подтверждают метриками: query cache hit rate, логи медленных команд, BenchmarkDotNet на горячем пути.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+EF Core медленный не сам по себе, а когда заставляет базу делать лишнее: тянуть лишние столбцы и строки или выполнять много запросов.
+
+**Как пользоваться**
+
+- **Проекция.** `Select(o => new OrderRow(o.Id, o.Total))` — в SQL только эти столбцы.
+- **`AsNoTracking()`** — для данных только на чтение.
+- **Фильтр до материализации.** `Where` и `Take` — до `ToListAsync()`, иначе они сработают в памяти.
+- **Массовые изменения (EF Core 7+).** `db.Orders.Where(...).ExecuteDeleteAsync()` — один `DELETE` вместо загрузки и удаления по одной.
+- **Асинхронные методы** в веб-приложениях: `ToListAsync`, `SaveChangesAsync`.
+
+**Частая ошибка**
+
+Загружать сущности целиком ради двух полей для списка. Из базы приходят все столбцы, включая большие тексты, и всё попадает в трекер.
+
+**Итог:** берите из базы только нужное, а массовые изменения делайте одной командой.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+1. **Чтение.** Проекция и `AsNoTracking` убирают лишние столбцы, снимки и identity map. Проекция в DTO не отслеживается вовсе.
+2. **Запись.** `SaveChanges` пакетирует команды: на SQL Server по умолчанию до 42 операторов за round trip (`MaxBatchSize`). С EF Core 7 вставки используют `OUTPUT` и стали заметно быстрее.
+3. **Массовые операции.** `ExecuteUpdateAsync` и `ExecuteDeleteAsync` выполняют один `UPDATE` или `DELETE` по LINQ-фильтру сразу при вызове.
+4. **Накладные расходы.** `AddDbContextPool` переиспользует контексты, `EF.CompileAsyncQuery` убирает разбор дерева выражений.
+
+**Когда что выбирать**
+
+| Задача | Инструмент |
+|---|---|
+| Список, отчёт, ответ API | `Select` в DTO |
+| Изменить несколько сущностей по бизнес-правилам | загрузить, изменить, `SaveChanges` |
+| Изменить тысячи строк по условию | `ExecuteUpdate`, `ExecuteDelete` |
+| Вставить сотни тысяч строк | `SqlBulkCopy` или `COPY` в Npgsql, не EF |
+
+**Ловушки**
+
+- **`ExecuteUpdate` мимо трекера.** Загруженные сущности не узнают об изменении, и следующий `SaveChanges` перезапишет его старыми значениями. Concurrency token он не проверяет, транзакцию на несколько вызовов не открывает.
+- **Триггеры на SQL Server.** С EF Core 7 сохранение через `OUTPUT` падает на таблицах с триггерами. Таблицу помечают `HasTrigger(...)` или, с EF Core 8, `UseSqlOutputClause(false)`.
+
+**Правило**
+
+Сначала смотрите SQL и число команд на операцию, потом оптимизируйте.
+
+**Итог:** производительность EF — это форма SQL и число round trip, а трекинг и накладные расходы EF вторичны.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- Выполнение запроса начинается с поиска в кэше по форме дерева выражений. При промахе EF транслирует запрос и компилирует материализатор; в здоровом приложении доля попаданий быстро доходит до 100 %.
+- `AddDbContextPool` держит до 1024 контекстов (по умолчанию) и сбрасывает их состояние при возврате. `OnConfiguring` вызывается один раз, поэтому данные запроса вроде tenant id передают через свою фабрику. С пулом соединений ADO.NET он не связан.
+- `EF.CompileAsyncQuery` возвращает потокобезопасный делегат; ограничения — одна модель и простые скалярные параметры.
+
+**Цена**
+
+В бенчмарке Microsoft пул сократил простой запрос примерно с 700 до 350 мкс и аллокации с 50 до 5 КБ, компилированный запрос сэкономил около 100 мкс. На фоне сети и работы базы это важно только на горячих путях.
+
+**Компромиссы**
+
+- Константы в SQL дают базе точный план, параметры — переиспользование плана. `EF.Constant` (EF Core 8.0.2+) и `EF.Parameter` (EF Core 9+) меняют выбор EF для конкретного значения.
+- `EnableThreadSafetyChecks(false)` убирает проверку параллельного доступа к контексту — только после тестов, которые доказали её ненужность.
+
+**Как проверить в проде**
+
+- Категория логов `Microsoft.EntityFrameworkCore.Database.Command` — SQL и время каждой команды.
+- Метрики EF Core 9+ (meter `Microsoft.EntityFrameworkCore`) или `dotnet-counters monitor --counters Microsoft.EntityFrameworkCore`: запросы в секунду, попадания в кэш запросов, активные контексты.
+- Горячий путь меряют BenchmarkDotNet до и после.
+
+**Итог:** сначала форма SQL и round trip, потом трекинг, и только на горячих путях — пул контекстов и компилированные запросы.
+
+</A>
+
+<Ex>
+
+```csharp
+// NuGet: Microsoft.EntityFrameworkCore.SqlServer
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.Extensions.Logging;
+
+// Пул контекстов без DI; в ASP.NET Core — AddDbContextPool
+var factory = new PooledDbContextFactory<ShopContext>(
+    new DbContextOptionsBuilder<ShopContext>()
+        .UseSqlServer("Server=.;Database=Shop;Trusted_Connection=True")
+        .LogTo(Console.WriteLine, LogLevel.Information) // SQL и время каждой команды
+        .Options);
+
+await using var db = factory.CreateDbContext();
+
+// Чтение: два столбца, без трекинга
+var page = await db.Orders
+    .Where(o => o.Status == "Paid")
+    .OrderBy(o => o.Id)
+    .Select(o => new OrderRow(o.Id, o.Total))
+    .Take(50)
+    .ToListAsync();
+
+// Массовое изменение: один UPDATE без загрузки сущностей (EF Core 7+), вернёт число строк
+var expired = await db.Orders
+    .Where(o => o.Status == "New" && o.CreatedAt < DateTime.UtcNow.AddDays(-30))
+    .ExecuteUpdateAsync(s => s.SetProperty(o => o.Status, "Expired"));
+
+// Горячий запрос: дерево выражений разобрано один раз
+var order = await ShopContext.OrderById(db, 42);
+
+public record OrderRow(int Id, decimal Total);
+
+public class ShopContext(DbContextOptions<ShopContext> options) : DbContext(options)
+{
+    public DbSet<Order> Orders => Set<Order>();
+
+    public static readonly Func<ShopContext, int, Task<Order?>> OrderById =
+        EF.CompileAsyncQuery((ShopContext db, int id) => db.Orders.FirstOrDefault(o => o.Id == id));
+}
+
+public class Order
+{
+    public int Id { get; set; }
+    public required string Status { get; set; }
+    public DateTime CreatedAt { get; set; }
+    [Precision(18, 2)] public decimal Total { get; set; }
+}
+```
+
+</Ex>
+
+<Next>
+
+- Почему `ExecuteUpdate` нельзя смешивать с отслеживаемыми изменениями? — Трекер о нём не знает, и `SaveChanges` перезапишет строки старыми значениями.
+- Сколько команд `SaveChanges` отправляет за раз на SQL Server? — До 42 по умолчанию, настраивается `MaxBatchSize`.
+- Чем пул контекстов отличается от пула соединений? — Первый переиспользует объекты `DbContext`, второй — соединения ADO.NET; они независимы.
+- Что ломает кэш запросов EF? — Константы в динамически построенных деревьях: новая форма на каждое значение.
+- Когда нужен compiled model? — Когда модель из сотен сущностей заметно замедляет первый запрос после старта.
+
+</Next>
+
+<Src>
+
+- [Efficient querying](https://learn.microsoft.com/ef/core/performance/efficient-querying)
+- [Efficient updating](https://learn.microsoft.com/ef/core/performance/efficient-updating)
+- [Advanced performance topics](https://learn.microsoft.com/ef/core/performance/advanced-performance-topics)
+
+</Src>
+
+</Q>
+
+<Q id="db.ef.vs-dapper" level="s">
+
+## EF Core, Dapper или чистый ADO.NET: когда что выбирать?
+
+<A short l="j">
+
+<T k="ado-net">ADO.NET</T> — нижний уровень: соединение, команда и чтение столбцов вручную; <T k="dapper">Dapper</T> выполняет ваш SQL и сам раскладывает строки по объектам; EF Core генерирует SQL сам и отслеживает изменения. Поэтому EF берут для бизнес-логики с изменением данных, а Dapper — для сложных запросов на чтение, где SQL хочется писать руками.
+
+</A>
+
+<A short l="m">
+
+Это шкала «контроль против продуктивности»: ADO.NET даёт полный контроль, Dapper — тот же SQL с маппингом в одну строку, EF Core — LINQ, трекинг, связи и миграции ценой сгенерированного SQL. Ради SQL из EF уходить не обязательно: `FromSql` возвращает сущности и позволяет достроить LINQ, `Database.SqlQuery<T>` — любые DTO (EF Core 8+), а интерполированные значения становятся параметрами и защищают от <T k="sql-injection">SQL-инъекций</T>. Типичный компромисс — EF для команд и большинства запросов, сырой SQL или Dapper для тяжёлых отчётов.
+
+</A>
+
+<A short l="s">
+
+Выбор — о том, где живёт сложность: в модели и единице работы (EF) или в SQL (Dapper, ADO.NET); цена неудачного SQL обычно выше разницы в накладных расходах библиотек. `DbContext` — не потокобезопасная единица работы: один на HTTP-запрос или на каждую операцию из `IDbContextFactory<T>`, параллельные запросы — только через разные контексты. Конфликты одновременных правок EF решает <T k="optimistic-concurrency">оптимистической блокировкой</T>: <T k="concurrency-token">concurrency token</T> попадает в `WHERE` каждого `UPDATE`, и ноль затронутых строк превращается в `DbUpdateConcurrencyException`. EF Core 10 (LTS) закрыл часть старых причин уходить в сырой SQL: `LeftJoin`, именованные фильтры запросов, `ExecuteUpdate` с обычной лямбдой и JSON через complex types.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+| Инструмент | Что делает |
+|---|---|
+| ADO.NET | `SqlConnection`, `SqlCommand`, `DbDataReader`: SQL и чтение столбцов вручную |
+| Dapper | выполняет ваш SQL и раскладывает столбцы по свойствам объекта |
+| EF Core | генерирует SQL из LINQ, отслеживает изменения, ведёт миграции |
+
+**Зачем три**
+
+- EF Core экономит код, где много сущностей, связей и изменений.
+- Dapper удобен, когда SQL сложный и его хочется контролировать: отчёты, поиск.
+- ADO.NET нужен для того, чего нет в обёртках: `SqlBulkCopy` для массовой вставки, потоковое чтение больших BLOB через `CommandBehavior.SequentialAccess`.
+
+**Частая ошибка**
+
+Склеивать SQL из строк: `"... WHERE Name = '" + name + "'"`. Это SQL-инъекция; значения передают только параметрами — и в Dapper, и в EF.
+
+**Итог:** EF — для бизнес-логики, Dapper — для ручного SQL, ADO.NET — для низкоуровневых задач.
+
+</A>
+
+<A l="m">
+
+**Сырой SQL в EF Core**
+
+| API | Что возвращает |
+|---|---|
+| `FromSql` (EF Core 7+, раньше `FromSqlInterpolated`) | сущности модели; если SQL компонуемый, поверх можно `Where` и `Include` |
+| `Database.SqlQuery<T>` | скаляры (EF Core 7+) и любые DTO (EF Core 8+) |
+| `Database.ExecuteSql` | число затронутых строк для команд и процедур |
+
+Версии `...Raw` принимают готовую строку — для имён столбцов, которые нельзя параметризовать. С EF Core 10 анализатор предупреждает о склейке строк в них. Вызов процедуры на SQL Server не компонуется: после него сразу `AsAsyncEnumerable()`.
+
+**Время жизни и потоки**
+
+- Два одновременных запроса через один контекст дают `InvalidOperationException: A second operation started on this context before a previous operation completed`.
+- `AddDbContext` регистрирует контекст как scoped: один на HTTP-запрос. В singleton, фоновых задачах и Blazor Server — `IDbContextFactory<T>` и `await using` на операцию.
+
+**Когда что выбирать**
+
+- Команды с бизнес-правилами — EF и `SaveChanges`.
+- Тяжёлые отчёты — `SqlQuery<T>` или Dapper на соединении контекста.
+- Массовая загрузка — `SqlBulkCopy` или `COPY` в Npgsql.
+
+**Итог:** EF покрывает большинство задач, включая сырой SQL; Dapper и ADO.NET берут точечно, а контекст живёт одну операцию в одном потоке.
+
+</A>
+
+<A l="s">
+
+**Компромиссы**
+
+| | EF Core | Dapper, ADO.NET |
+|---|---|---|
+| SQL | генерирует EF, нужно проверять | пишете сами |
+| Изменения | трекинг, пакеты, concurrency tokens | вручную |
+| Схема | модель и миграции | отдельный инструмент: DbUp, SSDT |
+
+**Concurrency tokens**
+
+- Свойство с `[Timestamp]` (на SQL Server — `rowversion`, в Npgsql — `uint` поверх системного `xmin`) или `[ConcurrencyCheck]` попадает в `WHERE` каждого `UPDATE` и `DELETE` с исходным значением.
+- Ноль затронутых строк — `DbUpdateConcurrencyException`. Как разрешить конфликт, решает бизнес-логика: перечитать (`GetDatabaseValuesAsync`), слить, повторить или вернуть клиенту 409.
+- `ExecuteUpdate` токены не проверяет: условие пишут в `Where` сами и проверяют число строк.
+
+**Что нового в EF Core 9 и 10**
+
+- **EF Core 9:** блокировка миграций, `UseSeeding`, автоматический compiled model, `EF.Parameter`, метрики через `System.Diagnostics.Metrics`.
+- **EF Core 10 (LTS до ноября 2028):** `LeftJoin` и `RightJoin`, именованные фильтры с `IgnoreQueryFilters(["SoftDelete"])`, `ExecuteUpdateAsync` с обычной лямбдой, complex types в JSON и тип `json` SQL Server 2025, векторный поиск.
+- **Что заметно при обновлении до 10:** `ids.Contains(...)` переводится в отдельные параметры с дополнением до «круглого» числа вместо `OPENJSON`, имена параметров стали короче (`@city`) — база перекомпилирует почти все планы. EF дописывает `Application Name` в строку подключения без этого параметра: если Dapper в том же `TransactionScope` открывает своё соединение с исходной строкой, они попадут в разные пулы, и транзакция может стать распределённой.
+
+**Итог:** EF Core 10 закрывает многие причины уходить в сырой SQL; Dapper и ADO.NET остаются для ручного SQL и массовых операций, а конфликты правок решают токены конкурентности.
+
+</A>
+
+<Ex title="Сырой SQL в EF и Dapper">
+
+```csharp
+// NuGet: Microsoft.EntityFrameworkCore.SqlServer, Dapper
+using Dapper;
+using Microsoft.EntityFrameworkCore;
+
+await using var db = new ShopContext();
+var since = new DateTime(2026, 1, 1);
+
+// FromSql: сущности модели; {since} станет параметром, сверху достраивается LINQ
+var paid = await db.Orders
+    .FromSql($"SELECT * FROM Orders WHERE CreatedAt >= {since}")
+    .Where(o => o.Status == "Paid")
+    .AsNoTracking()
+    .ToListAsync();
+
+// SqlQuery: DTO вне модели (EF Core 8+)
+var totals = await db.Database.SqlQuery<CustomerTotal>($"""
+    SELECT CustomerId, SUM(Total) AS Total
+    FROM Orders WHERE CreatedAt >= {since}
+    GROUP BY CustomerId
+    """).ToListAsync();
+
+// Dapper на соединении контекста: свой SQL, маппинг по именам столбцов
+var top = await db.Database.GetDbConnection().QueryAsync<CustomerTotal>(
+    "SELECT TOP (10) CustomerId, SUM(Total) AS Total FROM Orders GROUP BY CustomerId ORDER BY Total DESC");
+
+public record CustomerTotal(int CustomerId, decimal Total);
+
+public class ShopContext : DbContext
+{
+    public DbSet<Order> Orders => Set<Order>();
+
+    protected override void OnConfiguring(DbContextOptionsBuilder options)
+        => options.UseSqlServer("Server=.;Database=Shop;Trusted_Connection=True");
+}
+
+public class Order
+{
+    public int Id { get; set; }
+    public int CustomerId { get; set; }
+    public required string Status { get; set; }
+    public DateTime CreatedAt { get; set; }
+    [Precision(18, 2)] public decimal Total { get; set; }
+}
+```
+
+</Ex>
+
+<Ex title="Concurrency token">
+
+```csharp
+// NuGet: Microsoft.EntityFrameworkCore.SqlServer
+using System.ComponentModel.DataAnnotations;
+using Microsoft.EntityFrameworkCore;
+
+await using var db = new ShopContext();
+var order = await db.Orders.SingleAsync(o => o.Id == 42);
+order.Status = "Shipped";
+
+try
+{
+    // UPDATE ... WHERE [Id] = @p AND [RowVersion] = <значение при загрузке>
+    await db.SaveChangesAsync();
+}
+catch (DbUpdateConcurrencyException ex)
+{
+    var entry = ex.Entries.Single();
+    var current = await entry.GetDatabaseValuesAsync() // null — строку уже удалили
+        ?? throw new InvalidOperationException("Order was deleted");
+
+    // Здесь «побеждает последний»: берём свежий токен и сохраняем свои значения
+    entry.OriginalValues.SetValues(current);
+    await db.SaveChangesAsync();
+}
+
+public class ShopContext : DbContext
+{
+    public DbSet<Order> Orders => Set<Order>();
+
+    protected override void OnConfiguring(DbContextOptionsBuilder options)
+        => options.UseSqlServer("Server=.;Database=Shop;Trusted_Connection=True");
+}
+
+public class Order
+{
+    public int Id { get; set; }
+    public required string Status { get; set; }
+    [Timestamp] public byte[] RowVersion { get; set; } = []; // rowversion; в Npgsql — uint (xmin)
+}
+```
+
+</Ex>
+
+<Next>
+
+- Чем `FromSql` отличается от `FromSqlRaw`? — Первый превращает интерполяцию в параметры, второй берёт строку как есть.
+- Можно ли достроить LINQ поверх вызова процедуры? — На SQL Server нет: процедура не компонуется, после неё переходят в память.
+- Почему нельзя `Task.WhenAll` двух запросов на одном контексте? — Контекст не потокобезопасен; нужны два контекста.
+- Как `rowversion` работает как concurrency token? — База меняет его при каждом обновлении, EF сравнивает исходное значение в `WHERE`.
+- Что первым переписать на Dapper при проблемах со скоростью? — Ничего вслепую: сначала логи SQL, потом точечно самые тяжёлые запросы.
+
+</Next>
+
+<Src>
+
+- [SQL queries](https://learn.microsoft.com/ef/core/querying/sql-queries)
+- [Handling concurrency conflicts](https://learn.microsoft.com/ef/core/saving/concurrency)
+- [What's new in EF Core 10](https://learn.microsoft.com/ef/core/what-is-new/ef-core-10.0/whatsnew)
+
+</Src>
+
+</Q>

@@ -147,6 +147,14 @@ function build(list, slnx) {
       errors.set(nu[1], errs);
       continue;
     }
+    // ошибка без файла (например, «CSC : error CS5001» — нет точки входа): проект виден только в [..\sNNN.csproj]
+    const csc = line.match(/^\s*CSC\s*:\s*error (CS\d+): (.*?) \[.*[\\/](s\d{3})[\\/]s\d{3}\.csproj\]\s*$/);
+    if (csc) {
+      const errs = errors.get(csc[3]) ?? [];
+      if (!errs.some((e) => e.key === csc[1])) errs.push({ key: csc[1], ln: 0, code: csc[1], msg: csc[2] });
+      errors.set(csc[3], errs);
+      continue;
+    }
     const m = line.match(/[\\/](s\d{3})[\\/]Program\.cs\((\d+),(\d+)\): error (CS\d+): (.*?)(?: \[.*\])?$/);
     if (!m) continue;
     const [, name, ln, col, code, msg] = m;
@@ -231,7 +239,8 @@ let ok = 0;
 let contextOnly = 0;
 const broken = [];
 for (const p of projects) {
-  const errs = byProject.get(p.name) ?? [];
+  // CS5001 (нет Main) у примера из одних объявлений типов — это библиотека, код корректен
+  const errs = (byProject.get(p.name) ?? []).filter((e) => e.code !== 'CS5001');
   const real = errs.filter((e) => !CONTEXT_CODES.has(e.code));
   if (!errs.length) ok++;
   else if (!real.length) {

@@ -1,0 +1,247 @@
+b-tree:
+  term: B-tree (B+ tree)
+  def: >-
+    A balanced tree of pages in which SQL Server stores regular (rowstore) indexes: root,
+    intermediate levels and leaves. Every leaf is the same distance from the root, so a key lookup
+    costs a few page reads even in a huge table.
+  q: SQL Server B-tree index structure
+  docs: https://learn.microsoft.com/sql/relational-databases/sql-server-index-design-guide
+  wiki: B+ tree
+clustered-index:
+  term: Clustered index
+  def: >-
+    An index whose leaf level holds the table rows themselves, sorted by the key. A table has only
+    one; `PRIMARY KEY` creates it by default.
+  q: SQL Server clustered index
+  docs: https://learn.microsoft.com/sql/relational-databases/indexes/clustered-and-nonclustered-indexes-described
+nonclustered-index:
+  term: Nonclustered index
+  def: >-
+    A structure separate from the table: the index key plus a row pointer — the clustering key or a
+    RID. Columns missing from the index are fetched from the table.
+  q: SQL Server nonclustered index
+  docs: https://learn.microsoft.com/sql/relational-databases/indexes/clustered-and-nonclustered-indexes-described
+clustering-key:
+  term: Clustering key
+  def: >-
+    The columns of the clustered index. The key is copied into every nonclustered index as the row
+    pointer, so it should be narrow, unique and static.
+  q: SQL Server clustering key guidelines
+  docs: https://learn.microsoft.com/sql/relational-databases/sql-server-index-design-guide#clustered-index-design-guidelines
+heap:
+  term: Heap
+  def: >-
+    A table without a clustered index. Rows are stored in no particular order, and nonclustered
+    indexes point to them by physical address, the RID — file, page, slot.
+  q: SQL Server heap table
+  docs: https://learn.microsoft.com/sql/relational-databases/indexes/heaps-tables-without-clustered-indexes
+index-seek:
+  term: Index Seek and Index Scan
+  def: >-
+    The two ways to read an index. A seek walks down the B-tree to the required key range and reads
+    only that; a scan reads the whole index or table.
+  q: SQL Server index seek vs index scan
+  docs: https://learn.microsoft.com/sql/relational-databases/showplan-logical-and-physical-operators-reference
+covering-index:
+  term: Covering index
+  def: >-
+    An index that contains every column a query needs, either in the key or as included columns. The
+    query reads only that index and never touches the table.
+  q: SQL Server covering index
+  docs: https://learn.microsoft.com/sql/relational-databases/indexes/create-indexes-with-included-columns
+included-column:
+  term: Included columns (INCLUDE)
+  def: >-
+    Non-key columns of a nonclustered index stored only at the leaf level. They are not sorted or
+    used for seeking, but they cover a query without widening the key.
+  q: SQL Server index included columns
+  docs: https://learn.microsoft.com/sql/relational-databases/indexes/create-indexes-with-included-columns
+key-lookup:
+  term: Key Lookup
+  def: >-
+    A plan operator that, for every row found in a nonclustered index, seeks into the clustered index
+    for the missing columns. Its heap counterpart is the RID Lookup. Cheap for dozens of rows,
+    expensive for thousands.
+  q: SQL Server key lookup operator
+  docs: https://learn.microsoft.com/sql/relational-databases/showplan-logical-and-physical-operators-reference
+execution-plan:
+  term: Execution plan
+  def: >-
+    The tree of operators SQL Server uses to run a query: table access, joins, sorts. The estimated
+    plan is the compilation result; the actual plan adds real row and execution counts.
+  q: SQL Server execution plan
+  docs: https://learn.microsoft.com/sql/relational-databases/performance/execution-plans
+statistics:
+  term: Statistics
+  def: >-
+    An object describing the distribution of column values: a histogram on the first column and
+    density for column prefixes. The optimizer uses it to estimate how many rows a predicate returns.
+  q: SQL Server statistics query optimizer
+  docs: https://learn.microsoft.com/sql/relational-databases/statistics/statistics
+histogram:
+  term: Statistics histogram
+  def: >-
+    Part of a statistics object: up to 200 steps over the values of the first column. For each step it
+    records how many rows equal its upper boundary and how many fall inside the range.
+  q: SQL Server statistics histogram
+  docs: https://learn.microsoft.com/sql/relational-databases/statistics/statistics#histogram
+sargable:
+  term: SARGable predicate
+  def: >-
+    A predicate the optimizer can turn into an index seek range (from "search argument"). The column
+    appears in it without functions, calculations or type conversions.
+  q: sargable predicate SQL Server
+  wiki: Sargable
+implicit-conversion:
+  term: Implicit conversion
+  def: >-
+    A type conversion SQL Server performs on its own when comparing values of different types; the
+    plan shows it as `CONVERT_IMPLICIT`. If the column is converted rather than the parameter, an
+    index seek on that column is usually impossible.
+  q: SQL Server CONVERT_IMPLICIT index scan
+  docs: https://learn.microsoft.com/sql/t-sql/data-types/data-type-conversion-database-engine
+data-type-precedence:
+  term: Data type precedence
+  def: >-
+    The rule SQL Server uses to pick a common type for a comparison: the lower-precedence type is
+    converted to the higher one. `nvarchar` outranks `varchar`, and `int` outranks string types.
+  q: SQL Server data type precedence
+  docs: https://learn.microsoft.com/sql/t-sql/data-types/data-type-precedence-transact-sql
+sql-server-collation:
+  term: Collation in SQL Server
+  def: >-
+    Rules for comparing and sorting strings: code page, case and accent sensitivity. A Windows
+    collation (`Cyrillic_General_CI_AS`) compares `varchar` and `nvarchar` by the same rules, a SQL
+    collation (`SQL_Latin1_General_CP1_CI_AS`) by different ones.
+  q: SQL Server collation Windows vs SQL collation
+  docs: https://learn.microsoft.com/sql/relational-databases/collations/collation-and-unicode-support
+computed-column:
+  term: Computed column
+  def: >-
+    A column whose value is defined by an expression over other columns. A deterministic computed
+    column can be indexed, and the optimizer uses that index for queries with the same expression.
+  q: SQL Server index on computed column
+  docs: https://learn.microsoft.com/sql/relational-databases/indexes/indexes-on-computed-columns
+plan-cache:
+  term: Plan cache
+  def: >-
+    The memory area where SQL Server keeps compiled plans for reuse. A plan is matched by the query
+    text with its parameter declarations and by the session SET options.
+  q: SQL Server plan cache reuse
+  docs: https://learn.microsoft.com/sql/relational-databases/query-processing-architecture-guide#execution-plan-caching-and-reuse
+cardinality-estimation:
+  term: Cardinality estimation
+  def: >-
+    The optimizer's prediction of how many rows each plan operator returns. It is based on
+    statistics and drives join choice, operation order and the memory grant size.
+  q: SQL Server cardinality estimation
+  docs: https://learn.microsoft.com/sql/relational-databases/performance/cardinality-estimation-sql-server
+nested-loops:
+  term: Nested Loops
+  def: >-
+    A join that looks up matches in the inner input for every row of the outer input. Efficient when
+    the outer input is small and the inner input has an index on the join key.
+  q: SQL Server nested loops join
+  docs: https://learn.microsoft.com/sql/relational-databases/performance/joins
+hash-match:
+  term: Hash Match
+  def: >-
+    A join or aggregation through a hash table: the smaller input is loaded into memory and the larger
+    one is probed against it. Suits large unsorted inputs but requires a memory grant.
+  q: SQL Server hash join
+  docs: https://learn.microsoft.com/sql/relational-databases/performance/joins
+merge-join:
+  term: Merge Join
+  def: >-
+    A join of two inputs sorted on the join key in a single pass over both. Very cheap when an index
+    provides the order; otherwise the plan needs an expensive Sort.
+  q: SQL Server merge join
+  docs: https://learn.microsoft.com/sql/relational-databases/performance/joins
+memory-grant:
+  term: Memory grant
+  def: >-
+    Memory a query reserves before it starts for sorts and hash tables, based on the row estimate. An
+    overestimate makes other queries wait for memory; an underestimate leads to a spill to tempdb.
+  q: SQL Server memory grant spill
+  docs: https://learn.microsoft.com/sql/relational-databases/performance/intelligent-query-processing-memory-grant-feedback
+batch-mode:
+  term: Batch mode
+  def: >-
+    An execution mode in which an operator processes a batch of rows at a time instead of one row.
+    The native mode for columnstore; since SQL Server 2019 at compatibility level 150 it is also
+    available for regular tables.
+  q: SQL Server batch mode on rowstore
+  docs: https://learn.microsoft.com/sql/relational-databases/query-processing-architecture-guide#execution-modes
+parameter-sniffing:
+  term: Parameter sniffing
+  def: >-
+    Optimizer behavior where a plan is compiled for the parameter values of the first call and reused
+    for the rest. Helpful with uniform data, harmful with skewed data.
+  q: SQL Server parameter sniffing
+  docs: https://learn.microsoft.com/sql/relational-databases/query-processing-architecture-guide#parameter-sensitivity
+query-store:
+  term: Query Store
+  def: >-
+    A per-database store of query history, plans and runtime statistics. Introduced in SQL Server
+    2016 and on by default for new databases since SQL Server 2022; it helps find regressions and
+    pin a plan.
+  q: SQL Server Query Store
+  docs: https://learn.microsoft.com/sql/relational-databases/performance/monitoring-performance-by-using-the-query-store
+plan-forcing:
+  term: Plan forcing
+  def: >-
+    Pinning a specific Query Store plan to a query with `sp_query_store_force_plan`. The server
+    compiles the query with that plan until forcing is removed or the plan becomes impossible.
+  q: Query Store force plan
+  docs: https://learn.microsoft.com/sql/relational-databases/system-stored-procedures/sp-query-store-force-plan-transact-sql
+query-store-hints:
+  term: Query Store hints
+  def: >-
+    Query hints such as `RECOMPILE` or `MAXDOP` attached to a query in Query Store through
+    `sys.sp_query_store_set_hints`, without changing its text. Available since SQL Server 2022.
+  q: SQL Server Query Store hints
+  docs: https://learn.microsoft.com/sql/relational-databases/performance/query-store-hints
+psp-optimization:
+  term: PSP optimization (Parameter Sensitive Plan)
+  def: >-
+    A SQL Server 2022 feature at compatibility level 160: for a query over skewed data the server
+    keeps several plan variants and picks one by the cardinality range of the current parameter
+    value. Works with equality predicates.
+  q: SQL Server parameter sensitive plan optimization
+  docs: https://learn.microsoft.com/sql/relational-databases/performance/parameter-sensitive-plan-optimization
+filtered-index:
+  term: Filtered index
+  def: >-
+    A nonclustered index with a `WHERE` clause that stores only the matching rows. It is smaller and
+    cheaper than a full index but is used only when the query is guaranteed to fall inside the filter.
+  q: SQL Server filtered index
+  docs: https://learn.microsoft.com/sql/relational-databases/indexes/create-filtered-indexes
+columnstore-index:
+  term: Columnstore index
+  def: >-
+    An index that stores data by column in compressed segments, in rowgroups of up to 1,048,576 rows.
+    It speeds up aggregates over large tables through compression, segment elimination and batch
+    mode.
+  q: SQL Server columnstore index
+  docs: https://learn.microsoft.com/sql/relational-databases/indexes/columnstore-indexes-overview
+delta-store:
+  term: Delta store
+  def: >-
+    A regular B-tree inside a columnstore index that receives small inserts. When a rowgroup reaches
+    1,048,576 rows, the background tuple mover compresses it into columnar format.
+  q: columnstore delta store tuple mover
+  docs: https://learn.microsoft.com/sql/relational-databases/indexes/columnstore-indexes-overview
+index-fragmentation:
+  term: Index fragmentation
+  def: >-
+    A mismatch between the logical and physical order of index pages caused by page splits. It hurts
+    large sequential reads; on SSDs page density usually matters more.
+  q: SQL Server index fragmentation
+  docs: https://learn.microsoft.com/sql/relational-databases/indexes/reorganize-and-rebuild-indexes
+page-density:
+  term: Page density
+  def: >-
+    How full the index pages are — `avg_page_space_used_in_percent`. Half-empty pages need more reads
+    and more buffer pool memory for the same data.
+  q: SQL Server page density index maintenance
+  docs: https://learn.microsoft.com/sql/relational-databases/indexes/reorganize-and-rebuild-indexes
