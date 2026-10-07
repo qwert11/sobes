@@ -35,6 +35,10 @@ export default defineConfig({
           items: [{ autogenerate: { directory: 'dotnet' } }],
         },
         {
+          label: 'ASP.NET Core',
+          items: [{ autogenerate: { directory: 'aspnet' } }],
+        },
+        {
           label: 'Глоссарий',
           translations: { uk: 'Глосарій', en: 'Glossary' },
           slug: 'glossary',

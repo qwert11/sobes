@@ -32,6 +32,11 @@
     font-size: var(--sl-text-base);
   }
 }
+@media (max-width: 24rem) {
+  .site-title {
+    font-size: 0.875rem;
+  }
+}
 
 /* ---------- кнопки-«пилюли» ---------- */
 .tb button,
@@ -56,7 +61,11 @@
 }
 
 /* ---------- панель уровней ---------- */
+/* Закреплена под шапкой (и под строкой «На этой странице» на узких экранах). */
 .tb {
+  position: sticky;
+  top: calc(var(--sl-nav-height) + var(--sl-mobile-toc-height));
+  z-index: 3;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -69,12 +78,9 @@
 body:not(:has(.q)) .tb {
   display: none;
 }
-@media (min-width: 50rem) {
-  .tb {
-    position: sticky;
-    top: calc(var(--sl-nav-height) + var(--sl-mobile-toc-height));
-    z-index: 3;
-  }
+/* Якоря вопросов не должны прятаться под закреплённой панелью. */
+html:has(.tb) {
+  scroll-padding-top: calc(1.5rem + var(--sl-nav-height) + var(--sl-mobile-toc-height) + 3rem);
 }
 .tb-lv {
   display: inline-flex;
@@ -99,6 +105,34 @@ body:not(:has(.q)) .tb {
   margin-inline-start: auto;
   font-size: var(--sl-text-xs);
   color: var(--sl-color-gray-3);
+  white-space: nowrap;
+}
+.tb-prog .p-short {
+  display: none;
+}
+
+/* Телефон: одна строка во всю ширину экрана, кнопки поменьше, прогресс коротко. */
+@media (max-width: 50rem) {
+  .tb {
+    flex-wrap: nowrap;
+    gap: 0.4rem;
+    margin-inline: calc(-1 * var(--sl-content-pad-x));
+    padding: 0.4rem var(--sl-content-pad-x);
+  }
+  .tb button {
+    font-size: 0.75rem;
+    min-height: 2rem;
+    padding: 0.25rem 0.6rem;
+  }
+  .tb .tb-lv button {
+    padding-inline: 0.5rem;
+  }
+  .tb-prog .p-long {
+    display: none;
+  }
+  .tb-prog .p-short {
+    display: inline;
+  }
 }
 
 /* ---------- карточка вопроса ---------- */
@@ -106,7 +140,6 @@ body:not(:has(.q)) .tb {
   border: 1px solid var(--q-border);
   border-radius: 0.75rem;
   padding: 0.85rem 1rem 0.75rem;
-  scroll-margin-top: 7rem;
 }
 .sl-markdown-content .q + .q {
   margin-top: 1.5rem;
@@ -350,7 +383,6 @@ html[data-quiz='1'] .q:not(.revealed) :is(.ans, .ex, .next, .src) {
 .gl-item {
   padding: 0.75rem 0;
   border-bottom: 1px solid var(--sl-color-hairline);
-  scroll-margin-top: 7rem;
 }
 .gl-item:target {
   background: var(--sl-color-accent-low);

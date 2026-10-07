@@ -79,12 +79,15 @@ function renderStatus(): void {
   }
   const known = cards.filter((c) => c.dataset.st === 'k').length;
   document.querySelectorAll<HTMLElement>('.tb').forEach((tb) => {
-    const out = tb.querySelector('.tb-prog');
-    if (out && cards.length) {
-      out.textContent = (tb.dataset.fmt ?? '{k}/{n}')
+    if (!cards.length) return;
+    const long = tb.querySelector('.p-long');
+    const short = tb.querySelector('.p-short');
+    if (long) {
+      long.textContent = (tb.dataset.fmt ?? '{k}/{n}')
         .replace('{k}', String(known))
         .replace('{n}', String(cards.length));
     }
+    if (short) short.textContent = `${known}/${cards.length}`;
   });
 }
 

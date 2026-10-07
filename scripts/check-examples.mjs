@@ -67,11 +67,12 @@ if (!snippets.length) {
 
 /* ---------- собрать ---------- */
 
-const root = path.join(os.tmpdir(), 'sobes-examples');
-fs.rmSync(root, { recursive: true, force: true });
-fs.mkdirSync(root, { recursive: true });
+// Своя папка на каждый запуск: проверки могут идти параллельно.
+const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sobes-examples-'));
 
-const csproj = `<Project Sdk="Microsoft.NET.Sdk">
+// Примеры ASP.NET Core собираются с Web SDK (WebApplication, Results и т. п. без пакетов).
+const WEB_PREFIXES = ['aspnet/'];
+const csproj = (rel) => `<Project Sdk="${WEB_PREFIXES.some((w) => rel.startsWith(w)) ? 'Microsoft.NET.Sdk.Web' : 'Microsoft.NET.Sdk'}">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
@@ -89,7 +90,7 @@ const projects = snippets.map((s, i) => {
   const dir = path.join(root, `s${String(i).padStart(3, '0')}`);
   fs.mkdirSync(dir);
   fs.writeFileSync(path.join(dir, 'Program.cs'), s.code);
-  fs.writeFileSync(path.join(dir, `${path.basename(dir)}.csproj`), csproj);
+  fs.writeFileSync(path.join(dir, `${path.basename(dir)}.csproj`), csproj(s.rel));
   return { ...s, dir, name: path.basename(dir) };
 });
 
@@ -211,5 +212,6 @@ if (!byProject.size && res.status !== 0) {
 console.log(
   `\nПримеров: ${projects.length}, компилируются: ${ok}, фрагменты (нет контекста): ${contextOnly}, с ошибками: ${broken.length}`,
 );
-console.log(`Проекты: ${root}`);
+if (broken.length) console.log(`Проекты для разбора: ${root}`);
+else fs.rmSync(root, { recursive: true, force: true });
 process.exit(broken.length ? 1 : 0);
