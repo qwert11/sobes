@@ -1,0 +1,1270 @@
+---
+title: Асинхронність
+description: async/await зсередини, async void, контекст синхронізації та ConfigureAwait, дедлоки, скасування, WhenAll і ValueTask.
+sidebar:
+  order: 4
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+Як влаштовані `async`/`await` і `Task`: чим асинхронність відрізняється від паралелізму, де виконується код після `await`, чому зависає `.Result`, як скасовувати операції та обмежувати їхню кількість. Без цієї теми не обходиться жодна співбесіда на .NET-розробника.
+
+**Перед цією темою:** [Типи й пам'ять](/sobes/uk/dotnet/types-memory/), [Багатопотоковість](/sobes/uk/dotnet/threading/).
+
+<Q id="dotnet.async.async-vs-parallel" level="j">
+
+## Чим асинхронність відрізняється від багатопотоковості та паралелізму?
+
+<A short l="j">
+
+Асинхронність — це очікування без блокування потоку, а паралелізм — одночасне виконання роботи на кількох потоках і ядрах. Тому для <T k="io-bound">I/O-bound</T>-операцій (мережа, диск, база) потрібен `await`, а <T k="cpu-bound">CPU-bound</T>-обчислення пришвидшує лише паралелізм.
+
+</A>
+
+<A short l="m">
+
+Асинхронність — модель очікування: I/O-виклик передає операцію ОС і одразу повертає незавершену <T k="task">задачу</T>, а потік іде в <T k="thread-pool">пул потоків</T>. Головна відмінність від паралелізму — під час очікування не зайнятий жоден потік, а `Parallel.For` і `Task.Run` займають потоки роботою. Тому I/O немає сенсу обгортати в `Task.Run`: у кращому разі це зайвий перехід у пул, у гіршому — потік, заблокований синхронним викликом.
+
+</A>
+
+<A short l="s">
+
+<T k="concurrency">Конкурентність</T> — кілька операцій одночасно в процесі виконання, паралелізм — їхнє виконання в один момент на різних ядрах, асинхронність — неблокувальне очікування. На сервері async дає масштабованість, а не швидкість запиту: тисячі запитів, що чекають, не тримають тисячі потоків. Мережеве очікування обслуговують IOCP у Windows та epoll/kqueue у Linux/macOS, а потік потрібен лише на обробку результату. CPU-bound робота так не масштабується: її обмежують кількістю ядер і виносять з обробки запиту.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+- **Асинхронність** — потік не простоює, поки операція чекає на зовнішній ресурс. `await` повертає керування, а коли результат готовий, метод продовжується.
+- **Багатопотоковість** — код виконується в кількох потоках.
+- **Паралелізм** — кілька потоків справді працюють одночасно на різних ядрах.
+
+**Навіщо**
+
+Асинхронність зберігає чутливість інтерфейсу й економить потоки сервера. Паралелізм пришвидшує обчислення.
+
+**Як користуватися**
+
+| Задача | Інструмент |
+|---|---|
+| Чекаємо на мережу, диск, базу (I/O-bound) | `async`/`await` без `Task.Run` |
+| Важкий розрахунок у UI-застосунку | `await Task.Run(...)` |
+| Треба порахувати швидше | `Parallel.For`, PLINQ |
+
+**Типова помилка**
+
+Думати, що `async` сам створює потік. Async-метод виконується синхронно до першого `await` незавершеної задачі, тому важкий цикл у ньому блокує потік, що викликає.
+
+**Підсумок:** чекаємо — `await`, рахуємо — паралелимо.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+1. Асинхронний API передає I/O-операцію ОС і повертає незавершену `Task`.
+2. Метод на `await` виходить, потік повертається в пул і бере іншу роботу.
+3. ОС повідомляє про завершення, і решта методу ставиться в пул потоків або в UI-потік.
+
+CPU-bound роботі потрібен процесор. «Асинхронно порахувати» не можна — можна лише перенести обчислення на інший потік.
+
+**Коли що обирати**
+
+| Ситуація | Рішення |
+|---|---|
+| Кілька незалежних I/O-викликів | запустити всі й <T k="task-whenall">`await Task.WhenAll`</T> |
+| Важкий розрахунок у UI-застосунку | `await Task.Run(...)` |
+| Великий обсяг обчислень | `Parallel.For`, `Parallel.ForEach`, PLINQ |
+
+**Пастки**
+
+- Синхронний виклик усередині async-методу (`Thread.Sleep`, синхронний `Read`) блокує потік так само, як без async.
+- Метод з `async`, але без `await` виконується повністю синхронно — компілятор видає попередження CS1998.
+- Для дрібної CPU-роботи `Task.Run` і перемикання потоків можуть коштувати дорожче за саму роботу.
+
+**Правило**
+
+I/O — `async`/`await` по всьому ланцюжку викликів. CPU — явне перенесення на інший потік, і лише якщо замір показує виграш.
+
+**Підсумок:** асинхронність звільняє потік на час очікування, паралелізм займає більше потоків заради швидкості.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- Синхронний сервер тримає потік на кожен запит, що чекає. Потік — це пам'ять під стек і перемикання контексту.
+- Асинхронний сервер на час очікування зберігає в купі лише невеликий об'єкт зі станом методу.
+- Мережеві операції завершуються через IOCP (Windows) або epoll/kqueue (Linux/macOS), після чого робота йде в пул.
+- Async-код в UI-потоці або в Blazor конкурентний, але не паралельний: усе виконується по черзі в одному логічному потоці.
+
+**Ціна**
+
+- Async не пришвидшує окремий запит і навіть додає накладні витрати на збереження стану й планування.
+- Виграш — пропускна здатність: більше одночасних запитів на тій самій кількості потоків.
+
+**Компроміси**
+
+- `await Task.Run(...)` в обробнику ASP.NET Core нічого не дає: запит і так у пулі, а ви платите за зайвий перехід.
+- Важкі обчислення виносять у фонову обробку (`Channel<T>` і `BackgroundService`) з обмеженим паралелізмом, щоб вони не забирали потоки в запитів.
+
+**Як перевірити в продакшені**
+
+Кількість потоків пулу зростає, а CPU недовантажений — отже, потоки не працюють, а блокуються в очікуванні. У `dotnet-counters` це видно за метрикою `dotnet.thread_pool.thread.count` (.NET 9+).
+
+**Підсумок:** async масштабує очікування, паралелізм масштабує обчислення.
+
+</A>
+
+<Ex>
+
+```csharp
+// I/O-bound: поки йде запит, потік вільний
+async Task<int> GetPageLengthAsync(HttpClient http, string url)
+{
+    string html = await http.GetStringAsync(url);
+    return html.Length;
+}
+
+// CPU-bound у UI-застосунку: забираємо розрахунок з UI-потоку
+async Task ShowResultAsync(int n)
+{
+    long result = await Task.Run(() => SlowFibonacci(n));
+    resultLabel.Text = result.ToString(); // знову в UI-потоці
+}
+
+// CPU-bound і треба швидше: ділимо роботу між ядрами
+var squares = new long[1_000];
+Parallel.For(0, squares.Length, i => squares[i] = (long)i * i);
+Console.WriteLine(squares[999]); // 998001
+```
+
+</Ex>
+
+<Next>
+
+- Чи створює `async` новий потік? — Ні: метод виконується синхронно до першого `await` незавершеної задачі.
+- Навіщо `Task.Run` в action контролера ASP.NET Core? — Зазвичай ні до чого: запит уже в пулі, це зайвий перехід.
+- Чим `Task.Run` відрізняється від `Task.Factory.StartNew`? — `Task.Run` розгортає async-делегат і завжди бере пул; `StartNew` поверне `Task<Task>` і за замовчуванням використовує поточний планувальник.
+- Чи пришвидшить async окремий запит? — Ні, він підвищує пропускну здатність, а не знижує затримку.
+
+</Next>
+
+<Src>
+
+- [Asynchronous programming scenarios](https://learn.microsoft.com/dotnet/csharp/asynchronous-programming/async-scenarios)
+- [Task Parallel Library (TPL)](https://learn.microsoft.com/dotnet/standard/parallel-programming/task-parallel-library-tpl)
+
+</Src>
+
+</Q>
+
+<Q id="dotnet.async.async-void" level="j">
+
+## Чому `async void` небезпечний і де він усе ж допустимий?
+
+<A short l="j">
+
+<T k="async-void">`async void`</T> — асинхронний метод, який не повертає задачу. Тому його не можна дочекатися й не можна перехопити його виняток у `try/catch`, і так пишуть лише обробники подій.
+
+</A>
+
+<A short l="m">
+
+`async void` — async-метод без задачі, за якою можна стежити. Його виняток викидається просто в контекст синхронізації (<T k="synchronization-context">`SynchronizationContext`</T>), наприклад в UI-потік, а без контексту — у пул потоків. Тому такий метод не можна `await`-ити й тестувати, а допустимий він лише в обробниках подій і `ICommand.Execute` з `try/catch` усередині.
+
+</A>
+
+<A short l="s">
+
+Для `async void` компілятор використовує `AsyncVoidMethodBuilder`: задачі немає, і необроблений виняток іде в захоплений `SynchronizationContext` або, без нього, у пул потоків. Головна відмінність у продакшені — в ASP.NET Core і worker-сервісах контексту немає, і один такий виняток завершує процес. Найпідступніша форма — async-лямбда в параметрі типу `Action`: `list.ForEach(async x => ...)` мовчки стає <T k="fire-and-forget">fire-and-forget</T>. Справжній fire-and-forget роблять явним: фонова черга або обгортка з `try/catch` і логуванням.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+`async void` — асинхронний метод, який повертає `void` замість `Task`. Код, що викликає, отримує керування після першого `await` усередині методу й більше нічого про нього не знає.
+
+**Навіщо**
+
+Сигнатуру обробника події задає делегат події, і там обов'язково `void`. Щоб обробник міг використовувати `await`, мова дозволяє `async void`.
+
+**Як користуватися**
+
+- Асинхронний метод повертає `Task` або `Task<T>`.
+- `async void` — лише для обробників подій на кшталт `Button_Click`.
+- Логіку виносьте в `async Task`-метод, а в обробнику залишайте `await` і `try/catch`.
+
+**Типова помилка**
+
+Обгорнути виклик `async void`-методу в `try/catch` і чекати, що виняток перехопиться. Він вилетить пізніше й в іншому місці.
+
+**Підсумок:** `async Task` — завжди, `async void` — лише для обробників подій.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+| | `async Task` | `async void` |
+|---|---|---|
+| Можна дочекатися | так, через `await` | ні |
+| Куди потрапляє виняток | у задачу, викидається під час `await` | у `SynchronizationContext` або в пул потоків |
+| `Task.WhenAll`, тести | працюють | неможливі |
+
+Без контексту (консоль, ASP.NET Core, worker-сервіс) виняток у пулі потоків завершує процес. У WinForms і WPF він потрапляє в `Application.ThreadException` та `Application.DispatcherUnhandledException`.
+
+**Коли що обирати**
+
+- Обробник події або `ICommand.Execute` — `async void` з `try/catch` усередині.
+- Усе інше — `async Task`.
+
+**Пастки**
+
+- **Прихований `async void`.** Async-лямбда, передана в параметр типу `Action`, стає `async void`. Тому `list.ForEach(async x => await SendAsync(x))` не чекає на відправлення.
+- **Реалізація `void`-методу.** Асинхронна реалізація звичайного `void`-методу інтерфейсу чи базового класу майже завжди помилкова: код, що викликає, вважає, що роботу завершено.
+- **Ресурси.** Код, що викликає, може звільнити ресурс раніше, ніж `async void`-метод закінчить з ним працювати.
+
+**Правило**
+
+Async-лямбди передавайте лише в параметри типу `Func<Task>`.
+
+**Підсумок:** `async void` ламає обробку помилок і композицію, тому живе лише в обробниках подій.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+1. `AsyncVoidMethodBuilder` під час створення викликає `SynchronizationContext.Current?.OperationStarted()`.
+2. Після завершення методу він викликає `OperationCompleted()`. Так контекст, наприклад тестового фреймворку, може дочекатися всіх `async void`.
+3. Необроблений виняток builder надсилає через `Post` у захоплений контекст, а без контексту кидає в пулі потоків.
+
+**Ціна**
+
+- Виняток у потоці пулу завершує процес: `AppDomain.UnhandledException` встигне лише залогувати.
+- Для ASP.NET Core це перезапуск застосунку й обрив усіх поточних запитів.
+- `TaskScheduler.UnobservedTaskException` не допоможе: він про неспостережені винятки задач, а тут задачі немає.
+
+**Компроміси**
+
+- `_ = DoAsync();` процес не завалить, але виняток залишиться в задачі й загубиться.
+- Відкинута задача у вебзастосунку переживає запит: scoped-залежності на кшталт `DbContext` уже звільнені, а під час зупинки застосунку її ніхто не дочекається.
+- Надійний fire-and-forget — фонова черга: `Channel<T>` і `BackgroundService` із власним scope, `try/catch`, логуванням і коректною зупинкою.
+
+**Як перевірити в продакшені**
+
+На рев'ю шукають `async void` поза обробниками та async-лямбди в `Action`-параметрах: `List<T>.ForEach`, `Parallel.ForEach`, колбеки таймерів. Раптові падіння процесу ловлять логуванням в `AppDomain.UnhandledException`.
+
+**Підсумок:** там, де немає UI-контексту, будь-який виняток в `async void` — це падіння процесу.
+
+</A>
+
+<Ex>
+
+```csharp
+// Погано: завершення не дочекатися, виняток не перехопити
+async void SaveBad() => await File.WriteAllTextAsync("data.txt", "...");
+
+// Добре: логіка в async Task
+async Task SaveAsync() => await File.WriteAllTextAsync("data.txt", "...");
+
+// Обробник події — єдине законне місце для async void
+private async void SaveButton_Click(object sender, EventArgs e)
+{
+    try
+    {
+        await SaveAsync();
+    }
+    catch (Exception ex)
+    {
+        MessageBox.Show(ex.Message); // інакше виняток піде в UI-контекст
+    }
+}
+
+// Прихований async void: ForEach приймає Action<T>
+items.ForEach(async x => await SendAsync(x)); // ніхто не чекає на відправлення
+await Task.WhenAll(items.Select(SendAsync));  // правильно
+```
+
+</Ex>
+
+<Next>
+
+- Що станеться з винятком в `async void` в ASP.NET Core? — Контексту немає, виняток піде в пул потоків і завершить процес.
+- Чому `list.ForEach(async x => ...)` — помилка? — Лямбда зводиться до `Action<T>`, тобто це `async void`.
+- Чим `_ = DoAsync()` відрізняється від `async void`? — Виняток залишиться в задачі й не завалить процес, але загубиться, якщо його не спостерігати.
+- Як зробити fire-and-forget безпечно? — Власний `try/catch` з логуванням або фонова черга (`Channel<T>` і `BackgroundService`).
+
+</Next>
+
+<Src>
+
+- [Async return types (C#)](https://learn.microsoft.com/dotnet/csharp/asynchronous-programming/async-return-types)
+- [Async/Await — Best Practices in Asynchronous Programming](https://learn.microsoft.com/archive/msdn-magazine/2013/march/async-await-best-practices-in-asynchronous-programming)
+
+</Src>
+
+</Q>
+
+<Q id="dotnet.async.how-await-works" level="m">
+
+## Як async/await працює під капотом?
+
+<A short l="j">
+
+Компілятор перетворює async-метод на <T k="state-machine">state machine</T> (машину станів), розрізану по точках `await`. Якщо очікувана задача ще не готова, метод повертає керування, а після її завершення продовжує роботу з наступного рядка.
+
+</A>
+
+<A short l="m">
+
+Async-метод компілюється в тип з методом `MoveNext` і builder, який створює `Task`, що повертається. На кожному `await` береться <T k="awaiter">awaiter</T>: якщо `IsCompleted`, код іде далі синхронно, інакше реєструється <T k="continuation">продовження</T> і метод виходить. Продовження виконується в захопленому контексті (UI-потік), а без контексту — у пулі потоків, тому потік після `await` може змінитися.
+
+</A>
+
+<A short l="s">
+
+State machine в Release — структура, яка залишається на стеку, поки всі `await` завершуються синхронно. Під час першого справжнього призупинення вона копіюється в купу в `AsyncStateMachineBox`, який сам і є `Task`, що повертається, а builder переносить <T k="execution-context">`ExecutionContext`</T> з `AsyncLocal<T>`. Ціна async — ця алокація, захоплення контекстів і непрямий виклик продовження, тому в коді, що викликається часто, роблять синхронний швидкий шлях. У .NET 11 з'являється runtime async, де призупиненням керує сам рантайм.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+Компілятор переписує async-метод на машину станів: номер поточного кроку плюс локальні змінні.
+
+**Як це працює**
+
+1. Код до першого `await` виконується одразу, синхронно, у потоці, що викликає.
+2. На `await` перевіряється, чи завершена задача. Якщо так, виконання йде далі.
+3. Якщо ні, метод запам'ятовує крок і повертає коду, що викликає, незавершену `Task`.
+4. Коли задача завершиться, метод продовжить роботу з місця зупинки.
+5. `return` завершує `Task` результатом, а виняток зберігається в ній і буде викинутий під час `await`.
+
+**Типова помилка**
+
+Вважати, що після `await` код виконується в тому самому потоці. В UI-застосунку це так, а в консолі й ASP.NET Core — у будь-якому потоці пулу.
+
+**Підсумок:** `await` не блокує потік, а виходить з методу й повертається в нього, коли результат готовий.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+1. Компілятор генерує метод-заглушку й тип state machine. Локальні змінні, що живуть через `await`, стають її полями.
+2. Заглушка викликає `builder.Start`, той синхронно запускає `MoveNext`, і заглушка повертає `builder.Task`.
+3. `MoveNext` — вихідний код, розрізаний за станами й обгорнутий у `try/catch`. Виняток іде в `builder.SetException`, результат — у `builder.SetResult`.
+4. `await x` викликає `x.GetAwaiter()` і перевіряє `IsCompleted`.
+5. Якщо задача не готова, builder підписує `MoveNext` на її завершення, і метод виходить.
+6. Після відновлення `GetResult()` повертає результат або викидає вихідний виняток зі збереженим стеком.
+
+**Де продовжиться код**
+
+| Що є в момент `await` | Де виконається продовження |
+|---|---|
+| `SynchronizationContext` (UI, класичний ASP.NET) | у цьому контексті |
+| нестандартний <T k="task-scheduler">`TaskScheduler`</T> | у цьому планувальнику |
+| нічого (консоль, ASP.NET Core) | у пулі потоків |
+
+**Пастки**
+
+- Після `await` в ASP.NET Core потік може змінитися, тому `[ThreadStatic]`-поля між кроками методу ненадійні.
+- `await` усередині `lock` заборонений (помилка CS1996): продовження може виконатися в іншому потоці, а `Monitor` прив'язаний до потоку-власника.
+- `await` працює з будь-яким типом, у якого є відповідний `GetAwaiter()`, — навіть методом розширення.
+
+**Правило**
+
+Не покладайтеся на конкретний потік після `await`: стан передавайте через параметри й локальні змінні.
+
+**Підсумок:** `await` — це перевірка `IsCompleted`, підписка `MoveNext` на завершення й вихід з методу.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- У Release state machine — структура, у Debug — клас для зручності налагодження.
+- Поки всі `await` завершуються синхронно, структура не залишає стек. Якщо результат ще й закешований (`Task.CompletedTask`, `Task<bool>`, деякі малі `int`), метод нічого не алокує.
+- Під час першого справжнього призупинення структура копіюється в `AsyncStateMachineBox<TStateMachine>`. Цей тип успадковує `Task<TResult>`, тобто box і є задача, що повертається.
+- `builder.Start` зберігає й відновлює `ExecutionContext`, тому зміни `AsyncLocal<T>` усередині методу не витікають до коду, що викликає.
+
+**Ціна**
+
+- Одна алокація box під час призупинення, захоплення контекстів і непрямий виклик `MoveNext`.
+- Продовження може виконатися синхронно всередині `SetResult` у того, хто завершує задачу. Для `TaskCompletionSource` це несподівана реентерабельність, тому його створюють з `TaskCreationOptions.RunContinuationsAsynchronously`.
+
+**Компроміси**
+
+- Синхронний швидкий шлях (перевірити кеш до `await`) прибирає алокації, але ускладнює код.
+- У .NET 11 з'являється runtime async — поки preview-функція, вона вмикається властивістю `<Features>runtime-async=on</Features>`. Призупиненням керує рантайм замість згенерованої state machine: живі стек-трейси чистіші, накладні витрати нижчі.
+
+**Як перевірити в продакшені**
+
+- Алокації async-коду видно в BenchmarkDotNet з `[MemoryDiagnoser]`.
+- Незавершені async-операції в дампі показує команда SOS `dumpasync` (`dotnet-dump analyze`).
+
+**Підсумок:** state machine йде в купу лише під час справжнього призупинення; ціна async — ця алокація й планування продовження.
+
+</A>
+
+<Ex title="Спрощено: на що розгортається await">
+
+```csharp
+// Вихідний метод
+async Task<int> GetLengthAsync(HttpClient http, string url)
+{
+    string s = await http.GetStringAsync(url);
+    return s.Length;
+}
+
+// Спрощений MoveNext згенерованої структури (Release)
+void MoveNext()
+{
+    try
+    {
+        if (_state == 0) goto Resume;
+        _awaiter = _http.GetStringAsync(_url).GetAwaiter();
+        if (!_awaiter.IsCompleted)
+        {
+            _state = 0;
+            _builder.AwaitUnsafeOnCompleted(ref _awaiter, ref this);
+            return;                      // метод вийшов, потік вільний
+        }
+    Resume:
+        string s = _awaiter.GetResult(); // результат або виняток
+        _builder.SetResult(s.Length);    // завершує Task<int>
+    }
+    catch (Exception ex) { _builder.SetException(ex); }
+}
+```
+
+</Ex>
+
+<Next>
+
+- Чому локальні змінні async-методу можуть опинитися в купі? — Під час призупинення state machine з ними копіюється в купу.
+- Чи можна `await`-ити власний тип? — Так, потрібен `GetAwaiter()`, що повертає awaiter з `IsCompleted`, `OnCompleted` і `GetResult`.
+- Що робить `await Task.Yield()`? — Примусово призупиняє метод і ставить продовження в чергу, навіть якщо чекати нема на що.
+- Чому не можна `await` усередині `lock`? — Продовження може виконатися в іншому потоці, а `Monitor` прив'язаний до потоку-власника (CS1996).
+- Чим state machine в Debug відрізняється від Release? — У Debug це клас, у Release — структура, яка йде в купу лише під час призупинення.
+
+</Next>
+
+<Src>
+
+- [How async/await really works in C#](https://devblogs.microsoft.com/dotnet/how-async-await-really-works/)
+- [The Task asynchronous programming model](https://learn.microsoft.com/dotnet/csharp/asynchronous-programming/task-asynchronous-programming-model)
+- [What's new in .NET 11 runtime](https://learn.microsoft.com/dotnet/core/whats-new/dotnet-11/runtime)
+
+</Src>
+
+</Q>
+
+<Q id="dotnet.async.sync-context" level="m">
+
+## Що таке `SynchronizationContext` і навіщо `ConfigureAwait(false)`?
+
+<A short l="j">
+
+`SynchronizationContext` — механізм, який повертає код після `await` у потрібний потік, наприклад в UI-потік WinForms чи WPF. <T k="configure-await">`ConfigureAwait(false)`</T> вимикає це повернення, тому після нього не можна чіпати елементи інтерфейсу.
+
+</A>
+
+<A short l="m">
+
+`SynchronizationContext` — абстракція з методом `Post`, який планує делегат у потрібне середовище: в UI-потік або в контекст запиту класичного ASP.NET. `await` за замовчуванням захоплює поточний контекст, а `ConfigureAwait(false)` від цього відмовляється. В ASP.NET Core контексту немає, тому в коді застосунку `ConfigureAwait(false)` нічого не змінює, а в бібліотеках його ставлять на кожен `await`.
+
+</A>
+
+<A short l="s">
+
+Контекст потрібен там, де код прив'язаний до потоку: UI-елементи доступні лише зі свого потоку, а Blazor емулює один логічний потік на circuit. `ConfigureAwait(false)` економить переходи в контекст і рятує бібліотеку від зависання, якщо код, що викликає, блокується на результаті. Але вихід з контексту він не гарантує, а `ExecutionContext` і `AsyncLocal<T>` не зачіпає. З .NET 8 є <T k="configure-await-options">`ConfigureAwaitOptions`</T>: `SuppressThrowing` дочікується задачі без винятку, `ForceYielding` завжди йде асинхронно.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+`SynchronizationContext` знає, як надіслати роботу в потрібний потік. У WinForms і WPF елементи інтерфейсу можна змінювати лише з UI-потоку, і контекст надсилає код саме туди.
+
+**Навіщо**
+
+Завдяки йому в обробнику кнопки після `await` можна знову змінювати інтерфейс: код повернувся в UI-потік.
+
+**Як користуватися**
+
+- За замовчуванням `await` запам'ятовує контекст і продовжує метод у ньому.
+- `await task.ConfigureAwait(false)` означає «контекст не потрібен»: код після `await` піде в пул потоків.
+- У консолі й ASP.NET Core контексту немає: `SynchronizationContext.Current` дорівнює `null`.
+
+**Типова помилка**
+
+Поставити `ConfigureAwait(false)` в обробнику кнопки, а потім звернутися до елемента керування. Отримаєте виняток про доступ із чужого потоку.
+
+**Підсумок:** контекст повертає код в UI-потік, `ConfigureAwait(false)` від цього відмовляється.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+| Середовище | Куди повертається код після `await` |
+|---|---|
+| WinForms, WPF | у <T k="message-loop">чергу повідомлень</T> UI-потоку |
+| Класичний ASP.NET | у контекст запиту, де доступний `HttpContext.Current` |
+| Blazor | у власний контекст, один логічний потік |
+| ASP.NET Core, консоль, worker | контексту немає — у пул потоків |
+
+Реалізації — `WindowsFormsSynchronizationContext`, `DispatcherSynchronizationContext` і `AspNetSynchronizationContext`.
+
+**Коли що обирати**
+
+- **Код застосунку** (UI-обробники, контролери) — без `ConfigureAwait(false)`: в UI контекст потрібен, в ASP.NET Core його немає.
+- **Бібліотека загального призначення** — `ConfigureAwait(false)` на кожному `await`: її можуть викликати з UI-застосунку. Нагадати допомагає аналізатор CA2007.
+
+**Пастки**
+
+- **Лише перший `await` — замало.** Якщо перша задача завершиться синхронно, контекст не скинеться, і наступний `await` знову його захопить.
+- **Контекст у кожного методу свій.** `ConfigureAwait(false)` усередині бібліотеки не впливає на обробник, що викликає, — той однаково повернеться в UI-потік.
+
+**Правило**
+
+У застосунку `ConfigureAwait(false)` не пишуть, у бібліотеці пишуть на кожному `await`.
+
+**Підсумок:** `ConfigureAwait(false)` — інструмент бібліотек, а не коду застосунку.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- Awaiter `Task` захоплює `SynchronizationContext.Current`, якщо це не базовий клас. Інакше — `TaskScheduler.Current`, якщо він нестандартний. Інакше продовження йде в пул.
+- `ConfigureAwait(false)` пропускає обидва захоплення. Але якщо задача вже завершена, код продовжиться синхронно в поточному потоці й контексті.
+- `ExecutionContext` тече через будь-який `await`: `AsyncLocal<T>` і `Activity.Current` від `ConfigureAwait` не залежать.
+
+**Ціна**
+
+- Кожне продовження в UI-контексті проходить через чергу повідомлень. Сотні дрібних `await` в UI-потоці помітно гальмують інтерфейс.
+- В ASP.NET Core продовження йдуть одразу в пул, без зайвих переходів. Зате немає однопотокової гарантії: `HttpContext` не потокобезпечний.
+
+**Компроміси**
+
+| Спосіб вийти з контексту | Обмеження |
+|---|---|
+| `ConfigureAwait(false)` | потрібен на кожному `await`, включно із залежностями |
+| `Task.Run` навколо виклику | зайва задача й перехід у пул |
+| `SetSynchronizationContext(null)` | не скидає нестандартний `TaskScheduler` |
+
+`ConfigureAwaitOptions` (.NET 8+): `SuppressThrowing` працює лише з неузагальненою `Task`, для `Task<T>` аналізатор видає CA2261. `ForceYielding` відправляє в пул навіть завершену задачу.
+
+**Як перевірити в продакшені**
+
+Завислий UI діагностують дампом: UI-потік стоїть у `Wait` або `GetResult`, а продовження не виконується. Стеки дивляться у Visual Studio (Parallel Stacks) або в `dotnet-dump analyze`.
+
+**Підсумок:** `ConfigureAwait(false)` прибирає перехід у контекст, але не гарантує виходу з нього й не зачіпає `ExecutionContext`.
+
+</A>
+
+<Ex>
+
+```csharp
+// WinForms/WPF: після await ми знову в UI-потоці
+private async void LoadButton_Click(object sender, EventArgs e)
+{
+    string data = await _service.LoadAsync(); // контекст захоплено
+    resultBox.Text = data;                    // можна чіпати UI
+}
+
+// Бібліотека: контекст коду, що викликає, не потрібен
+public async Task<string> LoadAsync()
+{
+    using var response = await _http.GetAsync(_url).ConfigureAwait(false);
+    // тут ми в пулі потоків, UI чіпати не можна
+    return await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+}
+
+// .NET 8+: дочекатися задачі, не викидаючи її винятку
+await backgroundTask.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+```
+
+</Ex>
+
+<Next>
+
+- Чи потрібен `ConfigureAwait(false)` в ASP.NET Core? — У коді застосунку ні, контексту немає; у бібліотеках загального призначення так.
+- Чому його ставлять на кожен `await`, а не на перший? — Перша задача може завершитися синхронно, і контекст не скинеться.
+- Чи впливає `ConfigureAwait(false)` на `AsyncLocal<T>`? — Ні, `ExecutionContext` тече через `await` завжди.
+- Як повернутися в UI-потік з фонового коду? — `Control.BeginInvoke`, `Dispatcher.InvokeAsync` або `Post` у збереженого контексту.
+- Чи є контекст у Blazor? — Так, він емулює один логічний потік; ззовні в нього входять через `InvokeAsync`.
+
+</Next>
+
+<Src>
+
+- [ConfigureAwait FAQ](https://devblogs.microsoft.com/dotnet/configureawait-faq/)
+- [SynchronizationContext Class](https://learn.microsoft.com/dotnet/api/system.threading.synchronizationcontext)
+- [ConfigureAwaitOptions Enum](https://learn.microsoft.com/dotnet/api/system.threading.tasks.configureawaitoptions)
+
+</Src>
+
+</Q>
+
+<Q id="dotnet.async.deadlock" level="m">
+
+## Чому `.Result` і `.Wait()` призводять до дедлоку і як цього уникнути?
+
+<A short l="j">
+
+<T k="deadlock">Дедлок</T> — взаємне блокування, коли два учасники нескінченно чекають один на одного. `.Result` блокує UI-потік, а продовженню після `await` потрібен саме цей потік, тому рішення — `await` по всьому ланцюжку викликів.
+
+</A>
+
+<A short l="m">
+
+Це <T k="sync-over-async">sync-over-async</T> — синхронне очікування асинхронного коду — в однопотоковому контексті. Блокувальний виклик займає контекст, а продовження після `await` чекає на цей самий контекст, і жоден не може завершитися. Лікується принципом «async all the way»; `ConfigureAwait(false)` у бібліотеках розриває цикл, лише якщо стоїть на всіх `await` ланцюжка.
+
+</A>
+
+<A short l="s">
+
+Класичний дедлок потребує однопотокового контексту, тому в ASP.NET Core його немає. Зате там блокувальні очікування ведуть до <T k="thread-pool-starvation">голодування пулу потоків</T>: потоки зайняті очікуванням, а продовження, які їх звільнили б, стоять у черзі. Пул додає потоки поступово, і під навантаженням затримка зростає до секунд. Якщо синхронна обгортка неминуча, `GetAwaiter().GetResult()` викидає вихідний виняток, а `Task.Run(...).GetAwaiter().GetResult()` виводить роботу з контексту ціною ще одного зайнятого потоку.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+Дедлок виникає, коли UI-потік синхронно чекає на задачу, а задачі для завершення потрібен UI-потік.
+
+**Як виникає**
+
+1. Обробник кнопки викликає `LoadAsync().Result` — UI-потік заблоковано.
+2. Усередині `LoadAsync` є `await`. Після завершення операції продовження має виконатися в UI-потоці.
+3. UI-потік зайнятий очікуванням, продовження не починається, задача не завершується.
+
+**Як уникнути**
+
+| Замість | Використовуйте |
+|---|---|
+| `.Result`, `.Wait()` | `await` |
+| `Task.WaitAll` | `await Task.WhenAll` |
+| `Thread.Sleep` | `await Task.Delay` |
+
+Робіть асинхронним увесь ланцюжок до точки входу: обробника події, action контролера, `async Task Main`.
+
+**Типова помилка**
+
+Перевірити код у консолі, де контексту немає і все працює, а потім перенести його в UI, де він зависне.
+
+**Підсумок:** не блокуйтеся на задачах — `await` до самого верху.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+Дедлок потребує трьох умов одночасно:
+
+1. Однопотоковий контекст: WinForms, WPF, класичний ASP.NET, Blazor.
+2. Блокувальне очікування в цьому контексті: `.Result`, `.Wait()`, `GetAwaiter().GetResult()`.
+3. `await` без `ConfigureAwait(false)` десь нижче по ланцюжку.
+
+Приберіть будь-яку умову — дедлоку не буде.
+
+**Коли що обирати**
+
+| Спосіб | Що дає |
+|---|---|
+| `await` по всьому ланцюжку | розв'язує проблему повністю |
+| `GetAwaiter().GetResult()` | вихідний виняток замість <T k="aggregate-exception">`AggregateException`</T>, але дедлок можливий |
+| `Task.Run(() => DoAsync()).GetAwaiter().GetResult()` | контексту немає — немає й дедлоку, але потік заблоковано |
+
+**Пастки**
+
+- `ConfigureAwait(false)` у вашій бібліотеці не рятує, якщо хоч одна залежність чекає без нього.
+- Конструктори й синхронні інтерфейси підштовхують до `.Result`. Асинхронну ініціалізацію виносять у фабрику або `IHostedService`.
+
+**Правило**
+
+Async all the way: `async Task Main` (з C# 7.1), `async Task` у тестах. `.Result` допустимий лише в уже завершеної задачі, наприклад після `await Task.WhenAll`.
+
+**Підсумок:** дедлок — це однопотоковий контекст, блокування в ньому й `await`, який хоче туди повернутися.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+1. В ASP.NET Core запит з `.Result` тримає потік пулу.
+2. Продовження, яке завершило б задачу, теж чекає на вільний потік пулу.
+3. Пул швидко нарощує потоки до кількох на ядро, а далі додає приблизно по 1–2 на секунду.
+4. Під навантаженням затримки зростають до секунд, хоча CPU майже вільний.
+
+З .NET 6 пул швидше реагує на блокування в `Task.Wait` і `.Result`, але проблему це не прибирає.
+
+**Ціна**
+
+- Кожен зайвий потік — пам'ять під стек і перемикання контексту.
+- `ThreadPool.SetMinThreads` маскує проблему: на наступному піку навантаження все повториться.
+
+**Компроміси**
+
+- Синхронна обгортка над async-методом — борг, а не рішення. Якщо потрібен синхронний API, його пишуть чесно синхронним.
+- Sync-over-async ховається в синхронних методах поверх async-коду: `Dispose`, фабрики DI, валідатори, сторонні SDK.
+
+**Як перевірити в продакшені**
+
+1. `dotnet-counters monitor`: повільно зростає `dotnet.thread_pool.thread.count`, великий `dotnet.thread_pool.queue.length`, CPU помітно нижче 100%. У старих версіях це лічильники `threadpool-thread-count` і `threadpool-queue-length`.
+2. `dotnet-stack report`: багато потоків пулу стоять у `Task.Wait` або `GetResultCore`.
+3. Для рідкісних епізодів — `dotnet-trace collect --clrevents waithandle` (.NET 9+) і аналіз стеків у PerfView.
+
+**Підсумок:** в ASP.NET Core sync-over-async не зависає одразу, а повільно душить сервіс голодуванням пулу.
+
+</A>
+
+<Ex>
+
+```csharp
+// WinForms: дедлок
+private void LoadButton_Click(object sender, EventArgs e)
+{
+    string data = LoadAsync().Result;   // UI-потік заблоковано
+    resultBox.Text = data;              // сюди виконання не дійде
+}
+
+private async Task<string> LoadAsync()
+{
+    await Task.Delay(1000);   // продовження чекає на вільний UI-потік
+    return "done";
+}
+
+// Виправлення: async по всьому ланцюжку
+private async void LoadButtonFixed_Click(object sender, EventArgs e)
+{
+    resultBox.Text = await LoadAsync(); // "done"
+}
+```
+
+</Ex>
+
+<Next>
+
+- Чому той самий код не зависає в консолі? — Там немає `SynchronizationContext`, продовження йде в пул.
+- Чим `GetAwaiter().GetResult()` кращий за `.Result`? — Викидає вихідний виняток, а не `AggregateException`; від дедлоку не рятує.
+- Чи буває дедлок в ASP.NET Core? — Класичного немає, але sync-over-async веде до голодування пулу потоків.
+- Як знайти sync-over-async у продакшені? — `dotnet-counters` по пулу потоків, потім `dotnet-stack` або `dotnet-trace` з подіями `WaitHandleWait`.
+- Чи безпечний `.Result` після `await Task.WhenAll`? — Так, задача вже завершена, блокування не буде.
+
+</Next>
+
+<Src>
+
+- [Debug ThreadPool starvation](https://learn.microsoft.com/dotnet/core/diagnostics/debug-threadpool-starvation)
+- [Async/Await — Best Practices in Asynchronous Programming](https://learn.microsoft.com/archive/msdn-magazine/2013/march/async-await-best-practices-in-asynchronous-programming)
+- [Should I expose synchronous wrappers for asynchronous methods?](https://devblogs.microsoft.com/pfxteam/should-i-expose-synchronous-wrappers-for-asynchronous-methods/)
+
+</Src>
+
+</Q>
+
+<Q id="dotnet.async.cancellation" level="m">
+
+## Як правильно скасовувати асинхронні операції?
+
+<A short l="j">
+
+<T k="cancellation-token">`CancellationToken`</T> — сигнал «час зупинитися», який передають в async-методи, а скасовує його <T k="cancellation-token-source">`CancellationTokenSource`</T>. Скасування <T k="cooperative-cancellation">кооперативне</T>: метод сам перевіряє токен і припиняє роботу, зазвичай викидаючи <T k="operation-canceled-exception">`OperationCanceledException`</T>.
+
+</A>
+
+<A short l="m">
+
+Скасування в .NET — запит через токен: джерело (`CancellationTokenSource`) скасовує, токен лише слухає. Токен приймають останнім параметром і передають в усі async API, що викликаються, а тайм-аут додають через `CancelAfter` і <T k="linked-token-source">`CreateLinkedTokenSource`</T>. Перехоплюють `OperationCanceledException`, а не його нащадка `TaskCanceledException`, і джерела звільняють через `using`, інакше залишаються таймери й підписки.
+
+</A>
+
+<A short l="s">
+
+Скасування — це запит, а не переривання потоку: код, який не перевіряє токен, продовжить працювати. Async-метод, з якого вилетів `OperationCanceledException`, переходить у `Canceled`, а не у `Faulted`; у `Task.Run` — лише якщо токен винятку збігається з переданим. В ASP.NET Core токен запиту економить ресурси під час обриву з'єднання. Ціна — ризик часткового стану, тому після точки фіксації скасування вже не приймають.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+- `CancellationTokenSource` — «пульт»: у нього є `Cancel()` і `CancelAfter(...)`.
+- `CancellationToken` — «приймач»: у нього є `IsCancellationRequested` і `ThrowIfCancellationRequested()`.
+
+**Навіщо**
+
+Щоб зупинити непотрібну роботу: користувач закрив вікно, клієнт обірвав запит, минув тайм-аут.
+
+**Як користуватися**
+
+1. Створіть джерело через `using`.
+2. Передайте `cts.Token` у метод останнім параметром.
+3. Усередині передавайте токен в усі async-виклики: `ReadAsync(buffer, ct)`, `SaveChangesAsync(ct)`.
+4. Перехоплюйте `OperationCanceledException` окремо від інших помилок.
+
+**Типова помилка**
+
+Прийняти токен і нікуди його не передати. Тоді скасування нічого не скасовує.
+
+**Підсумок:** токен передають по всьому ланцюжку, інакше скасування не дійде до операції.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+- `Cancel()` переводить усі копії токена в стан «скасовано», і це незворотно.
+- Скасована задача має статус `Canceled`, а `await` на ній викидає `OperationCanceledException`.
+- `ct.Register(...)` підписує колбек для API без підтримки токена. `Cancel()` викликає колбеки синхронно, тому вони мають бути швидкими.
+
+**Коли що обирати**
+
+| Задача | Інструмент |
+|---|---|
+| Тайм-аут | `new CancellationTokenSource(TimeSpan)` або `CancelAfter` |
+| Зовнішнє скасування плюс тайм-аут | `CreateLinkedTokenSource(ct)` і `CancelAfter` |
+| Перестати чекати на чужу задачу | `task.WaitAsync(timeout, ct)` (.NET 6+) |
+| Довгий CPU-цикл | `ct.ThrowIfCancellationRequested()` раз на N ітерацій |
+
+**Пастки**
+
+- `WaitAsync` перестає чекати, але саму операцію не зупиняє.
+- Пов'язане джерело підписане на батьківський токен. Без `Dispose` підписка живе разом із батьківським — це витік, якщо батьківський токен довгоживучий.
+- Різні API кидають то `TaskCanceledException`, то `OperationCanceledException`. Перехоплюйте базовий тип.
+
+**Правило**
+
+Публічний async-метод приймає `CancellationToken cancellationToken = default` останнім параметром і передає його далі.
+
+**Підсумок:** тайм-аут — це теж скасування, а пов'язане джерело об'єднує зовнішнє скасування з власним тайм-аутом.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- Builder async-методу переводить задачу в `Canceled` за будь-якого `OperationCanceledException`, незалежно від токена.
+- `Task.Run(work, ct)` дає `Canceled`, лише якщо токен винятку збігається з `ct` і скасований. Інакше задача `Faulted`.
+- Для `Task.WhenAll` `Faulted` в однієї задачі важливіший за `Canceled` в іншої.
+
+**Ціна**
+
+- `CancellationToken` — структура, `default` нічого не коштує.
+- `CancelAfter` створює таймер, `Register` — запис у списку колбеків. У коді, що викликається часто, нескасоване джерело перевикористовують через `TryReset()` (.NET 6+).
+- `CancelAsync()` (.NET 8+) виконує колбеки асинхронно й не затримує потік, що викликає.
+
+**Компроміси**
+
+- Скасування посеред запису залишає частковий стан. Токен приймають до точки фіксації (транзакція, надіслане повідомлення), а після неї передають `CancellationToken.None`.
+- В ASP.NET Core параметр `CancellationToken` в action — це `HttpContext.RequestAborted`: клієнт пішов. Про зупинку застосунку повідомляють токен `BackgroundService.ExecuteAsync` і `IHostApplicationLifetime.ApplicationStopping`.
+
+**Як перевірити в продакшені**
+
+Відрізняйте тайм-аут від скасування кодом, що викликає: `catch (OperationCanceledException) when (!ct.IsCancellationRequested)` означає, що спрацював внутрішній тайм-аут. Його логують і перетворюють на `TimeoutException`, інакше метрики сплутають його з відмовою клієнта.
+
+**Підсумок:** скасування кооперативне й змінює статус задачі; заздалегідь вирішуйте, де його можна прийняти без псування даних.
+
+</A>
+
+<Ex>
+
+```csharp
+public async Task<string> DownloadAsync(string url, CancellationToken ct = default)
+{
+    // Скасування за зовнішнім токеном або через 5 секунд
+    using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+    cts.CancelAfter(TimeSpan.FromSeconds(5));
+
+    try
+    {
+        return await _http.GetStringAsync(url, cts.Token);
+    }
+    catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+    {
+        // зовнішній токен не скасовано — отже, спрацював наш тайм-аут
+        throw new TimeoutException($"{url}: немає відповіді за 5 секунд");
+    }
+}
+
+// CPU-bound цикл опитує токен сам
+static long Sum(int[] data, CancellationToken ct)
+{
+    long sum = 0;
+    for (int i = 0; i < data.Length; i++)
+    {
+        if (i % 10_000 == 0) ct.ThrowIfCancellationRequested();
+        sum += data[i];
+    }
+    return sum;
+}
+```
+
+</Ex>
+
+<Next>
+
+- Чим `OperationCanceledException` відрізняється від `TaskCanceledException`? — Другий — нащадок першого; перехоплюйте базовий.
+- Навіщо `Dispose` у пов'язаного `CancellationTokenSource`? — Він підписаний на батьківський токен, і без `Dispose` підписка живе разом із батьківським.
+- Чи скасовує `WaitAsync` саму операцію? — Ні, він лише перестає на неї чекати.
+- Як відрізнити тайм-аут від скасування клієнтом? — Фільтр `when` за `IsCancellationRequested` зовнішнього токена.
+- Звідки взяти токен в ASP.NET Core? — Параметр `CancellationToken` в action (це `HttpContext.RequestAborted`) і токен `ExecuteAsync` у `BackgroundService`.
+
+</Next>
+
+<Src>
+
+- [Cancellation in managed threads](https://learn.microsoft.com/dotnet/standard/threading/cancellation-in-managed-threads)
+- [Task cancellation](https://learn.microsoft.com/dotnet/standard/parallel-programming/task-cancellation)
+
+</Src>
+
+</Q>
+
+<Q id="dotnet.async.whenall" level="m">
+
+## Як виконати кілька задач паралельно й обмежити їхню кількість?
+
+<A short l="j">
+
+`Task.WhenAll` — очікування одразу кількох задач, які вже запущені й виконуються одночасно. Тому загальний час дорівнює найдовшій операції, а не сумі; якщо задач тисячі, їхню кількість обмежують, наприклад через `Parallel.ForEachAsync`.
+
+</A>
+
+<A short l="m">
+
+`Task.WhenAll` чекає на всі задачі й у разі помилок викидає через `await` лише перший виняток, а всі інші лежать в `Exception` його задачі. <T k="degree-of-parallelism">Ступінь паралелізму</T> обмежують через `Parallel.ForEachAsync` (.NET 6+, за замовчуванням `Environment.ProcessorCount`) або <T k="semaphore-slim">`SemaphoreSlim`</T>. Ціна обмеження — загальний час довший, зате зовнішній сервіс і пул з'єднань не перевантажені.
+
+</A>
+
+<A short l="s">
+
+`WhenAll` не скасовує інші задачі після першої помилки, тому для fail-fast потрібен спільний `CancellationTokenSource`; `Parallel.ForEachAsync` робить це сам. Ступінь паралелізму для I/O добирають за лімітами зовнішньої системи — пулом з'єднань, rate limit партнера, — а не за кількістю ядер. Для безперервного потоку роботи краще `Channel<T>` з обмеженою місткістю: він дає <T k="backpressure">зворотний тиск</T>. Обробляти результати в міру готовності дає змогу `Task.WhenEach` (.NET 9+).
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+`Task.WhenAll` повертає задачу, яка завершиться, коли завершаться всі передані задачі.
+
+**Навіщо**
+
+Послідовні `await` додають час операцій. Одночасні операції займають час найдовшої з них.
+
+**Як користуватися**
+
+1. Запустіть задачі без `await`: `var a = GetUserAsync(id);` і `var b = GetOrdersAsync(id);`.
+2. Дочекайтеся всіх: `await Task.WhenAll(a, b);`.
+3. Візьміть результати через `await a` і `await b` — задачі вже завершені.
+
+Для колекції `WhenAll` одразу повертає масив: `int[] r = await Task.WhenAll(tasks);`.
+
+**Типова помилка**
+
+Двічі перелічити `IEnumerable` із `Select`: задачі створяться заново. Одразу викликайте `ToArray()`.
+
+**Підсумок:** спершу запустіть усі задачі, потім чекайте на них разом.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+- Задача `WhenAll` чекає на всі задачі, навіть якщо одна вже впала.
+- Якщо хоч одна `Faulted`, підсумок `Faulted`, і `Exception.InnerExceptions` містить усі помилки. `await` викидає лише першу.
+- `WhenAny` повертає першу завершену задачу й сам її виняток не викидає — потрібно `await` вибрану задачу.
+
+**Коли що обирати**
+
+| Задача | Інструмент |
+|---|---|
+| Кілька різних викликів | `Task.WhenAll` |
+| Результати в міру готовності | `Task.WhenEach` (.NET 9+) |
+| Велика колекція з лімітом | `Parallel.ForEachAsync` (.NET 6+) |
+| Ліміт поверх довільного коду | `SemaphoreSlim`: `WaitAsync`, `Release` у `finally` |
+
+**Пастки**
+
+- У `Parallel.ForEachAsync` без налаштувань ліміт — `Environment.ProcessorCount`, для I/O цього часто замало. Задавайте `MaxDegreeOfParallelism`.
+- `Parallel.ForEach` з async-лямбдою перетворює її на `async void`: цикл не чекає на операції.
+- Цикл із `WhenAny` з видаленням готової задачі зі списку працює за квадратичний час. Для цього є `WhenEach`.
+
+**Правило**
+
+Щоб побачити всі помилки, збережіть задачу `WhenAll` у змінну й у `catch` прочитайте її `Exception`.
+
+**Підсумок:** `WhenAll` — для невеликого набору задач, `Parallel.ForEachAsync` і семафор — коли кількість одночасних операцій треба обмежити.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- `WhenAll` не скасовує сусідні задачі. Для fail-fast передайте в усі задачі токен спільного `CancellationTokenSource` і викличте `Cancel()` після першої помилки.
+- `Parallel.ForEachAsync` у разі винятку скасовує токен, переданий у тіло, перестає видавати елементи й завершується `Faulted` з усіма винятками. У разі скасування зовнішнім токеном підсумок — `Canceled`.
+
+**Ціна**
+
+`items.Select(ProcessAsync).ToArray()` для мільйона елементів одразу створює мільйон задач і state machine. Семафор усередині не допомагає: задачі вже існують і чекають. `Parallel.ForEachAsync` і канали створюють роботу в міру звільнення слотів.
+
+**Компроміси**
+
+- Безперервний потік роботи, виробники й споживачі з різною швидкістю — `Channel<T>` з обмеженою місткістю та N читачами.
+- Глобальний ліміт на ресурс з різних місць коду — спільний `SemaphoreSlim` або rate limiter із пакета `System.Threading.RateLimiting`.
+- Ступінь паралелізму для I/O задають за лімітами зовнішньої системи, а не за кількістю ядер, і виносять у конфігурацію.
+
+**Як перевірити в продакшені**
+
+Проведіть навантажувальний тест з різним ступенем паралелізму. Якщо пропускна здатність перестала зростати, а затримка, відповіді 429 і тайм-аути зростають — паралелізм завеликий.
+
+**Підсумок:** обмежуйте не лише кількість одночасних операцій, а й кількість створених задач.
+
+</A>
+
+<Ex>
+
+```csharp
+// Не більше 8 запитів одночасно
+var options = new ParallelOptions { MaxDegreeOfParallelism = 8, CancellationToken = ct };
+var lengths = new ConcurrentDictionary<string, int>();
+await Parallel.ForEachAsync(urls, options, async (url, token) =>
+{
+    string html = await http.GetStringAsync(url, token);
+    lengths[url] = html.Length;
+});
+
+// WhenAll: усі помилки, а не лише перша
+Task<int>[] tasks = ids.Select(id => LoadAsync(id)).ToArray();
+Task<int[]> all = Task.WhenAll(tasks);
+try
+{
+    int[] values = await all;
+}
+catch (Exception) when (all.Exception is { } agg)
+{
+    foreach (var ex in agg.InnerExceptions)
+        Console.WriteLine(ex.Message); // кожна помилка окремо
+}
+
+// .NET 9+: результати в міру завершення
+await foreach (Task<int> done in Task.WhenEach(tasks))
+    Console.WriteLine(done.Status); // RanToCompletion або Faulted
+```
+
+</Ex>
+
+<Next>
+
+- Що викине `await Task.WhenAll`, якщо впали три задачі? — Перший виняток; усі три лежать в `Exception.InnerExceptions` задачі `WhenAll`.
+- Чи скасовує `WhenAll` інші задачі після помилки? — Ні, потрібен спільний `CancellationTokenSource`.
+- Чому не можна `Parallel.ForEach` з async-лямбдою? — Лямбда стане `async void`, цикл не дочекається операцій.
+- Який ступінь паралелізму в `Parallel.ForEachAsync` за замовчуванням? — `Environment.ProcessorCount`; для I/O його зазвичай задають явно.
+- Коли `Channel<T>` кращий за `Parallel.ForEachAsync`? — Коли дані надходять безперервно й потрібен зворотний тиск між виробником і споживачами.
+
+</Next>
+
+<Src>
+
+- [Task.WhenAll Method](https://learn.microsoft.com/dotnet/api/system.threading.tasks.task.whenall)
+- [Parallel.ForEachAsync Method](https://learn.microsoft.com/dotnet/api/system.threading.tasks.parallel.foreachasync)
+- [Task.WhenEach Method](https://learn.microsoft.com/dotnet/api/system.threading.tasks.task.wheneach)
+
+</Src>
+
+</Q>
+
+<Q id="dotnet.async.task-vs-valuetask" level="s">
+
+## Коли використовувати `ValueTask` замість `Task` і які в нього обмеження?
+
+<A short l="j">
+
+<T k="value-task">`ValueTask<T>`</T> — структура, яка повертає готовий результат без створення об'єкта `Task` у купі. Вона вигідна, коли метод майже завжди завершується одразу, наприклад читає з кешу, а за замовчуванням повертають `Task`.
+
+</A>
+
+<A short l="m">
+
+`ValueTask<T>` зберігає або готове значення, або звичайну `Task<T>`, тому за синхронного завершення не алокує. Натомість її можна чекати лише один раз, не можна чекати з кількох місць і читати `Result` до завершення; для більшого є `AsTask()`. Документація радить за замовчуванням `Task`, а `ValueTask` — лише коли профілювання показало виграш.
+
+</A>
+
+<A short l="s">
+
+`ValueTask<T>` зберігає `T`, `Task<T>` або <T k="value-task-source">`IValueTaskSource<T>`</T> — перевикористовуваний об'єкт операції, завдяки якому `Socket.ReceiveAsync` працює без алокацій. Звідси й обмеження: після першого `await` джерело може повернутися в пул, і повторний чи конкурентний `await` — невизначена поведінка. Структура більша за посилання й збільшує state machine коду, що викликає. Тому `ValueTask` виправданий на <T k="hot-path">гарячих шляхах</T> бібліотек та в інтерфейсах на кшталт `IAsyncEnumerator<T>.MoveNextAsync`, а не в бізнес-коді.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+`Task` — клас, і async-метод зазвичай створює новий об'єкт задачі в купі. `ValueTask<T>` — структура:
+
+- якщо результат уже готовий, вона зберігає саме значення, і алокації немає;
+- якщо ні, усередині неї звичайна `Task<T>`.
+
+**Навіщо**
+
+Метод читає значення з кешу й лише в разі промаху йде в базу. Майже всі виклики завершуються одразу, і `ValueTask<T>` позбавляє зайвих об'єктів.
+
+**Як користуватися**
+
+- За замовчуванням пишіть `Task` і `Task<T>`.
+- Результат `ValueTask` одразу `await`-іть, і лише один раз.
+
+**Типова помилка**
+
+Зберегти `ValueTask` у полі або передати в `Task.WhenAll`. Для цього його спершу перетворюють на задачу через `AsTask()`.
+
+**Підсумок:** `ValueTask` — оптимізація для частого синхронного результату, а не заміна `Task`.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+- `async ValueTask<T>` за синхронного завершення не алокує, а за асинхронного алокує box state machine, як і `Task<T>`.
+- Метод без `async` може повернути `new ValueTask<T>(value)` на швидкому шляху й `new ValueTask<T>(LoadAsync())` на повільному. Тоді на швидкому шляху немає навіть state machine.
+
+**Коли що обирати**
+
+| Ситуація | Тип |
+|---|---|
+| Звичайний бізнес-метод | `Task`, `Task<T>` |
+| Частий виклик, майже завжди синхронний результат | `ValueTask<T>` |
+| Результат чекають кілька разів або кешують | `Task<T>` |
+| Синхронний успіх без результату | `Task` і `Task.CompletedTask` |
+
+**Пастки**
+
+З `ValueTask` не можна:
+
+- `await` двічі;
+- `await` з двох місць одночасно;
+- читати `.Result` або `.GetAwaiter().GetResult()` до завершення;
+- поєднувати кілька способів отримати результат.
+
+Порушення дає невизначену поведінку, а не зрозумілий виняток.
+
+**Правило**
+
+Один `ValueTask` — одне споживання: `await`, або `AsTask()`, або `Result` після перевірки `IsCompletedSuccessfully`.
+
+**Підсумок:** `ValueTask` економить алокацію ціною суворих правил для всіх споживачів.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- `ValueTask<T>` із джерелом — це посилання на `IValueTaskSource<T>` плюс `short`-токен версії.
+- `Socket` тримає по одному такому об'єкту на приймання й надсилання, тому послідовні `ReceiveAsync` і `SendAsync` не алокують.
+- Токен лише частково захищає від застарілого `ValueTask` після перевикористання джерела. Звідси правило «один `await`».
+
+**Ціна**
+
+- `ValueTask<T>` складається з кількох полів: копіюється дорожче за посилання й збільшує state machine коду, що викликає.
+- Для `WhenAll` потрібен `AsTask()` — та сама алокація, від якої тікали.
+- Власне джерело будують на `ManualResetValueTaskSourceCore<T>`, а пул об'єктів і скидання стану залишаються на вас.
+
+**Компроміси**
+
+- З .NET 6 атрибут `[AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]` на методі бере box state machine з пулу. Асинхронне завершення теж обходиться без алокації, але пул утримує пам'ять.
+- `ValueTask` у публічному інтерфейсі дає реалізаціям свободу оптимізувати, але зобов'язує всіх споживачів дотримуватися правил. Так зроблені `IAsyncEnumerator<T>.MoveNextAsync` і `IAsyncDisposable.DisposeAsync`.
+
+**Як перевірити в продакшені**
+
+- BenchmarkDotNet з `[MemoryDiagnoser]` на реальному співвідношенні синхронних і асинхронних завершень.
+- `dotnet-counters`: швидкість алокацій під навантаженням до й після зміни.
+- Виграш помітний на мільйонах викликів за секунду; у звичайному бізнес-коді це ускладнення без користі.
+
+**Підсумок:** `ValueTask` — інструмент авторів бібліотек, і переходити на нього варто лише за даними профілювання.
+
+</A>
+
+<Ex>
+
+```csharp
+private readonly ConcurrentDictionary<int, Product> _cache = new();
+
+// Майже завжди результат уже в кеші
+public ValueTask<Product> GetProductAsync(int id)
+{
+    if (_cache.TryGetValue(id, out var product))
+        return new ValueTask<Product>(product);           // без алокацій
+
+    return new ValueTask<Product>(LoadAndCacheAsync(id)); // промах: звичайна Task
+}
+
+private async Task<Product> LoadAndCacheAsync(int id)
+{
+    Product product = await _repository.LoadAsync(id);
+    _cache[id] = product;
+    return product;
+}
+
+// Споживач
+Product p = await GetProductAsync(42); // правильно: один await одразу
+
+ValueTask<Product> vt = GetProductAsync(42);
+await vt;
+await vt; // порушення: з IValueTaskSource це невизначена поведінка
+```
+
+</Ex>
+
+<Next>
+
+- Чому не повертати `ValueTask` усюди? — Він більший, його не можна чекати двічі, а виграш є лише за частого синхронного завершення.
+- Чи алокує `async ValueTask<T>`, якщо метод призупинився? — Так, box state machine, як у `Task`; без алокацій — лише з пулінговим builder.
+- Що таке `IValueTaskSource`? — Перевикористовуваний об'єкт операції, через який `ValueTask` працює без алокацій, наприклад у `Socket`.
+- Як передати `ValueTask` у `Task.WhenAll`? — Через `AsTask()`, рівно один раз.
+- Чому кеш задач будують на `Task<T>`, а не на `ValueTask<T>`? — `Task<T>` можна чекати багаторазово й з різних місць.
+
+</Next>
+
+<Src>
+
+- [Understanding the Whys, Whats, and Whens of ValueTask](https://devblogs.microsoft.com/dotnet/understanding-the-whys-whats-and-whens-of-valuetask/)
+- [`ValueTask<TResult>` — довідник API](https://learn.microsoft.com/dotnet/api/system.threading.tasks.valuetask-1)
+
+</Src>
+
+</Q>

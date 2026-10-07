@@ -1,0 +1,177 @@
+value-type:
+  term: Value type
+  def: >-
+    A type whose variable contains the value itself; assignment copies the value. In C# these are `struct`, `enum` and the built-in numeric types.
+  q: value type C#
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/builtin-types/value-types
+reference-type:
+  term: Reference type
+  def: >-
+    A type whose variable contains a reference to an object on the managed heap; assignment copies the reference. In C# these are `class`, `interface`, `string`, arrays and delegates.
+  q: reference type C#
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/keywords/reference-types
+managed-heap:
+  term: Managed heap
+  def: >-
+    The memory area where the CLR allocates reference-type objects. Memory there is allocated and reclaimed by the garbage collector.
+  q: managed heap .NET
+  docs: https://learn.microsoft.com/dotnet/standard/garbage-collection/fundamentals
+boxing:
+  term: Boxing
+  def: >-
+    Copying a value-type value into a new heap object so it can be treated as `object` or an interface. The reverse operation is unboxing.
+  q: boxing unboxing C#
+  docs: https://learn.microsoft.com/dotnet/csharp/programming-guide/types/boxing-and-unboxing
+defensive-copy:
+  term: Defensive copy
+  def: >-
+    A hidden copy of a struct the compiler makes when calling its method through a `readonly` field or an `in` parameter, so the method cannot change the original. Does not happen with a `readonly struct`.
+  q: C# defensive copy readonly struct
+ref-struct:
+  term: ref struct
+  def: >-
+    A struct that can live only on the stack: it cannot be boxed, stored in a class field or captured by a lambda. Example: `Span<T>`.
+  q: C# ref struct
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/builtin-types/ref-struct
+unboxing:
+  term: Unboxing
+  def: >-
+    Extracting a value-type value from a boxed object: a type check plus a copy. You can unbox only to the original type or to its `Nullable` form; otherwise you get `InvalidCastException`.
+  q: unboxing C#
+  docs: https://learn.microsoft.com/dotnet/csharp/programming-guide/types/boxing-and-unboxing
+interpolated-string-handler:
+  term: Interpolated string handler
+  def: >-
+    A C# 10 mechanism: a `$"..."` expression compiles into `AppendLiteral` and `AppendFormatted<T>` calls on a special type such as `DefaultInterpolatedStringHandler`. Arguments are not boxed, and the buffer comes from a pool.
+  q: C# interpolated string handler
+  docs: https://learn.microsoft.com/dotnet/csharp/advanced-topics/performance/interpolated-string-handler
+benchmarkdotnet:
+  term: BenchmarkDotNet
+  def: >-
+    A .NET microbenchmarking library: warmup, statistics, comparison across runtimes. `[MemoryDiagnoser]` shows allocations per operation, and `[DisassemblyDiagnoser]` shows the machine code produced by the JIT.
+  q: BenchmarkDotNet
+  docs: https://benchmarkdotnet.org/
+immutable-type:
+  term: Immutable type
+  def: >-
+    A type whose instance state cannot change after creation: "modifying" methods return a new instance. Examples: `string`, `DateTime`, `readonly record struct`.
+  q: immutable type C#
+string-builder:
+  term: StringBuilder
+  def: >-
+    A mutable buffer for building a string piece by piece. It appends characters without intermediate strings and creates the final `string` in `ToString()`.
+  q: StringBuilder C#
+  docs: https://learn.microsoft.com/dotnet/standard/base-types/stringbuilder
+string-interning:
+  term: String interning
+  def: >-
+    Keeping a single instance per unique string value in a runtime pool (the intern pool). `string.Intern` adds a string to the pool; interned strings live until the process exits.
+  q: string interning .NET
+  docs: https://learn.microsoft.com/dotnet/api/system.string.intern
+non-gc-heap:
+  term: NonGC heap (frozen heap)
+  def: >-
+    A memory area in .NET 8+ for objects that live for the whole process lifetime, such as string literals. The GC neither collects nor moves them, and `GC.GetGeneration` can return `int.MaxValue` for them.
+  q: .NET 8 NonGC heap frozen segments
+  docs: https://learn.microsoft.com/dotnet/core/compatibility/core-libraries/8.0/getgeneration-return-value
+call-stack:
+  term: Call stack
+  def: >-
+    A thread's memory where every method call pushes its frame with parameters, local variables and the return address. It is freed automatically when the method returns; its size is limited, and an overflow terminates the process.
+  q: call stack .NET
+  docs: https://learn.microsoft.com/dotnet/core/runtime-config/threading
+stack-frame:
+  term: Stack frame
+  def: >-
+    The part of the stack used by a single method call: the return address, saved registers, local variables and some of the arguments. It is popped when the method returns.
+  q: stack frame
+escape-analysis:
+  term: Escape analysis
+  def: >-
+    A JIT analysis that determines whether an object can outlive the method that created it. If it cannot, the JIT may allocate it on the stack; in .NET 9–10 this applies to boxes, small arrays and delegates.
+  q: .NET JIT escape analysis stack allocation
+  docs: https://learn.microsoft.com/dotnet/core/whats-new/dotnet-10/runtime#stack-allocation
+record:
+  term: Record
+  def: >-
+    The `record` modifier for a class (C# 9) or a struct (C# 10): the compiler generates value equality, `ToString`, `Deconstruct` for positional parameters and support for `with`.
+  q: C# record
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/builtin-types/record
+value-equality:
+  term: Value equality
+  def: >-
+    Two instances are equal if they have the same type and equal field values, even when they are different objects. Structs and records compare this way by default; classes compare by reference.
+  q: C# value equality
+  docs: https://learn.microsoft.com/dotnet/csharp/fundamentals/expressions/equality
+with-expression:
+  term: with expression
+  def: >-
+    Creates a copy of a record or a struct with some properties changed: `p with { X = 1 }`. The copy is shallow: reference-type fields point to the same objects.
+  q: C# with expression
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/operators/with-expression
+equality-contract:
+  term: EqualityContract
+  def: >-
+    A synthesized `record class` property that returns the record's runtime type. The generated `Equals` compares it first, so records of different types in one hierarchy are never equal, even with the same data.
+  q: C# record EqualityContract
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/builtin-types/record
+nullable-reference-types:
+  term: Nullable reference types (NRT)
+  def: >-
+    A C# 8+ feature: a reference type without `?` is treated as non-nullable, and with `?` as nullable. The compiler warns about possible `NullReferenceException`s; nothing is checked at run time.
+  q: C# nullable reference types
+  docs: https://learn.microsoft.com/dotnet/csharp/fundamentals/null-safety/nullable-reference-types
+null-state-analysis:
+  term: Null-state analysis
+  def: >-
+    The compiler's static analysis that tracks, for every expression, whether it is not-null or maybe-null, taking into account checks, assignments and attributes such as `[NotNullWhen]`.
+  q: C# null-state analysis
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/attributes/nullable-analysis
+nullable-context:
+  term: Nullable context
+  def: >-
+    The setting that turns on `?` annotations and null warnings: `enable`, `warnings`, `annotations` or `disable`. It is set with the `<Nullable>` element in the project and with `#nullable` directives in code.
+  q: C# nullable context
+  docs: https://learn.microsoft.com/dotnet/csharp/advanced-topics/update-applications/nullable-migration-strategies
+null-forgiving-operator:
+  term: Null-forgiving operator
+  def: >-
+    The postfix `!`, as in `x!.Length`: it tells the compiler the expression is not `null` and suppresses the warning. Nothing is checked at run time.
+  q: C# null-forgiving operator
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/operators/null-forgiving
+required-member:
+  term: Required member
+  def: >-
+    A property or field with the `required` modifier (C# 11): it must be set in the object initializer, or the code does not compile. It helps with NRT when objects are created without a parameterized constructor.
+  q: C# required modifier
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/keywords/required
+span-t:
+  term: Span<T>
+  def: >-
+    A `ref struct` made of a reference to a contiguous block of memory and a length. It can point to an array, a string, a `stackalloc` buffer or unmanaged memory, and slicing does not copy data. It lives only on the stack.
+  q: C# Span<T>
+  docs: https://learn.microsoft.com/dotnet/api/system.span-1
+memory-t:
+  term: Memory<T>
+  def: >-
+    A regular struct that is a "window" onto contiguous memory (an array, a string or a `MemoryManager<T>`) and can be stored in fields and passed across `await`. The data is accessed through the `.Span` property.
+  q: C# Memory<T>
+  docs: https://learn.microsoft.com/dotnet/api/system.memory-1
+array-pool:
+  term: ArrayPool<T>
+  def: >-
+    A pool of reusable arrays: `Rent` hands out an array at least as long as requested, and `Return` gives it back. It reduces buffer allocations; after `Return` the array must not be used.
+  q: ArrayPool C#
+  docs: https://learn.microsoft.com/dotnet/api/system.buffers.arraypool-1
+ref-safety:
+  term: Ref safety
+  def: >-
+    C# compiler rules that keep a reference (`ref`, `Span<T>`, any `ref struct`) from outliving the data it points to. For example, you cannot return a span over a `stackalloc` buffer; the `scoped` modifier narrows the allowed lifetime.
+  q: C# ref safety scoped
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/statements/declarations
+memory-owner:
+  term: IMemoryOwner<T>
+  def: >-
+    The owner interface for a `Memory<T>` buffer: whoever holds the reference calls `Dispose` or hands ownership on. It is returned, for example, by `MemoryPool<T>.Shared.Rent()`.
+  q: IMemoryOwner C#
+  docs: https://learn.microsoft.com/dotnet/api/system.buffers.imemoryowner-1

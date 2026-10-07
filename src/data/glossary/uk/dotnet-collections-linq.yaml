@@ -1,0 +1,126 @@
+big-o:
+  term: Асимптотична складність (O-нотація)
+  def: >-
+    Оцінка того, як зростає час або пам'ять операції зі зростанням кількості елементів n. O(1) — не залежить від n, O(log n) — зростає дуже повільно, O(n) — пропорційно n.
+  q: big O notation
+  wiki: Нотація Ландау
+hash-table:
+  term: Хеш-таблиця (hash table)
+  def: >-
+    Структура даних, яка за хеш-кодом ключа обчислює місце елемента в масиві й знаходить його в середньому за O(1). У .NET на ній побудовані `Dictionary<TKey, TValue>` і `HashSet<T>`.
+  q: hash table data structure
+  wiki: Геш-таблиця
+red-black-tree:
+  term: Червоно-чорне дерево (red-black tree)
+  def: >-
+    Самобалансувальне двійкове дерево пошуку: вставка, видалення й пошук займають O(log n). На ньому побудовані `SortedSet<T>` і `SortedDictionary<TKey, TValue>`.
+  q: red-black tree
+  wiki: Червоно-чорне дерево
+linked-list:
+  term: Зв'язаний список (linked list)
+  def: >-
+    Ланцюжок вузлів, де кожен вузол зберігає елемент і посилання на сусідів. Вставка й видалення за відомим вузлом — O(1), але доступу за індексом немає. У .NET це двозв'язний `LinkedList<T>`.
+  q: LinkedList C#
+  docs: https://learn.microsoft.com/dotnet/api/system.collections.generic.linkedlist-1
+  wiki: Зв'язаний список
+amortized-complexity:
+  term: Амортизована складність (amortized complexity)
+  def: >-
+    Середня вартість операції на довгій серії викликів. `List<T>.Add` іноді копіює весь масив за O(n), але в середньому коштує O(1), бо місткість зростає подвоєнням.
+  q: amortized analysis dynamic array
+  wiki: Амортизаційний аналіз
+linq:
+  term: LINQ (Language Integrated Query)
+  def: >-
+    Набір методів і синтаксис запитів C# для фільтрації, проєкції, сортування й групування даних. LINQ to Objects працює з `IEnumerable<T>` у пам'яті, провайдери на кшталт EF Core — з `IQueryable<T>`.
+  q: LINQ C#
+  docs: https://learn.microsoft.com/dotnet/csharp/linq/
+  wiki: LINQ
+deferred-execution:
+  term: Відкладене виконання (deferred execution)
+  def: >-
+    Запит LINQ виконується не під час оголошення, а під час перебору результату, і виконується заново під час кожного перебору. Так працюють методи, що повертають `IEnumerable<T>`: `Where`, `Select`, `OrderBy`.
+  q: LINQ deferred execution
+  docs: https://learn.microsoft.com/dotnet/standard/linq/deferred-execution-lazy-evaluation
+materialization:
+  term: Матеріалізація запиту
+  def: >-
+    Виконання лінивого запиту зі збереженням результату в колекцію: `ToList()`, `ToArray()`, `ToDictionary()`. Після неї повторні звернення не виконують запит знову.
+  q: LINQ ToList materialize query
+hash-collision:
+  term: Колізія хешів (hash collision)
+  def: >-
+    Ситуація, коли різні ключі дають однаковий хеш-код або потрапляють в один кошик хеш-таблиці. Колізії неминучі; їх розв'язують порівнянням через `Equals`, але за їх надлишку пошук деградує до O(n).
+  q: hash collision
+  wiki: Колізія геш-функції
+equality-comparer:
+  term: Компаратор рівності (IEqualityComparer)
+  def: >-
+    Об'єкт із методами `Equals` і `GetHashCode`, який задає рівність ключів для `Dictionary`, `HashSet` і LINQ. За замовчуванням використовується `EqualityComparer<T>.Default`.
+  q: IEqualityComparer C#
+  docs: https://learn.microsoft.com/dotnet/api/system.collections.generic.iequalitycomparer-1
+separate-chaining:
+  term: Метод ланцюжків (separate chaining)
+  def: >-
+    Спосіб розв'язання колізій, за якого елементи одного кошика хеш-таблиці зв'язані в ланцюжок. У `Dictionary` ланцюжок — це індекси всередині масиву записів, а не окремі об'єкти-вузли.
+  q: hash table separate chaining
+  wiki: Геш-таблиця
+expression-tree:
+  term: Дерево виразів (expression tree)
+  def: >-
+    Подання коду у вигляді об'єктів `System.Linq.Expressions`. Лямбда, присвоєна `Expression<Func<...>>`, стає деревом, яке провайдер може розібрати й перекласти, наприклад, на SQL.
+  q: C# expression trees
+  docs: https://learn.microsoft.com/dotnet/csharp/advanced-topics/expression-trees/
+query-provider:
+  term: Провайдер запитів (query provider)
+  def: >-
+    Реалізація `IQueryProvider`, яка будує й виконує запити `IQueryable<T>`: перекладає дерево виразів мовою джерела даних. Приклад — провайдер EF Core, що генерує SQL.
+  q: IQueryProvider LINQ provider
+  docs: https://learn.microsoft.com/dotnet/api/system.linq.iqueryprovider
+client-evaluation:
+  term: Клієнтське обчислення (client evaluation)
+  def: >-
+    Виконання частини запиту EF Core у пам'яті застосунку, а не в базі. З EF Core 3.0 дозволене лише у фінальній проєкції `Select`, в інших місцях неперекладний вираз спричиняє виняток.
+  q: EF Core client evaluation
+  docs: https://learn.microsoft.com/ef/core/querying/client-eval
+iterator:
+  term: Ітератор (iterator)
+  def: >-
+    Метод із `yield return`, який повертає елементи послідовності по одному. Компілятор перетворює його на клас, що реалізує `IEnumerable<T>` і `IEnumerator<T>`.
+  q: C# iterators yield return
+  docs: https://learn.microsoft.com/dotnet/csharp/iterators
+enumerator:
+  term: Перелічувач (enumerator)
+  def: >-
+    Об'єкт із методом `MoveNext()` і властивістю `Current`, через який `foreach` перебирає колекцію. Його повертає `GetEnumerator()` в `IEnumerable<T>`.
+  q: IEnumerator C#
+  docs: https://learn.microsoft.com/dotnet/api/system.collections.generic.ienumerator-1
+async-stream:
+  term: Асинхронний потік даних (async stream)
+  def: >-
+    Послідовність `IAsyncEnumerable<T>`, елементи якої надходять асинхронно. Створюється методом `async` з `yield return`, читається через `await foreach`; з'явилася в C# 8.
+  q: C# async streams IAsyncEnumerable
+  docs: https://learn.microsoft.com/dotnet/csharp/asynchronous-programming/generate-consume-asynchronous-stream
+immutable-collection:
+  term: Незмінна колекція (immutable collection)
+  def: >-
+    Колекція з `System.Collections.Immutable`, яку не можна змінити після створення: `Add` і `Remove` повертають новий екземпляр. Її безпечно передавати між потоками без блокувань.
+  q: System.Collections.Immutable
+  docs: https://learn.microsoft.com/dotnet/api/system.collections.immutable
+frozen-collection:
+  term: Frozen-колекція
+  def: >-
+    `FrozenDictionary<TKey, TValue>` і `FrozenSet<T>` з .NET 8: незмінні колекції, які довго будуються, зате дуже швидко шукають. Підходять для довідників, створених один раз під час старту.
+  q: FrozenDictionary .NET 8
+  docs: https://learn.microsoft.com/dotnet/api/system.collections.frozen
+structural-sharing:
+  term: Спільне використання структури (structural sharing)
+  def: >-
+    Прийом незмінних структур даних: нова версія перевикористовує незмінені частини старої. `ImmutableList<T>.Add` створює O(log n) нових вузлів дерева, а решта вузлів спільні.
+  q: immutable collections structural sharing
+static-lambda:
+  term: Статична лямбда (static lambda)
+  def: >-
+    Лямбда з модифікатором `static` (C# 9), якій заборонено захоплювати локальні змінні й `this`. Гарантує, що не з'явиться замикання й делегат можна кешувати.
+  q: C# static anonymous functions
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/operators/lambda-expressions#capture-of-outer-variables-and-variable-scope-in-lambda-expressions

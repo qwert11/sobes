@@ -1,0 +1,20 @@
+---
+// Пример: код или схема. С атрибутом l="s" показывается только на этом уровне.
+import { LEVEL_NAMES, langOf, ui, type Level } from '../lib/ui';
+
+interface Props {
+  l?: Level;
+  /** Подпись вместо стандартной «Пример». */
+  title?: string;
+}
+
+const { l, title } = Astro.props;
+const t = ui(langOf(Astro.locals));
+---
+
+<div class:list={['ex', { ans: l }]} data-l={l}>
+  <span class="blk-tag not-content">
+    {title ?? t.example}{l && <> · <b>{LEVEL_NAMES[l]}</b></>}
+  </span>
+  <slot />
+</div>

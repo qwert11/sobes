@@ -1,0 +1,198 @@
+dotnet-framework:
+  term: .NET Framework
+  def: >-
+    The original Windows-only .NET implementation, shipped as part of the OS. The last version is 4.8.1; it is supported as long as Windows is, but gets no new features.
+  q: .NET Framework
+  docs: https://learn.microsoft.com/dotnet/framework/get-started/overview
+dotnet-core:
+  term: .NET Core (modern .NET)
+  def: >-
+    The cross-platform, open-source .NET implementation, first released in 2016. Since version 5 it is simply called .NET and ships every November.
+  q: .NET Core .NET 5+
+  docs: https://learn.microsoft.com/dotnet/core/introduction
+self-contained:
+  term: Self-contained deployment
+  def: >-
+    A publish mode that ships the .NET runtime together with the app. It needs no installed .NET but is built for a specific OS and architecture.
+  q: .NET self-contained deployment
+  docs: https://learn.microsoft.com/dotnet/core/deploying/
+app-domain:
+  term: AppDomain (application domain)
+  def: >-
+    An isolated area inside a .NET Framework process for loading and unloading code. Modern .NET cannot create extra domains; use processes for isolation and `AssemblyLoadContext` for plugins.
+  q: AppDomain .NET Core alternative
+  docs: https://learn.microsoft.com/dotnet/core/porting/net-framework-tech-unavailable
+lts:
+  term: LTS (Long Term Support)
+  def: >-
+    A .NET release supported for three years. These are the even versions: .NET 8, .NET 10.
+  q: .NET LTS support policy
+  docs: https://learn.microsoft.com/dotnet/core/releases-and-support
+sts:
+  term: STS (Standard Term Support)
+  def: >-
+    A .NET release supported for 24 months (since .NET 9; it used to be 18). These are the odd versions: .NET 9, .NET 11.
+  q: .NET STS 24 months
+  docs: https://learn.microsoft.com/dotnet/core/releases-and-support
+roll-forward:
+  term: Roll-forward
+  def: >-
+    The rule for choosing a runtime version when an app starts. By default it takes the latest installed patch of its own version but not a new major version; the `RollForward` setting changes this.
+  q: .NET RollForward
+  docs: https://learn.microsoft.com/dotnet/core/versions/selection
+global-json:
+  term: global.json
+  def: >-
+    A repository file that pins the .NET SDK version used for builds and the rule for matching it (`rollForward`).
+  q: global.json .NET SDK
+  docs: https://learn.microsoft.com/dotnet/core/tools/global-json
+il:
+  term: IL (intermediate language, CIL)
+  def: >-
+    The platform-independent, stack-based bytecode that C#, F# and VB.NET compile to. Before execution the JIT or an AOT compiler turns it into machine code.
+  q: CIL intermediate language .NET
+  docs: https://learn.microsoft.com/dotnet/standard/managed-execution-process
+roslyn:
+  term: Roslyn
+  def: >-
+    The open-source C# and Visual Basic compiler with APIs for code analysis. It turns source code into IL and metadata; analyzers and source generators run on it.
+  q: Roslyn compiler
+  docs: https://learn.microsoft.com/dotnet/csharp/roslyn-sdk/
+clr:
+  term: CLR (Common Language Runtime)
+  def: >-
+    The .NET runtime: it loads assemblies, compiles IL to machine code and manages memory, exceptions and threads. The modern .NET implementation is called CoreCLR.
+  q: CLR .NET
+  docs: https://learn.microsoft.com/dotnet/standard/clr
+jit:
+  term: JIT compiler (just-in-time)
+  def: >-
+    The part of the CLR that translates a method's IL into machine code on its first call, for the specific CPU. In .NET it is RyuJIT.
+  q: .NET JIT compiler
+  docs: https://learn.microsoft.com/dotnet/standard/managed-execution-process
+cts:
+  term: CTS (Common Type System)
+  def: >-
+    The .NET common type system: rules for declaring and using types shared by all languages on the platform. It lets C#, F# and VB.NET use each other's types.
+  q: common type system .NET
+  docs: https://learn.microsoft.com/dotnet/standard/common-type-system
+net-standard:
+  term: .NET Standard
+  def: >-
+    A formal specification of APIs available across several .NET implementations. The last version is 2.1; `netstandard2.0` is the last one .NET Framework supports.
+  q: .NET Standard
+  docs: https://learn.microsoft.com/dotnet/standard/net-standard
+tfm:
+  term: TFM (target framework moniker)
+  def: >-
+    The short name of a target platform in a project or NuGet package: `net48`, `netstandard2.0`, `net10.0`, `net10.0-windows`.
+  q: target framework moniker
+  docs: https://learn.microsoft.com/dotnet/standard/frameworks
+multi-targeting:
+  term: Multi-targeting
+  def: >-
+    Building one project for several TFMs via the `TargetFrameworks` property. The NuGet package gets a separate assembly for each target.
+  q: .NET multi-targeting TargetFrameworks
+  docs: https://learn.microsoft.com/dotnet/standard/library-guidance/cross-platform-targeting
+assembly:
+  term: Assembly
+  def: >-
+    A `.dll` or `.exe` file with IL code, metadata and a manifest. The unit of deployment, versioning and code loading in .NET.
+  q: assembly .NET
+  docs: https://learn.microsoft.com/dotnet/standard/assembly/
+nuget:
+  term: NuGet
+  def: >-
+    The .NET package manager. A `.nupkg` package holds assemblies for different TFMs and a list of dependencies; `dotnet restore` downloads packages and picks their versions.
+  q: NuGet
+  docs: https://learn.microsoft.com/nuget/what-is-nuget
+transitive-dependency:
+  term: Transitive dependency
+  def: >-
+    A package that got into the project not directly but as a dependency of another package. NuGet picks one version of it for the whole project.
+  q: NuGet transitive dependency resolution
+  docs: https://learn.microsoft.com/nuget/concepts/dependency-resolution
+binding-redirect:
+  term: Binding redirect
+  def: >-
+    A setting in a .NET Framework app's `app.config` that redirects requests for some versions of an assembly to another version. Not used in modern .NET.
+  q: assembly binding redirect
+  docs: https://learn.microsoft.com/dotnet/framework/configure-apps/redirect-assembly-versions
+assembly-load-context:
+  term: AssemblyLoadContext
+  def: >-
+    An assembly loading context in .NET: one context holds one version of an assembly with a given name. Separate contexts let you load different versions and unload plugins.
+  q: AssemblyLoadContext
+  docs: https://learn.microsoft.com/dotnet/core/dependency-loading/understanding-assemblyloadcontext
+central-package-management:
+  term: Central Package Management (CPM)
+  def: >-
+    Managing NuGet package versions for a whole repository in a single `Directory.Packages.props` file. With transitive pinning it also sets versions of transitive dependencies.
+  q: NuGet Central Package Management
+  docs: https://learn.microsoft.com/nuget/consume-packages/central-package-management
+primary-constructor:
+  term: Primary constructor
+  def: >-
+    Constructor parameters declared right in the type declaration: `class Service(ILogger log)`. Available for `class` and `struct` since C# 12; the parameters are in scope in the whole type body but do not become properties.
+  q: C# 12 primary constructors
+  docs: https://learn.microsoft.com/dotnet/csharp/whats-new/tutorials/primary-constructors
+collection-expression:
+  term: Collection expression
+  def: >-
+    The C# 12 square-bracket syntax for creating collections: `int[] a = [1, 2, 3];`, `[..first, ..second]`. Works for arrays, `Span<T>`, lists and other collections.
+  q: C# collection expressions
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/operators/collection-expressions
+field-keyword:
+  term: The field keyword
+  def: >-
+    A C# 14 contextual keyword that refers to a property's compiler-generated backing field right inside an accessor, without declaring your own field.
+  q: C# 14 field keyword
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/keywords/field
+extension-members:
+  term: Extension members
+  def: >-
+    C# 14 extensions declared in an `extension` block. Besides methods, they can add properties, static members and operators to existing types.
+  q: C# 14 extension members
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/keywords/extension
+file-based-app:
+  term: File-based app
+  def: >-
+    An app made of a single `.cs` file with no project, run with `dotnet run app.cs` (since .NET 10). Packages and settings come from `#:package` and `#:property` directives.
+  q: dotnet run app.cs file-based apps
+  docs: https://learn.microsoft.com/dotnet/core/sdk/file-based-apps
+tiered-compilation:
+  term: Tiered compilation
+  def: >-
+    A JIT mode in which a method is first compiled quickly without optimizations and, after 30 calls, recompiled with optimizations in the background. On by default since .NET Core 3.0.
+  q: .NET tiered compilation
+  docs: https://learn.microsoft.com/dotnet/core/runtime-config/compilation
+ready-to-run:
+  term: ReadyToRun (R2R)
+  def: >-
+    A form of AOT compilation that adds precompiled machine code to an assembly alongside its IL. It speeds up startup; the JIT stays and recompiles hot methods.
+  q: .NET ReadyToRun
+  docs: https://learn.microsoft.com/dotnet/core/deploying/ready-to-run
+native-aot:
+  term: Native AOT
+  def: >-
+    Publishing an app as a single native executable with no JIT and no installed .NET. Fast startup and less memory, but no dynamic assembly loading or `Reflection.Emit`, and trimming is mandatory.
+  q: .NET Native AOT
+  docs: https://learn.microsoft.com/dotnet/core/deploying/native-aot/
+dynamic-pgo:
+  term: Dynamic PGO
+  def: >-
+    Profile-guided optimization at run time: the JIT collects statistics on hot paths and types and uses them when recompiling a method. On by default since .NET 8.
+  q: .NET dynamic PGO
+  docs: https://learn.microsoft.com/dotnet/core/runtime-config/compilation#profile-guided-optimization
+osr:
+  term: OSR (on-stack replacement)
+  def: >-
+    Replacing a method's code while it is running: a long loop in unoptimized code switches to an optimized version. On by default since .NET 7 on x64 and Arm64.
+  q: .NET on-stack replacement OSR
+  docs: https://learn.microsoft.com/dotnet/core/whats-new/dotnet-7
+trimming:
+  term: Trimming
+  def: >-
+    Removing unused code from an app and its libraries at publish time. It reduces size but can break code that finds types via reflection; trim analyzers flag the risky spots.
+  q: .NET trimming
+  docs: https://learn.microsoft.com/dotnet/core/deploying/trimming/trim-self-contained

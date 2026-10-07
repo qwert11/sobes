@@ -1,0 +1,158 @@
+garbage-collector:
+  term: Сборщик мусора (garbage collector, GC)
+  def: >-
+    Часть CLR, которая выделяет память в управляемой куче и автоматически освобождает память объектов, недостижимых от корней. В .NET это трассирующий сборщик с поколениями и уплотнением.
+  q: .NET garbage collector
+  docs: https://learn.microsoft.com/dotnet/standard/garbage-collection/fundamentals
+  wiki: Сборка мусора
+gc-root:
+  term: Корень GC (GC root)
+  def: >-
+    Ссылка, с которой GC начинает обход графа объектов: локальная переменная или регистр потока, статическое поле, GC-хендл, запись очереди финализации. Всё, что недостижимо от корней, считается мусором.
+  q: GC roots .NET
+  docs: https://learn.microsoft.com/dotnet/standard/garbage-collection/fundamentals
+compaction:
+  term: Уплотнение кучи (compaction)
+  def: >-
+    Фаза сборки, в которой GC сдвигает выжившие объекты вплотную друг к другу и обновляет все ссылки на них. Убирает фрагментацию, но стоит дороже, чем просто внести мёртвые участки в список свободных блоков (sweep).
+  q: .NET GC compaction
+  docs: https://learn.microsoft.com/dotnet/standard/garbage-collection/fundamentals
+idisposable:
+  term: IDisposable
+  def: >-
+    Интерфейс с единственным методом `Dispose` для детерминированного освобождения ресурсов: файлов, сокетов, соединений, неуправляемой памяти. Вызывается явно или через `using`.
+  q: IDisposable C#
+  docs: https://learn.microsoft.com/dotnet/api/system.idisposable
+unmanaged-resource:
+  term: Неуправляемый ресурс (unmanaged resource)
+  def: >-
+    Ресурс вне управляемой кучи, о котором GC ничего не знает: дескриптор файла или окна, сокет, нативная память. Его нужно освобождать явно — через `Dispose` или `SafeHandle`.
+  q: .NET unmanaged resources cleanup
+  docs: https://learn.microsoft.com/dotnet/standard/garbage-collection/unmanaged
+using-declaration:
+  term: using-объявление (using declaration)
+  def: >-
+    Форма `using var x = ...;` без фигурных скобок (C# 8): `Dispose` вызывается в конце области видимости, где объявлена переменная. Несколько объявлений освобождаются в обратном порядке.
+  q: C# using declaration
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/statements/using
+iasyncdisposable:
+  term: IAsyncDisposable
+  def: >-
+    Интерфейс с методом `DisposeAsync`, который возвращает `ValueTask`, для асинхронной очистки, например со сбросом буфера или закрытием соединения. Используется через `await using` (C# 8, .NET Core 3.0).
+  q: IAsyncDisposable await using
+  docs: https://learn.microsoft.com/dotnet/api/system.iasyncdisposable
+gc-generation:
+  term: Поколение GC (generation)
+  def: >-
+    Логическая часть управляемой кучи по возрасту объектов: 0 — новые, 1 — пережившие одну сборку, 2 — долгоживущие. Молодые поколения собираются часто и быстро, сборка поколения 2 — полная.
+  q: .NET GC generations
+  docs: https://learn.microsoft.com/dotnet/standard/garbage-collection/fundamentals
+loh:
+  term: LOH (large object heap)
+  def: >-
+    Куча для объектов размером от 85 000 байт, обычно больших массивов. Собирается только вместе с поколением 2 и по умолчанию не уплотняется, поэтому склонна к фрагментации.
+  q: .NET large object heap
+  docs: https://learn.microsoft.com/dotnet/standard/garbage-collection/large-object-heap
+poh:
+  term: POH (pinned object heap)
+  def: >-
+    Куча для объектов, которые нельзя перемещать (.NET 5+). Массив создаётся в ней через `GC.AllocateArray` с `pinned: true`; собирается вместе с поколением 2 и никогда не уплотняется.
+  q: .NET pinned object heap
+  docs: https://devblogs.microsoft.com/dotnet/internals-of-the-poh/
+pinning:
+  term: Закрепление (pinning)
+  def: >-
+    Запрет GC перемещать объект, чтобы передать его адрес в нативный код: `fixed`, `GCHandle` с типом `Pinned` или аллокация в POH. Закреплённые объекты мешают уплотнению и фрагментируют кучу.
+  q: .NET pinning GCHandle fixed
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/statements/fixed
+card-table:
+  term: Card table
+  def: >-
+    Битовая карта участков памяти старших поколений, в которые записывали ссылки. Её заполняет write barrier при записи ссылки в поле, а GC при сборке молодых поколений просматривает только помеченные участки.
+  q: .NET GC card table write barrier
+finalizer:
+  term: Финализатор (finalizer)
+  def: >-
+    Метод `~ClassName()`, который GC вызывает перед освобождением памяти недостижимого объекта. Вызывается недетерминированно, служит страховкой для неуправляемых ресурсов.
+  q: C# finalizer
+  docs: https://learn.microsoft.com/dotnet/csharp/programming-guide/classes-and-structs/finalizers
+finalization-queue:
+  term: Очередь финализации (finalization queue)
+  def: >-
+    Внутренний список CLR с объектами, у которых есть финализатор. Недостижимые объекты из него переходят в очередь f-reachable, их финализаторы выполняет поток финализации, а память освобождается при следующей сборке.
+  q: .NET finalization queue freachable
+  docs: https://learn.microsoft.com/dotnet/api/system.object.finalize
+dispose-pattern:
+  term: Dispose pattern
+  def: >-
+    Стандартная схема освобождения ресурсов: `Dispose()` вызывает `Dispose(true)` и `GC.SuppressFinalize`, финализатор вызывает `Dispose(false)`, а `protected virtual void Dispose(bool)` освобождает управляемые ресурсы только при `true`.
+  q: .NET dispose pattern
+  docs: https://learn.microsoft.com/dotnet/standard/design-guidelines/dispose-pattern
+safehandle:
+  term: SafeHandle
+  def: >-
+    Абстрактная обёртка над дескриптором ОС с критическим финализатором. Гарантирует однократное освобождение дескриптора и не даёт закрыть его во время P/Invoke-вызова.
+  q: SafeHandle .NET
+  docs: https://learn.microsoft.com/dotnet/api/system.runtime.interopservices.safehandle
+memory-leak:
+  term: Утечка памяти (memory leak)
+  def: >-
+    Рост потребления памяти из-за объектов, которые больше не нужны, но остаются достижимыми, или из-за неосвобождённых неуправляемых ресурсов. В .NET это обычно забытые подписки на события, статические коллекции и кэши без ограничений.
+  q: .NET memory leak
+  docs: https://learn.microsoft.com/dotnet/core/diagnostics/debug-memory-leak
+  wiki: Утечка памяти
+closure:
+  term: Замыкание (closure)
+  def: >-
+    Лямбда или локальная функция вместе с захваченными переменными внешней области. Компилятор переносит захваченные переменные в поля сгенерированного класса, и они живут, пока жив делегат.
+  q: C# closure captured variables
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/operators/lambda-expressions
+  wiki: Замыкание (программирование)
+dotnet-counters:
+  term: dotnet-counters
+  def: >-
+    CLI-инструмент для наблюдения за метриками работающего .NET-процесса в реальном времени: размер кучи, число сборок, паузы GC, пул потоков, исключения.
+  q: dotnet-counters
+  docs: https://learn.microsoft.com/dotnet/core/diagnostics/dotnet-counters
+dotnet-gcdump:
+  term: dotnet-gcdump
+  def: >-
+    CLI-инструмент, который снимает граф объектов управляемой кучи живого процесса через EventPipe. Для этого вызывает полную сборку; файл `.gcdump` открывают в Visual Studio или PerfView.
+  q: dotnet-gcdump
+  docs: https://learn.microsoft.com/dotnet/core/diagnostics/dotnet-gcdump
+dotnet-dump:
+  term: dotnet-dump
+  def: >-
+    CLI-инструмент для снятия и анализа полного дампа памяти .NET-процесса. Команда `analyze` открывает дамп с командами SOS: `dumpheap`, `gcroot`, `finalizequeue`.
+  q: dotnet-dump
+  docs: https://learn.microsoft.com/dotnet/core/diagnostics/dotnet-dump
+workstation-gc:
+  term: Workstation GC
+  def: >-
+    Режим GC с одной кучей, в котором сборка идёт на потоке, вызвавшем её. По умолчанию используется в консольных и десктопных приложениях.
+  q: .NET workstation garbage collection
+  docs: https://learn.microsoft.com/dotnet/standard/garbage-collection/workstation-server-gc
+server-gc:
+  term: Server GC
+  def: >-
+    Режим GC с отдельной кучей и выделенным потоком сборки на каждый логический процессор. Даёт большую пропускную способность ценой памяти; по умолчанию используется в ASP.NET Core.
+  q: .NET server garbage collection
+  docs: https://learn.microsoft.com/dotnet/standard/garbage-collection/workstation-server-gc
+background-gc:
+  term: Фоновая сборка (background GC)
+  def: >-
+    Сборка поколения 2 на выделенном потоке параллельно с работой приложения; эфемерные сборки в это время идут как обычно. Включена по умолчанию.
+  q: .NET background garbage collection
+  docs: https://learn.microsoft.com/dotnet/standard/garbage-collection/background-gc
+datas:
+  term: DATAS (dynamic adaptation to application sizes)
+  def: >-
+    Режим Server GC, который меняет число куч и бюджет поколения 0 так, чтобы размер кучи соответствовал объёму живых данных. Появился в .NET 8, включён по умолчанию с .NET 9.
+  q: .NET GC DATAS
+  docs: https://learn.microsoft.com/dotnet/standard/garbage-collection/datas
+heap-hard-limit:
+  term: Жёсткий лимит кучи (GCHeapHardLimit)
+  def: >-
+    Максимальный объём памяти, который может занять куча GC. В контейнере с лимитом памяти по умолчанию равен большему из 20 МБ и 75 % лимита; задаётся через `GCHeapHardLimit` или `GCHeapHardLimitPercent`.
+  q: GCHeapHardLimit
+  docs: https://learn.microsoft.com/dotnet/core/runtime-config/garbage-collector

@@ -1,0 +1,127 @@
+big-o:
+  term: Asymptotic complexity (Big O)
+  def: >-
+    An estimate of how an operation's time or memory grows with the number of items n. O(1) does not depend on n, O(log n) grows very slowly, O(n) grows in proportion to n.
+  q: big O notation
+  wiki: Big O notation
+hash-table:
+  term: Hash table
+  def: >-
+    A data structure that uses a key's hash code to compute an item's slot in an array and finds it in O(1) on average. In .NET, `Dictionary<TKey, TValue>` and `HashSet<T>` are built on it.
+  q: hash table data structure
+  wiki: Hash table
+red-black-tree:
+  term: Red-black tree
+  def: >-
+    A self-balancing binary search tree: insert, delete and lookup take O(log n). `SortedSet<T>` and `SortedDictionary<TKey, TValue>` are built on it.
+  q: red-black tree
+  wiki: Red–black tree
+linked-list:
+  term: Linked list
+  def: >-
+    A chain of nodes where each node holds an item and references to its neighbours. Inserting or removing at a known node is O(1), but there is no indexed access. In .NET it is the doubly linked `LinkedList<T>`.
+  q: LinkedList C#
+  docs: https://learn.microsoft.com/dotnet/api/system.collections.generic.linkedlist-1
+  wiki: Linked list
+amortized-complexity:
+  term: Amortized complexity
+  def: >-
+    The average cost of an operation over a long series of calls. `List<T>.Add` sometimes copies the whole array in O(n) but costs O(1) on average, because capacity grows by doubling.
+  q: amortized analysis dynamic array
+  wiki: Amortized analysis
+linq:
+  term: LINQ (Language Integrated Query)
+  def: >-
+    A set of methods and C# query syntax for filtering, projecting, sorting and grouping data. LINQ to Objects works with in-memory `IEnumerable<T>`, while providers such as EF Core work with `IQueryable<T>`.
+  q: LINQ C#
+  docs: https://learn.microsoft.com/dotnet/csharp/linq/
+  wiki: Language Integrated Query
+deferred-execution:
+  term: Deferred execution
+  def: >-
+    A LINQ query runs not when it is declared but when its result is enumerated, and it runs again on every enumeration. Methods that return `IEnumerable<T>` work this way: `Where`, `Select`, `OrderBy`.
+  q: LINQ deferred execution
+  docs: https://learn.microsoft.com/dotnet/standard/linq/deferred-execution-lazy-evaluation
+materialization:
+  term: Query materialization
+  def: >-
+    Running a lazy query and storing the result in a collection: `ToList()`, `ToArray()`, `ToDictionary()`. After that, further reads do not run the query again.
+  q: LINQ ToList materialize query
+hash-collision:
+  term: Hash collision
+  def: >-
+    When different keys produce the same hash code or land in the same bucket of a hash table. Collisions are unavoidable and are resolved by comparing with `Equals`, but too many of them degrade lookup to O(n).
+  q: hash collision
+  wiki: Hash collision
+equality-comparer:
+  term: Equality comparer (IEqualityComparer)
+  def: >-
+    An object with `Equals` and `GetHashCode` methods that defines key equality for `Dictionary`, `HashSet` and LINQ. The default is `EqualityComparer<T>.Default`.
+  q: IEqualityComparer C#
+  docs: https://learn.microsoft.com/dotnet/api/system.collections.generic.iequalitycomparer-1
+separate-chaining:
+  term: Separate chaining
+  def: >-
+    A collision-resolution technique in which items of the same hash-table bucket are linked into a chain. In `Dictionary` the chain is a set of indices inside the entries array, not separate node objects.
+  q: hash table separate chaining
+  wiki: Hash table
+expression-tree:
+  term: Expression tree
+  def: >-
+    Code represented as `System.Linq.Expressions` objects. A lambda assigned to `Expression<Func<...>>` becomes a tree that a provider can inspect and translate, for example into SQL.
+  q: C# expression trees
+  docs: https://learn.microsoft.com/dotnet/csharp/advanced-topics/expression-trees/
+query-provider:
+  term: Query provider
+  def: >-
+    An `IQueryProvider` implementation that builds and executes `IQueryable<T>` queries by translating the expression tree into the data source's language. The EF Core provider, which generates SQL, is one example.
+  q: IQueryProvider LINQ provider
+  docs: https://learn.microsoft.com/dotnet/api/system.linq.iqueryprovider
+client-evaluation:
+  term: Client evaluation
+  def: >-
+    Running part of an EF Core query in the application's memory instead of the database. Since EF Core 3.0 it is allowed only in the final `Select` projection; elsewhere an untranslatable expression throws.
+  q: EF Core client evaluation
+  docs: https://learn.microsoft.com/ef/core/querying/client-eval
+iterator:
+  term: Iterator
+  def: >-
+    A method with `yield return` that returns the items of a sequence one at a time. The compiler turns it into a class implementing `IEnumerable<T>` and `IEnumerator<T>`.
+  q: C# iterators yield return
+  docs: https://learn.microsoft.com/dotnet/csharp/iterators
+enumerator:
+  term: Enumerator
+  def: >-
+    An object with a `MoveNext()` method and a `Current` property that `foreach` uses to walk a collection. It is returned by `GetEnumerator()` on `IEnumerable<T>`.
+  q: IEnumerator C#
+  docs: https://learn.microsoft.com/dotnet/api/system.collections.generic.ienumerator-1
+async-stream:
+  term: Async stream
+  def: >-
+    An `IAsyncEnumerable<T>` sequence whose items arrive asynchronously. It is produced by an `async` method with `yield return` and consumed with `await foreach`; introduced in C# 8.
+  q: C# async streams IAsyncEnumerable
+  docs: https://learn.microsoft.com/dotnet/csharp/asynchronous-programming/generate-consume-asynchronous-stream
+immutable-collection:
+  term: Immutable collection
+  def: >-
+    A collection from `System.Collections.Immutable` that cannot change after creation: `Add` and `Remove` return a new instance. It is safe to share across threads without locks.
+  q: System.Collections.Immutable
+  docs: https://learn.microsoft.com/dotnet/api/system.collections.immutable
+frozen-collection:
+  term: Frozen collection
+  def: >-
+    `FrozenDictionary<TKey, TValue>` and `FrozenSet<T>` from .NET 8: immutable collections that are slow to build but very fast to look up. A good fit for lookup tables created once at startup.
+  q: FrozenDictionary .NET 8
+  docs: https://learn.microsoft.com/dotnet/api/system.collections.frozen
+structural-sharing:
+  term: Structural sharing
+  def: >-
+    A technique of immutable data structures: a new version reuses the unchanged parts of the old one. `ImmutableList<T>.Add` creates O(log n) new tree nodes, and the remaining nodes are shared.
+  q: immutable collections structural sharing
+  wiki: Persistent data structure
+static-lambda:
+  term: Static lambda
+  def: >-
+    A lambda with the `static` modifier (C# 9) that is not allowed to capture locals or `this`. It guarantees that no closure is created and the delegate can be cached.
+  q: C# static anonymous functions
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/operators/lambda-expressions#capture-of-outer-variables-and-variable-scope-in-lambda-expressions

@@ -1,0 +1,21 @@
+---
+import { LEVEL_NAMES, langOf, ui } from '../lib/ui';
+
+const t = ui(langOf(Astro.locals));
+const levels = ['j', 'm', 's'] as const;
+---
+
+<div class="tb not-content" data-fmt={t.progress}>
+  <div class="tb-lv" role="group" aria-label={t.level}>
+    {
+      levels.map((l) => (
+        <button type="button" data-lv={l} aria-pressed="false" title={`${t.level}: ${LEVEL_NAMES[l]}`}>
+          {LEVEL_NAMES[l]}
+        </button>
+      ))
+    }
+    <button type="button" data-lv="all" aria-pressed="false" title={`${t.level}: ${t.all}`}>{t.all}</button>
+  </div>
+  <button type="button" class="tb-quiz" aria-pressed="false" title={t.quizHint}>{t.quiz}</button>
+  <span class="tb-prog" aria-live="polite"></span>
+</div>

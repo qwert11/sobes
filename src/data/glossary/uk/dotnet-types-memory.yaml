@@ -1,0 +1,177 @@
+value-type:
+  term: Значущий тип (value type)
+  def: >-
+    Тип, змінна якого містить саме значення; під час присвоєння значення копіюється. У C# це `struct`, `enum` і вбудовані числові типи.
+  q: value type C#
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/builtin-types/value-types
+reference-type:
+  term: Посилальний тип (reference type)
+  def: >-
+    Тип, змінна якого містить посилання на об'єкт у керованій купі; під час присвоєння копіюється посилання. У C# це `class`, `interface`, `string`, масиви й делегати.
+  q: reference type C#
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/keywords/reference-types
+managed-heap:
+  term: Керована купа (managed heap)
+  def: >-
+    Область пам'яті, де CLR розміщує об'єкти посилальних типів. Пам'ять у ній виділяє та звільняє збирач сміття.
+  q: managed heap .NET
+  docs: https://learn.microsoft.com/dotnet/standard/garbage-collection/fundamentals
+boxing:
+  term: Boxing (упакування)
+  def: >-
+    Копіювання значення значущого типу в новий об'єкт у купі, щоб працювати з ним як з `object` або інтерфейсом. Зворотна операція — unboxing.
+  q: boxing unboxing C#
+  docs: https://learn.microsoft.com/dotnet/csharp/programming-guide/types/boxing-and-unboxing
+defensive-copy:
+  term: Захисна копія (defensive copy)
+  def: >-
+    Прихована копія структури, яку компілятор робить під час виклику її методу через `readonly`-поле або `in`-параметр, щоб метод не змінив вихідне значення. Не виникає в `readonly struct`.
+  q: C# defensive copy readonly struct
+ref-struct:
+  term: ref struct
+  def: >-
+    Структура, яка може жити лише на стеку: її не можна упакувати, зберегти в полі класу чи захопити в лямбду. Приклад — `Span<T>`.
+  q: C# ref struct
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/builtin-types/ref-struct
+unboxing:
+  term: Unboxing (розпакування)
+  def: >-
+    Видобування значення значущого типу з упакованого об'єкта: перевірка типу й копіювання. Розпакувати можна лише у вихідний тип або в `Nullable` від нього, інакше — `InvalidCastException`.
+  q: unboxing C#
+  docs: https://learn.microsoft.com/dotnet/csharp/programming-guide/types/boxing-and-unboxing
+interpolated-string-handler:
+  term: Обробник інтерпольованих рядків (interpolated string handler)
+  def: >-
+    Механізм C# 10: вираз `$"..."` компілюється у виклики `AppendLiteral` і `AppendFormatted<T>` спеціального типу, наприклад `DefaultInterpolatedStringHandler`. Аргументи не упаковуються, буфер береться з пулу.
+  q: C# interpolated string handler
+  docs: https://learn.microsoft.com/dotnet/csharp/advanced-topics/performance/interpolated-string-handler
+benchmarkdotnet:
+  term: BenchmarkDotNet
+  def: >-
+    Бібліотека для мікробенчмарків .NET: прогрів, статистика, порівняння рантаймів. Атрибут `[MemoryDiagnoser]` показує алокації на операцію, `[DisassemblyDiagnoser]` — машинний код від JIT.
+  q: BenchmarkDotNet
+  docs: https://benchmarkdotnet.org/
+immutable-type:
+  term: Незмінний тип (immutable type)
+  def: >-
+    Тип, стан екземпляра якого не можна змінити після створення: «змінювальні» методи повертають новий екземпляр. Приклади — `string`, `DateTime`, `readonly record struct`.
+  q: immutable type C#
+string-builder:
+  term: StringBuilder
+  def: >-
+    Змінюваний буфер для побудови рядка частинами. Дописує символи без проміжних рядків і створює підсумковий `string` у `ToString()`.
+  q: StringBuilder C#
+  docs: https://learn.microsoft.com/dotnet/standard/base-types/stringbuilder
+string-interning:
+  term: Інтернування рядків (string interning)
+  def: >-
+    Зберігання одного екземпляра на кожне унікальне значення рядка в пулі рантайму (intern pool). `string.Intern` додає рядок у пул; інтерновані рядки живуть до завершення процесу.
+  q: string interning .NET
+  docs: https://learn.microsoft.com/dotnet/api/system.string.intern
+non-gc-heap:
+  term: NonGC heap (frozen heap)
+  def: >-
+    Область пам'яті в .NET 8+ для об'єктів, які живуть увесь час роботи процесу, наприклад рядкових літералів. GC їх не збирає й не переміщує, а `GC.GetGeneration` для них може повернути `int.MaxValue`.
+  q: .NET 8 NonGC heap frozen segments
+  docs: https://learn.microsoft.com/dotnet/core/compatibility/core-libraries/8.0/getgeneration-return-value
+call-stack:
+  term: Стек викликів (call stack)
+  def: >-
+    Пам'ять потоку, куди кожен виклик методу кладе свій кадр із параметрами, локальними змінними й адресою повернення. Звільняється автоматично після виходу з методу; розмір обмежений, а переповнення завершує процес.
+  q: call stack .NET
+  docs: https://learn.microsoft.com/dotnet/core/runtime-config/threading
+stack-frame:
+  term: Кадр стека (stack frame)
+  def: >-
+    Ділянка стека, яку займає один виклик методу: адреса повернення, збережені регістри, локальні змінні й частина аргументів. Знімається під час повернення з методу.
+  q: stack frame
+escape-analysis:
+  term: Escape analysis (escape-аналіз)
+  def: >-
+    Аналіз JIT, який визначає, чи може об'єкт пережити метод, де його створено. Якщо не може, JIT має право розмістити його на стеку; у .NET 9–10 так розміщуються «коробки», маленькі масиви й делегати.
+  q: .NET JIT escape analysis stack allocation
+  docs: https://learn.microsoft.com/dotnet/core/whats-new/dotnet-10/runtime#stack-allocation
+record:
+  term: Record (запис)
+  def: >-
+    Модифікатор `record` для класу (C# 9) або структури (C# 10): компілятор генерує порівняння за значенням, `ToString`, `Deconstruct` для позиційних параметрів і підтримку `with`.
+  q: C# record
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/builtin-types/record
+value-equality:
+  term: Порівняння за значенням (value equality)
+  def: >-
+    Два екземпляри рівні, якщо в них один тип і рівні значення полів, навіть якщо це різні об'єкти. Так за замовчуванням порівнюються структури й records, а класи — за посиланням.
+  q: C# value equality
+  docs: https://learn.microsoft.com/dotnet/csharp/fundamentals/expressions/equality
+with-expression:
+  term: Вираз with (with expression)
+  def: >-
+    Створює копію record або структури зі зміненими властивостями: `p with { X = 1 }`. Копія поверхнева: посилальні поля вказують на ті самі об'єкти.
+  q: C# with expression
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/operators/with-expression
+equality-contract:
+  term: EqualityContract
+  def: >-
+    Синтезована властивість `record class`, яка повертає runtime-тип запису. Згенерований `Equals` порівнює її першою, тому записи різних типів однієї ієрархії не рівні навіть за однакових даних.
+  q: C# record EqualityContract
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/builtin-types/record
+nullable-reference-types:
+  term: Nullable reference types (NRT)
+  def: >-
+    Можливість C# 8+: посилальний тип без `?` вважається таким, що не допускає `null`, із `?` — таким, що допускає. Компілятор попереджає про можливі `NullReferenceException`, а в рантаймі нічого не перевіряється.
+  q: C# nullable reference types
+  docs: https://learn.microsoft.com/dotnet/csharp/fundamentals/null-safety/nullable-reference-types
+null-state-analysis:
+  term: Аналіз null-стану (null-state analysis)
+  def: >-
+    Статичний аналіз компілятора, який відстежує для кожного виразу стан not-null або maybe-null з урахуванням перевірок, присвоєнь і атрибутів на кшталт `[NotNullWhen]`.
+  q: C# null-state analysis
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/attributes/nullable-analysis
+nullable-context:
+  term: Nullable-контекст (nullable context)
+  def: >-
+    Налаштування, яке вмикає анотації `?` і попередження про `null`: `enable`, `warnings`, `annotations` або `disable`. Задається елементом `<Nullable>` у проєкті й директивами `#nullable` у коді.
+  q: C# nullable context
+  docs: https://learn.microsoft.com/dotnet/csharp/advanced-topics/update-applications/nullable-migration-strategies
+null-forgiving-operator:
+  term: Оператор пригнічення null (null-forgiving operator)
+  def: >-
+    Постфіксний `!`, наприклад `x!.Length`: каже компілятору, що вираз не `null`, і пригнічує попередження. У рантаймі нічого не перевіряє.
+  q: C# null-forgiving operator
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/operators/null-forgiving
+required-member:
+  term: Обов'язковий член (required member)
+  def: >-
+    Властивість або поле з модифікатором `required` (C# 11): його треба задати в ініціалізаторі об'єкта, інакше помилка компіляції. Допомагає з NRT, коли об'єкт створюється без конструктора з параметрами.
+  q: C# required modifier
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/keywords/required
+span-t:
+  term: Span<T>
+  def: >-
+    `ref struct` із посилання на неперервну ділянку пам'яті та довжини. Вказує на масив, рядок, `stackalloc`-буфер або некеровану пам'ять, зрізи не копіюють дані. Живе лише на стеку.
+  q: C# Span<T>
+  docs: https://learn.microsoft.com/dotnet/api/system.span-1
+memory-t:
+  term: Memory<T>
+  def: >-
+    Звичайна структура-«вікно» на неперервну пам'ять (масив, рядок або `MemoryManager<T>`), яку можна зберігати в полях і передавати через `await`. До даних звертаються через властивість `.Span`.
+  q: C# Memory<T>
+  docs: https://learn.microsoft.com/dotnet/api/system.memory-1
+array-pool:
+  term: ArrayPool<T>
+  def: >-
+    Пул масивів для повторного використання: `Rent` видає масив не менший за запитану довжину, `Return` повертає його в пул. Зменшує алокації буферів; після `Return` масив використовувати не можна.
+  q: ArrayPool C#
+  docs: https://learn.microsoft.com/dotnet/api/system.buffers.arraypool-1
+ref-safety:
+  term: Ref safety (безпека посилань)
+  def: >-
+    Правила компілятора C#, які не дають посиланню (`ref`, `Span<T>`, будь-якому `ref struct`) пережити дані, на які воно вказує. Наприклад, не можна повернути span на `stackalloc`-буфер; модифікатор `scoped` звужує час життя.
+  q: C# ref safety scoped
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/statements/declarations
+memory-owner:
+  term: IMemoryOwner<T>
+  def: >-
+    Інтерфейс власника буфера `Memory<T>`: той, хто тримає посилання на нього, викликає `Dispose` або передає володіння далі. Його видає, наприклад, `MemoryPool<T>.Shared.Rent()`.
+  q: IMemoryOwner C#
+  docs: https://learn.microsoft.com/dotnet/api/system.buffers.imemoryowner-1

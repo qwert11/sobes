@@ -1,0 +1,1282 @@
+---
+title: Threading
+description: Thread and Task, the thread pool, races and deadlocks, lock and System.Threading.Lock, synchronization primitives, concurrent collections, Interlocked and the memory model, Channels.
+sidebar:
+  order: 5
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+How .NET runs code in parallel: threads and the thread pool, protecting shared data with locks and atomic operations, concurrent collections and queues between threads. In an interview this topic checks whether you can spot races and deadlocks and find them in production.
+
+**Before this topic:** [Types and memory](/sobes/en/dotnet/types-memory/).
+
+<Q id="dotnet.threading.thread-vs-task" level="j">
+
+## How does `Thread` differ from `Task`, and what is the thread pool?
+
+<A short l="j">
+
+A `Thread` is an operating system thread that you create and start yourself, while a <T k="task">`Task`</T> is a description of work with a future result. A task runs on a ready-made thread from the <T k="thread-pool">thread pool</T>, which the CLR reuses, so background work goes to `Task.Run`, not `new Thread`.
+
+</A>
+
+<A short l="m">
+
+A `Thread` is an OS resource with its own stack, while a `Task` is an object that describes work and is queued to the thread pool. The key difference: a task gives you a result, exceptions, cancellation, continuations and `await`, and the pool supplies an existing thread for it. A raw `Thread` costs manual management and expensive creation, so you need one only for long blocking work, a special priority, STA or a <T k="background-thread">foreground thread</T>.
+
+</A>
+
+<A short l="s">
+
+`Task` is a promise-like abstraction, and not every task occupies a thread at all: a task from async I/O or `TaskCompletionSource` just waits for a signal. There is one pool per process with a global FIFO queue, per-worker local queues and <T k="work-stealing">work stealing</T>, and it tunes the thread count itself based on throughput. That is why blocking pool threads is expensive: above the minimum, new threads appear gradually, and under load work piles up in the queue.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **`Thread`** — an OS thread. You create it with `new Thread(...)`, start it with `Start()` and wait for it with `Join()`.
+- **Thread pool** — a set of background threads that the CLR creates on demand and reuses.
+- **`Task`** — a unit of work with a result. `Task.Run(...)` queues a delegate to the pool and returns a `Task` or `Task<T>`.
+
+**Why**
+
+Creating a thread is expensive: each one reserves its own stack — by default 1.5 MB on Windows and 8 MB on Linux. The pool removes that cost: after a task the thread goes back to the pool.
+
+**How to use**
+
+1. Start the work: `var task = Task.Run(() => Compute());`.
+2. Wait for the result: `int result = await task;`.
+
+**Common mistake**
+
+Thinking that a `Task` is a thread. A task may not occupy a thread at all while it waits for the network or disk.
+
+**Takeaway:** use `Task` for background work and a raw `Thread` only when you cannot do without it.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- A `Task` stores its state, result (`Task<T>`) and exception. With `await` the exception is rethrown as is; with `.Wait()` and `.Result` it is wrapped in an `AggregateException`.
+- Pool threads are background threads: the process does not wait for them on exit.
+- `new Thread` is a foreground thread by default (`IsBackground = false`) and keeps the process alive until it finishes.
+- `TaskCreationOptions.LongRunning` hints the scheduler to give the task a dedicated thread outside the pool.
+
+**When to choose what**
+
+| Job | What to use |
+|---|---|
+| Short CPU work in the background | `Task.Run` |
+| Waiting for the network or disk | an async API and `await`, no `Task.Run` |
+| Long blocking work | `LongRunning` or your own `Thread` |
+| STA (COM, UI), special priority | your own `Thread` |
+
+**Pitfalls**
+
+- `Task.Run(() => File.ReadAllText(path))` ties up a pool thread waiting for the disk. `await File.ReadAllTextAsync(path)` is better.
+- `Thread.Abort` throws `PlatformNotSupportedException` in .NET 5+. Threads are stopped cooperatively, with a `CancellationToken`.
+
+**Rule of thumb**
+
+`Task.Run` for CPU work, `await` for I/O, `Thread` only when you need control over the thread itself.
+
+**Takeaway:** a `Task` describes the work, and the pool decides which thread runs it.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- To the pool, every task is a work item — an entry in its queue.
+- A work item queued from code running on a pool thread goes to that thread's local queue. It is read in LIFO order for cache locality.
+- Everything else goes to the global FIFO queue.
+- An idle thread looks for work in this order:
+  1. its own local queue;
+  2. the global queue;
+  3. the tail of another thread's local queue — that is work stealing.
+- Up to the minimum (`ThreadPool.GetMinThreads`, by default the processor count) the pool creates threads immediately. Above it, an algorithm adjusts the thread count while watching throughput.
+
+**Cost**
+
+- Every extra thread means stack memory, context switches and extra GC work when walking stacks.
+- A blocked pool thread drops out of work, and above the minimum its replacement does not appear right away.
+
+**Trade-offs**
+
+- `LongRunning` with an async delegate is pointless: the dedicated thread lives only until the first `await`, then the continuation moves to the pool.
+- Since .NET 8 on Windows you can switch to the Windows thread pool (`UseWindowsThreadPool`); Native AOT apps on Windows use it by default. Whether it wins depends on the workload, so measure.
+
+**How to check in production**
+
+`dotnet-counters monitor` shows the pool thread count, its queue length and the number of completed work items. More than roughly three threads per core is a sign that code is blocking pool threads.
+
+**Takeaway:** the pool is built for short non-blocking work items, and anything that holds its threads hurts throughput.
+
+</A>
+
+<Ex>
+
+```csharp
+// Our own thread: created and joined manually, foreground by default
+var thread = new Thread(() => Console.WriteLine("running on a dedicated thread"));
+thread.Start();
+thread.Join();
+
+// A task on the thread pool: it has a result
+Task<int> task = Task.Run(() => 6 * 7);
+Console.WriteLine(await task); // 42
+
+// Pool threads are background threads
+await Task.Run(() => Console.WriteLine(Thread.CurrentThread.IsBackground)); // True
+
+// Long blocking work gets a dedicated thread outside the pool
+await Task.Factory.StartNew(() => Thread.Sleep(1000), TaskCreationOptions.LongRunning);
+```
+
+</Ex>
+
+<Next>
+
+- What happens to the process if `Main` returns while a `new Thread` is still running? — The process waits for it: such a thread is foreground by default.
+- How does `Task.Run` differ from `Task.Factory.StartNew`? — `Task.Run` has safe defaults (`DenyChildAttach`, the default scheduler) and unwraps async lambdas.
+- Does a task waiting for a database response occupy a thread? — No: async I/O does not hold a thread; only the continuation needs one.
+- How many threads are in the pool? — The default minimum equals the processor count; beyond that the pool tunes the number itself.
+- Why `TaskCreationOptions.LongRunning`? — So long blocking work gets a dedicated thread instead of tying up the pool.
+
+</Next>
+
+<Src>
+
+- [The managed thread pool](https://learn.microsoft.com/dotnet/standard/threading/the-managed-thread-pool)
+- [Task-based asynchronous programming](https://learn.microsoft.com/dotnet/standard/parallel-programming/task-based-asynchronous-programming)
+- [TaskScheduler: global and local queues](https://learn.microsoft.com/dotnet/api/system.threading.tasks.taskscheduler)
+
+</Src>
+
+</Q>
+
+<Q id="dotnet.threading.race-condition" level="j">
+
+## What are a race condition and a deadlock, and how do you avoid them?
+
+<A short l="j">
+
+A <T k="race-condition">race condition</T> is a bug where the result depends on the order of threads' access to shared data; a <T k="deadlock">deadlock</T> is threads waiting for each other forever. A race silently corrupts data while a deadlock hangs the program, so races are prevented with synchronization and deadlocks with a single lock order.
+
+</A>
+
+<A short l="m">
+
+A race is an unsynchronized compound operation on shared data, and a deadlock is a cycle of waiting between threads that hold locks. A race happens because read-modify-write is not atomic, and a deadlock because threads take the same locks in different orders. Protection costs performance, so <T k="critical-section">critical sections</T> are kept short with no foreign code inside, and where you can back off, you take the lock with a timeout.
+
+</A>
+
+<A short l="s">
+
+A race condition is a logical ordering bug, and a data race is its low-level form: unsynchronized concurrent access to memory where at least one thread writes. A data race is worse than it looks: the JIT and the CPU may reorder and cache such accesses, so a thread may never see another thread's write. A deadlock needs all four Coffman conditions, and the cheapest one to break is circular wait, with a global lock order. In production you find it in a dump, which shows who holds a lock and who is waiting for it.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **Race condition** — the result depends on which thread got there first.
+- **Deadlock** — thread 1 holds resource A and waits for B, thread 2 holds B and waits for A. Both wait forever.
+
+**Why**
+
+These are the two main bugs in multithreaded code. Both depend on timing and are hard to catch in tests.
+
+**How to avoid them**
+
+- Do not share mutable data between threads if you can avoid it.
+- Protect shared data with `lock` — it lets only one thread into the block.
+- Change simple counters with `Interlocked.Increment` — one indivisible operation.
+- Always take locks in the same order and hold them as briefly as possible.
+
+**Common mistake**
+
+Treating `count++` as one operation. It is three steps — read, add, write — so with two threads one increment can get lost.
+
+**Takeaway:** a race corrupts data, a deadlock hangs the program; discipline around shared state protects against both.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- An <T k="atomic-operation">atomic operation</T> happens all at once: another thread never sees an intermediate state.
+- Reads and writes of an aligned `int` or a reference are atomic. Compound operations are not: `x++`, "check, then add".
+- A deadlock happens when each thread holds a lock and waits for the one the other holds.
+
+**When to choose what**
+
+| Situation | Tool |
+|---|---|
+| A single variable: counter, flag | `Interlocked` |
+| An invariant across several fields | `lock` |
+| A shared dictionary or queue | concurrent collections |
+| Data that need not be shared | per-thread isolation, immutable objects |
+
+**Pitfalls**
+
+- `if (!dict.ContainsKey(k)) dict[k] = v;` is a race even on a `ConcurrentDictionary`: another thread can slip in between the check and the write. Use a single `TryAdd` call.
+- Raising events or calling callbacks and virtual methods inside a `lock`: foreign code may take another lock and close the cycle.
+- Blocking on async code (`.Result`) under a single-threaded `SynchronizationContext` is a deadlock without a single `lock`.
+
+**Rule of thumb**
+
+Everyone takes locks in the same order. Where you can back off, use `Monitor.TryEnter` or `Lock.TryEnter` with a timeout.
+
+**Takeaway:** atomicity removes races; lock ordering and short critical sections remove deadlocks.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- A data race is concurrent access to the same memory location without synchronization, where at least one access is a write.
+- The JIT may read a field once and keep the value in a register. A `while (!_stop)` loop without `volatile` may never see `_stop = true`.
+- A deadlock needs all four Coffman conditions:
+  1. mutual exclusion;
+  2. hold and wait;
+  3. no preemption;
+  4. circular wait.
+
+**Cost**
+
+A deadlock is a hang without CPU load that often shows up only under load. The process is alive, but requests that need the lock never complete.
+
+**Trade-offs**
+
+- A lock order (a hierarchy of levels) breaks the cycle but needs discipline across the whole codebase.
+- `TryEnter` with a timeout removes infinite waiting but adds a failure branch you have to design.
+- Livelock: threads are active but make no progress — for example, they keep retrying `CompareExchange`. The fix is backing off between attempts (`SpinWait`).
+- The best synchronization is none: immutable snapshots, message passing through queues, partitioning data by thread.
+
+**How to check in production**
+
+1. Take a dump: `dotnet-dump collect -p PID`.
+2. In `dotnet-dump analyze`, run `clrstack -all` or `parallelstacks` and find threads stuck in `Monitor.Enter`.
+3. The `syncblk` command shows which thread owns a `Monitor` and how many threads are waiting for it.
+4. For async chains, use `dumpasync`.
+
+**Takeaway:** a deadlock is a waiting cycle; you prevent it with lock ordering and find it in a dump.
+
+</A>
+
+<Ex>
+
+```csharp
+int unsafeCount = 0;
+int safeCount = 0;
+
+Parallel.For(0, 100_000, _ =>
+{
+    unsafeCount++;                        // race: read, add and write are not atomic
+    Interlocked.Increment(ref safeCount); // atomic
+});
+
+Console.WriteLine(unsafeCount); // usually less than 100000
+Console.WriteLine(safeCount);   // 100000
+
+// Deadlock: two threads take locks a and b in different orders
+var a = new object();
+var b = new object();
+var t1 = Task.Run(() => { lock (a) { Thread.Sleep(50); lock (b) { } } });
+var t2 = Task.Run(() => { lock (b) { Thread.Sleep(50); lock (a) { } } });
+// await Task.WhenAll(t1, t2) never completes.
+// Fix: both threads take a first, then b.
+```
+
+The first number changes from run to run — that is the race.
+
+</Ex>
+
+<Next>
+
+- Is writing a `long` atomic? — On a 64-bit platform yes, if it is aligned; on 32-bit no, so use `Interlocked.Read` or `Volatile`.
+- Why is `ContainsKey` followed by a write wrong even for `ConcurrentDictionary`? — Another thread slips in between the two calls; you need a single `TryAdd` or `GetOrAdd`.
+- How do you find a deadlock in production? — Take a dump and look at `clrstack -all` and `syncblk` in `dotnet-dump analyze`, or Parallel Stacks in Visual Studio.
+- What is a livelock? — Threads are not blocked, but constant retries keep them from doing useful work.
+- Can a thread deadlock with itself? — Not with `lock`, which is reentrant; with `SemaphoreSlim(1, 1)` it can: a second `Wait` waits for itself.
+
+</Next>
+
+<Src>
+
+- [Managed threading best practices](https://learn.microsoft.com/dotnet/standard/threading/managed-threading-best-practices)
+- [Debug a deadlock](https://learn.microsoft.com/dotnet/core/diagnostics/debug-deadlock)
+
+</Src>
+
+</Q>
+
+<Q id="dotnet.threading.lock" level="m">
+
+## How does `lock` work, and what does the `System.Threading.Lock` type (.NET 9) give you?
+
+<A short l="j">
+
+`lock (obj) { ... }` lets only one thread into the block at a time, and the others wait until it leaves. The lock is released even if an exception is thrown, and since .NET 9 and C# 13 you lock on a dedicated `System.Threading.Lock` field.
+
+</A>
+
+<A short l="m">
+
+`lock` is syntactic sugar: for an ordinary object it expands to <T k="monitor">`Monitor.Enter`</T> and `Monitor.Exit` in `try/finally`, and for an expression of type <T k="lock-type">`System.Threading.Lock`</T> to `using (x.EnterScope())`. Both forms are <T k="reentrant-lock">reentrant</T> and thread-affine: the thread that took the lock must release it. That is why you cannot `await` inside a `lock` (a compile error), and I/O or foreign code inside it turns the lock into a bottleneck or a deadlock.
+
+</A>
+
+<A short l="s">
+
+`Monitor` keeps the lock state in the object header and moves to a <T k="sync-block">sync block</T> under contention, so you can lock on any object — including someone else's. `Lock` is a dedicated type with its own state, and Microsoft recommends it for performance and clearer intent. The price is strict typing: after a cast to `object` the static type is no longer `Lock`, so the compiler generates `Monitor` and reports warning CS9216.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+`lock` guarantees that only one thread at a time runs the code inside the block. Other threads that reach `lock` with the same object wait.
+
+**Why**
+
+So that several threads do not change shared data at the same time. For example, so that two withdrawals from one account do not push the balance below zero.
+
+**How to use**
+
+1. Declare a private field: `private readonly Lock _sync = new();` (before .NET 9 — `new object()`).
+2. Wrap the work with shared data: `lock (_sync) { _balance -= amount; }`.
+3. Keep only that work inside — no I/O and no long computations.
+
+**Common mistake**
+
+Locking on `this`, `typeof(...)` or a string. Other code can lock on them too, which leads to extra contention or a deadlock.
+
+**Takeaway:** `lock` on a private field, briefly, and only around shared data.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- For a reference type, `lock` compiles to `Monitor.Enter(obj, ref lockTaken)` in a `try` and `Monitor.Exit(obj)` in a `finally`.
+- For `Lock` it compiles to `using (x.EnterScope())`. `Lock.Scope` is a `ref struct` with a `Dispose` method.
+- A thread that already owns the lock can enter again. It has to exit the same number of times.
+- Only the owning thread can release the lock; otherwise you get `SynchronizationLockException`.
+
+**When to choose what**
+
+| Situation | What to use |
+|---|---|
+| .NET 9+, synchronous code | a `Lock` field and `lock` |
+| .NET 8 and earlier | an `object` field and `lock` |
+| You need `await` inside | a one-slot semaphore: `SemaphoreSlim(1, 1)` and `WaitAsync` |
+| You need a timeout | `Lock.TryEnter` or `Monitor.TryEnter` |
+
+**Pitfalls**
+
+- `await` inside `lock` is error CS1996: the continuation may run on another thread, but the owner must exit.
+- `object o = _sync; lock (o)` is `Monitor` now, not `Lock` (warning CS9216).
+- Raising events or calling callbacks and virtual methods inside `lock`: foreign code may take another lock and cause a deadlock.
+- `lock` on a value type does not compile: each boxing would produce a new object.
+
+**Rule of thumb**
+
+One lock per resource, and inside it only work with that resource's data.
+
+**Takeaway:** `lock` is `Monitor` or `Lock` in `try/finally`, bound to a thread, so no `await` inside.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- Any object can act as a monitor. While there is no contention, the lock state lives in the object header (a thin lock).
+- Under contention or waiting, the runtime "inflates" the lock into a sync block — an entry in an internal table.
+- `Lock` keeps its state in its own field and does not touch the object header. The uncontended fast path is an atomic operation on that field.
+- Entering a lock keeps later reads from running before it, and exiting keeps earlier writes from being delayed past it. That is why fields accessed only under `lock` do not need `volatile`.
+
+**Cost**
+
+- An uncontended `lock` is cheap. A contended one is expensive: threads spin, then go to sleep, and latency grows.
+- A long queue for one lock (a lock convoy) turns parallel code into sequential code.
+
+**Trade-offs**
+
+- `Lock` removes the extra `object` and shows intent through the type, but it has no `Wait` or `Pulse`. Code built on `Monitor.Wait` has to move to another primitive during migration.
+- Against contention: narrow the section, shard data with separate locks, or move to lock-free structures.
+
+**How to check in production**
+
+- In `dotnet-counters`: `dotnet.monitor.lock_contentions` (before .NET 9 — Monitor Lock Contention Count), how many times a thread waited for a held `Monitor`.
+- In a dump, the `syncblk` command shows `Monitor` owners and the number of waiting threads.
+- Since .NET 9, `dotnet-trace` records a WaitHandleWait event with a stack, including waits in `lock`.
+
+**Takeaway:** `Lock` is the default choice in .NET 9+, and you find a bottleneck through the contention counter and wait stacks.
+
+</A>
+
+<Ex>
+
+```csharp
+public sealed class Account
+{
+    private readonly Lock _sync = new(); // C# 13 / .NET 9+, earlier — new object()
+    private decimal _balance;
+
+    public bool TryDebit(decimal amount)
+    {
+        lock (_sync) // the compiler emits using (_sync.EnterScope())
+        {
+            if (_balance < amount) return false;
+            _balance -= amount;
+            return true;
+        }
+    }
+
+    public void Credit(decimal amount)
+    {
+        lock (_sync) { _balance += amount; }
+    }
+
+    // object o = _sync; lock (o) { }       — warning CS9216: this is Monitor now
+    // lock (_sync) { await SaveAsync(); }  — error CS1996: await inside lock is not allowed
+}
+```
+
+</Ex>
+
+<Next>
+
+- Why not `lock (this)`? — Outside code can lock on the same object: extra contention or a deadlock.
+- What happens if an exception is thrown inside `lock`? — The lock is released in `finally`, but the data may be left inconsistent.
+- How do you get mutual exclusion in async code? — `SemaphoreSlim(1, 1)`: `await WaitAsync()`, and `Release()` in `finally`.
+- Is `lock` reentrant? — Yes, with both `Monitor` and `Lock`: the same thread can enter again.
+- What changes if a field holding `new Lock()` is declared as `object`? — `lock` falls back to `Monitor`, and the compiler reports CS9216.
+
+</Next>
+
+<Src>
+
+- [The lock statement — C# reference](https://learn.microsoft.com/dotnet/csharp/language-reference/statements/lock)
+- [System.Threading.Lock](https://learn.microsoft.com/dotnet/api/system.threading.lock)
+
+</Src>
+
+</Q>
+
+<Q id="dotnet.threading.sync-primitives" level="m">
+
+## What synchronization primitives does .NET have, and how do they differ?
+
+<A short l="j">
+
+Synchronization primitives coordinate threads: some admit one thread into a section (`lock`, <T k="mutex">`Mutex`</T>), some admit up to N (<T k="semaphore-slim">`SemaphoreSlim`</T>), and some pass a "go" signal (`ManualResetEventSlim`). So you pick by the job: exclusive access, limiting parallelism or waiting for an event.
+
+</A>
+
+<A short l="m">
+
+Primitives split into wrappers over OS kernel objects (`Mutex`, `Semaphore`, `EventWaitHandle`) and lightweight managed types (`SemaphoreSlim`, `ManualResetEventSlim`, <T k="reader-writer-lock">`ReaderWriterLockSlim`</T>, `Barrier`). The former are slower but work across processes; the latter are faster but live within one process. Another difference is <T k="thread-affinity">thread affinity</T>: only the owner can release a `Mutex` or a `ReaderWriterLockSlim`, so of these only `SemaphoreSlim.WaitAsync` works with `await`.
+
+</A>
+
+<A short l="s">
+
+The choice comes down to three questions: do you need cross-process synchronization, does the primitive have an owner, and what is the read/write ratio. Kernel objects pay for a system call even without contention, owned primitives forbid `await`, and `ReaderWriterLockSlim` pays off only with long reads. The BCL has no async reader-writer locks or events, so you build them on `SemaphoreSlim` and `TaskCompletionSource` or take them from Microsoft.VisualStudio.Threading.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+A synchronization primitive is a type that makes threads wait for each other according to a specific rule.
+
+**Why**
+
+`lock` solves one problem: one thread in a section. Limiting parallelism, separating reads from writes and signaling need other tools.
+
+**How to use**
+
+| Primitive | What it does |
+|---|---|
+| `Mutex` | like `lock`, but can work across processes |
+| `SemaphoreSlim` | lets in no more than N threads at once |
+| `ReaderWriterLockSlim` | many threads may read at once, only one may write |
+| `ManualResetEventSlim` | threads wait in `Wait()` until someone calls `Set()` |
+| `Barrier` | threads wait for each other at the end of each phase |
+
+**Common mistake**
+
+Not releasing a primitive when an exception is thrown. Always call `Release()`, `ExitReadLock()` and `ReleaseMutex()` in `finally`.
+
+**Takeaway:** `lock` for mutual exclusion, a semaphore for limiting parallelism, events for signals.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- `Mutex`, `Semaphore`, `AutoResetEvent` and `ManualResetEvent` derive from `WaitHandle` and wrap an OS kernel object.
+- A named `Mutex` is visible to other processes on every OS; named `Semaphore` and `EventWaitHandle` work only on Windows.
+- Types with the `Slim` suffix avoid kernel objects as long as possible and work only within a process.
+- Semaphores have no owner: `Wait` on one thread and `Release` on another is a normal scenario.
+
+**When to choose what**
+
+| Job | Primitive |
+|---|---|
+| A single app instance | a named `Mutex` |
+| At most N operations, with `await` | `SemaphoreSlim` and `WaitAsync` |
+| Frequent long reads, rare writes | `ReaderWriterLockSlim` |
+| One thread opens the "gate" for many | `ManualResetEventSlim` |
+| Wait for N signals | `CountdownEvent` |
+| Computation phases across N threads | `Barrier` |
+
+**Pitfalls**
+
+- A thread exits without releasing a `Mutex` — the next owner gets an `AbandonedMutexException`.
+- An extra `Release` on a semaphore succeeds silently, and later another thread gets `SemaphoreFullException` on its legitimate `Release`.
+- `ReaderWriterLockSlim` has no recursion by default. You move from read to write only through upgradeable mode, and only one thread can be in it at a time.
+
+**Rule of thumb**
+
+Of this list only `SemaphoreSlim` works with `await`; the rest are for synchronous code.
+
+**Takeaway:** pick the primitive by the job and by whether the code has `await`.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- `Monitor` and the `Slim` types first spin in a loop (`SpinWait`), hoping the owner releases soon. Only then does the thread go into a kernel wait.
+- Kernel objects make a system call on every operation, even without contention.
+- `SpinLock` is a struct that only spins. A copy of a `SpinLock` is an independent lock, so never pass it by value.
+
+**Cost**
+
+- Spinning burns CPU and pays off only for very short waits.
+- `ReaderWriterLockSlim` costs more to enter and exit than `lock`. With short sections and frequent writes a plain `lock` is often faster.
+
+**Trade-offs**
+
+- For data that is almost only read, use an immutable snapshot and an atomic reference swap instead of a reader-writer lock. Readers then need no synchronization at all.
+- Async reader-writer locks and events come from Microsoft.VisualStudio.Threading (`AsyncReaderWriterLock`, `AsyncManualResetEvent`) or are built on `TaskCompletionSource`.
+- `SemaphoreSlim` has no owner and is not reentrant: a second `WaitAsync` in the same call chain waits for itself.
+- An abandoned `Mutex` is a signal that the protected state may be corrupted.
+
+**How to check in production**
+
+- Since .NET 9, `dotnet-trace` records a WaitHandleWait event when a thread blocks in `lock`, `ManualResetEventSlim.Wait` or `SemaphoreSlim.Wait`. The event stacks show who waits and where.
+- In a dump, `parallelstacks` groups threads stuck in the same wait.
+
+**Takeaway:** the cheapest primitive is the one you managed to avoid; beyond that, choose by ownership, cross-process needs and load profile.
+
+</A>
+
+<Ex>
+
+```csharp
+// SemaphoreSlim: at most 3 concurrent operations, works with await
+using var gate = new SemaphoreSlim(3);
+await Task.WhenAll(Enumerable.Range(1, 10).Select(async i =>
+{
+    await gate.WaitAsync();
+    try { await Task.Delay(100); }
+    finally { gate.Release(); } // no owner: any thread can release
+}));
+
+// Barrier: three threads move through computation phases in lockstep
+using var barrier = new Barrier(3, b => Console.WriteLine($"phase {b.CurrentPhaseNumber} done"));
+var threads = Enumerable.Range(0, 3).Select(_ => new Thread(() =>
+{
+    for (int phase = 0; phase < 2; phase++)
+    {
+        Thread.Sleep(Random.Shared.Next(50)); // compute our part
+        barrier.SignalAndWait();             // wait for the others
+    }
+})).ToList();
+threads.ForEach(t => t.Start());
+threads.ForEach(t => t.Join());
+// phase 0 done
+// phase 1 done
+```
+
+</Ex>
+
+<Next>
+
+- How does `Mutex` differ from `lock`? — It is a kernel object: slower, but it works across processes by name; an abandoned one throws `AbandonedMutexException`.
+- Why is `SemaphoreSlim(1, 1)` not a full replacement for `lock`? — It has no owner and no reentrancy: re-entering in the same call chain hangs.
+- When is `ReaderWriterLockSlim` worse than a plain `lock`? — With short sections and frequent writes: entering and exiting cost more.
+- How does `CountdownEvent` differ from `Barrier`? — With `CountdownEvent` you wait for N signals; with `Barrier` N participants wait for each other, phase by phase.
+- How do you wait for a signal asynchronously? — With a `TaskCompletionSource` instead of a `ManualResetEvent`.
+
+</Next>
+
+<Src>
+
+- [Overview of synchronization primitives](https://learn.microsoft.com/dotnet/standard/threading/overview-of-synchronization-primitives)
+- [Semaphore and SemaphoreSlim](https://learn.microsoft.com/dotnet/standard/threading/semaphore-and-semaphoreslim)
+- [ReaderWriterLockSlim](https://learn.microsoft.com/dotnet/api/system.threading.readerwriterlockslim)
+
+</Src>
+
+</Q>
+
+<Q id="dotnet.threading.concurrent-collections" level="m">
+
+## How do concurrent collections work, and when do you need them?
+
+<A short l="j">
+
+<T k="concurrent-collections">Concurrent collections</T> from `System.Collections.Concurrent` — `ConcurrentDictionary`, `ConcurrentQueue`, `ConcurrentStack`, `ConcurrentBag` — can be modified from several threads without your own `lock`. Plain `List<T>` and `Dictionary<TKey,TValue>` get corrupted by concurrent writes, so a shared mutable collection should be a concurrent one.
+
+</A>
+
+<A short l="m">
+
+Concurrent collections synchronize themselves: `ConcurrentDictionary` writes under <T k="fine-grained-locking">fine-grained locks</T> and reads without locks, while `ConcurrentQueue` and `ConcurrentStack` are fully <T k="lock-free">lock-free</T>. The key subtlety is that every method is thread-safe but not every method is atomic: the factory in `GetOrAdd` runs outside the lock and may run several times. So expensive factories or factories with side effects are wrapped in `Lazy<T>`, and compound operations are done in one call.
+
+</A>
+
+<A short l="s">
+
+A concurrent collection protects its own structure, not your invariants: "check and modify" in two calls is still a race. That is why the API is built on atomic `TryAdd`, `TryRemove`, `TryUpdate` and `GetOrAdd`. You pay for it in memory and in global operations: `Count`, `Keys`, `Values` and `ToArray` on `ConcurrentDictionary` take all internal locks. For data that is almost only read, immutable collections or a `FrozenDictionary` with an atomic reference swap are cheaper.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+Collections from `System.Collections.Concurrent` that are safe to modify from several threads at once.
+
+**Why**
+
+A plain `Dictionary<TKey,TValue>` can corrupt its internal structure under concurrent writes. Concurrent collections synchronize themselves.
+
+**How to use**
+
+| Collection | Order | Main methods |
+|---|---|---|
+| `ConcurrentDictionary` | by key | `TryAdd`, `GetOrAdd`, `AddOrUpdate`, `TryRemove` |
+| `ConcurrentQueue` | FIFO | `Enqueue`, `TryDequeue` |
+| `ConcurrentStack` | LIFO | `Push`, `TryPop` |
+| `ConcurrentBag` | unordered | `Add`, `TryTake` |
+
+Methods starting with `Try` return `false` if they fail: another thread may have got there first.
+
+**Common mistake**
+
+`if (!dict.ContainsKey(key)) dict[key] = value;` — two calls, and another thread can slip in between them. The right way is a single `dict.TryAdd(key, value)` call.
+
+**Takeaway:** in multithreaded code, take a shared collection from `System.Collections.Concurrent` and change it in one call.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- `ConcurrentDictionary` is a bucket table plus an array of locks, each protecting a share of the buckets. A write takes one lock, a read takes none.
+- Enumeration is safe but it is not a snapshot: it may see changes made after it started.
+- `ConcurrentQueue` and `ConcurrentStack` are built on `Interlocked`, without locks.
+- `ConcurrentBag` stores items in per-thread lists. `TryTake` checks its own list first, then takes from others.
+
+**When to choose what**
+
+| Job | Collection |
+|---|---|
+| A shared cache or index by key | `ConcurrentDictionary` |
+| Work in arrival order | `ConcurrentQueue` |
+| A thread adds and takes its own items (object pool) | `ConcurrentBag` |
+
+**Pitfalls**
+
+- **`GetOrAdd` with a factory.** The delegate runs outside the lock. Two threads can both miss the key and both call the factory, but only one value is stored.
+- **`AddOrUpdate`** may call the update delegate again on a conflict. So it must be a pure function.
+- **`ConcurrentQueue` cannot wait for an item.** A `TryDequeue` loop without a pause burns CPU.
+
+**Rule of thumb**
+
+Do a compound operation with one atomic method, and wrap a factory with side effects in `Lazy<T>`: `dict.GetOrAdd(key, k => new Lazy<T>(() => Create(k))).Value`. `Lazy<T>` is thread-safe by default and calls `Create` once.
+
+**Takeaway:** a concurrent collection is thread-safe, but only each individual call is atomic.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- `Count`, `Keys`, `Values`, `ToArray`, `Clear` and table growth on `ConcurrentDictionary` acquire all the locks.
+- The default number of locks depends on the processor count; the `concurrencyLevel` constructor parameter sets it.
+- `ConcurrentQueue` is built from segments — ring buffers — and barely allocates in a steady state.
+- `ConcurrentStack` allocates a node per `Push`, and `ConcurrentDictionary` a node per entry.
+
+**Cost**
+
+- Frequent `Count` on a hot path serializes writers. If you need a counter, keep it separately with `Interlocked`.
+- `ConcurrentBag` loses as a queue between different producers and consumers: consumers keep taking from other threads' lists.
+
+**Trade-offs**
+
+- Lookups and configuration that are almost only read are cheaper in a `FrozenDictionary` (.NET 8+) or an `ImmutableDictionary`, swapping the whole reference atomically. Reads then need no synchronization at all.
+- Two related collections will not stay consistent on their own: such an invariant needs an outer `lock`.
+- Concurrent reads of a plain `Dictionary` with no writes are safe — no concurrent collection needed.
+
+**How to check in production**
+
+- A CPU profile (dotnet-trace, PerfView) shows time in `ConcurrentDictionary` internal locking, for example in `AcquireAllLocks`.
+- In a dump, `dotnet-dump analyze` shows contents with `dumpconcurrentdictionary` and `dumpconcurrentqueue`.
+
+**Takeaway:** concurrent collections suit frequent writes from many threads; for rare writes and frequent reads, immutable snapshots are cheaper.
+
+</A>
+
+<Ex>
+
+```csharp
+var cache = new ConcurrentDictionary<string, Lazy<Client>>();
+int created = 0;
+
+Client Get(string key) =>
+    cache.GetOrAdd(key, k => new Lazy<Client>(() =>
+    {
+        Interlocked.Increment(ref created); // inside Lazy the factory runs once
+        return new Client(k);
+    })).Value;
+
+Parallel.For(0, 1000, _ => Get("billing"));
+Console.WriteLine(created); // 1
+
+var counts = new ConcurrentDictionary<string, int>();
+Parallel.ForEach(new[] { "a", "b", "a" }, word =>
+    counts.AddOrUpdate(word, 1, (_, old) => old + 1)); // pure function: may be called again
+Console.WriteLine(counts["a"]); // 2
+
+record Client(string Name);
+```
+
+Without `Lazy`, concurrent calls could run the factory several times, even though the dictionary would still keep only one value.
+
+</Ex>
+
+<Next>
+
+- Why can `GetOrAdd` call the factory twice? — The delegate runs outside the lock so the lock is never held over foreign code; only one value is stored.
+- Is `Count` on a `ConcurrentDictionary` expensive? — Yes: it takes all internal locks; on a hot path keep a separate counter.
+- When is `ConcurrentBag` a bad choice? — When producers and consumers are different threads: consumers keep taking from other threads' lists.
+- Does enumerating a `ConcurrentDictionary` give a snapshot? — No: enumeration is safe but sees changes; `ToArray()` gives a snapshot.
+- Do you need concurrent collections if data is only read? — No: concurrent reads of plain collections with no writes are safe.
+
+</Next>
+
+<Src>
+
+- [Thread-safe collections](https://learn.microsoft.com/dotnet/standard/collections/thread-safe/)
+- [Add and remove items from a ConcurrentDictionary](https://learn.microsoft.com/dotnet/standard/collections/thread-safe/how-to-add-and-remove-items)
+
+</Src>
+
+</Q>
+
+<Q id="dotnet.threading.interlocked-volatile" level="s">
+
+## What are `Interlocked`, `volatile` and the .NET memory model?
+
+<A short l="j">
+
+<T k="interlocked">`Interlocked`</T> performs simple operations on a variable atomically, while <T k="volatile">`volatile`</T> only guarantees that a field read is not cached or reordered. So a shared counter is incremented with `Interlocked.Increment(ref count)`, and `volatile` is good for a stop flag at most.
+
+</A>
+
+<A short l="m">
+
+`Interlocked` gives you atomic CPU operations (`Increment`, `Add`, `Exchange`, <T k="compare-and-swap">`CompareExchange`</T>), each of which is also a <T k="memory-barrier">full memory barrier</T>, while `volatile` gives ordering only, without atomicity. A volatile read keeps later accesses from moving before it, and a volatile write keeps earlier accesses from moving after it. So `volatile` suits flags and publishing a fully built object, while `x++` and check-then-write need `Interlocked` or `lock`.
+
+</A>
+
+<A short l="s">
+
+The <T k="memory-model">.NET memory model</T> lets the JIT and the CPU reorder ordinary accesses as long as a single thread cannot tell; only aligned values up to pointer size are atomic. Volatile operations give <T k="acquire-release">acquire/release</T> ordering, while `Interlocked` and `Thread.MemoryBarrier` are full fences; acquire/release does not forbid reordering a write with a later read of another variable. On x64 the CPU reorders only such pairs, so many bugs surface only on ARM64. Hence the rule: `lock` by default, `Interlocked` for single variables, `Volatile` only when you know exactly what it guarantees.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **`Interlocked`** — a static class with atomic operations: `Increment`, `Decrement`, `Add`, `Exchange`, `CompareExchange`.
+- **`volatile`** — a modifier for a field that other threads change.
+
+**Why**
+
+- `count++` is a read, an add and a write. Another thread can slip in between them, and the increment is lost.
+- Without `volatile` the JIT may read a field once and keep the value in a register. A `while (!_stop)` loop then never sees `_stop = true`.
+
+**How to use**
+
+- A counter: `Interlocked.Increment(ref _count);`.
+- A stop flag: `private volatile bool _stop;`.
+
+**Common mistake**
+
+Thinking that `volatile` makes `x++` safe. It does not merge the read and the write into one operation. Also, it cannot be applied to `long` and `double`.
+
+**Takeaway:** `Interlocked` for atomic changes, `volatile` only for flag visibility.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- Every `Interlocked` method is atomic and acts as a full fence: memory accesses do not move across it in either direction.
+- A volatile read (acquire) keeps later accesses from running before it.
+- A volatile write (release) keeps earlier accesses from being delayed past it.
+- The `volatile` keyword makes every access to a field volatile. The `Volatile` class (`Volatile.Read`, `Volatile.Write`) does it for individual accesses, including `long`, `double` and array elements.
+
+**When to choose what**
+
+| Job | Tool |
+|---|---|
+| A counter, a sum | `Interlocked.Increment`, `Interlocked.Add` |
+| A "stop" flag | `volatile` or `Volatile.Read` and `Volatile.Write` |
+| Your own atomic operation (maximum) | a CAS loop on `CompareExchange` |
+| An invariant across several fields | `lock` |
+
+**Pitfalls**
+
+- Volatile does not mean "fresh": a read is not guaranteed to return the latest value written by another processor.
+- There is no single order of volatile writes that all threads agree on.
+- `long` and `double` are not read atomically on a 32-bit platform. Use `Interlocked.Read` or `Volatile.Read`.
+
+**Rule of thumb**
+
+A CAS loop goes like this:
+
+1. Read the current value.
+2. Compute the new one.
+3. Call `CompareExchange`; if the value changed in the meantime, go back to step 1.
+
+**Takeaway:** `Interlocked` gives atomicity and a full fence, `volatile` gives ordering only.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+The .NET memory model is described in the `Memory-model.md` spec in the dotnet/runtime repository, and it is stronger than ECMA-335:
+
+- ordinary accesses are reordered only if a single thread cannot tell;
+- the JIT does not introduce new reads but may merge adjacent reads of one field — hence the hanging `while (!_flag)`;
+- speculative writes are not allowed;
+- storing an object reference to shared memory is a release for its fields, so a published object is seen fully constructed;
+- reads through a reference do not get ahead of reading the reference itself.
+
+**Cost**
+
+- On x64, volatile reads and writes are plain instructions: the CPU (a TSO model) reorders only a write with a later read.
+- ARM64 has a weaker model, and volatile operations need instructions with barrier semantics.
+- `Interlocked` on a shared cache line is expensive: the line bounces between cores, and a hot shared counter scales poorly.
+
+**Trade-offs**
+
+- "Write my flag, check the other one" schemes need `Interlocked` or `Interlocked.MemoryBarrier`: acquire/release does not forbid that reordering.
+- A hot counter is better sharded: one per thread or core, summed on read.
+- False sharing: independent hot fields on one cache line slow each other down.
+- Double-checked locking is correct in .NET, but `Lazy<T>` and `LazyInitializer` read more simply.
+
+**How to check in production**
+
+- Code that is stable on x64 gets stress-tested on ARM64 (Graviton, Apple Silicon).
+- Counter scalability is measured in BenchmarkDotNet with different thread counts.
+
+**Takeaway:** correct code relies on the guarantees of the memory model, not on how x64 behaves.
+
+</A>
+
+<Ex>
+
+```csharp
+public sealed class Stats
+{
+    private long _requests;          // counter: only via Interlocked
+    private int _maxLatencyMs;       // maximum: CAS loop
+    private volatile bool _stopped;  // flag: volatile is enough
+
+    public void Record(int latencyMs)
+    {
+        Interlocked.Increment(ref _requests);
+
+        int current = Volatile.Read(ref _maxLatencyMs);
+        while (latencyMs > current)
+        {
+            // write only if nobody changed the value since we read it
+            int seen = Interlocked.CompareExchange(ref _maxLatencyMs, latencyMs, current);
+            if (seen == current) break;
+            current = seen; // someone beat us — try again
+        }
+    }
+
+    public long Requests => Interlocked.Read(ref _requests); // atomic even on 32-bit
+    public void Stop() => _stopped = true;
+    public bool IsStopped => _stopped;
+}
+```
+
+</Ex>
+
+<Next>
+
+- Why doesn't `volatile` make `x++` safe? — It is three operations; volatile orders each of them but does not merge them into one atomic step.
+- Does a field accessed only under `lock` need `volatile`? — No: entering and exiting the lock already order the accesses.
+- What is the ABA problem? — CAS sees the old value even though it was changed and changed back in between; it is real for counters and indexes.
+- Why does code that worked on x64 break on ARM64? — ARM has a weaker memory model: reorderings that x64 never does become visible.
+- What is false sharing? — Independent hot fields on one cache line: cores keep taking the line from each other.
+
+</Next>
+
+<Src>
+
+- [volatile — C# reference](https://learn.microsoft.com/dotnet/csharp/language-reference/keywords/volatile)
+- [Interlocked](https://learn.microsoft.com/dotnet/api/system.threading.interlocked)
+- [.NET memory model](https://github.com/dotnet/runtime/blob/main/docs/design/specs/Memory-model.md)
+
+</Src>
+
+</Q>
+
+<Q id="dotnet.threading.channels" level="s">
+
+## How do you build producer-consumer: `BlockingCollection` or `System.Threading.Channels`?
+
+<A short l="j">
+
+<T k="producer-consumer">Producer-consumer</T> is a pattern where some threads put work into a queue and others take it out and process it. .NET has <T k="blocking-collection">`BlockingCollection<T>`</T>, which blocks a thread while waiting, and <T k="channels">channels</T> (`Channel<T>`), which wait through `await`, so new code uses channels.
+
+</A>
+
+<A short l="m">
+
+`BlockingCollection<T>` is a synchronous bounded queue, and `Channel<T>` is its async counterpart. `Add` and `Take` block the thread when the queue is full or empty, while `WriteAsync` and `ReadAllAsync` free it until space or data appears. A bounded channel (`CreateBounded`) gives you <T k="backpressure">backpressure</T>: a fast producer waits instead of bloating memory.
+
+</A>
+
+<A short l="s">
+
+Producer-consumer is above all a decision about the queue bound: with a slow consumer, an unbounded queue turns latency into memory growth. A bounded channel pushes pressure back to the producer, which waits (`Wait`) or drops items (`DropOldest`, `DropNewest`, `DropWrite`); its async methods return `ValueTask` and hold no threads. `BlockingCollection` keeps pool threads blocked and fits poorly with async code, so it remains for dedicated threads in synchronous code.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **Producer** — creates work.
+- **Consumer** — processes it.
+- In between there is a thread-safe queue.
+
+**Why**
+
+To decouple fast intake from slow processing. For example, accept messages immediately and write them to the database at its own pace.
+
+**How to use**
+
+1. Create a channel: `var channel = Channel.CreateBounded<int>(100);` — at most 100 items.
+2. The producer writes with `await channel.Writer.WriteAsync(item)` and calls `channel.Writer.Complete()` at the end.
+3. The consumer reads with `await foreach (var item in channel.Reader.ReadAllAsync())`.
+
+**Common mistake**
+
+Forgetting `Complete()`. The consumer then waits for new items forever.
+
+**Takeaway:** channels are the standard async queue between producers and consumers.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- `CreateUnbounded` — a write always completes immediately, memory is unbounded.
+- `CreateBounded` — when the channel is full, the `FullMode` from `BoundedChannelOptions` kicks in.
+- Channels support multiple producers and consumers. Consumers using `ReadAllAsync` split the items between them.
+- `BlockingCollection<T>` is a synchronous wrapper over `ConcurrentQueue<T>` (by default): `Add`, `Take`, `CompleteAdding`, `GetConsumingEnumerable`.
+
+**When to choose what**
+
+| `FullMode` | What happens when the channel is full |
+|---|---|
+| `Wait` (default) | `WriteAsync` waits for space, `TryWrite` returns `false` |
+| `DropOldest` | the oldest item in the queue is dropped |
+| `DropNewest` | the newest item in the queue is dropped |
+| `DropWrite` | the item being written is dropped |
+
+**Pitfalls**
+
+- With several producers, call `Complete()` only when all of them are done.
+- `ReadAsync` on a completed channel throws `ChannelClosedException`, while `ReadAllAsync` simply ends the enumeration.
+- Do not lose errors: `Writer.TryComplete(ex)` stops writing and passes the exception to `Reader.Completion`.
+
+**Rule of thumb**
+
+A channel is bounded by default; unbounded only if the source is bounded itself.
+
+**Takeaway:** a channel is an async queue with an explicit bound and a completion protocol.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- Channel async methods return `ValueTask`: if the operation completes synchronously, there is no allocation.
+- `SingleReader = true` and `SingleWriter = true` are promises that let the channel pick a faster implementation.
+- `AllowSynchronousContinuations = true` lets the reader's continuation run right inside the writer's `WriteAsync`.
+
+**Cost**
+
+- A waiting channel consumer does not occupy a thread. Every waiting `BlockingCollection.Take` holds a thread, and on the pool that quickly eats up free threads.
+- With a slow consumer, an unbounded channel turns latency into memory growth and then into an `OutOfMemoryException`.
+
+**Trade-offs**
+
+- `Wait` propagates the slowdown back up the pipeline — to the source, which stops reading the socket or the broker.
+- `DropOldest` suits telemetry and "latest value" data. Drop modes also have an `itemDropped` callback.
+- Synchronous continuations reduce context switches, but the writer unexpectedly runs reader code and waits for it.
+- For graphs with branching and built-in parallelism limits there is TPL Dataflow; channels are a lower-level building block.
+
+**How to check in production**
+
+- Queue length is the main signal: `Reader.Count`, when `Reader.CanCount` is `true`.
+- Growing `WriteAsync` time means the system is bound by the consumer.
+- `Reader.Completion` finishing with an exception in the logs shows that the pipeline stopped on an error.
+
+**Takeaway:** the key decision in producer-consumer is the queue bound and what happens when you hit it.
+
+</A>
+
+<Ex>
+
+```csharp
+using System.Threading.Channels;
+
+// At most 100 items; when full, the producer waits (backpressure)
+var channel = Channel.CreateBounded<int>(
+    new BoundedChannelOptions(100) { FullMode = BoundedChannelFullMode.Wait });
+
+var producer = Task.Run(async () =>
+{
+    try
+    {
+        for (int i = 0; i < 1_000; i++)
+            await channel.Writer.WriteAsync(i); // waits if the queue is full
+        channel.Writer.Complete();
+    }
+    catch (Exception ex) { channel.Writer.TryComplete(ex); } // the error reaches consumers
+});
+
+// Three consumers split the items between them
+var consumers = Enumerable.Range(0, 3).Select(_ => Task.Run(async () =>
+{
+    await foreach (int item in channel.Reader.ReadAllAsync())
+        await Task.Delay(1); // slow processing
+})).ToArray();
+
+await Task.WhenAll(consumers.Append(producer));
+```
+
+</Ex>
+
+<Next>
+
+- What happens to an unbounded channel if the consumer is slower than the producer? — The queue grows without limit: memory, latency and eventually OOM.
+- How does `DropOldest` differ from `DropWrite`? — The first drops the oldest item in the queue, the second drops the item being written.
+- How do you stop a pipeline on an error? — `Writer.TryComplete(ex)`: writing stops, and `Reader.Completion` completes with that exception.
+- When is `BlockingCollection` still appropriate? — In synchronous code with dedicated consumer threads, where blocking a thread does no harm.
+- What does `SingleReader = true` give you? — A promise that there is one reader, so the channel can pick a faster implementation.
+
+</Next>
+
+<Src>
+
+- [Channels](https://learn.microsoft.com/dotnet/core/extensions/channels)
+- [BlockingCollection overview](https://learn.microsoft.com/dotnet/standard/collections/thread-safe/blockingcollection-overview)
+- [An introduction to System.Threading.Channels](https://devblogs.microsoft.com/dotnet/an-introduction-to-system-threading-channels/)
+
+</Src>
+
+</Q>
+
+<Q id="dotnet.threading.thread-pool-starvation" level="s">
+
+## What is thread pool starvation, and how do you diagnose it?
+
+<A short l="j">
+
+<T k="thread-pool-starvation">Thread pool starvation</T> is when all pool threads are busy (usually just waiting), and new work has nowhere to run. The app responds slower and slower while the CPU is almost idle, and the usual culprit is <T k="sync-over-async">sync-over-async</T>: `.Result` or `.Wait()` on an async operation.
+
+</A>
+
+<A short l="m">
+
+Starvation is a shortage of free pool threads while the work queue keeps growing. Above the minimum (by default the processor count) the pool adds threads gradually, so under load the queue grows faster than the pool can keep up. The signs are slowly rising thread count, a long queue and low CPU, and the fix is moving blocking code to `await`, not adding threads.
+
+</A>
+
+<A short l="s">
+
+Pool starvation is when work sits in the queue not for lack of CPU but because threads are blocked. The pool grows slowly: <T k="hill-climbing">hill climbing</T> tunes the thread count by throughput, and since .NET 6 blocking on `Task.Wait` is compensated faster. That compensation costs hundreds of threads, so `SetMinThreads` is only a band-aid, and the real fix is removing sync-over-async. To diagnose, `dotnet-counters` gives the picture, `dotnet-stack` or a dump the persistent cause, and `dotnet-trace` with WaitHandleWait (.NET 9+) the intermittent one.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+All pool threads are busy waiting, and new requests sit in the queue.
+
+**What it looks like**
+
+Under load the service responds in seconds instead of milliseconds. Meanwhile the CPU is barely loaded.
+
+**Why it happens**
+
+1. A request runs on a pool thread.
+2. The code calls `httpClient.GetStringAsync(url).Result` — the thread stops and waits for the response.
+3. Under load, every pool thread ends up stuck like this.
+4. New requests wait in the queue while the pool slowly adds threads.
+
+**Common mistake**
+
+Treating the symptom: raising the minimum thread count instead of removing the blocking.
+
+**Takeaway:** in code that runs on the pool, `await` all the way up, no `.Result` and no `.Wait()`.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+1. Up to the minimum (`ThreadPool.GetMinThreads`, by default the processor count) the pool creates threads immediately.
+2. Above it — with a delay. In Microsoft's walkthrough the thread count quickly reaches 2–3 per core and then grows by 1–2 per second.
+3. While threads are short, the queue and the latency of every request grow.
+
+**When to choose what**
+
+| Cause | Fix |
+|---|---|
+| `.Result`, `.Wait()` on async code | `await` along the whole chain |
+| Synchronous I/O | async APIs (`ReadAsync`, `SaveChangesAsync`) |
+| A third-party blocking API | a dedicated thread or `LongRunning`, with limited parallelism |
+| Surviving a spike before the fix | `SetMinThreads`, temporarily |
+
+**Pitfalls**
+
+- The thread count has settled high — more than about three per core. That means code blocks threads and the pool compensates; on a spike or a restart, starvation comes back.
+- `Thread.Sleep` and a long `lock` in code on the pool also eat threads.
+
+**Rule of thumb**
+
+Starvation signs in `dotnet-counters`: the pool thread count rises slowly, the queue is long, little work completes, and CPU is well below 100%.
+
+**Takeaway:** you fix starvation by removing blocking, not by adding threads.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- Hill climbing periodically changes the number of active threads and checks whether throughput — completed work items per second — went up.
+- A separate mechanism adds a thread when there is a queue but no progress. Both show up in `ThreadPoolWorkerThreadAdjustment` events with reasons such as Climbing move and Starvation.
+- Since .NET 6 the pool adds threads right away when a pool thread blocks waiting for a task. Without delay — up to `ThreadsToAddWithoutDelay_ProcCountFactor` times the processor count, then with a growing delay.
+- That mechanism covers only waiting for tasks (`Task.Wait`, `.Result`), not `lock`, synchronous I/O or `Thread.Sleep`.
+
+**Cost**
+
+- Compensation means hundreds of threads: stack memory, context switches, longer stack walks during garbage collection.
+- A large `SetMinThreads` pays the same overhead all the time, not only during a spike.
+
+**Trade-offs**
+
+The `System.Threading.ThreadPool.Blocking.*` and `MinThreads` settings buy time until the code is fixed. The real fix is async all the way down the stack and dedicated threads for unavoidable blocking.
+
+**How to check in production**
+
+1. `dotnet-counters monitor -n MyApp`. In .NET 9+ these are the `dotnet.thread_pool.thread.count`, `dotnet.thread_pool.queue.length` and `dotnet.thread_pool.work_item.count` metrics; earlier — ThreadPool Thread Count, ThreadPool Queue Length and ThreadPool Completed Work Item Count.
+2. A persistent problem: `dotnet-stack report -n MyApp` or a dump with `parallelstacks`. Look for threads with `WorkerThread` at the bottom of the stack and `Task.Wait` or `GetResult` at the top.
+3. An intermittent problem: `dotnet-trace collect -n MyApp --clrevents waithandle --clreventlevel verbose` (.NET 9+), then the WaitHandleWait stacks in PerfView.
+
+**Takeaway:** counters show starvation, and the stacks of blocked pool threads show its cause.
+
+</A>
+
+<Ex>
+
+```csharp
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddHttpClient();
+var app = builder.Build();
+
+// Bad: sync-over-async — a pool thread is stuck for the whole request
+app.MapGet("/bad", (IHttpClientFactory f) =>
+    f.CreateClient().GetStringAsync("https://example.com").Result.Length);
+
+// Good: while waiting, the thread goes back to the pool
+app.MapGet("/good", async (IHttpClientFactory f) =>
+    (await f.CreateClient().GetStringAsync("https://example.com")).Length);
+
+app.Run();
+```
+
+Under load `/bad` holds one thread per request and the pool thread count keeps growing; `/good` gets by with a handful of threads.
+
+</Ex>
+
+<Next>
+
+- Why is CPU low while requests are slow? — Threads are not computing but waiting; the work sits in the pool queue.
+- Will `ThreadPool.SetMinThreads(500, 500)` help? — It hides the symptom during spikes but adds memory and context switches; the blocking code stays.
+- What changed in .NET 6? — The pool adds threads faster when a thread blocks on `Task.Wait` or `.Result`; starvation is shorter but does not go away.
+- How do you tell starvation from a deadlock? — With starvation the thread count grows and work moves slowly; with a deadlock threads sit on the same locks and there is no progress at all.
+- How does `TaskCreationOptions.LongRunning` help? — Long blocking work gets a dedicated thread and does not tie up the pool.
+
+</Next>
+
+<Src>
+
+- [Debug ThreadPool starvation](https://learn.microsoft.com/dotnet/core/diagnostics/debug-threadpool-starvation)
+- [Threading config settings](https://learn.microsoft.com/dotnet/core/runtime-config/threading)
+- [ThreadPool.SetMinThreads](https://learn.microsoft.com/dotnet/api/system.threading.threadpool.setminthreads)
+
+</Src>
+
+</Q>

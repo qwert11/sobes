@@ -1,0 +1,186 @@
+task:
+  term: Task
+  def: >-
+    An object that describes asynchronous work and its future result. By default a task's delegate runs on the thread pool, and a task from async I/O may not occupy a thread at all.
+  q: Task .NET TPL
+  docs: https://learn.microsoft.com/dotnet/standard/parallel-programming/task-based-asynchronous-programming
+thread-pool:
+  term: Thread pool
+  def: >-
+    A set of background threads that the CLR creates on demand and reuses for short work items. Task.Run, async method continuations and timer callbacks run here.
+  q: thread pool .NET
+  docs: https://learn.microsoft.com/dotnet/standard/threading/the-managed-thread-pool
+background-thread:
+  term: Foreground and background threads
+  def: >-
+    A process does not exit while at least one foreground thread is running, while background threads stop together with it. Pool threads are background threads; new Thread is foreground by default.
+  q: foreground background thread .NET
+  docs: https://learn.microsoft.com/dotnet/standard/threading/foreground-and-background-threads
+work-stealing:
+  term: Work stealing
+  def: >-
+    A scheduling technique where an idle thread takes work from another thread's local queue. This is how the thread pool balances load without a single point of contention.
+  q: work stealing thread pool .NET
+  docs: https://learn.microsoft.com/dotnet/api/system.threading.tasks.taskscheduler
+race-condition:
+  term: Race condition
+  def: >-
+    A bug where the program's result depends on the order in which threads access shared data. The classic example is a lost increment when two threads run count++.
+  q: race condition C#
+  docs: https://learn.microsoft.com/dotnet/standard/threading/managed-threading-best-practices
+deadlock:
+  term: Deadlock
+  def: >-
+    A situation where threads wait for each other forever: each holds a resource the other needs. The typical cause is taking the same locks in different orders.
+  q: deadlock C#
+  docs: https://learn.microsoft.com/dotnet/core/diagnostics/debug-deadlock
+critical-section:
+  term: Critical section
+  def: >-
+    A piece of code that works with shared data and therefore must be run by at most one thread at a time. In C# it is usually guarded with the lock statement.
+  q: critical section lock C#
+atomic-operation:
+  term: Atomic operation
+  def: >-
+    An operation that happens all at once: other threads see either the state before it or after it, never in between. In .NET, reads and writes of aligned values up to pointer size and Interlocked methods are atomic.
+  q: atomic operation .NET
+monitor:
+  term: Monitor
+  def: >-
+    The .NET class for mutual exclusion on any reference-type object. The lock statement on an ordinary object compiles to Monitor.Enter and Monitor.Exit in try/finally.
+  q: System.Threading.Monitor
+  docs: https://learn.microsoft.com/dotnet/api/system.threading.monitor
+lock-type:
+  term: System.Threading.Lock
+  def: >-
+    A dedicated lock type introduced in .NET 9. When the expression in a lock statement has this type, C# 13 and later emit a call to EnterScope instead of Monitor.
+  q: System.Threading.Lock .NET 9
+  docs: https://learn.microsoft.com/dotnet/api/system.threading.lock
+reentrant-lock:
+  term: Reentrant lock
+  def: >-
+    A lock that the owning thread can enter again without waiting for itself; it has to exit the same number of times. Monitor and Lock are reentrant, SemaphoreSlim is not.
+  q: reentrant lock C#
+sync-block:
+  term: Sync block
+  def: >-
+    An internal CLR structure that a Monitor's state moves to when the lock on an object becomes contended. You can see owners and waiters with the syncblk command in a dump.
+  q: sync block CLR object header
+  docs: https://learn.microsoft.com/dotnet/core/diagnostics/debug-deadlock
+mutex:
+  term: Mutex
+  def: >-
+    A mutual exclusion primitive backed by an OS kernel object. It is slower than lock, but a named Mutex is visible to other processes.
+  q: System.Threading.Mutex
+  docs: https://learn.microsoft.com/dotnet/api/system.threading.mutex
+semaphore-slim:
+  term: SemaphoreSlim
+  def: >-
+    A lightweight in-process semaphore that lets at most N participants in at once. It can wait asynchronously with WaitAsync and has no owner.
+  q: SemaphoreSlim WaitAsync
+  docs: https://learn.microsoft.com/dotnet/api/system.threading.semaphoreslim
+reader-writer-lock:
+  term: ReaderWriterLockSlim
+  def: >-
+    A lock that admits many readers at once or a single writer. It is thread-affine and does not support recursion by default.
+  q: ReaderWriterLockSlim
+  docs: https://learn.microsoft.com/dotnet/api/system.threading.readerwriterlockslim
+thread-affinity:
+  term: Thread affinity
+  def: >-
+    The property of a primitive that must be released by the same thread that acquired it. Monitor, Lock, Mutex and ReaderWriterLockSlim have it, so they cannot be held across await.
+  q: thread affinity synchronization .NET
+  docs: https://learn.microsoft.com/dotnet/standard/threading/overview-of-synchronization-primitives
+concurrent-collections:
+  term: Concurrent collections
+  def: >-
+    Thread-safe collections from System.Collections.Concurrent: ConcurrentDictionary, ConcurrentQueue, ConcurrentStack, ConcurrentBag and BlockingCollection.
+  q: System.Collections.Concurrent
+  docs: https://learn.microsoft.com/dotnet/standard/collections/thread-safe/
+fine-grained-locking:
+  term: Fine-grained locking
+  def: >-
+    A technique where a structure is protected not by one lock but by several, each guarding its own part of the data. Threads working with different parts do not get in each other's way.
+  q: fine-grained locking
+lock-free:
+  term: Lock-free
+  def: >-
+    An algorithm that uses no locks and is built on atomic operations such as CompareExchange. At least one thread always makes progress, even if others are suspended.
+  q: lock-free algorithm
+interlocked:
+  term: Interlocked
+  def: >-
+    A static class of atomic operations on variables: Increment, Add, Exchange, CompareExchange and more. Every operation is also a full memory barrier.
+  q: System.Threading.Interlocked
+  docs: https://learn.microsoft.com/dotnet/api/system.threading.interlocked
+volatile:
+  term: volatile
+  def: >-
+    A C# field modifier: every access to the field becomes a volatile read or write with acquire/release ordering. It does not make compound operations atomic.
+  q: C# volatile keyword
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/keywords/volatile
+compare-and-swap:
+  term: Compare-and-swap (CAS)
+  def: >-
+    An atomic operation that writes a new value only if the current value equals the expected one. In .NET it is Interlocked.CompareExchange, and lock-free algorithms are built on it.
+  q: compare and swap Interlocked.CompareExchange
+  docs: https://learn.microsoft.com/dotnet/api/system.threading.interlocked.compareexchange
+memory-barrier:
+  term: Memory barrier
+  def: >-
+    An instruction that stops the compiler and the CPU from moving memory accesses across it. In .NET, Interlocked and Thread.MemoryBarrier provide a full barrier.
+  q: memory barrier .NET
+  docs: https://learn.microsoft.com/dotnet/api/system.threading.interlocked.memorybarrier
+memory-model:
+  term: .NET memory model
+  def: >-
+    The rules for which reorderings of reads and writes the compiler, JIT and CPU may perform, and what other threads observe. It is described in the Memory-model.md spec in the dotnet/runtime repository.
+  q: .NET memory model
+  docs: https://github.com/dotnet/runtime/blob/main/docs/design/specs/Memory-model.md
+acquire-release:
+  term: Acquire/release semantics
+  def: >-
+    Ordering for a pair of operations: after an acquire read, later accesses do not run before it, and before a release write, earlier accesses are not delayed past it. Volatile.Read and Volatile.Write work this way.
+  q: acquire release semantics
+  docs: https://learn.microsoft.com/dotnet/api/system.threading.volatile
+producer-consumer:
+  term: Producer-consumer
+  def: >-
+    A pattern where some threads put work into a shared queue and others take it out and process it. The queue decouples the pace of production from the pace of processing.
+  q: producer consumer pattern .NET
+blocking-collection:
+  term: BlockingCollection
+  def: >-
+    A synchronous thread-safe queue with an optional capacity: Add and Take block the thread when the queue is full or empty. It wraps a ConcurrentQueue by default.
+  q: BlockingCollection .NET
+  docs: https://learn.microsoft.com/dotnet/standard/collections/thread-safe/blockingcollection-overview
+channels:
+  term: Channels (System.Threading.Channels)
+  def: >-
+    Async producer-consumer queues: writing and reading wait through await and do not block threads. Channels can be bounded or unbounded.
+  q: System.Threading.Channels
+  docs: https://learn.microsoft.com/dotnet/core/extensions/channels
+backpressure:
+  term: Backpressure
+  def: >-
+    A mechanism where an overloaded consumer slows the producer down instead of piling work up in memory. With channels, a bounded channel in Wait mode provides it.
+  q: backpressure channels .NET
+  docs: https://learn.microsoft.com/dotnet/core/extensions/channels
+thread-pool-starvation:
+  term: Thread pool starvation
+  def: >-
+    A state where the pool has no free threads for new work because the existing ones are blocked. It shows up as growing latency with low CPU usage.
+  q: thread pool starvation .NET
+  docs: https://learn.microsoft.com/dotnet/core/diagnostics/debug-threadpool-starvation
+sync-over-async:
+  term: Sync-over-async
+  def: >-
+    Waiting synchronously for an async operation via .Result, .Wait() or GetAwaiter().GetResult(). It blocks a thread for the whole operation and is the most common cause of thread pool starvation.
+  q: sync over async .NET
+  docs: https://devblogs.microsoft.com/pfxteam/should-i-expose-synchronous-wrappers-for-asynchronous-methods/
+hill-climbing:
+  term: Hill climbing (thread injection algorithm)
+  def: >-
+    A .NET thread pool heuristic that varies the number of worker threads and keeps the count with higher throughput. It works gradually, so it does not make up for a sudden shortage of threads.
+  q: .NET thread pool hill climbing
+  docs: https://learn.microsoft.com/dotnet/framework/performance/thread-pool-etw-events

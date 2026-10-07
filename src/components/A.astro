@@ -1,0 +1,32 @@
+---
+// Ответ одного уровня. <A short l="j"> — короткий, <A l="j"> — развёрнутый (свёрнут в <details>).
+import { LEVEL_NAMES, langOf, ui, type Level } from '../lib/ui';
+
+interface Props {
+  l: Level;
+  short?: boolean;
+}
+
+const { l, short = false } = Astro.props;
+const t = ui(langOf(Astro.locals));
+---
+
+{
+  short ? (
+    <div class="ans ans-short" data-l={l}>
+      <span class="ans-tag not-content">
+        {t.short} · <b>{LEVEL_NAMES[l]}</b>
+      </span>
+      <slot />
+    </div>
+  ) : (
+    <details class="ans ans-long" data-l={l}>
+      <summary>
+        {t.long} · <b>{LEVEL_NAMES[l]}</b>
+      </summary>
+      <div class="ans-body">
+        <slot />
+      </div>
+    </details>
+  )
+}

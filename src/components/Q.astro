@@ -1,0 +1,33 @@
+---
+// Карточка вопроса. Внутри: заголовок ## с текстом вопроса, блоки <A>, <Ex>, <Next>, <Src>.
+import { LEVEL_NAMES, langOf, ui, type Level } from '../lib/ui';
+
+interface Props {
+  /** Уникальный id вопроса, одинаковый во всех языках: `<категория>.<тема>.<слаг>`. */
+  id: string;
+  /** С какого уровня этот вопрос обычно задают. */
+  level: Level;
+}
+
+const { id, level } = Astro.props;
+const t = ui(langOf(Astro.locals));
+---
+
+<section class="q" data-qid={id}>
+  <div class="q-meta not-content">
+    <span class="q-badge" data-l={level} title={`${t.askedFrom} ${LEVEL_NAMES[level]}`}>
+      {LEVEL_NAMES[level]}+
+    </span>
+  </div>
+  <slot />
+  <div class="q-foot not-content">
+    <button type="button" class="q-reveal">
+      <span class="r-show">{t.reveal}</span><span class="r-hide">{t.conceal}</span>
+    </button>
+    <div class="q-check" role="group" aria-label={t.selfCheck}>
+      <button type="button" data-s="k" aria-pressed="false">{t.know}</button>
+      <button type="button" data-s="u" aria-pressed="false">{t.shaky}</button>
+      <button type="button" data-s="n" aria-pressed="false">{t.dunno}</button>
+    </div>
+  </div>
+</section>

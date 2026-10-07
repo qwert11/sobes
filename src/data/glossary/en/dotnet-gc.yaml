@@ -1,0 +1,158 @@
+garbage-collector:
+  term: Garbage collector (GC)
+  def: >-
+    The part of the CLR that allocates memory on the managed heap and automatically frees memory of objects unreachable from roots. In .NET it is a generational, compacting tracing collector.
+  q: .NET garbage collector
+  docs: https://learn.microsoft.com/dotnet/standard/garbage-collection/fundamentals
+  wiki: Garbage collection (computer science)
+gc-root:
+  term: GC root
+  def: >-
+    A reference the GC starts traversing the object graph from: a thread local or register, a static field, a GC handle, a finalization queue entry. Anything unreachable from roots is garbage.
+  q: GC roots .NET
+  docs: https://learn.microsoft.com/dotnet/standard/garbage-collection/fundamentals
+compaction:
+  term: Heap compaction
+  def: >-
+    A GC phase that slides surviving objects next to each other and updates every reference to them. It removes fragmentation but costs more than just putting dead space on a free list (sweeping).
+  q: .NET GC compaction
+  docs: https://learn.microsoft.com/dotnet/standard/garbage-collection/fundamentals
+idisposable:
+  term: IDisposable
+  def: >-
+    An interface with a single `Dispose` method for deterministic release of resources: files, sockets, connections, unmanaged memory. Called explicitly or through `using`.
+  q: IDisposable C#
+  docs: https://learn.microsoft.com/dotnet/api/system.idisposable
+unmanaged-resource:
+  term: Unmanaged resource
+  def: >-
+    A resource outside the managed heap that the GC knows nothing about: a file or window handle, a socket, native memory. It must be released explicitly — through `Dispose` or `SafeHandle`.
+  q: .NET unmanaged resources cleanup
+  docs: https://learn.microsoft.com/dotnet/standard/garbage-collection/unmanaged
+using-declaration:
+  term: Using declaration
+  def: >-
+    The `using var x = ...;` form without braces (C# 8): `Dispose` is called at the end of the scope where the variable is declared. Several declarations are disposed in reverse order.
+  q: C# using declaration
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/statements/using
+iasyncdisposable:
+  term: IAsyncDisposable
+  def: >-
+    An interface with a `DisposeAsync` method returning `ValueTask`, for asynchronous cleanup such as flushing a buffer or closing a connection. Used through `await using` (C# 8, .NET Core 3.0).
+  q: IAsyncDisposable await using
+  docs: https://learn.microsoft.com/dotnet/api/system.iasyncdisposable
+gc-generation:
+  term: GC generation
+  def: >-
+    A logical part of the managed heap by object age: 0 is new objects, 1 is objects that survived one GC, 2 is long-lived ones. Young generations are collected often and fast; a generation 2 GC is a full GC.
+  q: .NET GC generations
+  docs: https://learn.microsoft.com/dotnet/standard/garbage-collection/fundamentals
+loh:
+  term: LOH (large object heap)
+  def: >-
+    The heap for objects of 85,000 bytes or more, usually large arrays. It is collected only with generation 2 and isn't compacted by default, so it tends to fragment.
+  q: .NET large object heap
+  docs: https://learn.microsoft.com/dotnet/standard/garbage-collection/large-object-heap
+poh:
+  term: POH (pinned object heap)
+  def: >-
+    The heap for objects that must not move (.NET 5+). An array is allocated there with `GC.AllocateArray` and `pinned: true`; it is collected with generation 2 and never compacted.
+  q: .NET pinned object heap
+  docs: https://devblogs.microsoft.com/dotnet/internals-of-the-poh/
+pinning:
+  term: Pinning
+  def: >-
+    Preventing the GC from moving an object so its address can be passed to native code: `fixed`, a `GCHandle` of type `Pinned`, or allocation on the POH. Pinned objects get in the way of compaction and fragment the heap.
+  q: .NET pinning GCHandle fixed
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/statements/fixed
+card-table:
+  term: Card table
+  def: >-
+    A bitmap of memory ranges in older generations that had references stored into them. The write barrier fills it on every reference store, and a young-generation GC scans only the marked ranges.
+  q: .NET GC card table write barrier
+finalizer:
+  term: Finalizer
+  def: >-
+    A `~ClassName()` method the GC calls before reclaiming the memory of an unreachable object. It runs non-deterministically and serves as a safety net for unmanaged resources.
+  q: C# finalizer
+  docs: https://learn.microsoft.com/dotnet/csharp/programming-guide/classes-and-structs/finalizers
+finalization-queue:
+  term: Finalization queue
+  def: >-
+    An internal CLR list of objects that have a finalizer. Unreachable objects move from it to the f-reachable queue, the finalizer thread runs their finalizers, and the memory is freed at the next GC.
+  q: .NET finalization queue freachable
+  docs: https://learn.microsoft.com/dotnet/api/system.object.finalize
+dispose-pattern:
+  term: Dispose pattern
+  def: >-
+    The standard resource-release scheme: `Dispose()` calls `Dispose(true)` and `GC.SuppressFinalize`, the finalizer calls `Dispose(false)`, and `protected virtual void Dispose(bool)` releases managed resources only when given `true`.
+  q: .NET dispose pattern
+  docs: https://learn.microsoft.com/dotnet/standard/design-guidelines/dispose-pattern
+safehandle:
+  term: SafeHandle
+  def: >-
+    An abstract wrapper over an OS handle with a critical finalizer. It guarantees the handle is released exactly once and can't be closed during a P/Invoke call.
+  q: SafeHandle .NET
+  docs: https://learn.microsoft.com/dotnet/api/system.runtime.interopservices.safehandle
+memory-leak:
+  term: Memory leak
+  def: >-
+    Growing memory use caused by objects that are no longer needed but stay reachable, or by unreleased unmanaged resources. In .NET it is usually forgotten event subscriptions, static collections and unbounded caches.
+  q: .NET memory leak
+  docs: https://learn.microsoft.com/dotnet/core/diagnostics/debug-memory-leak
+  wiki: Memory leak
+closure:
+  term: Closure
+  def: >-
+    A lambda or local function together with the variables it captures from the enclosing scope. The compiler moves captured variables into fields of a generated class, and they live as long as the delegate does.
+  q: C# closure captured variables
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/operators/lambda-expressions
+  wiki: Closure (computer programming)
+dotnet-counters:
+  term: dotnet-counters
+  def: >-
+    A CLI tool for watching metrics of a running .NET process in real time: heap size, GC counts, GC pauses, thread pool, exceptions.
+  q: dotnet-counters
+  docs: https://learn.microsoft.com/dotnet/core/diagnostics/dotnet-counters
+dotnet-gcdump:
+  term: dotnet-gcdump
+  def: >-
+    A CLI tool that captures the managed heap's object graph from a live process via EventPipe. It triggers a full GC to do so; `.gcdump` files open in Visual Studio or PerfView.
+  q: dotnet-gcdump
+  docs: https://learn.microsoft.com/dotnet/core/diagnostics/dotnet-gcdump
+dotnet-dump:
+  term: dotnet-dump
+  def: >-
+    A CLI tool for collecting and analyzing a full memory dump of a .NET process. The `analyze` command opens the dump with SOS commands: `dumpheap`, `gcroot`, `finalizequeue`.
+  q: dotnet-dump
+  docs: https://learn.microsoft.com/dotnet/core/diagnostics/dotnet-dump
+workstation-gc:
+  term: Workstation GC
+  def: >-
+    A GC mode with a single heap where the collection runs on the thread that triggered it. The default for console and desktop apps.
+  q: .NET workstation garbage collection
+  docs: https://learn.microsoft.com/dotnet/standard/garbage-collection/workstation-server-gc
+server-gc:
+  term: Server GC
+  def: >-
+    A GC mode with a separate heap and a dedicated GC thread per logical processor. It gives more throughput at the cost of memory and is the default in ASP.NET Core.
+  q: .NET server garbage collection
+  docs: https://learn.microsoft.com/dotnet/standard/garbage-collection/workstation-server-gc
+background-gc:
+  term: Background GC
+  def: >-
+    A generation 2 collection on a dedicated thread that runs concurrently with the app; ephemeral GCs still happen as usual in the meantime. On by default.
+  q: .NET background garbage collection
+  docs: https://learn.microsoft.com/dotnet/standard/garbage-collection/background-gc
+datas:
+  term: DATAS (dynamic adaptation to application sizes)
+  def: >-
+    A Server GC mode that adjusts the number of heaps and the generation 0 budget so the heap size matches the amount of live data. Introduced in .NET 8, on by default since .NET 9.
+  q: .NET GC DATAS
+  docs: https://learn.microsoft.com/dotnet/standard/garbage-collection/datas
+heap-hard-limit:
+  term: Heap hard limit (GCHeapHardLimit)
+  def: >-
+    The maximum amount of memory the GC heap may take. In a container with a memory limit it defaults to the larger of 20 MB and 75% of the limit; set it with `GCHeapHardLimit` or `GCHeapHardLimitPercent`.
+  q: GCHeapHardLimit
+  docs: https://learn.microsoft.com/dotnet/core/runtime-config/garbage-collector

@@ -1,0 +1,31 @@
+---
+import { baseUrl, langOf, localePrefix, ui } from '../lib/ui';
+
+const lang = langOf(Astro.locals);
+const t = ui(lang);
+const base = baseUrl();
+---
+
+<aside
+  class="tp not-content"
+  role="dialog"
+  aria-modal="false"
+  aria-labelledby="tp-title"
+  hidden
+  data-lang={lang}
+  data-json={`${base}data/glossary-${lang}.json`}
+  data-glossary={`${base}${localePrefix(lang)}glossary/`}
+  data-nodef={t.noDef}
+>
+  <div class="tp-head">
+    <strong id="tp-title"></strong>
+    <button type="button" class="tp-close" aria-label={t.close}>✕</button>
+  </div>
+  <p class="tp-def"></p>
+  <div class="tp-links">
+    <a class="tp-google" target="_blank" rel="noopener">{t.google}</a>
+    <a class="tp-docs" target="_blank" rel="noopener" hidden>{t.docs}</a>
+    <a class="tp-wiki" target="_blank" rel="noopener">{t.wiki}</a>
+    <a class="tp-gloss">{t.glossary}</a>
+  </div>
+</aside>

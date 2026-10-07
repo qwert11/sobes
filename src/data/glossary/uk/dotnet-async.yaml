@@ -1,0 +1,165 @@
+io-bound:
+  term: I/O-bound операція
+  def: >-
+    Операція, час якої йде на очікування введення-виведення — мережі, диска, бази даних, — а не на
+    роботу процесора. Її виконують асинхронно через `await`, не займаючи потік.
+  q: I/O-bound vs CPU-bound
+  docs: https://learn.microsoft.com/dotnet/csharp/asynchronous-programming/async-scenarios
+cpu-bound:
+  term: CPU-bound операція
+  def: >-
+    Операція, яка впирається в обчислення процесора. Пришвидшити її можна лише паралелізмом, а з
+    UI-потоку її виносять через `Task.Run`.
+  q: CPU-bound vs I/O-bound
+  docs: https://learn.microsoft.com/dotnet/csharp/asynchronous-programming/async-scenarios
+concurrency:
+  term: Конкурентність (concurrency)
+  def: >-
+    Кілька операцій перебувають у процесі виконання одночасно, але не обов'язково виконуються в один і
+    той самий момент. Паралелізм — окремий випадок, коли вони йдуть одночасно на різних ядрах.
+  q: concurrency vs parallelism
+async-void:
+  term: async void
+  def: >-
+    Асинхронний метод, який повертає `void` замість `Task`. Його не можна дочекатися, а необроблений
+    виняток іде в `SynchronizationContext` або в пул потоків і може завершити процес.
+  q: async void C# best practices
+  docs: https://learn.microsoft.com/dotnet/csharp/asynchronous-programming/async-return-types
+synchronization-context:
+  term: Контекст синхронізації (SynchronizationContext)
+  def: >-
+    Абстракція, яка планує виконання коду в потрібному середовищі, наприклад в UI-потоці. `await` за
+    замовчуванням повертає продовження методу в захоплений контекст.
+  q: SynchronizationContext .NET
+  docs: https://learn.microsoft.com/dotnet/api/system.threading.synchronizationcontext
+fire-and-forget:
+  term: Fire-and-forget («запустив і забув»)
+  def: >-
+    Запуск асинхронної операції без очікування її результату. Без явної обробки винятки з такої
+    операції губляться або завалюють процес.
+  q: fire and forget async C#
+state-machine:
+  term: Машина станів (state machine)
+  def: >-
+    Тип, який компілятор генерує з async-методу. Зберігає номер поточного кроку й локальні змінні, а
+    метод `MoveNext` продовжує виконання з місця останнього `await`.
+  q: async state machine C#
+  docs: https://learn.microsoft.com/dotnet/api/system.runtime.compilerservices.iasyncstatemachine
+awaiter:
+  term: Awaiter
+  def: >-
+    Об'єкт, який повертає `GetAwaiter()` і через який працює `await`. Надає `IsCompleted`,
+    `OnCompleted` і `GetResult`.
+  q: C# awaiter pattern GetAwaiter
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/operators/await
+continuation:
+  term: Продовження (continuation)
+  def: >-
+    Код, який виконується після завершення задачі. Для async-методу це решта методу після `await`.
+  q: task continuation .NET
+  docs: https://learn.microsoft.com/dotnet/standard/parallel-programming/chaining-tasks-by-using-continuation-tasks
+execution-context:
+  term: Контекст виконання (ExecutionContext)
+  def: >-
+    «Навколишні» дані потоку, наприклад значення `AsyncLocal<T>`, які переносяться через `await`,
+    `Task.Run` та інші асинхронні переходи. Тече завжди, незалежно від `ConfigureAwait`.
+  q: ExecutionContext AsyncLocal .NET
+  docs: https://learn.microsoft.com/dotnet/api/system.threading.executioncontext
+task-scheduler:
+  term: Планувальник задач (TaskScheduler)
+  def: >-
+    Об'єкт, який вирішує, де виконувати задачі. Стандартний планувальник — пул потоків, а
+    нестандартний планувальник `await` захоплює так само, як контекст синхронізації.
+  q: TaskScheduler .NET
+  docs: https://learn.microsoft.com/dotnet/api/system.threading.tasks.taskscheduler
+configure-await:
+  term: ConfigureAwait(false)
+  def: >-
+    Налаштування `await`, за якого продовження не повертається в захоплений `SynchronizationContext`
+    або `TaskScheduler`. Його використовують у бібліотеках загального призначення.
+  q: ConfigureAwait false
+  docs: https://learn.microsoft.com/dotnet/api/system.threading.tasks.task.configureawait
+configure-await-options:
+  term: ConfigureAwaitOptions
+  def: >-
+    Прапорці для `Task.ConfigureAwait` у .NET 8+: `ContinueOnCapturedContext`, `SuppressThrowing` і
+    `ForceYielding`.
+  q: ConfigureAwaitOptions .NET 8
+  docs: https://learn.microsoft.com/dotnet/api/system.threading.tasks.configureawaitoptions
+message-loop:
+  term: Черга повідомлень UI-потоку (message loop)
+  def: >-
+    Цикл, у якому UI-потік по черзі обробляє повідомлення: введення, перемальовування, делегати з
+    `SynchronizationContext.Post`. Поки UI-потік зайнятий, черга стоїть і інтерфейс не відповідає.
+  q: message loop UI thread
+  docs: https://learn.microsoft.com/windows/win32/winmsg/about-messages-and-message-queues
+aggregate-exception:
+  term: AggregateException
+  def: >-
+    Виняток-контейнер для кількох помилок. У нього обгортають винятки задачі `.Wait()` і `.Result`, а
+    `await` викидає вихідний виняток без обгортки.
+  docs: https://learn.microsoft.com/dotnet/api/system.aggregateexception
+cancellation-token:
+  term: Токен скасування (CancellationToken)
+  def: >-
+    Структура, через яку операція дізнається про запит скасування. Сам токен скасувати не можна —
+    лише перевірити `IsCancellationRequested` або підписатися через `Register`.
+  docs: https://learn.microsoft.com/dotnet/api/system.threading.cancellationtoken
+cancellation-token-source:
+  term: Джерело скасування (CancellationTokenSource)
+  def: >-
+    Об'єкт, який видає токени й скасовує їх викликом `Cancel` або за тайм-аутом через `CancelAfter`.
+    Реалізує `IDisposable`, після використання його звільняють.
+  docs: https://learn.microsoft.com/dotnet/api/system.threading.cancellationtokensource
+cooperative-cancellation:
+  term: Кооперативне скасування
+  def: >-
+    Модель скасування в .NET: ініціатор лише запитує скасування, а операція сама перевіряє токен і
+    вирішує, як зупинитися. Примусового переривання немає.
+  q: cooperative cancellation .NET
+  docs: https://learn.microsoft.com/dotnet/standard/threading/cancellation-in-managed-threads
+operation-canceled-exception:
+  term: OperationCanceledException
+  def: >-
+    Виняток, яким операція повідомляє про скасування. Async-метод, що завершився ним, отримує статус
+    `Canceled`; `TaskCanceledException` — його нащадок.
+  docs: https://learn.microsoft.com/dotnet/api/system.operationcanceledexception
+linked-token-source:
+  term: Пов'язане джерело скасування (linked token source)
+  def: >-
+    `CancellationTokenSource`, створений через `CreateLinkedTokenSource`: він скасовується разом із
+    будь-яким із батьківських токенів. Його обов'язково звільняють, інакше підписка на батьківський
+    токен залишається.
+  q: CreateLinkedTokenSource
+  docs: https://learn.microsoft.com/dotnet/api/system.threading.cancellationtokensource.createlinkedtokensource
+task-whenall:
+  term: Task.WhenAll
+  def: >-
+    Метод, який повертає задачу, що завершується після всіх переданих задач. Якщо якісь із них упали,
+    вона містить усі їхні винятки.
+  docs: https://learn.microsoft.com/dotnet/api/system.threading.tasks.task.whenall
+degree-of-parallelism:
+  term: Ступінь паралелізму (degree of parallelism)
+  def: >-
+    Максимальна кількість операцій, які виконуються одночасно. У `Parallel.ForEachAsync` її задають
+    через `ParallelOptions.MaxDegreeOfParallelism`.
+  q: MaxDegreeOfParallelism
+  docs: https://learn.microsoft.com/dotnet/api/system.threading.tasks.paralleloptions.maxdegreeofparallelism
+value-task:
+  term: ValueTask
+  def: >-
+    Структура, яка представляє результат асинхронної операції без обов'язкової алокації `Task`. Її
+    можна чекати лише один раз.
+  docs: https://learn.microsoft.com/dotnet/api/system.threading.tasks.valuetask-1
+value-task-source:
+  term: IValueTaskSource
+  def: >-
+    Інтерфейс перевикористовуваного об'єкта асинхронної операції, на якому `ValueTask` працює без
+    алокацій. Використовується у високопродуктивних API, наприклад у `Socket`.
+  docs: https://learn.microsoft.com/dotnet/api/system.threading.tasks.sources.ivaluetasksource-1
+hot-path:
+  term: Гарячий шлях (hot path)
+  def: >-
+    Ділянка коду, яка виконується дуже часто й помітно впливає на продуктивність. Лише на ній
+    виправдані мікрооптимізації на кшталт `ValueTask`.
+  q: hot path performance optimization

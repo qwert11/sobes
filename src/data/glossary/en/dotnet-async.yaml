@@ -1,0 +1,167 @@
+io-bound:
+  term: I/O-bound operation
+  def: >-
+    An operation whose time is spent waiting for input/output — network, disk, database — rather than
+    on CPU work. It is run asynchronously with `await` without occupying a thread.
+  q: I/O-bound vs CPU-bound
+  docs: https://learn.microsoft.com/dotnet/csharp/asynchronous-programming/async-scenarios
+cpu-bound:
+  term: CPU-bound operation
+  def: >-
+    An operation limited by processor computation. Only parallelism makes it faster, and it is moved
+    off the UI thread with `Task.Run`.
+  q: CPU-bound vs I/O-bound
+  docs: https://learn.microsoft.com/dotnet/csharp/asynchronous-programming/async-scenarios
+concurrency:
+  term: Concurrency
+  def: >-
+    Several operations are in progress at the same time but do not necessarily execute at the same
+    instant. Parallelism is the special case where they run simultaneously on different cores.
+  q: concurrency vs parallelism
+async-void:
+  term: async void
+  def: >-
+    An asynchronous method that returns `void` instead of `Task`. It cannot be awaited, and an
+    unhandled exception goes to the `SynchronizationContext` or the thread pool and can terminate the
+    process.
+  q: async void C# best practices
+  docs: https://learn.microsoft.com/dotnet/csharp/asynchronous-programming/async-return-types
+synchronization-context:
+  term: Synchronization context (SynchronizationContext)
+  def: >-
+    An abstraction that schedules code to run in the right environment, such as the UI thread. By
+    default `await` resumes the method in the captured context.
+  q: SynchronizationContext .NET
+  docs: https://learn.microsoft.com/dotnet/api/system.threading.synchronizationcontext
+fire-and-forget:
+  term: Fire-and-forget
+  def: >-
+    Starting an asynchronous operation without waiting for its result. Without explicit handling, its
+    exceptions are lost or crash the process.
+  q: fire and forget async C#
+state-machine:
+  term: State machine
+  def: >-
+    The type the compiler generates from an async method. It stores the current step number and the
+    local variables, and its `MoveNext` method resumes execution after the last `await`.
+  q: async state machine C#
+  docs: https://learn.microsoft.com/dotnet/api/system.runtime.compilerservices.iasyncstatemachine
+awaiter:
+  term: Awaiter
+  def: >-
+    The object returned by `GetAwaiter()` that `await` works through. It exposes `IsCompleted`,
+    `OnCompleted` and `GetResult`.
+  q: C# awaiter pattern GetAwaiter
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/operators/await
+continuation:
+  term: Continuation
+  def: >-
+    Code that runs after a task completes. For an async method, it is the rest of the method after
+    `await`.
+  q: task continuation .NET
+  docs: https://learn.microsoft.com/dotnet/standard/parallel-programming/chaining-tasks-by-using-continuation-tasks
+execution-context:
+  term: Execution context (ExecutionContext)
+  def: >-
+    Ambient data of a thread, such as `AsyncLocal<T>` values, that flows across `await`, `Task.Run`
+    and other asynchronous hops. It always flows, regardless of `ConfigureAwait`.
+  q: ExecutionContext AsyncLocal .NET
+  docs: https://learn.microsoft.com/dotnet/api/system.threading.executioncontext
+task-scheduler:
+  term: Task scheduler (TaskScheduler)
+  def: >-
+    An object that decides where tasks run. The default scheduler is the thread pool, and `await`
+    captures a non-default scheduler the same way it captures a synchronization context.
+  q: TaskScheduler .NET
+  docs: https://learn.microsoft.com/dotnet/api/system.threading.tasks.taskscheduler
+configure-await:
+  term: ConfigureAwait(false)
+  def: >-
+    An `await` setting under which the continuation does not return to the captured
+    `SynchronizationContext` or `TaskScheduler`. It is used in general-purpose libraries.
+  q: ConfigureAwait false
+  docs: https://learn.microsoft.com/dotnet/api/system.threading.tasks.task.configureawait
+configure-await-options:
+  term: ConfigureAwaitOptions
+  def: >-
+    Flags for `Task.ConfigureAwait` in .NET 8+: `ContinueOnCapturedContext`, `SuppressThrowing` and
+    `ForceYielding`.
+  q: ConfigureAwaitOptions .NET 8
+  docs: https://learn.microsoft.com/dotnet/api/system.threading.tasks.configureawaitoptions
+message-loop:
+  term: UI thread message loop
+  def: >-
+    The loop in which the UI thread processes messages one by one: input, repainting, delegates from
+    `SynchronizationContext.Post`. While the UI thread is busy, the queue stalls and the UI stops
+    responding.
+  q: message loop UI thread
+  docs: https://learn.microsoft.com/windows/win32/winmsg/about-messages-and-message-queues
+aggregate-exception:
+  term: AggregateException
+  def: >-
+    A container exception for several errors. `.Wait()` and `.Result` wrap a task's exceptions in it,
+    while `await` rethrows the original exception unwrapped.
+  docs: https://learn.microsoft.com/dotnet/api/system.aggregateexception
+cancellation-token:
+  term: Cancellation token (CancellationToken)
+  def: >-
+    A struct through which an operation learns about a cancellation request. The token itself cannot
+    cancel anything — it can only be checked via `IsCancellationRequested` or observed via `Register`.
+  docs: https://learn.microsoft.com/dotnet/api/system.threading.cancellationtoken
+cancellation-token-source:
+  term: Cancellation token source (CancellationTokenSource)
+  def: >-
+    An object that hands out tokens and cancels them with `Cancel` or on a timeout via `CancelAfter`.
+    It implements `IDisposable` and is disposed after use.
+  docs: https://learn.microsoft.com/dotnet/api/system.threading.cancellationtokensource
+cooperative-cancellation:
+  term: Cooperative cancellation
+  def: >-
+    The .NET cancellation model: the initiator only requests cancellation, and the operation checks
+    the token itself and decides how to stop. There is no forced abort.
+  q: cooperative cancellation .NET
+  docs: https://learn.microsoft.com/dotnet/standard/threading/cancellation-in-managed-threads
+operation-canceled-exception:
+  term: OperationCanceledException
+  def: >-
+    The exception an operation uses to report cancellation. An async method that ends with it gets
+    the `Canceled` status; `TaskCanceledException` derives from it.
+  docs: https://learn.microsoft.com/dotnet/api/system.operationcanceledexception
+linked-token-source:
+  term: Linked token source
+  def: >-
+    A `CancellationTokenSource` created with `CreateLinkedTokenSource`: it is canceled together with
+    any of its parent tokens. It must be disposed, or its registration on the parent stays behind.
+  q: CreateLinkedTokenSource
+  docs: https://learn.microsoft.com/dotnet/api/system.threading.cancellationtokensource.createlinkedtokensource
+task-whenall:
+  term: Task.WhenAll
+  def: >-
+    A method that returns a task completing after all the given tasks complete. If some of them
+    failed, it holds all their exceptions.
+  docs: https://learn.microsoft.com/dotnet/api/system.threading.tasks.task.whenall
+degree-of-parallelism:
+  term: Degree of parallelism
+  def: >-
+    The maximum number of operations running at the same time. In `Parallel.ForEachAsync` it is set
+    via `ParallelOptions.MaxDegreeOfParallelism`.
+  q: MaxDegreeOfParallelism
+  docs: https://learn.microsoft.com/dotnet/api/system.threading.tasks.paralleloptions.maxdegreeofparallelism
+value-task:
+  term: ValueTask
+  def: >-
+    A struct that represents the result of an asynchronous operation without necessarily allocating a
+    `Task`. It can be awaited only once.
+  docs: https://learn.microsoft.com/dotnet/api/system.threading.tasks.valuetask-1
+value-task-source:
+  term: IValueTaskSource
+  def: >-
+    The interface of a reusable asynchronous operation object that lets `ValueTask` work without
+    allocations. Used in high-performance APIs such as `Socket`.
+  docs: https://learn.microsoft.com/dotnet/api/system.threading.tasks.sources.ivaluetasksource-1
+hot-path:
+  term: Hot path
+  def: >-
+    Code that runs very often and noticeably affects performance. Only there are micro-optimizations
+    like `ValueTask` justified.
+  q: hot path performance optimization

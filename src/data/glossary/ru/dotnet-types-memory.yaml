@@ -1,0 +1,177 @@
+value-type:
+  term: Значимый тип (value type)
+  def: >-
+    Тип, переменная которого содержит само значение; при присваивании значение копируется. В C# это `struct`, `enum` и встроенные числовые типы.
+  q: value type C#
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/builtin-types/value-types
+reference-type:
+  term: Ссылочный тип (reference type)
+  def: >-
+    Тип, переменная которого содержит ссылку на объект в управляемой куче; при присваивании копируется ссылка. В C# это `class`, `interface`, `string`, массивы и делегаты.
+  q: reference type C#
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/keywords/reference-types
+managed-heap:
+  term: Управляемая куча (managed heap)
+  def: >-
+    Область памяти, где CLR размещает объекты ссылочных типов. Память в ней выделяет и освобождает сборщик мусора.
+  q: managed heap .NET
+  docs: https://learn.microsoft.com/dotnet/standard/garbage-collection/fundamentals
+boxing:
+  term: Boxing (упаковка)
+  def: >-
+    Копирование значения значимого типа в новый объект в куче, чтобы работать с ним как с `object` или интерфейсом. Обратная операция — unboxing.
+  q: boxing unboxing C#
+  docs: https://learn.microsoft.com/dotnet/csharp/programming-guide/types/boxing-and-unboxing
+defensive-copy:
+  term: Защитная копия (defensive copy)
+  def: >-
+    Скрытая копия структуры, которую компилятор делает при вызове её метода через `readonly`-поле или `in`-параметр, чтобы метод не изменил исходное значение. Не возникает у `readonly struct`.
+  q: C# defensive copy readonly struct
+ref-struct:
+  term: ref struct
+  def: >-
+    Структура, которая может жить только на стеке: её нельзя упаковать, сохранить в поле класса или захватить в лямбду. Пример — `Span<T>`.
+  q: C# ref struct
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/builtin-types/ref-struct
+unboxing:
+  term: Unboxing (распаковка)
+  def: >-
+    Извлечение значения значимого типа из упакованного объекта: проверка типа и копирование. Распаковать можно только в исходный тип или в `Nullable` от него, иначе — `InvalidCastException`.
+  q: unboxing C#
+  docs: https://learn.microsoft.com/dotnet/csharp/programming-guide/types/boxing-and-unboxing
+interpolated-string-handler:
+  term: Обработчик интерполированных строк (interpolated string handler)
+  def: >-
+    Механизм C# 10: выражение `$"..."` компилируется в вызовы `AppendLiteral` и `AppendFormatted<T>` специального типа, например `DefaultInterpolatedStringHandler`. Аргументы не упаковываются, буфер берётся из пула.
+  q: C# interpolated string handler
+  docs: https://learn.microsoft.com/dotnet/csharp/advanced-topics/performance/interpolated-string-handler
+benchmarkdotnet:
+  term: BenchmarkDotNet
+  def: >-
+    Библиотека для микробенчмарков .NET: прогрев, статистика, сравнение рантаймов. Атрибут `[MemoryDiagnoser]` показывает аллокации на операцию, `[DisassemblyDiagnoser]` — машинный код от JIT.
+  q: BenchmarkDotNet
+  docs: https://benchmarkdotnet.org/
+immutable-type:
+  term: Неизменяемый тип (immutable type)
+  def: >-
+    Тип, состояние экземпляра которого нельзя изменить после создания: «изменяющие» методы возвращают новый экземпляр. Примеры — `string`, `DateTime`, `readonly record struct`.
+  q: immutable type C#
+string-builder:
+  term: StringBuilder
+  def: >-
+    Изменяемый буфер для построения строки по частям. Дописывает символы без промежуточных строк и создаёт итоговую `string` в `ToString()`.
+  q: StringBuilder C#
+  docs: https://learn.microsoft.com/dotnet/standard/base-types/stringbuilder
+string-interning:
+  term: Интернирование строк (string interning)
+  def: >-
+    Хранение одного экземпляра на каждое уникальное значение строки в пуле рантайма (intern pool). `string.Intern` добавляет строку в пул; интернированные строки живут до завершения процесса.
+  q: string interning .NET
+  docs: https://learn.microsoft.com/dotnet/api/system.string.intern
+non-gc-heap:
+  term: NonGC heap (frozen heap)
+  def: >-
+    Область памяти в .NET 8+ для объектов, которые живут всё время работы процесса, например строковых литералов. GC их не собирает и не перемещает, а `GC.GetGeneration` для них может вернуть `int.MaxValue`.
+  q: .NET 8 NonGC heap frozen segments
+  docs: https://learn.microsoft.com/dotnet/core/compatibility/core-libraries/8.0/getgeneration-return-value
+call-stack:
+  term: Стек вызовов (call stack)
+  def: >-
+    Память потока, куда каждый вызов метода кладёт свой кадр с параметрами, локальными переменными и адресом возврата. Освобождается автоматически при выходе из метода; размер ограничен, а переполнение завершает процесс.
+  q: call stack .NET
+  docs: https://learn.microsoft.com/dotnet/core/runtime-config/threading
+stack-frame:
+  term: Кадр стека (stack frame)
+  def: >-
+    Участок стека, который занимает один вызов метода: адрес возврата, сохранённые регистры, локальные переменные и часть аргументов. Снимается при возврате из метода.
+  q: stack frame
+escape-analysis:
+  term: Escape analysis (escape-анализ)
+  def: >-
+    Анализ JIT, который определяет, может ли объект пережить метод, где он создан. Если не может, JIT вправе разместить его на стеке; в .NET 9–10 так размещаются «коробки», маленькие массивы и делегаты.
+  q: .NET JIT escape analysis stack allocation
+  docs: https://learn.microsoft.com/dotnet/core/whats-new/dotnet-10/runtime#stack-allocation
+record:
+  term: Record (запись)
+  def: >-
+    Модификатор `record` для класса (C# 9) или структуры (C# 10): компилятор генерирует равенство по значению, `ToString`, `Deconstruct` для позиционных параметров и поддержку `with`.
+  q: C# record
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/builtin-types/record
+value-equality:
+  term: Равенство по значению (value equality)
+  def: >-
+    Два экземпляра равны, если у них один тип и равные значения полей, даже если это разные объекты. Так по умолчанию сравниваются структуры и records, а классы — по ссылке.
+  q: C# value equality
+  docs: https://learn.microsoft.com/dotnet/csharp/fundamentals/expressions/equality
+with-expression:
+  term: Выражение with (with expression)
+  def: >-
+    Создаёт копию record или структуры с изменёнными свойствами: `p with { X = 1 }`. Копия поверхностная: ссылочные поля указывают на те же объекты.
+  q: C# with expression
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/operators/with-expression
+equality-contract:
+  term: EqualityContract
+  def: >-
+    Синтезированное свойство `record class`, которое возвращает runtime-тип записи. Сгенерированный `Equals` сравнивает его первым, поэтому записи разных типов одной иерархии не равны даже при одинаковых данных.
+  q: C# record EqualityContract
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/builtin-types/record
+nullable-reference-types:
+  term: Nullable reference types (NRT)
+  def: >-
+    Возможность C# 8+: ссылочный тип без `?` считается не допускающим `null`, с `?` — допускающим. Компилятор предупреждает о возможных `NullReferenceException`, а в рантайме ничего не проверяется.
+  q: C# nullable reference types
+  docs: https://learn.microsoft.com/dotnet/csharp/fundamentals/null-safety/nullable-reference-types
+null-state-analysis:
+  term: Анализ null-состояния (null-state analysis)
+  def: >-
+    Статический анализ компилятора, который отслеживает для каждого выражения состояние not-null или maybe-null с учётом проверок, присваиваний и атрибутов вроде `[NotNullWhen]`.
+  q: C# null-state analysis
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/attributes/nullable-analysis
+nullable-context:
+  term: Nullable-контекст (nullable context)
+  def: >-
+    Настройка, которая включает аннотации `?` и предупреждения о `null`: `enable`, `warnings`, `annotations` или `disable`. Задаётся элементом `<Nullable>` в проекте и директивами `#nullable` в коде.
+  q: C# nullable context
+  docs: https://learn.microsoft.com/dotnet/csharp/advanced-topics/update-applications/nullable-migration-strategies
+null-forgiving-operator:
+  term: Оператор подавления null (null-forgiving operator)
+  def: >-
+    Постфиксный `!`, например `x!.Length`: говорит компилятору, что выражение не `null`, и подавляет предупреждение. В рантайме ничего не проверяет.
+  q: C# null-forgiving operator
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/operators/null-forgiving
+required-member:
+  term: Обязательный член (required member)
+  def: >-
+    Свойство или поле с модификатором `required` (C# 11): его нужно задать в инициализаторе объекта, иначе ошибка компиляции. Помогает с NRT, когда объект создаётся без конструктора с параметрами.
+  q: C# required modifier
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/keywords/required
+span-t:
+  term: Span<T>
+  def: >-
+    `ref struct` из ссылки на непрерывный участок памяти и длины. Указывает на массив, строку, `stackalloc`-буфер или неуправляемую память, срезы не копируют данные. Живёт только на стеке.
+  q: C# Span<T>
+  docs: https://learn.microsoft.com/dotnet/api/system.span-1
+memory-t:
+  term: Memory<T>
+  def: >-
+    Обычная структура-«окно» на непрерывную память (массив, строку или `MemoryManager<T>`), которую можно хранить в полях и передавать через `await`. К данным обращаются через свойство `.Span`.
+  q: C# Memory<T>
+  docs: https://learn.microsoft.com/dotnet/api/system.memory-1
+array-pool:
+  term: ArrayPool<T>
+  def: >-
+    Пул переиспользуемых массивов: `Rent` выдаёт массив не меньше запрошенной длины, `Return` возвращает его в пул. Снижает аллокации буферов; после `Return` массив использовать нельзя.
+  q: ArrayPool C#
+  docs: https://learn.microsoft.com/dotnet/api/system.buffers.arraypool-1
+ref-safety:
+  term: Ref safety (безопасность ссылок)
+  def: >-
+    Правила компилятора C#, которые не дают ссылке (`ref`, `Span<T>`, любому `ref struct`) пережить данные, на которые она указывает. Например, нельзя вернуть span на `stackalloc`-буфер; модификатор `scoped` сужает время жизни.
+  q: C# ref safety scoped
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/statements/declarations
+memory-owner:
+  term: IMemoryOwner<T>
+  def: >-
+    Интерфейс владельца буфера `Memory<T>`: тот, кто держит ссылку на него, вызывает `Dispose` или передаёт владение дальше. Его выдаёт, например, `MemoryPool<T>.Shared.Rent()`.
+  q: IMemoryOwner C#
+  docs: https://learn.microsoft.com/dotnet/api/system.buffers.imemoryowner-1

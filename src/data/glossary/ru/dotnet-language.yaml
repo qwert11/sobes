@@ -1,0 +1,153 @@
+abstract-class:
+  term: Абстрактный класс (abstract class)
+  def: >-
+    Класс с модификатором `abstract`: создать его экземпляр нельзя, только унаследоваться. Может содержать поля, конструкторы, готовые методы и абстрактные члены без тела, которые наследник обязан реализовать.
+  q: C# abstract class
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/keywords/abstract
+default-interface-method:
+  term: Реализация по умолчанию в интерфейсе (default interface method)
+  def: >-
+    Член интерфейса с телом (C# 8). Используется, если тип не дал свою реализацию; вызывается только через ссылку типа интерфейса. Требует рантайма .NET Core 3.0+.
+  q: C# default interface methods
+  docs: https://learn.microsoft.com/dotnet/csharp/advanced-topics/interface-implementation/default-interface-methods-versions
+static-abstract-member:
+  term: Статический абстрактный член интерфейса (static abstract member)
+  def: >-
+    Статический метод, свойство или оператор, который интерфейс требует от реализующего типа (C# 11). Вызывается через параметр типа, например `T.Zero`; на этом построена generic math.
+  q: C# static abstract interface members
+  docs: https://learn.microsoft.com/dotnet/csharp/advanced-topics/interface-implementation/static-virtual-interface-members
+virtual-method:
+  term: Виртуальный метод (virtual method)
+  def: >-
+    Метод с модификатором `virtual` или `abstract`, который наследник может переопределить через `override`. Какая реализация вызовется, решает реальный тип объекта во время выполнения.
+  q: C# virtual override
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/keywords/virtual
+method-hiding:
+  term: Скрытие метода (method hiding)
+  def: >-
+    Объявление в наследнике члена с тем же именем, что у базового класса, без `override`; модификатор `new` делает это явным. Какой метод вызовется, решает статический тип переменной.
+  q: C# new modifier method hiding
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/keywords/new-modifier
+vtable:
+  term: Таблица виртуальных методов (vtable)
+  def: >-
+    Структура типа в рантайме со слотами адресов его виртуальных методов. Виртуальный вызов берёт адрес из слота таблицы реального типа объекта.
+  q: .NET method table virtual dispatch
+  wiki: Таблица виртуальных методов
+devirtualization:
+  term: Девиртуализация (devirtualization)
+  def: >-
+    Оптимизация JIT: виртуальный или интерфейсный вызов заменяется прямым, если точный тип известен, например у `sealed`-класса. После этого метод можно встроить (inline).
+  q: .NET JIT devirtualization sealed
+stack-trace:
+  term: Трассировка стека (stack trace)
+  def: >-
+    Список вызовов от места выброса исключения до места перехвата, сохранённый в `Exception.StackTrace`. `throw;` его сохраняет, `throw ex;` начинает заново.
+  q: C# exception stack trace
+  docs: https://learn.microsoft.com/dotnet/api/system.exception.stacktrace
+exception-filter:
+  term: Фильтр исключений (exception filter)
+  def: >-
+    Условие `when (...)` у блока `catch` (C# 6). Выполняется до размотки стека; если оно ложно, исключение идёт дальше, как будто этого `catch` нет.
+  q: C# exception filter when
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/statements/exception-handling-statements
+stack-unwinding:
+  term: Размотка стека (stack unwinding)
+  def: >-
+    Вторая фаза обработки исключения: рантайм снимает кадры стека от места выброса до найденного обработчика и по пути выполняет блоки `finally`.
+  q: .NET exception handling two-pass stack unwinding
+extension-method:
+  term: Метод расширения (extension method)
+  def: >-
+    Статический метод статического класса с `this` перед первым параметром (C# 3). Вызывается как метод экземпляра; компилятор превращает вызов в обычный статический.
+  q: C# extension methods
+  docs: https://learn.microsoft.com/dotnet/csharp/programming-guide/classes-and-structs/extension-methods
+extension-receiver:
+  term: Получатель (receiver)
+  def: >-
+    Значение, «на котором» вызывается член расширения: параметр `this` у классического метода или параметр блока `extension(...)` в C# 14.
+  q: C# extension receiver parameter
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/keywords/extension
+generic-constraint:
+  term: Ограничение параметра типа (generic constraint)
+  def: >-
+    Требование к параметру типа в предложении `where T : ...`: ссылочный или значимый тип, наличие конструктора, базовый класс, интерфейс. Даёт компилятору право вызывать соответствующие члены у `T`.
+  q: C# generic constraints
+  docs: https://learn.microsoft.com/dotnet/csharp/programming-guide/generics/constraints-on-type-parameters
+covariance:
+  term: Ковариантность (covariance)
+  def: >-
+    Возможность использовать generic-тип с более производным аргументом там, где ждут более общий: `IEnumerable<string>` вместо `IEnumerable<object>`. Объявляется `out T` у интерфейсов и делегатов.
+  q: C# covariance out generic
+  docs: https://learn.microsoft.com/dotnet/standard/generics/covariance-and-contravariance
+contravariance:
+  term: Контравариантность (contravariance)
+  def: >-
+    Возможность использовать generic-тип с более общим аргументом там, где ждут более производный: `Action<object>` вместо `Action<string>`. Объявляется `in T` у интерфейсов и делегатов.
+  q: C# contravariance in generic
+  docs: https://learn.microsoft.com/dotnet/standard/generics/covariance-and-contravariance
+invariance:
+  term: Инвариантность (invariance)
+  def: >-
+    Generic-тип допускает только точно тот аргумент, с которым объявлен: `List<string>` нельзя использовать как `List<object>`. Так ведут себя все классы и структуры и интерфейсы без `in`/`out`.
+  q: C# generic invariance
+  docs: https://learn.microsoft.com/dotnet/standard/generics/covariance-and-contravariance
+delegate:
+  term: Делегат (delegate)
+  def: >-
+    Тип, экземпляр которого ссылается на метод и, если метод экземплярный, на объект. Готовые делегаты — `Func<...>` и `Action<...>`.
+  q: C# delegate
+  docs: https://learn.microsoft.com/dotnet/csharp/programming-guide/delegates/
+event:
+  term: Событие (event)
+  def: >-
+    Член класса на основе делегата, который снаружи разрешает только подписку `+=` и отписку `-=`. Вызвать событие может только объявивший его тип.
+  q: C# event
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/keywords/event
+multicast-delegate:
+  term: Multicast-делегат (multicast delegate)
+  def: >-
+    Делегат со списком из нескольких методов, которые вызываются по порядку. Получается через `+=` или `Delegate.Combine`; возвращает результат последнего метода.
+  q: C# multicast delegate
+  docs: https://learn.microsoft.com/dotnet/api/system.multicastdelegate
+display-class:
+  term: Класс замыкания (display class)
+  def: >-
+    Скрытый класс, который компилятор генерирует для лямбды с захватом: захваченные переменные становятся его полями, лямбда — его методом. Создание его экземпляра — аллокация в куче.
+  q: C# closure display class allocation
+reference-equality:
+  term: Ссылочное равенство (reference equality)
+  def: >-
+    Две ссылки указывают на один и тот же объект. Проверяется `object.ReferenceEquals`; так же по умолчанию работают `==` и `Equals` у классов.
+  q: C# reference equality
+  docs: https://learn.microsoft.com/dotnet/csharp/programming-guide/statements-expressions-operators/equality-comparisons
+hash-code:
+  term: Хэш-код (GetHashCode)
+  def: >-
+    Число, по которому хэш-таблицы (`Dictionary`, `HashSet`) выбирают корзину. Равные по `Equals` объекты обязаны иметь равные хэш-коды.
+  q: C# GetHashCode Equals contract
+  docs: https://learn.microsoft.com/dotnet/api/system.object.gethashcode
+pattern-matching:
+  term: Сопоставление с образцом (pattern matching)
+  def: >-
+    Проверка значения по шаблону — типу, свойствам, диапазону, списку — с одновременным извлечением данных в переменные. Работает в `is`, `switch` и `switch`-выражениях.
+  q: C# pattern matching
+  docs: https://learn.microsoft.com/dotnet/csharp/fundamentals/functional/pattern-matching
+list-pattern:
+  term: Списковый шаблон (list pattern)
+  def: >-
+    Шаблон вида `[1, .., var last]` (C# 11), который сопоставляет элементы массива, списка или `Span<T>` по позициям; `..` означает любое число элементов.
+  q: C# list patterns
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/operators/patterns
+switch-expression:
+  term: switch-выражение (switch expression)
+  def: >-
+    Выражение `x switch { шаблон => результат, ... }` (C# 8), которое возвращает значение первой подошедшей ветки. Если не подошла ни одна, бросает `SwitchExpressionException`.
+  q: C# switch expression
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/operators/switch-expression
+exhaustiveness:
+  term: Исчерпываемость (exhaustiveness)
+  def: >-
+    Свойство `switch`-выражения: его ветки покрывают все возможные значения входа. Если нет, компилятор выдаёт предупреждение CS8509.
+  q: C# switch expression exhaustive CS8509
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/operators/switch-expression

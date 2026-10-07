@@ -1,0 +1,198 @@
+dotnet-framework:
+  term: .NET Framework
+  def: >-
+    Початкова реалізація .NET лише для Windows, входить до складу ОС. Остання версія — 4.8.1; підтримується, доки підтримується Windows, але нових можливостей не отримує.
+  q: .NET Framework
+  docs: https://learn.microsoft.com/dotnet/framework/get-started/overview
+dotnet-core:
+  term: .NET Core (сучасний .NET)
+  def: >-
+    Кросплатформна реалізація .NET з відкритим кодом, з'явилася у 2016 році. З версії 5 називається просто .NET і виходить щолистопада.
+  q: .NET Core .NET 5+
+  docs: https://learn.microsoft.com/dotnet/core/introduction
+self-contained:
+  term: Self-contained-публікація
+  def: >-
+    Публікація, за якої середовище виконання .NET кладеться разом із застосунком. Не потребує встановленого .NET, але збирається під конкретну ОС і архітектуру.
+  q: .NET self-contained deployment
+  docs: https://learn.microsoft.com/dotnet/core/deploying/
+app-domain:
+  term: AppDomain (домен застосунку)
+  def: >-
+    Ізольована область усередині процесу .NET Framework для завантаження й вивантаження коду. У сучасному .NET додаткові домени створювати не можна; для ізоляції використовують процеси, для плагінів — `AssemblyLoadContext`.
+  q: AppDomain .NET Core alternative
+  docs: https://learn.microsoft.com/dotnet/core/porting/net-framework-tech-unavailable
+lts:
+  term: LTS (Long Term Support)
+  def: >-
+    Реліз .NET з підтримкою три роки. Це парні версії: .NET 8, .NET 10.
+  q: .NET LTS support policy
+  docs: https://learn.microsoft.com/dotnet/core/releases-and-support
+sts:
+  term: STS (Standard Term Support)
+  def: >-
+    Реліз .NET з підтримкою 24 місяці (починаючи з .NET 9, раніше було 18). Це непарні версії: .NET 9, .NET 11.
+  q: .NET STS 24 months
+  docs: https://learn.microsoft.com/dotnet/core/releases-and-support
+roll-forward:
+  term: Roll-forward
+  def: >-
+    Правило вибору версії середовища виконання під час запуску застосунку. За замовчуванням береться останній встановлений патч своєї версії, але не нова major-версія; поведінку змінює налаштування `RollForward`.
+  q: .NET RollForward
+  docs: https://learn.microsoft.com/dotnet/core/versions/selection
+global-json:
+  term: global.json
+  def: >-
+    Файл у репозиторії, який фіксує версію .NET SDK для збирання й правило її підбору (`rollForward`).
+  q: global.json .NET SDK
+  docs: https://learn.microsoft.com/dotnet/core/tools/global-json
+il:
+  term: IL (проміжна мова, CIL)
+  def: >-
+    Платформонезалежний стековий байт-код, у який компілюються C#, F# і VB.NET. Перед виконанням JIT або AOT-компілятор перекладає його в машинний код.
+  q: CIL intermediate language .NET
+  docs: https://learn.microsoft.com/dotnet/standard/managed-execution-process
+roslyn:
+  term: Roslyn
+  def: >-
+    Компілятор C# і Visual Basic з відкритим кодом та API для аналізу коду. Перетворює вихідний код на IL і метадані; на ньому працюють аналізатори й source generators.
+  q: Roslyn compiler
+  docs: https://learn.microsoft.com/dotnet/csharp/roslyn-sdk/
+clr:
+  term: CLR (Common Language Runtime)
+  def: >-
+    Середовище виконання .NET: завантажує збірки, компілює IL у машинний код, керує пам'яттю, винятками й потоками. Реалізація в сучасному .NET називається CoreCLR.
+  q: CLR .NET
+  docs: https://learn.microsoft.com/dotnet/standard/clr
+jit:
+  term: JIT-компілятор (just-in-time)
+  def: >-
+    Частина CLR, яка перекладає IL методу в машинний код під час першого виклику з урахуванням конкретного процесора. У .NET це RyuJIT.
+  q: .NET JIT compiler
+  docs: https://learn.microsoft.com/dotnet/standard/managed-execution-process
+cts:
+  term: CTS (Common Type System)
+  def: >-
+    Спільна система типів .NET: єдині для всіх мов платформи правила оголошення й використання типів. Завдяки їй C#, F# і VB.NET використовують типи одне одного.
+  q: common type system .NET
+  docs: https://learn.microsoft.com/dotnet/standard/common-type-system
+net-standard:
+  term: .NET Standard
+  def: >-
+    Формальна специфікація API, доступних у кількох реалізаціях .NET. Остання версія — 2.1; `netstandard2.0` — остання, яку підтримує .NET Framework.
+  q: .NET Standard
+  docs: https://learn.microsoft.com/dotnet/standard/net-standard
+tfm:
+  term: TFM (target framework moniker)
+  def: >-
+    Коротке ім'я цільової платформи в проєкті та NuGet-пакеті: `net48`, `netstandard2.0`, `net10.0`, `net10.0-windows`.
+  q: target framework moniker
+  docs: https://learn.microsoft.com/dotnet/standard/frameworks
+multi-targeting:
+  term: Multi-targeting
+  def: >-
+    Збирання одного проєкту під кілька TFM через властивість `TargetFrameworks`. У NuGet-пакет потрапляє окрема збірка для кожної цілі.
+  q: .NET multi-targeting TargetFrameworks
+  docs: https://learn.microsoft.com/dotnet/standard/library-guidance/cross-platform-targeting
+assembly:
+  term: Збірка (assembly)
+  def: >-
+    Файл `.dll` або `.exe` з IL-кодом, метаданими й маніфестом. Одиниця розгортання, версіонування й завантаження коду в .NET.
+  q: assembly .NET
+  docs: https://learn.microsoft.com/dotnet/standard/assembly/
+nuget:
+  term: NuGet
+  def: >-
+    Менеджер пакетів .NET. Пакет `.nupkg` містить збірки під різні TFM і список залежностей; `dotnet restore` завантажує пакети й обирає їхні версії.
+  q: NuGet
+  docs: https://learn.microsoft.com/nuget/what-is-nuget
+transitive-dependency:
+  term: Транзитивна залежність
+  def: >-
+    Пакет, який потрапив у проєкт не напряму, а як залежність іншого пакета. NuGet обирає для нього одну версію на весь проєкт.
+  q: NuGet transitive dependency resolution
+  docs: https://learn.microsoft.com/nuget/concepts/dependency-resolution
+binding-redirect:
+  term: Binding redirect
+  def: >-
+    Налаштування в `app.config` застосунку .NET Framework, яке перенаправляє запити до одних версій збірки на іншу. У сучасному .NET не використовується.
+  q: assembly binding redirect
+  docs: https://learn.microsoft.com/dotnet/framework/configure-apps/redirect-assembly-versions
+assembly-load-context:
+  term: AssemblyLoadContext
+  def: >-
+    Контекст завантаження збірок у .NET: в одному контексті — одна версія збірки з цим ім'ям. Окремі контексти дають змогу завантажувати різні версії й вивантажувати плагіни.
+  q: AssemblyLoadContext
+  docs: https://learn.microsoft.com/dotnet/core/dependency-loading/understanding-assemblyloadcontext
+central-package-management:
+  term: Central Package Management (CPM)
+  def: >-
+    Керування версіями NuGet-пакетів усього репозиторію в одному файлі `Directory.Packages.props`. З transitive pinning задає версії й транзитивним залежностям.
+  q: NuGet Central Package Management
+  docs: https://learn.microsoft.com/nuget/consume-packages/central-package-management
+primary-constructor:
+  term: Primary constructor (первинний конструктор)
+  def: >-
+    Параметри конструктора просто в оголошенні типу: `class Service(ILogger log)`. Для `class` і `struct` з'явилися в C# 12; параметри видно в усьому тілі типу, але вони не стають властивостями.
+  q: C# 12 primary constructors
+  docs: https://learn.microsoft.com/dotnet/csharp/whats-new/tutorials/primary-constructors
+collection-expression:
+  term: Collection expression
+  def: >-
+    Синтаксис створення колекцій у квадратних дужках із C# 12: `int[] a = [1, 2, 3];`, `[..first, ..second]`. Працює для масивів, `Span<T>`, списків та інших колекцій.
+  q: C# collection expressions
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/operators/collection-expressions
+field-keyword:
+  term: Ключове слово field
+  def: >-
+    Контекстне ключове слово C# 14: звернення до згенерованого компілятором поля властивості просто в аксесорі, без оголошення власного поля.
+  q: C# 14 field keyword
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/keywords/field
+extension-members:
+  term: Extension members
+  def: >-
+    Розширення C# 14, які оголошуються блоком `extension`. Крім методів дають змогу додавати до наявних типів властивості, статичні члени й оператори.
+  q: C# 14 extension members
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/keywords/extension
+file-based-app:
+  term: File-based app
+  def: >-
+    Застосунок з одного `.cs`-файлу без проєкту, запускається командою `dotnet run app.cs` (з .NET 10). Пакети й налаштування підключаються директивами `#:package` і `#:property`.
+  q: dotnet run app.cs file-based apps
+  docs: https://learn.microsoft.com/dotnet/core/sdk/file-based-apps
+tiered-compilation:
+  term: Tiered compilation (багаторівнева компіляція)
+  def: >-
+    Режим JIT, за якого метод спочатку компілюється швидко й без оптимізацій, а після 30 викликів перекомпільовується з оптимізаціями у фоні. Увімкнений за замовчуванням з .NET Core 3.0.
+  q: .NET tiered compilation
+  docs: https://learn.microsoft.com/dotnet/core/runtime-config/compilation
+ready-to-run:
+  term: ReadyToRun (R2R)
+  def: >-
+    Форма AOT-компіляції, за якої до збірки, крім IL, додається готовий машинний код. Прискорює старт; JIT залишається й перекомпільовує гарячі методи.
+  q: .NET ReadyToRun
+  docs: https://learn.microsoft.com/dotnet/core/deploying/ready-to-run
+native-aot:
+  term: Native AOT
+  def: >-
+    Публікація застосунку в один нативний виконуваний файл без JIT і без встановленого .NET. Швидкий старт і менше пам'яті, але немає динамічного завантаження збірок і `Reflection.Emit`, обов'язковий trimming.
+  q: .NET Native AOT
+  docs: https://learn.microsoft.com/dotnet/core/deploying/native-aot/
+dynamic-pgo:
+  term: Dynamic PGO
+  def: >-
+    Оптимізація за профілем під час роботи: JIT збирає статистику гарячих шляхів і типів і використовує її під час перекомпіляції методу. Увімкнена за замовчуванням з .NET 8.
+  q: .NET dynamic PGO
+  docs: https://learn.microsoft.com/dotnet/core/runtime-config/compilation#profile-guided-optimization
+osr:
+  term: OSR (on-stack replacement)
+  def: >-
+    Заміна коду методу просто під час його виконання: довгий цикл у неоптимізованому коді перемикається на оптимізовану версію. Увімкнений за замовчуванням з .NET 7 на x64 і Arm64.
+  q: .NET on-stack replacement OSR
+  docs: https://learn.microsoft.com/dotnet/core/whats-new/dotnet-7
+trimming:
+  term: Trimming (обрізання)
+  def: >-
+    Видалення невикористаного коду застосунку й бібліотек під час публікації. Зменшує розмір, але може зламати код, який знаходить типи через рефлексію; небезпечні місця показують trim-аналізатори.
+  q: .NET trimming
+  docs: https://learn.microsoft.com/dotnet/core/deploying/trimming/trim-self-contained

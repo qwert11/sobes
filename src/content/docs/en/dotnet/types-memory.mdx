@@ -1,0 +1,1104 @@
+---
+title: Types and memory
+description: Value and reference types, stack and heap, boxing, struct and record, strings, nullable reference types, Span<T>.
+sidebar:
+  order: 2
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+How .NET stores data: how a value differs from a reference, what lives on the stack and on the heap, where boxing comes from and how to work with memory without extra allocations. "Garbage collection" and "Async" build on this topic.
+
+**Before this topic:** [.NET platform](/sobes/en/dotnet/platform/).
+
+<Q id="dotnet.types.value-vs-reference" level="j">
+
+## What is the difference between value types and reference types?
+
+<A short l="j">
+
+A <T k="value-type">value type</T> (`int`, `bool`, `struct`, `enum`) stores the value itself in the variable, while a <T k="reference-type">reference type</T> (`class`, `string`, arrays) stores a reference to an object. So assignment copies a value type in full, but for a reference type only the reference is copied and both variables point to the same object.
+
+</A>
+
+<A short l="m">
+
+These are two kinds of semantics: copying a value and sharing one object. A struct is copied on assignment, when passed to a method and when returned, while a class instance lives on the <T k="managed-heap">managed heap</T>, and a change made through one reference is visible through another. That is where the limits of value types come from: no `null` (except `Nullable<T>`), no inheritance, and casting to `object` or an interface causes <T k="boxing">boxing</T>.
+
+</A>
+
+<A short l="s">
+
+The difference is semantic — copy versus identity — not about where data is stored: a struct's value lives wherever the variable that contains it lives. In practice the choice sets the cost: allocations and GC pressure versus the cost of copying, boxing through interfaces and the cost of equality. That is why structs are kept small and immutable (`readonly struct`) and implement `IEquatable<T>`.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **Value type** — the variable stores the value itself.
+- **Reference type** — the variable stores a reference to an object, and the object itself lives on the heap.
+
+**Which types are which**
+
+| Value types | Reference types |
+|---|---|
+| numbers, `bool`, `char` | `class`, `interface` |
+| `DateTime`, `enum` | `string`, `object` |
+| any `struct` | arrays, delegates, `record` |
+
+**How it shows up**
+
+1. **Assignment.** `b = a` creates an independent copy for a struct and a second reference to the same object for a class.
+2. **Passing to a method.** A copy is passed: a copy of the struct or a copy of the reference. A method can change the fields of a class instance but cannot replace the object itself without `ref`.
+3. **`null`.** A value type is never `null` unless it is `int?`, that is `Nullable<int>`.
+
+**Common mistake**
+
+Calling `string` a value type because it "behaves like a value". It is a reference type, but immutable: every "change" to a string creates a new string.
+
+**Takeaway:** a value type copies the value, a reference type copies a reference to a shared object.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- Structs implicitly derive from `System.ValueType` and are sealed, but they can implement interfaces.
+- A struct always has a `default` value — all fields zeroed. Since C# 10 you can declare your own parameterless constructor, but `default(T)` and array creation do not call it.
+- `ref`, `out` and `in` pass the variable itself to a method rather than a copy.
+
+**When to choose what**
+
+| What you model | Type |
+|---|---|
+| A small value: a point, money, a date range | `readonly struct` or `readonly record struct` |
+| An entity with identity and a lifecycle | `class` |
+| Data with value equality: a DTO, an event | `record` |
+
+**Pitfalls**
+
+- **Boxing.** Casting a struct to `object` or to an interface copies it into a new heap object. That is an allocation, and changes to the "box" are not visible in the original variable.
+- **Changing a copy.** A struct obtained from a property or from `List<T>` by index is a copy. That is why `list[0].X = 1` does not compile (error CS1612).
+- **Slow equality.** `ValueType.Equals` compares fields, and if any of them are reference types it does so via reflection.
+
+**Rule of thumb**
+
+For your own struct, implement `IEquatable<T>` and override `GetHashCode`. Remember that `==` compares references for classes and values for `record`.
+
+**Takeaway:** a struct is for small immutable values, a class is for objects with identity.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- A value lives where its variable lives. A local variable — in a stack frame or a register; a class field — inside the object on the heap; an array element — inside the array on the heap.
+- A local captured by a lambda, or living in an async method or iterator, moves into a generated closure class or state machine — also on the heap.
+- For generic code the JIT generates a separate version for each value type and a shared one for reference types. That is why `List<int>` stores numbers without boxing.
+
+**Cost**
+
+- Structs create no allocations and improve locality: an array of structs is one contiguous block of memory.
+- Large structs are expensive to copy. For them use `in` parameters and `ref readonly`.
+- Calling a method of a regular struct through a `readonly` field makes the compiler create a <T k="defensive-copy">defensive copy</T>. A `readonly struct` avoids it.
+
+**Trade-offs**
+
+- The Framework Design Guidelines recommend a struct only if the type represents a single value, is under 16 bytes, is immutable and is rarely boxed.
+- A <T k="ref-struct">ref struct</T> (`Span<T>`) lives only on the stack: it cannot be boxed, stored in a class field or captured by a lambda. Since C# 13 such types can implement interfaces, be generic arguments with `allows ref struct`, and be used in async methods and iterators as long as they do not live across `await` or `yield`.
+- A `where T : struct, IComparable<T>` constraint lets you call interface methods without boxing.
+
+**How to check in production**
+
+Boxing means allocations. You can see them in BenchmarkDotNet with `[MemoryDiagnoser]` and in an allocation profiler (dotnet-trace, Visual Studio).
+
+**Takeaway:** struct versus class is a choice of semantics (copy or identity) and cost (copying or allocations), not of memory location.
+
+</A>
+
+<Ex>
+
+```csharp
+var s1 = new PointS { X = 1 };
+var s2 = s1;          // copy of the value
+s2.X = 2;
+Console.WriteLine(s1.X); // 1
+
+var c1 = new PointC { X = 1 };
+var c2 = c1;          // copy of the reference
+c2.X = 2;
+Console.WriteLine(c1.X); // 2
+
+object boxed = s1;    // boxing: a copy on the heap
+s1.X = 10;
+Console.WriteLine(((PointS)boxed).X); // 1
+
+struct PointS { public int X; }
+class PointC { public int X; }
+```
+
+</Ex>
+
+<Next>
+
+- Where is an `int` field of a class instance stored? — Inside the object, so on the heap.
+- What is boxing and why is it expensive? — A heap allocation plus a copy, more work for the GC.
+- Why doesn't `list[0].X = 5` compile when the elements are structs? — The indexer returns a copy, and changing it is pointless (CS1612).
+- When would you make a type a struct? — Small, immutable, one logical value, rarely boxed.
+- How does `record struct` differ from `record class`? — In copy semantics; both have value equality.
+
+</Next>
+
+<Src>
+
+- [Value types — C# reference](https://learn.microsoft.com/dotnet/csharp/language-reference/builtin-types/value-types)
+- [Reference types — C# reference](https://learn.microsoft.com/dotnet/csharp/language-reference/keywords/reference-types)
+- [Choosing between class and struct](https://learn.microsoft.com/dotnet/standard/design-guidelines/choosing-between-class-and-struct)
+
+</Src>
+
+</Q>
+
+<Q id="dotnet.types.boxing" level="j">
+
+## What are boxing and unboxing, and where do they happen without you noticing?
+
+<A short l="j">
+
+Boxing copies a value type into a new heap object when you cast it to `object` or an interface; <T k="unboxing">unboxing</T> copies it back after a type check. Every box is a separate copy, so with `object a = 1, b = 1;` the check `a == b` is `false`, and boxing in loops loads memory.
+
+</A>
+
+<A short l="m">
+
+Boxing is the IL `box` instruction: allocate a heap object, copy the value in, return a reference; unboxing checks the exact type and copies the value back. The catch is that boxing is often invisible: it comes from `params object[]` (`string.Format`, logging), interface calls and `foreach` over a `List<T>` typed as `IEnumerable<T>`. On a hot path that means extra allocations and work for the <T k="garbage-collector">garbage collector</T>; the fix is generic APIs and C# 10 <T k="interpolated-string-handler">interpolated string handlers</T>.
+
+</A>
+
+<A short l="s">
+
+Boxing is an allocation of at least 24 bytes on x64 plus a copy of the value, and unboxing is a type check plus a copy back. The danger is not a single box but a stream of them on a hot path: it raises the allocation rate and the frequency of <T k="gc-generation">generation</T> 0 collections. The JIT removes some boxes on its own, but that is an optimization, not a contract, so you find boxing by measuring. A sure sign is `System.Int32` or your own structs in an allocation profile, and <T k="benchmarkdotnet">BenchmarkDotNet</T> with `[MemoryDiagnoser]` confirms the fix.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **Boxing** — a value-type value is copied into a new heap object: `object o = 42;`.
+- **Unboxing** — the value is copied from the object back into a variable: `int x = (int)o;`.
+
+**Why**
+
+It lets you pass a struct where `object` or an interface is expected: into an `ArrayList`, into `string.Format`, into a variable of type `IComparable`.
+
+**How to use**
+
+1. Unbox only to the original type: `(long)o` on a boxed `int` throws `InvalidCastException`.
+2. Use `List<T>` and `Dictionary<TKey, TValue>` instead of `ArrayList` and `Hashtable` — they store values without boxing.
+3. The "box" is an independent copy: changes to it are not visible in the original variable.
+
+**Common mistake**
+
+Comparing boxed values with `==`. For `object` it compares references, and two "boxes" have different ones. Use `a.Equals(b)`.
+
+**Takeaway:** boxing copies a value to the heap, unboxing copies it back, and only to the same type.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+1. The compiler sees a value type cast to `object` or an interface and emits a `box` instruction.
+2. The runtime allocates a heap object: a header, a type pointer and a copy of the value.
+3. On unboxing, the `unbox.any` instruction checks the exact type and copies the value into the variable.
+
+**Pitfalls**
+
+| Where | Why it boxes | How to avoid it |
+|---|---|---|
+| `string.Format("{0}", x)` | arguments go into `params object[]` | interpolation `$"{x}"` |
+| `logger.LogInformation("Id {Id}", id)` | the same `params object[]` | the `[LoggerMessage]` generator |
+| `foreach` over `IEnumerable<T>`, LINQ | the struct enumerator gets boxed | `foreach` over the `List<T>` itself |
+| a struct key in `Dictionary` | equality goes through `Equals(object)` | implement `IEquatable<T>` |
+| `ToString()` on a struct | the `object` implementation is called | override it in the struct |
+
+**Rule of thumb**
+
+Take values through generic parameters (`void Log<T>(T value)`), not through `object`. For your own structs, implement `IEquatable<T>` and override `ToString` and `GetHashCode`.
+
+**Takeaway:** boxing hides in `object`, interfaces and `params object[]`, and generic code removes it.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- A boxed `int` takes 24 bytes on x64: an object header, a type pointer and the value with padding.
+- A method call on a value of generic type `T` is compiled with the `constrained.` prefix. If the struct overrides the method, the call goes directly, without boxing.
+- If the struct does not override `ToString`, `GetHashCode` or `Equals(object)`, the runtime boxes the value to call the base implementation.
+- A boxed `int?` is either a boxed `int` or `null`: there is no separate "box" for `Nullable<T>`.
+- In a Release build an async method's state machine is a struct. On the first `await` that does not complete immediately, it is boxed onto the heap.
+
+**Cost**
+
+One box is invisible. Millions of boxes per second mean megabytes of garbage, frequent generation 0 collections and cache misses.
+
+**Trade-offs**
+
+- In code specialized for a value-type `T`, the JIT compiles `(int)(object)value` without an allocation.
+- Since .NET 9 the JIT puts a box on the stack if it does not escape the method after inlining. Do not design APIs around it.
+- A mutable struct behind an interface is a trap: the method changes the copy in the box. That is one more argument for `readonly struct`.
+
+**How to check in production**
+
+- `dotnet-trace` or PerfView: if `AllocationTick` events show `System.Int32`, `System.DateTime` or your structs, that is boxing.
+- BenchmarkDotNet with `[MemoryDiagnoser]`: after the fix the Allocated column should show 0.
+- In IL (ILSpy, SharpLab), look for the `box` instruction.
+
+**Takeaway:** boxing means allocations you cannot see in the code, so you find them with a profiler, not by reading.
+
+</A>
+
+<Ex>
+
+```csharp
+int n = 42;
+object boxed = n;               // boxing: a new heap object
+int back = (int)boxed;          // unboxing: type check and copy
+// long l = (long)boxed;        // InvalidCastException
+
+object a = 1, b = 1;
+Console.WriteLine(a == b);      // False: two different boxes
+Console.WriteLine(a.Equals(b)); // True: values are compared
+
+var list = new List<int> { 1, 2, 3 };
+foreach (int x in list) { }     // struct enumerator, no allocations
+IEnumerable<int> seq = list;
+foreach (int x in seq) { }      // the same enumerator, but boxed
+
+string s1 = string.Format("{0}", n); // params object[]: boxing
+string s2 = $"{n}";                  // C# 10+: no boxing
+
+var counts = new Dictionary<Key, int> { [new Key { Id = 1 }] = 1 };
+// Key has no IEquatable<Key>: Equals(object) boxes the key
+
+struct Key { public int Id; }
+```
+
+</Ex>
+
+<Next>
+
+- Why is `a == b` `false` for two boxed `1`s? — `==` on `object` compares references, and the boxes are different.
+- Is there boxing when calling `CompareTo` on a `T` constrained with `where T : IComparable<T>`? — No: the call goes directly through `constrained.`.
+- What do you get when you box an `int?` with no value? — A plain `null` reference; no heap object is created.
+- How do you avoid boxing in logging? — The `[LoggerMessage]` source generator with strongly typed parameters.
+- Why does a struct method called through an interface "not change" the struct? — It changes the copy in the box, not the original variable.
+
+</Next>
+
+<Src>
+
+- [Boxing and unboxing — C# programming guide](https://learn.microsoft.com/dotnet/csharp/programming-guide/types/boxing-and-unboxing)
+- [What's new in .NET 9 runtime — object stack allocation for boxes](https://learn.microsoft.com/dotnet/core/whats-new/dotnet-9/runtime#object-stack-allocation-for-boxes)
+- [Compile-time logging source generation](https://learn.microsoft.com/dotnet/core/extensions/logging/source-generation)
+
+</Src>
+
+</Q>
+
+<Q id="dotnet.types.strings" level="j">
+
+## Why are strings immutable, what is interning, and when do you need `StringBuilder`?
+
+<A short l="j">
+
+`string` is an <T k="immutable-type">immutable</T> reference type: `Replace`, `ToUpper` and `+` do not change a string, they create a new one. That is why concatenating in a loop with `+=` is expensive — use <T k="string-builder">`StringBuilder`</T> for that — and thanks to <T k="string-interning">interning</T>, identical literals usually point to the same object.
+
+</A>
+
+<A short l="m">
+
+A string is an immutable heap object, which makes it safe as a dictionary key and safe to share between threads: its value and hash never change. The runtime usually interns literals — it keeps one instance per value in a pool that lives until the process exits. You need `StringBuilder` when the number of parts is not known in advance; several `+` in one expression already compile into a single `string.Concat`.
+
+</A>
+
+<A short l="s">
+
+A string is an object with a length and UTF-16 characters, and since .NET 8 literals live in the <T k="non-gc-heap">NonGC heap</T>, outside garbage collection. Immutability gives thread safety and interning, but every "edit" is a new allocation, and a string of 85,000 bytes or more goes straight to the <T k="loh">LOH</T>. The documentation does not guarantee that literals are interned (for example, under NativeAOT), so compare strings by value, never with `ReferenceEquals`. On a hot path the goal is to not create strings at all.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+`string` is a reference type that cannot be changed after it is created. `Trim`, `Replace` and `ToUpper` return a new string, and the original stays the same.
+
+**Why**
+
+- You can pass a string anywhere: nobody can change it behind your back.
+- The runtime can store identical literals as one object — that is interning.
+
+**How to use**
+
+1. Assign the result: `s = s.Trim();`.
+2. Compare with `==` — it compares contents. For a case-insensitive check, use `string.Equals(a, b, StringComparison.OrdinalIgnoreCase)`.
+3. To build a string in a loop, use `StringBuilder`: it appends to its own buffer and creates the string once in `ToString()`.
+
+**Common mistake**
+
+`result += item` in a loop. Every iteration creates a new string and copies everything accumulated so far, so the work grows quadratically.
+
+**Takeaway:** you cannot change a string, only create a new one, so long strings are built with `StringBuilder`.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- **Immutability.** A string is safe as a `Dictionary` key and safe to hand to other threads: its hash and contents never change.
+- **Interning.** The runtime keeps a pool (the intern pool) with one instance per value. Literals usually get there automatically, `string.Intern(s)` adds a string manually, and `string.IsInterned(s)` only looks it up.
+- **Concatenation.** `a + b + c` compiles into a single `string.Concat`, and constants are concatenated at compile time.
+- **Interpolation.** Since C# 10, `$"..."` is built through `DefaultInterpolatedStringHandler` with a pooled buffer.
+
+**When to choose what**
+
+| Task | Tool |
+|---|---|
+| 2–4 parts in one expression | `+` or `$"..."` |
+| Collection items with a separator | `string.Join` |
+| A loop, conditions, an unknown number of parts | `StringBuilder` with an initial `Capacity` |
+
+**Pitfalls**
+
+- `string.Intern` for data from a database or JSON: the pool lives until the process exits, and the memory never comes back.
+- `StartsWith(string)`, `IndexOf(string)` and `string.Compare` without extra arguments use the current culture. For identifiers, pass `StringComparison.Ordinal`.
+
+**Rule of thumb**
+
+If code creates many intermediate strings, replace them with one `StringBuilder` or `string.Join`.
+
+**Takeaway:** immutability makes strings safe, but every "edit" is a new allocation.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- A string is an object with a length field and UTF-16 characters, terminated by a null character. A string over 85,000 bytes (about 42,500 characters) goes to the LOH.
+- Since .NET 8 literals are allocated in the NonGC heap, so `GC.GetGeneration("x")` can return `int.MaxValue`.
+- By default C# marks the assembly with `CompilationRelaxations.NoStringInterning`. The documentation says it plainly: interning of literals is not guaranteed, including under NativeAOT.
+
+**Cost**
+
+- Every intermediate string is an allocation plus a copy of characters.
+- An interned string is never freed until the process exits, and you still have to create it before interning it.
+
+**Trade-offs**
+
+- Repeated values from a database (country codes, statuses) are deduplicated with your own dictionary scoped to the service, not with the global `string.Intern`.
+- Fewer strings mean fewer allocations. Slicing with `ReadOnlySpan<char>` without copying, `string.Create` for writing straight into the final string and `CompositeFormat` (.NET 8) for repeated formats all help.
+- For UTF-8 protocols there are `"..."u8` literals (C# 11): bytes without an intermediate string.
+- `string.GetHashCode()` is randomized per process — never store it in a database or a distributed cache.
+
+**How to check in production**
+
+- Take a dump with `dotnet-dump` and run `dumpheap -stat`: strings often top the list by size.
+- dotMemory shows duplicate strings.
+- `dotnet-counters` shows the allocation rate before and after the fix.
+
+**Takeaway:** strings are cheap to read and expensive to build, so on a hot path you try not to create them.
+
+</A>
+
+<Ex>
+
+```csharp
+using System.Text;
+
+string s = "  hello ";
+s.Trim();                        // result lost: s did not change
+s = s.Trim();                    // correct: assign the new string
+
+string a = "hello";
+string b = "hel" + "lo";         // constant: the compiler folds it into "hello"
+string c = new StringBuilder("hel").Append("lo").ToString(); // created at run time
+Console.WriteLine(ReferenceEquals(a, b)); // usually True: literals are interned
+Console.WriteLine(ReferenceEquals(a, c)); // False: a different object
+Console.WriteLine(a == c);                // True: == compares contents
+Console.WriteLine(ReferenceEquals(string.Intern(a), string.Intern(c))); // True
+
+var sb = new StringBuilder(capacity: 4096);
+for (int i = 0; i < 1000; i++)
+    sb.Append(i).Append(',');    // one growing buffer instead of 1000 strings
+string csv = sb.ToString();      // the string is created once
+Console.WriteLine(csv.Length);   // 3890
+```
+
+</Ex>
+
+<Next>
+
+- Why does `s.Replace("a", "b")` "not work"? — The method returns a new string; you have to assign the result.
+- Is `StringBuilder` always faster than `+`? — No: several `+` in one expression are a single `string.Concat` with no extra object.
+- Can you compare strings with `ReferenceEquals`? — No: interning is not guaranteed, and equal strings built at run time are different objects.
+- Can you store a string's `GetHashCode()` in a database? — No: string hashes are randomized per process.
+- How is `string.Create` better than `StringBuilder`? — It writes straight into the final string's memory when the length is known up front.
+
+</Next>
+
+<Src>
+
+- [Strings — C# programming guide](https://learn.microsoft.com/dotnet/csharp/programming-guide/strings/)
+- [String.Intern](https://learn.microsoft.com/dotnet/api/system.string.intern)
+- [Using the StringBuilder class](https://learn.microsoft.com/dotnet/standard/base-types/stringbuilder)
+
+</Src>
+
+</Q>
+
+<Q id="dotnet.types.stack-vs-heap" level="m">
+
+## What is stored on the stack and what is stored on the heap?
+
+<A short l="j">
+
+The <T k="call-stack">stack</T> is a thread's memory for method calls: parameters, local variables and return addresses, freed automatically when a method returns. Objects, arrays and strings live on the heap and are freed by the garbage collector; the stack is cheaper but small, and overflowing it kills the process.
+
+</A>
+
+<A short l="m">
+
+Every call pushes a <T k="stack-frame">frame</T> with local variables onto the thread's stack, and the stack size is limited: 1.5 MB on Windows and macOS, 8 MB on Linux. Heap allocation is almost as fast — it is a pointer bump — but the GC pays for every object later. The consequences: a stack overflow (`StackOverflowException`) cannot be caught, and on a hot path what matters is not "stack or heap" but the number of allocations.
+
+</A>
+
+<A short l="s">
+
+The stack and the heap are implementation details: C# guarantees lifetime and semantics, not storage location. Using <T k="escape-analysis">escape analysis</T>, the JIT puts objects that do not leave the method on the stack: boxes since .NET 9, small arrays and delegates since .NET 10. A heap allocation itself is cheap; what follows is expensive: generation 0 collections, promotion of survivors and the LOH. That is why on a hot path you measure and cut allocations instead of trying to "move everything to the stack".
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **The stack** — memory that belongs to each thread. When a method is called, its frame is pushed there: parameters, local variables, the return address.
+- **The heap** — memory shared by the whole process for objects: class instances, arrays, strings, boxed values.
+
+**Why**
+
+The stack cleans itself up: when a method returns, its frame is popped. Objects on the heap live as long as something references them and can outlive the method that created them. The garbage collector removes them.
+
+**How to use**
+
+1. Create objects as usual — the runtime chooses where they go.
+2. Remember: a reference-type variable holds only a reference, and the object itself lives on the heap.
+
+**Common mistake**
+
+Infinite or too deep recursion. The stack is small, an overflow raises `StackOverflowException`, and you cannot catch it in `catch`: the process terminates.
+
+**Takeaway:** the stack is for method calls and cleans itself up; the heap is for objects and is cleaned by the GC.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- **Stack frame.** The return address, saved registers, local variables and the arguments that did not fit in registers. The JIT decides what to keep in registers.
+- **Stack size.** According to the .NET documentation, the default is 1.5 MB on Windows and macOS and 8 MB on Linux. For your own thread you set it in `new Thread(start, maxStackSize)`; since .NET 10, for all runtime-created threads, with the `System.Threading.DefaultStackSize` setting.
+- **Heap allocation.** A thread allocates from its own region (the allocation context) by bumping a pointer. New objects go to generation 0, and the more you allocate, the more often collections run.
+
+**Pitfalls**
+
+- **`StackOverflowException`.** It cannot be caught — the process terminates. Typical causes: recursion over deep data (trees, nested JSON), a property that calls itself, a large stack buffer via `stackalloc`.
+- **Large objects.** Objects of 85,000 bytes or more go straight to the LOH, which is collected only together with generation 2.
+
+**Rule of thumb**
+
+Rewrite deep recursion as a loop with an explicit `Stack<T>`, or check `RuntimeHelpers.TryEnsureSufficientExecutionStack()`. Keep `stackalloc` buffers under a small limit, for example 1 KB.
+
+**Takeaway:** the stack is small and cleans itself up; the heap allocates fast but pays for it with garbage collections.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- The C# specification talks about variable lifetimes, not about the stack and the heap. The JIT spreads locals and struct fields across registers.
+- Escape analysis: an object "escapes" if it is stored in a field or a static, returned, or passed to a method the JIT did not inline. The JIT can put a non-escaping object on the stack and even break it into separate values.
+- Since .NET 9 this applies to boxes. .NET 10 added small fixed-size arrays, delegates, and objects referenced from fields of local structs. The closure object itself still lives on the heap.
+
+**Cost**
+
+- A heap allocation is a pointer bump plus zeroing memory. The frequency of generation 0 collections grows with the allocation rate.
+- Objects that survive a collection are copied into generations 1 and 2, and storing a reference into an object's field goes through a write barrier.
+- The LOH is not compacted by default and fragments over time.
+
+**Trade-offs**
+
+- Stack allocation by the JIT is an optimization, not a contract: do not design APIs around it.
+- References in stack frames are GC roots, and `stackalloc` without a limit or inside a loop can crash the process.
+
+**How to check in production**
+
+- `dotnet-counters` — allocation rate and collection counts per generation.
+- `dotnet-trace` — `AllocationTick` events with object types.
+- BenchmarkDotNet with `[MemoryDiagnoser]` — whether the JIT removed the allocation.
+- Stack overflow — a dump (`DOTNET_DbgEnableMiniDump=1`) and the call stack in it.
+
+**Takeaway:** the runtime chooses where data lives; your job is to keep the allocation rate low.
+
+</A>
+
+<Ex>
+
+```csharp
+var numbers = new List<int> { 1, 2, 3 }; // the List and its array are on the heap
+Console.WriteLine(numbers.Count);        // 3; the numbers reference itself is on the stack or in a register
+Console.WriteLine(Sum(100));             // 4950
+Console.WriteLine(Depth(1_000));         // 1000
+// Depth(10_000_000);                    // StackOverflowException: the process crashes
+
+static int Sum(int count)
+{
+    // a small buffer goes on the stack, a large one on the heap
+    Span<int> buffer = count <= 256 ? stackalloc int[count] : new int[count];
+    for (int i = 0; i < count; i++) buffer[i] = i;
+
+    int total = 0;                       // a local: a register or the stack frame
+    foreach (int x in buffer) total += x;
+    return total;
+}
+
+static int Depth(int n) => n == 0 ? 0 : 1 + Depth(n - 1); // every call is a new frame
+```
+
+</Ex>
+
+<Next>
+
+- Why can't you catch `StackOverflowException`? — The thread has no stack left even for a handler, so the runtime terminates the process.
+- Where do an async method's locals live? — Those that live across an `await` become fields of the state machine, which moves to the heap at the first incomplete `await`.
+- What is the LOH and why is it risky? — The heap for objects of 85,000 bytes or more; it is collected with generation 2 and not compacted by default.
+- How do you check that the JIT removed an allocation? — BenchmarkDotNet with `[MemoryDiagnoser]`: the Allocated column shows 0.
+- Why limit the size of `stackalloc`? — Stack size depends on the environment, and a large buffer can crash the process.
+
+</Next>
+
+<Src>
+
+- [Fundamentals of garbage collection](https://learn.microsoft.com/dotnet/standard/garbage-collection/fundamentals)
+- [What's new in .NET 10 runtime](https://learn.microsoft.com/dotnet/core/whats-new/dotnet-10/runtime)
+- [Threading config settings](https://learn.microsoft.com/dotnet/core/runtime-config/threading)
+
+</Src>
+
+</Q>
+
+<Q id="dotnet.types.struct-class-record" level="m">
+
+## When do you use `struct`, `class`, `record` and `record struct`?
+
+<A short l="j">
+
+A `class` is for objects with behavior and identity, a `struct` is for small values that are copied as a whole. A <T k="record">`record`</T> and a `record struct` are their data-oriented versions: the compiler writes value equality, `ToString` and `with` for you, which is why DTOs are handy as records.
+
+</A>
+
+<A short l="m">
+
+The choice has two axes: copy semantics (`class` or `struct`) and generated behavior for data (a regular type or a `record`). A record gives you <T k="value-equality">value equality</T>, `ToString`, `Deconstruct` and the <T k="with-expression">`with` expression</T>, and a positional `record struct` without `readonly` is mutable. In practice: an entity is a `class`, a DTO or event is a `record`, a small value is a `readonly record struct`, which costs a copy on every pass.
+
+</A>
+
+<A short l="s">
+
+A record is syntactic sugar: the compiler synthesizes `Equals`, `GetHashCode`, `ToString`, `Deconstruct` and cloning, plus <T k="equality-contract">`EqualityContract`</T> for a `record class`, so equality includes the runtime type. A record's immutability is shallow: an array or `List<T>` inside is compared by reference, and `with` copies the reference. A struct removes allocations, but it is copied on every pass and always allows a `default` value that bypasses the constructor. EF Core relies on reference equality, so entities are classes, not records.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+| Type | Key point |
+|---|---|
+| `class` | an object on the heap, `==` compares references |
+| `struct` | a value, copied on assignment |
+| `record` (C# 9) | a class with value equality and `with` |
+| `record struct` (C# 10) | the same for a struct |
+
+**Why**
+
+A record saves you from boilerplate. The line `public record User(string Name, int Age);` gives you a constructor, properties, `Equals`, `GetHashCode` and `ToString`.
+
+**How to use**
+
+1. A service or an entity with behavior — `class`.
+2. Data that is passed around and compared (a DTO, a message) — `record`.
+3. A small value such as a coordinate or an amount of money — `readonly record struct`.
+4. Make a modified copy with `with`: `user with { Age = 31 }`.
+
+**Common mistake**
+
+Treating a record as fully immutable: a list inside it can still be changed.
+
+**Takeaway:** `class` is for objects with identity, `record` is for data, `struct` is for small values.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- A positional record generates properties, a constructor and `Deconstruct`. In a `record class` and a `readonly record struct` the properties are `init`; in a `record struct` they are `{ get; set; }`.
+- `Equals`, `GetHashCode` and `==` compare all fields. In a `record struct` this is generated code without reflection, unlike `ValueType.Equals`.
+- A record can inherit only from a record, and a class cannot inherit from a record.
+
+**When to choose what**
+
+| What you model | Type |
+|---|---|
+| An entity with an Id and a lifecycle | `class` |
+| A DTO, command, event, API response | `record` |
+| A value object of a couple of fields, a dictionary key | `readonly record struct` |
+| Elements of a large array on a hot path | `readonly struct` |
+
+**Pitfalls**
+
+- Collections inside a record are compared by reference.
+- A mutable record is a bad `Dictionary` key: after a change its hash changes, and you can no longer find the key.
+- A property computed at construction is not recomputed after `with`.
+
+**Rule of thumb**
+
+Default to a `class` or a `record`. Choose a struct only if it is small and immutable.
+
+**Takeaway:** `class` or `struct` sets the copy semantics, and `record` adds data behavior on top.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- For `with` on a `record class`, the compiler generates a hidden clone method and a copy constructor. The copy is shallow.
+- `EqualityContract` returns the runtime type. So a `Teacher` and a `Student` with the same data are not equal, even if both variables are declared as `Person`.
+- `GetHashCode` walks all fields on every call; the result is not cached.
+
+**Cost**
+
+- A large record in a `HashSet` or as a dictionary key means comparing and hashing every field on each operation.
+- A struct larger than 16 bytes is expensive to copy when passed, returned and read from a `List<T>`. It needs `in` and `ref readonly`, or should be a class.
+- Any struct can be obtained as `default(T)` without calling a validating constructor. `Money` with `Currency = null` is a legal value.
+
+**Trade-offs**
+
+- Changing a `class` to a `struct`, or adding a positional parameter to a public record, is a breaking change: the semantics, the constructor and `Deconstruct` all change.
+- EF Core relies on reference equality, so records and record structs are not suitable as entities.
+- System.Text.Json deserializes positional records through the parameterized constructor.
+
+**How to check in production**
+
+Confirm a struct-versus-class choice with BenchmarkDotNet and `[MemoryDiagnoser]` (allocations versus copy time) and with an allocation profile under load.
+
+**Takeaway:** a record is a code generator for data, and a struct is a "no allocations, but copies" trade-off that you confirm by measuring.
+
+</A>
+
+<Ex>
+
+```csharp
+var price = new Money(10m, "USD");
+var discounted = price with { Amount = 8m };      // a new copy; price is unchanged
+Console.WriteLine(price == new Money(10m, "USD")); // True: value equality
+Console.WriteLine(discounted);                     // Money { Amount = 8, Currency = USD }
+
+var u1 = new UserDto("Ann", ["ann@example.com"]);
+var u2 = new UserDto("Ann", ["ann@example.com"]);
+Console.WriteLine(u1 == u2);                       // False: arrays are compared by reference
+
+var pos = new Position(1, 2);
+pos.X = 5;                                         // a record struct without readonly is mutable
+
+var order = new Order();                           // an entity: identity matters
+order.Lines.Add(price);
+
+public readonly record struct Money(decimal Amount, string Currency);
+public record UserDto(string Name, string[] Emails);
+public record struct Position(int X, int Y);
+public class Order
+{
+    public Guid Id { get; } = Guid.NewGuid();
+    public List<Money> Lines { get; } = [];
+}
+```
+
+</Ex>
+
+<Next>
+
+- How is a `record` different from a class with an overridden `Equals`? — Essentially it isn't: the compiler writes the same code plus `with`, `ToString`, `Deconstruct` and `EqualityContract`.
+- Why are two records with identical lists inside not equal? — The list is compared by reference; you need your own `Equals` and `GetHashCode`.
+- Can a record be an EF Core entity? — Better not: EF relies on reference equality.
+- What happens if you mutate a record that is a key in a `Dictionary`? — Its hash changes, and the key can no longer be found.
+- Why `readonly record struct` when there is `record struct`? — `init` properties instead of `set`, and no defensive copies.
+
+</Next>
+
+<Src>
+
+- [Records — C# reference](https://learn.microsoft.com/dotnet/csharp/language-reference/builtin-types/record)
+- [Structure types — C# reference](https://learn.microsoft.com/dotnet/csharp/language-reference/builtin-types/struct)
+- [Choosing between class and struct](https://learn.microsoft.com/dotnet/standard/design-guidelines/choosing-between-class-and-struct)
+
+</Src>
+
+</Q>
+
+<Q id="dotnet.types.nullable-reference-types" level="m">
+
+## What do nullable reference types give you, and how do you enable them in an existing project?
+
+<A short l="j">
+
+<T k="nullable-reference-types">Nullable reference types</T> (C# 8) are a mode in which `string` means "never `null` here" and `string?` means "may be `null`". The compiler warns when you dereference a possible `null`, so you find a `NullReferenceException` at build time rather than in production.
+
+</A>
+
+<A short l="m">
+
+NRT is <T k="null-state-analysis">null-state analysis</T>: after an `is not null` check the variable is treated as not-null, and attributes such as `[NotNullWhen(true)]` describe method contracts. In a legacy project you turn it on gradually — with the <T k="nullable-context">nullable context</T> in the csproj and `#nullable` directives per file, starting with types that have no dependencies. The cost is a wave of warnings and signature changes; the goal is `<Nullable>enable</Nullable>` with no directives.
+
+</A>
+
+<A short l="s">
+
+NRT is static analysis only: at run time `string?` and `string` are the same type, and nothing is checked. But frameworks read the annotations: EF Core makes non-nullable properties `NOT NULL`, ASP.NET Core MVC makes them required, and System.Text.Json since .NET 9 can enforce them. So turning NRT on in a legacy project changes behavior: you get a database migration and new validation errors. The <T k="null-forgiving-operator">`!` operator</T> left after the migration is tech debt, and public API boundaries still need `ArgumentNullException.ThrowIfNull`.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+A compiler mode in which reference types do not allow `null` by default:
+
+- `string name` — `null` is not expected here; assigning `null` produces a warning;
+- `string? nick` — `null` is allowed, but `nick.Length` without a check produces warning CS8602.
+
+**Why**
+
+Without NRT any reference can turn out to be `null`, and you learn about it from a `NullReferenceException` at run time. With NRT the intent is written into the type.
+
+**How to use**
+
+1. Enable `<Nullable>enable</Nullable>` in the csproj; project templates have it since .NET 6.
+2. Mark with `?` whatever can be `null`.
+3. Check before use: `if (nick is not null)`, `nick?.Length`, `nick ?? "—"`.
+
+**Common mistake**
+
+Silencing warnings with the `!` operator (`nick!.Length`). It checks nothing; it only tells the compiler "trust me".
+
+**Takeaway:** a `?` in the type is a promise checked by the compiler, not by the runtime.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+| Context | `?` annotations | Warnings |
+|---|---|---|
+| `enable` | yes | yes |
+| `warnings` | no | yes |
+| `annotations` | yes | no |
+| `disable` | no | no |
+
+The context is set with `<Nullable>` in the csproj and overridden in code with the `#nullable enable`, `#nullable disable` and `#nullable restore` directives.
+
+**How to migrate a project**
+
+1. Choose the default: `enable` plus `#nullable disable` in files not yet migrated for actively developed code, or `disable` plus `#nullable enable` per file for a stable library.
+2. Migrate files bottom-up along the dependency graph: annotating a type produces warnings in its callers.
+3. Fix warnings with checks and attributes, not with the `!` operator.
+4. When every file is migrated, remove the directives and keep `<Nullable>enable</Nullable>`.
+
+**Pitfalls**
+
+- Warning CS8618 about an uninitialized property is fixed with a constructor or the <T k="required-member">`required`</T> modifier (C# 11), not with `= null!`.
+- `TryGet` methods need `[NotNullWhen(true)]`, initialization methods need `[MemberNotNull]`. Otherwise the compiler will not trust the check.
+- Generated files (`*.g.cs`, an `<auto-generated>` comment) are analyzed as if NRT were off.
+
+**Rule of thumb**
+
+Lock in the result: `<WarningsAsErrors>nullable</WarningsAsErrors>` keeps new warnings out of the main branch.
+
+**Takeaway:** NRT is enabled gradually, file by file, and the result is locked in with build errors.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- Annotations are stored in metadata as `NullableAttribute` and `NullableContextAttribute`. The runtime does not check them; reflection reads them through `NullabilityInfoContext` (.NET 6).
+- The analysis is optimistic: if after checking a field you call a method that nulls it, the state is not reset. Other threads are invisible to the analysis.
+- Holes: `new string[10]` is an array of `null`s typed as `string[]`; fields of a struct created via `default`; objects from deserialization and reflection.
+
+**Cost**
+
+- EF Core makes non-nullable properties required: enabling NRT changes the model and produces a migration with `NOT NULL`.
+- ASP.NET Core MVC validates non-nullable model properties as `[Required]`, and clients can start getting 400s.
+- System.Text.Json since .NET 9, with `RespectNullableAnnotations = true`, throws on a `null` in a non-nullable property.
+
+**Trade-offs**
+
+- Annotations are part of a library's public contract: changing a return type from `string` to `string?` breaks consumers' builds that use `TreatWarningsAsErrors`.
+- Every `!` is either a proven invariant with a comment or debt.
+- `ArgumentNullException.ThrowIfNull` checks stay at public API boundaries: the calling code may not use NRT.
+
+**How to check in production**
+
+- The number of nullable warnings in CI is the migration metric, and `WarningsAsErrors` prevents regressions.
+- Before release, review the generated EF Core migration and the 400 responses in integration tests.
+
+**Takeaway:** NRT is a static contract that changes how frameworks behave, so enabling it is a change with tests and a migration, not just a flag.
+
+</A>
+
+<Ex>
+
+```csharp
+using System.Diagnostics.CodeAnalysis;
+
+string? nick = FindNick("ann");        // may be null
+// Console.WriteLine(nick.Length);    // CS8602: possible null dereference
+Console.WriteLine(nick?.Length ?? 0);  // 0
+
+if (TryGetEmail("ann", out var email))
+    Console.WriteLine(email.Length);   // 15, no warning thanks to [NotNullWhen]
+
+var user = new User { Login = "ann" }; // without Login — error CS9035
+Console.WriteLine(user.Phone is null); // True
+
+static string? FindNick(string login) => login.Length > 3 ? login : null;
+
+static bool TryGetEmail(string login, [NotNullWhen(true)] out string? email)
+{
+    email = login == "ann" ? "ann@example.com" : null;
+    return email is not null;
+}
+
+class User
+{
+    public required string Login { get; init; } // C# 11: must be set on creation
+    public string? Phone { get; set; }
+}
+```
+
+</Ex>
+
+<Next>
+
+- What does the `!` operator do? — It suppresses the warning; nothing is checked at run time.
+- Why did EF Core generate a migration after NRT was enabled? — Non-nullable properties became required, so the columns became `NOT NULL`.
+- How is `T?` for an unconstrained `T` different from `int?`? — For a value-type `T` it is not `Nullable<T>`, just a "may be `default`" marker.
+- How do you keep the warnings from coming back? — `<WarningsAsErrors>nullable</WarningsAsErrors>` and a CI check.
+- What is new in C# 14 for working with `null`? — Null-conditional assignment: `customer?.Order = GetOrder()` runs only if `customer` is not `null`.
+
+</Next>
+
+<Src>
+
+- [Nullable reference types](https://learn.microsoft.com/dotnet/csharp/fundamentals/null-safety/nullable-reference-types)
+- [Nullable migration strategies](https://learn.microsoft.com/dotnet/csharp/advanced-topics/update-applications/nullable-migration-strategies)
+- [Attributes for null-state static analysis](https://learn.microsoft.com/dotnet/csharp/language-reference/attributes/nullable-analysis)
+
+</Src>
+
+</Q>
+
+<Q id="dotnet.types.span-memory" level="s">
+
+## What are `Span<T>` and `Memory<T>`, and why do you need them?
+
+<A short l="j">
+
+<T k="span-t">`Span<T>`</T> is a "window" onto a contiguous block of memory: an array, part of one, a stack buffer or a string. Slicing it copies nothing, and <T k="memory-t">`Memory<T>`</T> is the same kind of window that you can store in a field and pass across an `await`.
+
+</A>
+
+<A short l="m">
+
+`Span<T>` is a `ref struct` of a reference and a length: it lives only on the stack but works with arrays, `stackalloc` and native memory without allocating. `Memory<T>` is a regular struct that you can put in a field or keep across an `await`, and to work with the data you take its `.Span`. Synchronous APIs take `Span<T>`, asynchronous ones take `Memory<T>`, and the price is lifetime rules you have to follow by hand with <T k="array-pool">`ArrayPool<T>`</T>.
+
+</A>
+
+<A short l="s">
+
+Since .NET 7 `Span<T>` is a `ref T` field plus a length, and the GC tracks such interior references only on the stack and in registers. That is why span is a `ref struct`, and the compiler's <T k="ref-safety">ref safety</T> rules keep it from outliving the data. `Memory<T>` stores an owner object, an offset and a length, so it can live on the heap, but its `.Span` costs more. The main production risk is lifetime: using a buffer after `ArrayPool.Return` or `Dispose` does not crash — it silently corrupts someone else's data.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- `Span<T>` — a "window" onto part of memory without copying: changes through it are visible in the original array.
+- `ReadOnlySpan<T>` — the same, but read-only; strings give you exactly this.
+- `Memory<T>` — a window you can store in a class field.
+
+**Why**
+
+To work with part of an array or a string without creating new arrays and strings, that is, without extra allocations.
+
+**How to use**
+
+1. `array.AsSpan(2, 3)` — three array elements starting at index 2.
+2. `"id=42".AsSpan(3)` — part of a string without `Substring`; `int.Parse` accepts it directly.
+3. `Span<byte> buf = stackalloc byte[64];` — a buffer on the stack.
+
+**Common mistake**
+
+Trying to store a `Span<T>` in a class field, capture it in a lambda or keep it across an `await` — the compiler will not allow it. That is what `Memory<T>` is for.
+
+**Takeaway:** a span is a window onto memory without copying, and `Memory<T>` is the same window for fields and async code.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- `Span<T>` and `ReadOnlySpan<T>` are `ref struct`s: a reference to the first element and a length. The indexer checks bounds, and a slice (`span[2..5]`, `Slice`) is a new pair without copying.
+- Span sources: an array, a string, `stackalloc`, unmanaged memory.
+- `Memory<T>` is a regular struct: an object (an array, a string or a `MemoryManager<T>`), an offset and a length. You can store it in fields and keep it across an `await`, and you reach the data through `.Span`.
+
+**When to choose what**
+
+| Situation | Type |
+|---|---|
+| A synchronous method reads data | `ReadOnlySpan<T>` |
+| A synchronous method writes to a buffer | `Span<T>` |
+| An async method or a class field | `Memory<T>` or `ReadOnlyMemory<T>` |
+| Transferring buffer ownership | <T k="memory-owner">`IMemoryOwner<T>`</T> |
+
+**Pitfalls**
+
+- `ArrayPool<T>.Shared.Rent(n)` returns an array of at least `n` elements — use only the first `n`.
+- Never use the array after `Return`, and put the `Return` itself in `finally`.
+- `CollectionsMarshal.AsSpan(list)` may point to the list's old array after an `Add`.
+
+**Rule of thumb**
+
+Accept the narrowest type: `ReadOnlySpan<T>` for synchronous reads, `Memory<T>` only where a span is not allowed. Since C# 13 a span can be declared in an async method if it does not live across an `await`. C# 14 added implicit conversions from arrays to spans.
+
+**Takeaway:** a span is for allocation-free synchronous processing; `Memory<T>` is for when the buffer has to outlive the call.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- Since .NET 7 `Span<T>` is laid out as a `ref T` plus an `int` length — made possible by C# 11 ref fields.
+- A managed reference can point inside an object or an array. The GC updates such references only on the stack and in registers, so a span cannot be put on the heap.
+- A two-field struct on the heap could also be "torn" by a thread race and allow out-of-bounds access.
+- The compiler enforces ref safety: you cannot return a span over a `stackalloc` buffer, and `scoped` narrows a parameter's lifetime.
+
+**Cost**
+
+- `Memory<T>.Span` checks the owner type (array, string, `MemoryManager<T>`), so in a loop you take the span once.
+- A pool removes buffer allocations but adds manual lifetime management.
+
+**Trade-offs**
+
+- A buffer returned to `ArrayPool` may already be in use by another request. The bug shows up as someone else's data in a response, not as an exception; a double `Return` does the same.
+- A buffer has exactly one owner, and handing over an `IMemoryOwner<T>` hands over the responsibility for `Dispose`.
+- For streaming data from `System.IO.Pipelines` you use `ReadOnlySequence<T>` — a chain of segments that `SequenceReader<T>` parses without concatenation.
+- `MemoryMarshal` and `Unsafe` bypass bounds checks — use them only with a benchmark and a review.
+
+**How to check in production**
+
+- BenchmarkDotNet with `[MemoryDiagnoser]` — allocations before and after switching to spans.
+- `dotnet-counters` — allocation rate and generation 0 collections under load.
+- Lifetime bugs are caught by review and by tests with concurrent load: a profiler will not show them.
+
+**Takeaway:** span gives you allocation-free memory access at the price of lifetime rules that you have to follow by hand when pooling.
+
+</A>
+
+<Ex>
+
+```csharp
+using System.Buffers;
+
+ReadOnlySpan<char> line = "id=42;name=Ann";
+int eq = line.IndexOf('=');
+int semi = line.IndexOf(';');
+int id = int.Parse(line[(eq + 1)..semi]); // a slice, no new string
+Console.WriteLine(id);                     // 42
+
+byte[] rented = ArrayPool<byte>.Shared.Rent(4096); // length is at least 4096
+try
+{
+    Memory<byte> buffer = rented.AsMemory(0, 4096);
+    await FillAsync(buffer);               // Memory<T> survives the await
+    Console.WriteLine(buffer.Span[0]);     // 1
+}
+finally
+{
+    ArrayPool<byte>.Shared.Return(rented); // do not touch the array after Return
+}
+
+static async Task FillAsync(Memory<byte> buffer)
+{
+    await Task.Yield();
+    buffer.Span[0] = 1;
+}
+```
+
+Top-level code with `await` is an async method. Span locals are allowed in it since C# 13 because they do not live across the `await`.
+
+</Ex>
+
+<Next>
+
+- Why can't you keep a `Span<T>` across an `await`? — After an `await` the method's state lives on the heap, and a span lives only on the stack.
+- How is `ReadOnlySpan<char>` better than `Substring`? — A slice with no allocation; `int.Parse` and many other APIs accept spans.
+- What does `ArrayPool<byte>.Shared.Rent(1000)` return? — An array of at least 1000 elements, often 1024; leave the extra tail alone.
+- When do you need `IMemoryOwner<T>`? — When buffer ownership passes between components: the owner calls `Dispose`.
+- Why put `scoped` on a span parameter? — It promises the compiler that the reference will not outlive the method call.
+
+</Next>
+
+<Src>
+
+- [`Memory<T>` and `Span<T>` usage guidelines](https://learn.microsoft.com/dotnet/standard/memory-and-spans/memory-t-usage-guidelines)
+- [Memory- and span-related types](https://learn.microsoft.com/dotnet/standard/memory-and-spans/)
+- [ref struct — C# reference](https://learn.microsoft.com/dotnet/csharp/language-reference/builtin-types/ref-struct)
+
+</Src>
+
+</Q>

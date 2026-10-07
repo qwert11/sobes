@@ -1,0 +1,33 @@
+---
+// Полный список терминов языка страницы, по алфавиту, с якорями для ссылок из панели.
+import { getGlossary } from '../lib/glossary';
+import { langOf, ui } from '../lib/ui';
+
+const lang = langOf(Astro.locals);
+const t = ui(lang);
+const terms = Object.entries(getGlossary(lang)).sort(([, a], [, b]) =>
+  a.term.localeCompare(b.term, lang),
+);
+
+const escape = (s: string) =>
+  s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
+const inline = (s: string) => escape(s).replace(/`([^`]+)`/g, '<code>$1</code>');
+const google = (q: string) => `https://www.google.com/search?q=${encodeURIComponent(q)}`;
+---
+
+<dl class="gl">
+  {
+    terms.map(([key, v]) => (
+      <div class="gl-item" id={key}>
+        <dt>{v.term}</dt>
+        <dd>
+          <p set:html={inline(v.def)} />
+          <p class="gl-links not-content">
+            <a href={google(v.q ?? v.term)} target="_blank" rel="noopener">{t.google}</a>
+            {v.docs && <a href={v.docs} target="_blank" rel="noopener">{t.docs}</a>}
+          </p>
+        </dd>
+      </div>
+    ))
+  }
+</dl>

@@ -1,0 +1,1012 @@
+---
+title: Garbage collection and resources
+description: How the GC works, generations, LOH and POH, IDisposable and finalizers, memory leaks, GC modes and DATAS.
+sidebar:
+  order: 3
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+How .NET manages memory and resources: how the GC finds garbage, why it has generations, how `Dispose` differs from a finalizer, where leaks come from and which GC mode to pick. In interviews this topic checks whether you understand the cost of allocations and object lifetimes.
+
+**Before this topic:** [Types and memory](/sobes/en/dotnet/types-memory/).
+
+<Q id="dotnet.gc.how-it-works" level="j">
+
+## How does the garbage collector work in .NET?
+
+<A short l="j">
+
+The <T k="garbage-collector">garbage collector (GC)</T> is the part of the runtime that frees memory of objects on the <T k="managed-heap">managed heap</T> by itself. It removes only objects the program can no longer reach through references, so you never free memory by hand.
+
+</A>
+
+<A short l="m">
+
+The GC is a tracing collector: it walks the object graph from the <T k="gc-root">roots</T> (local variables, static fields, GC handles) and treats everything unreachable as garbage. Unlike reference counting, cycles don't bother it, and after marking it can <T k="compaction">compact</T> the heap by sliding live objects together. A collection starts on its own — when the allocation budget runs out, memory is low or `GC.Collect` is called — and the price is pauses while threads are stopped.
+
+</A>
+
+<A short l="s">
+
+It's a precise, generational, compacting tracing collector: the JIT tells it where references live and up to which instruction each variable is alive. That's why an object can be collected before its method returns, and a blocking GC stops threads only at safe points. The cost of a collection depends on how much survives, not on how much is dead, so you optimize survival and allocation rate.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+The garbage collector (GC) is the part of .NET that frees object memory for you. You don't call `free` or `delete` like in C++.
+
+**Why**
+
+Freeing memory by hand leads to leaks and to using memory that has already been freed. The GC removes both kinds of bugs.
+
+**How it decides what to delete**
+
+1. Roots are the local variables of running methods and static fields.
+2. The GC follows references from the roots and marks every reachable object.
+3. Unmarked objects are garbage, even if they reference each other in a cycle.
+
+The GC starts on its own, usually during a `new` when there's no room left for new objects.
+
+**Common mistake**
+
+Calling `GC.Collect()` "to tidy up". A manual call usually just slows the program down.
+
+**Takeaway:** the GC frees objects that can't be reached from the roots and decides on its own when.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+The heap is split into generations by object age: generation 0 holds new objects, generation 2 holds long-lived ones. Usually only generation 0 is collected.
+
+1. **Allocation.** A new object is allocated by bumping a pointer in generation 0 — almost as cheap as the stack. Memory comes back already zeroed.
+2. **Suspension.** Before a blocking GC the runtime suspends all managed threads except the one that triggered it.
+3. **Marking.** The GC walks the graph from the roots: thread locals and registers, static fields, GC handles, objects waiting for finalization.
+4. **Reclaiming.** Dead space is either removed by compaction or added to a free list (sweep).
+5. **Resuming.** Threads continue running.
+
+**When to choose what**
+
+After marking, the GC picks the reclaiming strategy itself:
+
+| | Compaction | Sweep |
+|---|---|---|
+| What it does | slides live objects, updates references | puts dead space on a free list |
+| Upside | no fragmentation | faster |
+| Downside | copying costs more | holes stay in the heap |
+
+**Pitfalls**
+
+- A GC is triggered when the generation 0 or large object budget runs out, when the OS signals low memory, or by `GC.Collect`. The runtime tunes the thresholds as it goes.
+- `GC.Collect()` in application code hurts: live objects get promoted to older generations and the self-tuning is thrown off.
+
+**Rule of thumb**
+
+Don't manage the GC by hand: cut the number of allocations and the lifetime of objects.
+
+**Takeaway:** the GC marks what is reachable from the roots and reclaims the rest by compacting or sweeping.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- **Precise collector.** For every method the JIT records GC info — where references live at each point in the code.
+- **Early death.** In optimized code a variable stops being a root after its last use. That's why you need `GC.KeepAlive` when passing a raw `IntPtr` to native code.
+- **Debug vs Release.** In Debug the JIT extends locals to the end of the method, so behavior under the debugger differs from production.
+- **Safe points.** A blocking GC waits until threads reach a safe point. A thread running native code isn't suspended, but it can't return to managed code until the GC finishes.
+- **Card table.** To collect young objects without scanning old ones, a write barrier marks a memory range when a reference is stored into a field. Marked ranges become extra roots.
+- **Regions.** Since .NET 7 the heap on 64-bit Windows and Linux is made of regions: 4 MB by default, 32 MB for large and pinned objects.
+
+**Cost**
+
+- Marking is proportional to the number of live objects and references, compaction to the volume of survivors.
+- Dead objects are almost free: they are neither traversed nor copied.
+
+**Trade-offs**
+
+The generation 0 budget balances collection frequency against memory. A bigger budget means fewer GCs and higher throughput, but more memory. The GC tunes budgets itself, and GC modes shift this balance.
+
+**How to check in production**
+
+- `dotnet-counters` (.NET 9+ names): `dotnet.gc.pause.time` and `dotnet.gc.collections` per generation.
+- PerfView (GCStats): duration and trigger reason of every GC.
+
+**Takeaway:** you pay for live objects and allocation rate, not for garbage.
+
+</A>
+
+<Ex>
+
+```csharp
+var cache = new List<byte[]> { new byte[1024] };
+var reachable = new WeakReference(cache[0]);
+var garbage = MakeGarbage();
+
+GC.Collect(); // for the demo only, not needed in application code
+
+Console.WriteLine(reachable.IsAlive); // True: reachable from the local cache
+Console.WriteLine(garbage.IsAlive);   // False: no strong references to the array left
+GC.KeepAlive(cache);                  // cache counts as alive up to this line
+
+static WeakReference MakeGarbage()
+{
+    var data = new byte[1024];      // referenced only by a local variable
+    return new WeakReference(data); // a weak reference is not a root
+}
+```
+
+</Ex>
+
+<Next>
+
+- Why don't circular references prevent collection? — The GC checks reachability from roots instead of counting references.
+- Can an object be collected while its method is still running? — Yes, in optimized code if `this` isn't used afterwards; `GC.KeepAlive` helps.
+- How does compaction differ from sweeping? — Compaction moves objects and fixes references; sweeping leaves holes on a free list.
+- Why is allocation in .NET cheap? — It's a pointer bump inside a region handed to the thread in advance, with no free-block search.
+- When is `GC.Collect` justified? — In tests, benchmarks and diagnostics; almost never in application code.
+
+</Next>
+
+<Src>
+
+- [Fundamentals of garbage collection](https://learn.microsoft.com/dotnet/standard/garbage-collection/fundamentals)
+- [GC.KeepAlive](https://learn.microsoft.com/dotnet/api/system.gc.keepalive)
+
+</Src>
+
+</Q>
+
+<Q id="dotnet.gc.dispose" level="j">
+
+## Why do we need IDisposable and using?
+
+<A short l="j">
+
+<T k="idisposable">`IDisposable`</T> is an interface with a `Dispose` method that immediately releases resources the GC doesn't manage: files, sockets, database connections. `using` guarantees `Dispose` is called when the block exits, even on an exception, so resources don't stay open.
+
+</A>
+
+<A short l="m">
+
+`IDisposable` is the contract for deterministic release of <T k="unmanaged-resource">unmanaged resources</T> and expensive objects that the GC would only reclaim eventually. `using` compiles to `try`/`finally`, a <T k="using-declaration">using declaration</T> (C# 8) calls `Dispose` at the end of the scope, and for cleanup that does I/O there is <T k="iasyncdisposable">`IAsyncDisposable`</T> with `await using`. A mistake costs you exhausted connections and handles rather than a memory leak, so it matters who owns the object and who calls `Dispose`.
+
+</A>
+
+<A short l="s">
+
+`Dispose` manages the lifetime of a resource, not memory: after it the object stays on the heap until the GC collects it. The key question is ownership: whoever created the object or received ownership disposes it, and a DI container disposes only the instances it created. Ownership bugs show up in production as an exhausted connection pool, handles or native memory rather than heap growth; analyzers CA2000 and CA2213 catch some of them at build time.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+`IDisposable` is an interface with a single `Dispose()` method. It's implemented by classes that hold OS resources: an open file, a socket, a database connection.
+
+**Why**
+
+The GC frees only memory, and only when it wants to. A file or connection must be closed right away, or nobody else can use it.
+
+**How to use**
+
+- `using (var reader = new StreamReader(path)) { ... }` — `Dispose` at the end of the block.
+- `using var reader = new StreamReader(path);` — a using declaration (C# 8): `Dispose` at the end of the method or block.
+- `await using var stream = ...;` — for types with `IAsyncDisposable`, whose cleanup is asynchronous.
+
+**Common mistake**
+
+Forgetting `using`. The file stays locked and the connection doesn't go back to the pool until the GC gets to the object someday.
+
+**Takeaway:** `using` guarantees the `Dispose` call, and `Dispose` gives the resource back immediately.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+1. The expression in `using` is evaluated and stored in a read-only variable.
+2. The body runs inside `try`.
+3. `finally` calls `Dispose` if the variable isn't `null`.
+
+Several objects in one `using`, and consecutive using declarations, are disposed in reverse order.
+
+**When to choose what**
+
+| Form | When |
+|---|---|
+| `using (...) { }` | the resource is needed in part of a method |
+| `using var x = ...;` | the resource is needed until the end of the method or block |
+| `await using` | closing does I/O: `Stream`, `DbConnection` |
+
+**Pitfalls**
+
+- A type with only `IAsyncDisposable` can't be disposed with a plain `using`. That's why it's good practice to implement both interfaces.
+- `HttpClient` isn't created and disposed per request: connections don't close immediately, and under load you run out of ports. Reuse it or get it from `IHttpClientFactory`.
+- Dependencies from DI aren't disposed by hand — the container does it at the end of the scope.
+
+**Rule of thumb**
+
+The owner disposes — whoever created the object or received ownership. A class that owns an `IDisposable` field implements `IDisposable` itself. `Dispose` is idempotent, and other methods throw `ObjectDisposedException` afterwards — `ObjectDisposedException.ThrowIf` (.NET 7+) makes this easy.
+
+**Takeaway:** `using` is `try`/`finally` with `Dispose`, and the owner is the one who calls `Dispose`.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- `Dispose` releases the resource, not the memory: the object lives as long as something references it.
+- If nobody calls `Dispose`, an unmanaged resource is released only by a finalizer — a method the GC calls before destroying the object. That happens eventually, and in .NET 5+ finalizers don't run at process exit.
+- That's why a handle is wrapped in `SafeHandle` — a ready-made wrapper with its own finalizer. `Dispose` calls `GC.SuppressFinalize` to cancel the finalization that is no longer needed.
+
+**Cost**
+
+- Undisposed resources show up not on the heap but in handles, the connection pool and native memory.
+- A transient service with `IDisposable` resolved from the root DI provider is held by the container until the container itself is disposed. That's a leak.
+
+**Trade-offs**
+
+- **Order.** Dispose a `StreamWriter` before the underlying `Stream`, or the buffer won't be flushed. Using declarations dispose in reverse order, which is exactly right.
+- **Ownership in APIs.** If a method takes a `Stream`, agree on who closes it. `StreamReader` and `StreamWriter` have a `leaveOpen` parameter for this.
+- **Pre-built instances.** DI doesn't dispose objects registered as ready instances: `AddSingleton(new X())`.
+
+**How to check in production**
+
+- Analyzers: CA2000 — object not disposed before losing scope, CA2213 — owned field not disposed, CA1816 — incorrect `GC.SuppressFinalize` call.
+- Metrics: open handle count of the process, connection pool usage, working set growth while the heap is stable.
+
+**Takeaway:** `Dispose` is about owning a resource, and its leaks show up in handles and pools, not on the heap.
+
+</A>
+
+<Ex>
+
+```csharp
+// using declaration (C# 8): Dispose at the end of the method, even on exception
+static string ReadFirstLine(string path)
+{
+    using var reader = new StreamReader(path);
+    return reader.ReadLine() ?? "";
+}
+
+// await using: asynchronous cleanup via DisposeAsync
+static async Task WriteAsync(string path, string text)
+{
+    await using var stream = new FileStream(path, FileMode.Create);
+    await using var writer = new StreamWriter(stream);
+    await writer.WriteAsync(text);
+} // writer first (flushes the buffer), then stream
+
+// What the compiler turns using (var r = new StreamReader("a.txt")) { ... } into
+var r = new StreamReader("a.txt");
+try
+{
+    Console.WriteLine(r.ReadLine());
+}
+finally
+{
+    r?.Dispose();
+}
+```
+
+</Ex>
+
+<Next>
+
+- What happens if you don't call `Dispose` on a `FileStream`? — The `SafeFileHandle` finalizer closes the file eventually; until then it may stay locked.
+- Can `Dispose` be called twice? — Yes, a correct implementation is idempotent.
+- Why `IAsyncDisposable` if there's `IDisposable`? — To avoid blocking a thread on I/O while closing, for example when flushing a buffer.
+- Should you call `Dispose` on a service you got from DI? — No, the container manages its lifetime.
+- Why isn't `HttpClient` wrapped in `using` for every request? — Connections don't close immediately, and under load you run out of ports.
+
+</Next>
+
+<Src>
+
+- [using statement — C# reference](https://learn.microsoft.com/dotnet/csharp/language-reference/statements/using)
+- [Implement a DisposeAsync method](https://learn.microsoft.com/dotnet/standard/garbage-collection/implementing-disposeasync)
+- [Dependency injection guidelines](https://learn.microsoft.com/dotnet/core/extensions/dependency-injection/guidelines)
+
+</Src>
+
+</Q>
+
+<Q id="dotnet.gc.generations" level="m">
+
+## Why does the GC have generations, and what are the LOH and POH?
+
+<A short l="j">
+
+<T k="gc-generation">Generations</T> split the heap by object age: 0 is new objects, 1 is objects that survived one GC, 2 is long-lived ones. Most objects die young, so the GC usually collects only generation 0 and keeps large (<T k="loh">LOH</T>) and pinned (<T k="poh">POH</T>) objects in separate heaps.
+
+</A>
+
+<A short l="m">
+
+Generations split the heap by age, based on the observation that most objects die young. So a generation 0 GC looks only at young objects and is fast, while a full generation 2 GC is rare and expensive. Objects of 85,000 bytes or more go straight to the LOH, which is collected only with generation 2 and isn't compacted by default, and the POH (.NET 5+) holds pinned arrays so that <T k="pinning">pinning</T> doesn't fragment the regular generations.
+
+</A>
+
+<A short l="s">
+
+Generations let the GC collect young objects without scanning old ones: references from old objects to young ones are tracked with a <T k="card-table">card table</T> and a write barrier. So objects that die young or live forever are cheap, and mid-life objects that make it to generation 2 are expensive. Temporary large arrays hit the same spot: the LOH has its own budget and exhausting it triggers a full GC, which is why large buffers come from `ArrayPool<T>`.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+The heap is split into three generations by object age:
+
+- **Generation 0** — new objects, collected most often.
+- **Generation 1** — objects that survived one GC.
+- **Generation 2** — long-lived objects: caches, singletons, static data.
+
+An object that survives a GC moves to the next generation. `GC.GetGeneration(obj)` tells you its generation.
+
+**Why**
+
+Most objects live briefly. Collecting the small generation 0 is faster than collecting the whole heap.
+
+**Separate heaps**
+
+| Heap | What's in it |
+|---|---|
+| LOH (large object heap) | objects of 85,000 bytes or more; collected only during a full GC |
+| POH (pinned object heap, .NET 5+) | arrays that must not move, such as buffers for native code |
+
+**Common mistake**
+
+Allocating a large temporary array on every request: each one lands in the LOH and brings an expensive full GC closer.
+
+**Takeaway:** young objects are collected often and cheaply, old and large ones rarely and expensively.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- Collecting generation N also collects all younger generations. A generation 2 GC is a full GC.
+- Each generation has an allocation budget; when it runs out, a GC starts. If many objects survive, the GC raises the budget.
+- The LOH is logically part of generation 2. The 85,000-byte threshold can be raised with `GCLOHThreshold`.
+- The LOH usually isn't compacted but swept into a free list, so it fragments.
+- The POH is also collected with generation 2, and objects in it never move. You allocate there with `GC.AllocateArray<T>(length, pinned: true)` or `GC.AllocateUninitializedArray<T>(length, pinned: true)`.
+
+**When to choose what**
+
+| Task | Solution |
+|---|---|
+| Pin an object for a single call | `fixed`: the object stays in generation 0 |
+| Long-lived buffer for I/O and interop | an array in the POH |
+| Temporary large buffer | `ArrayPool<T>.Shared` instead of `new` |
+
+**Pitfalls**
+
+- Zeroing the memory of a large array is expensive by itself.
+- A one-time compaction fixes LOH fragmentation: `GCSettings.LargeObjectHeapCompactionMode = GCLargeObjectHeapCompactionMode.CompactOnce`. With a hard heap limit, such as a container with a memory limit, the LOH is compacted automatically.
+- Objects that live "a bit longer than a request" reach generation 2 and make full GCs frequent.
+
+**Rule of thumb**
+
+Don't allocate temporary large arrays on hot paths, and don't hold objects longer than needed.
+
+**Takeaway:** the LOH and POH are part of generation 2, so large and pinned objects are cheaper to reuse than to allocate.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- A reference from generation 2 to generation 0 is also a root for a young-generation GC. When a reference is stored into a field or array element, the JIT emits a write barrier that marks the memory range in the card table.
+- When collecting generations 0 and 1 (the ephemeral ones), the GC scans only the marked ranges of older generations.
+- Since .NET 7 generations are made of regions: 4 MB by default for small objects and 32 MB for the LOH and POH.
+- A pinned object in an ephemeral generation prevents compacting the memory around it. The POH moves long-lived pinned buffers out of the way.
+
+**Cost**
+
+- The write barrier runs on every reference store into a field. If old objects massively reference new ones, like a large cache full of fresh entries, an ephemeral GC scans many ranges.
+- Mid-life objects that die in generation 2 are the main source of expensive full GCs.
+- The LOH has its own budget: temporary large arrays trigger full GCs.
+
+**Trade-offs**
+
+- Pools (`ArrayPool<T>`) remove allocations, but pooled buffers live in generation 2, and returning them takes discipline.
+- The POH removes fragmentation caused by pinning, but an object there lives until a full GC. For short-lived buffers `fixed` in generation 0 is better.
+
+**How to check in production**
+
+- `dotnet-counters` (.NET 9+ names): `dotnet.gc.collections` per generation, `dotnet.gc.last_collection.heap.size` and `dotnet.gc.last_collection.heap.fragmentation.size` broken down by gen0, gen1, gen2, loh, poh.
+- PerfView (GCStats): the `AllocLarge` trigger reason means full GCs are caused by the LOH.
+- From code — `GC.GetGCMemoryInfo()`.
+
+**Takeaway:** what costs you is what survives to generation 2 and dies there, temporary large arrays included.
+
+</A>
+
+<Ex>
+
+```csharp
+using System.Runtime;
+
+var obj = new object();
+Console.WriteLine(GC.GetGeneration(obj)); // 0: a new object
+
+GC.Collect(0);                            // collect generation 0 only
+Console.WriteLine(GC.GetGeneration(obj)); // 1: survived and got promoted
+GC.Collect();                             // full GC
+Console.WriteLine(GC.GetGeneration(obj)); // 2: nowhere further to go
+
+var large = new byte[85_000];                            // 85,000 bytes or more — straight to the LOH
+var buffer = GC.AllocateArray<byte>(4096, pinned: true); // POH, .NET 5+
+
+// Compact the LOH once during the next blocking full GC
+GCSettings.LargeObjectHeapCompactionMode = GCLargeObjectHeapCompactionMode.CompactOnce;
+GC.Collect();
+
+Console.WriteLine($"gen0: {GC.CollectionCount(0)}, gen2: {GC.CollectionCount(2)}"); // usually gen0: 3, gen2: 2
+GC.KeepAlive(large);
+GC.KeepAlive(buffer);
+```
+
+</Ex>
+
+<Next>
+
+- Why is the LOH threshold 85,000 bytes? — It was chosen by performance tuning; `GCLOHThreshold` can change it, but only upwards.
+- How do you fight LOH fragmentation? — Pools (`ArrayPool<T>`), splitting data into chunks below the threshold, a one-time `CompactOnce`.
+- How is the POH better than `GCHandle.Alloc(obj, GCHandleType.Pinned)`? — Long-lived pinned buffers don't fragment the ephemeral generations.
+- What is a write barrier? — Code the JIT emits on a reference store into a field to mark the range for ephemeral GCs.
+- What does "full GC" mean? — A generation 2 GC together with all younger generations, the LOH and the POH.
+
+</Next>
+
+<Src>
+
+- [Fundamentals of garbage collection](https://learn.microsoft.com/dotnet/standard/garbage-collection/fundamentals)
+- [Large object heap](https://learn.microsoft.com/dotnet/standard/garbage-collection/large-object-heap)
+- [Internals of the POH — .NET Blog](https://devblogs.microsoft.com/dotnet/internals-of-the-poh/)
+
+</Src>
+
+</Q>
+
+<Q id="dotnet.gc.finalizers" level="m">
+
+## What are a finalizer and the Dispose pattern, and where does SafeHandle fit in?
+
+<A short l="j">
+
+A <T k="finalizer">finalizer</T> (`~MyClass()`) is a method the GC calls before removing an object, so it can release an unmanaged resource. You can't know when it runs, so `Dispose` is the main mechanism and the finalizer is only a safety net in case `Dispose` was forgotten.
+
+</A>
+
+<A short l="m">
+
+A finalizer is the fallback path for releasing an unmanaged resource, run by the GC itself. Its key property is delay: the object is registered in the <T k="finalization-queue">finalization queue</T>, waits for the finalizer thread once unreachable, and is freed only at the next GC. That's why the <T k="dispose-pattern">Dispose pattern</T> routes both paths into `Dispose(bool)` and calls `GC.SuppressFinalize`, and <T k="safehandle">`SafeHandle`</T> provides a reliable finalizer out of the box, so you almost never need your own.
+
+</A>
+
+<A short l="s">
+
+Finalization is a runtime mechanism for cleaning up unreachable objects, and it's expensive and unreliable. The object and its graph survive an extra GC, the order is undefined, finalizers don't run at process exit in .NET 5+, and CoreCLR runs them on a single thread, so one hung finalizer stalls the rest. That's why you write your own finalizer only in a `SafeHandle` subclass: it's a critical finalizer, and P/Invoke holds its reference count, so the handle can't be closed in the middle of a native call.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+A finalizer is declared as `~ClassName()`, and the compiler turns it into an override of `Object.Finalize`. The GC calls it, not you, at an unpredictable moment.
+
+**Why**
+
+It's a safety net. If a class directly holds an unmanaged resource, such as a pointer to native memory, and `Dispose` was forgotten, the resource still gets released.
+
+**How to use**
+
+- **Dispose pattern** — the standard scheme: `Dispose()` and the finalizer both call a shared `Dispose(bool disposing)` method.
+- **SafeHandle** — a ready-made wrapper over an OS handle with its own finalizer (`SafeFileHandle` and others). With it you don't need your own finalizer.
+
+**Common mistake**
+
+An empty finalizer "just in case". It only slows the program down. Structs can't have finalizers at all.
+
+**Takeaway:** a finalizer is a safety net for unmanaged resources, and `SafeHandle` usually provides it for you.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+1. When created, an object with a finalizer is registered in the finalization queue.
+2. When the GC finds the object unreachable, the entry moves to the f-reachable queue. The object and everything it references become reachable again for a while.
+3. The finalizer thread calls `Finalize`.
+4. The next GC of that generation frees the memory.
+
+That's at least two GCs plus a promotion to an older generation.
+
+**When to choose what**
+
+| The class owns | What to implement |
+|---|---|
+| only managed `IDisposable`s, class is `sealed` | a plain `Dispose()` |
+| managed resources, class open for inheritance | `Dispose()` and `protected virtual Dispose(bool)` |
+| a raw `IntPtr` | wrap it in a `SafeHandle` subclass |
+
+**Pitfalls**
+
+- In `Dispose(false)`, that is when called from the finalizer, don't touch other managed objects: they may already be finalized.
+- A derived class doesn't reimplement `IDisposable`; it overrides `Dispose(bool)` and calls `base.Dispose(disposing)`.
+- `Dispose(bool)` is guarded by a flag against repeated calls.
+
+**Rule of thumb**
+
+`Dispose()` calls `Dispose(true)` and `GC.SuppressFinalize(this)`, and the finalizer, if there is one, calls `Dispose(false)`. `SafeHandle` guarantees that `ReleaseHandle` runs exactly once.
+
+**Takeaway:** instead of your own finalizer — `SafeHandle` and a plain `Dispose`.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- A finalizable object is registered in the queue at creation, so its allocation is more expensive.
+- CoreCLR runs finalizers on a single thread. An exception in a finalizer terminates the process.
+- `SafeHandle` derives from `CriticalFinalizerObject`: its finalizer runs after the normal ones from the same GC. So a normal finalizer, for example one that flushes a buffer, can still use the handle.
+- P/Invoke increments the `SafeHandle` reference count for the duration of the call. The handle can't be closed mid-call or recycled by the OS for another resource (a recycle attack).
+
+**Cost**
+
+- The object and its whole graph survive an extra GC and get promoted. Thousands of such objects per second load generations 1 and 2.
+- A finalizer blocked on a lock, the network or synchronous I/O stalls the queue, and memory stops being freed.
+
+**Trade-offs**
+
+- Finalization order is undefined, and in .NET 5+ finalizers don't run at process exit. Guaranteed cleanup goes through `Dispose`, `IHostApplicationLifetime` or `AppDomain.ProcessExit`.
+- A class holding a raw `IntPtr` without `SafeHandle` risks early finalization: after the last use of `this`, the object can be finalized during a native call. Then you need `GC.KeepAlive(this)`.
+
+**How to check in production**
+
+- The SOS command `finalizequeue` in `dotnet-dump analyze` shows how many objects are waiting for finalization.
+- The finalizer thread's stack in the dump shows what it's stuck on.
+
+**Takeaway:** write your own finalizer only in a `SafeHandle` subclass; every other class owns one through `Dispose`.
+
+</A>
+
+<Ex title="Example: the classic Dispose pattern">
+
+```csharp
+using System.Runtime.InteropServices;
+
+public class LegacyNativeBuffer : IDisposable
+{
+    private IntPtr _ptr = Marshal.AllocHGlobal(1024); // unmanaged memory
+    private readonly MemoryStream _log = new();       // managed resource
+    private bool _disposed;
+
+    public void Dispose()
+    {
+        Dispose(disposing: true);
+        GC.SuppressFinalize(this); // the finalizer is no longer needed
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
+        if (_disposed) return;
+        if (disposing) _log.Dispose(); // managed — only from Dispose()
+        Marshal.FreeHGlobal(_ptr);     // unmanaged — always
+        _ptr = IntPtr.Zero;
+        _disposed = true;
+    }
+
+    ~LegacyNativeBuffer() => Dispose(disposing: false); // safety net if Dispose was forgotten
+}
+```
+
+</Ex>
+
+<Ex title="Example: SafeHandle instead of your own finalizer">
+
+```csharp
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+
+// SafeHandle already has a finalizer; ReleaseHandle runs exactly once
+sealed class HGlobalHandle : SafeHandleZeroOrMinusOneIsInvalid
+{
+    public HGlobalHandle(int size) : base(ownsHandle: true)
+        => SetHandle(Marshal.AllocHGlobal(size));
+
+    protected override bool ReleaseHandle()
+    {
+        Marshal.FreeHGlobal(handle);
+        return true;
+    }
+}
+
+// The owner: no finalizer and no Dispose(bool)
+public sealed class NativeBuffer : IDisposable
+{
+    private readonly HGlobalHandle _handle = new(1024);
+
+    public void Dispose() => _handle.Dispose(); // calling it twice is safe
+}
+```
+
+</Ex>
+
+<Next>
+
+- Why can't you touch managed fields in `Dispose(false)`? — They may already be finalized: finalization order is undefined.
+- Why call `GC.SuppressFinalize` if there's no finalizer? — For a derived class that adds one; without a finalizer the call has no effect.
+- What happens if a finalizer throws? — The process terminates.
+- Do finalizers run when the application exits? — In .NET Framework yes, in .NET 5+ no.
+- How does `SafeHandle` protect against a recycle attack? — During P/Invoke the reference count prevents closing the handle and handing its number to another resource.
+
+</Next>
+
+<Src>
+
+- [Implement a Dispose method](https://learn.microsoft.com/dotnet/standard/garbage-collection/implementing-dispose)
+- [Object.Finalize](https://learn.microsoft.com/dotnet/api/system.object.finalize)
+- [SafeHandle](https://learn.microsoft.com/dotnet/api/system.runtime.interopservices.safehandle)
+
+</Src>
+
+</Q>
+
+<Q id="dotnet.gc.leaks" level="m">
+
+## How do memory leaks happen in managed code, and how do you find them?
+
+<A short l="j">
+
+A <T k="memory-leak">memory leak</T> in .NET is unneeded objects that something still accidentally references, so the GC can't collect them. Most often that reference is held by a static collection, an event you forgot to unsubscribe from, or an unbounded cache.
+
+</A>
+
+<A short l="m">
+
+A managed leak is objects that stay reachable longer than they're needed. The sources are typical: events on long-lived objects without unsubscribing, static caches without eviction, timers without `Dispose`, <T k="closure">closures</T> stored for a long time, and transient `IDisposable` services from the root DI container. You find it step by step: <T k="dotnet-counters">`dotnet-counters`</T> confirms the heap grows after GCs, snapshots from <T k="dotnet-gcdump">`dotnet-gcdump`</T> or <T k="dotnet-dump">`dotnet-dump`</T> are compared by type, and `gcroot` shows the chain to a root.
+
+</A>
+
+<A short l="s">
+
+A leak is memory growth with no plateau under steady load, and the first step is telling managed from native. If the working set grows but the GC heap is stable after collections, heap snapshots won't help: look for unreleased native resources. For a managed leak, take two or three snapshots some time apart, compare object counts by type and walk to the root with `gcroot`; the cost is that `dotnet-gcdump` triggers a full GC and `dotnet-dump` is as big as the whole process memory.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+A memory leak is unneeded objects that are still referenced. The GC removes only unreachable objects, so that memory is never freed.
+
+**Where leaks come from**
+
+- an event subscription without unsubscribing: the publisher holds a reference to the subscriber;
+- a `static` list or dictionary that nothing is ever removed from;
+- a cache with no size or lifetime limit;
+- timers without `Dispose`.
+
+**How to spot it**
+
+1. Process memory grows and doesn't drop even when idle.
+2. In Visual Studio (Diagnostic Tools → Memory Usage), take a heap snapshot.
+3. Repeat the action, take a second snapshot and compare which objects increased.
+
+**Common mistake**
+
+Thinking `Dispose` removes an object from memory. If an event or a collection references it, it stays on the heap.
+
+**Takeaway:** a leak in .NET is a forgotten reference, and you need to find who holds it.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- **Events.** A delegate holds a reference to the subscriber. If the publisher lives longer (a singleton, a static event), the subscriber is never collected.
+- **Statics and caches.** A `static Dictionary` or `ConcurrentDictionary` used as a cache without eviction grows forever.
+- **Timers.** An active timer is registered in the runtime's timer queue, and its callback holds the owner object. If the owner keeps the timer in a field, both live until the timer is disposed.
+- **Closures.** A lambda holds captured variables and `this`. Stored in an event, a cache or a static field, it keeps the whole graph alive.
+- **DI.** A transient `IDisposable` service resolved from the root provider is held by the container until the container is disposed.
+
+**When to choose what**
+
+| Tool | What it gives you |
+|---|---|
+| `dotnet-counters` | whether the heap grows after GCs |
+| `dotnet-gcdump` | the object graph: comparison by type, path to root |
+| `dotnet-dump` | a full dump: `dumpheap -stat`, `gcroot` |
+
+**Pitfalls**
+
+- `Dispose` doesn't remove references to the object from collections and events.
+- You need to unsubscribe from events of a long-lived publisher. A reference cycle inside an unreachable graph is collected by the GC anyway.
+
+**Rule of thumb**
+
+Search step by step:
+
+1. `dotnet-counters monitor -p <pid>` — make sure the heap size after GCs keeps growing.
+2. Two `dotnet-gcdump collect -p <pid>` snapshots some time apart; open them in Visual Studio or PerfView and compare by type.
+3. Find who holds the growing type: Paths to Root in Visual Studio or `gcroot` in `dotnet-dump analyze`.
+
+**Takeaway:** a leak is reachability that lasts longer than needed, and the tools find the root it comes from.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- **Shared closure.** The compiler creates one closure class per scope. If two lambdas in a method capture different variables, both variables live in one object, and the long-lived lambda keeps someone else's large object alive.
+- **`ExecutionContext`.** Timers and thread pool work capture the execution context, and with it the values of `AsyncLocal<T>`. A timer created inside a request holds that request's data.
+- **Roots.** `gcroot` ends the chain at a root: a static field, a strong or pinned GC handle, the finalization queue.
+
+**Cost**
+
+- `dotnet-gcdump` triggers a full GC, which can pause the process for a long time on a large heap.
+- `dotnet-dump` contains all process memory with field values, and it's just as big.
+
+**Trade-offs**
+
+A `.gcdump` is lighter and safer for production, but it has no field values. A full dump is needed when the data matters, for example which cache key keeps growing.
+
+**How to check in production**
+
+1. Compare `dotnet.gc.last_collection.heap.size` with `dotnet.process.memory.working_set` (.NET 9+ names). If only the working set grows, the leak is native.
+2. Apply load, wait for a steady state, take a dump; repeat a few minutes later.
+3. Compare `dumpheap -stat` or diff two `.gcdump` files: you want the type whose instance count keeps growing.
+4. Run `gcroot` on an instance of that type and find the root.
+
+In tests a leak is caught like this: create the object in a separate method, keep a `WeakReference` to it, call `GC.Collect()` and check `IsAlive`.
+
+**Takeaway:** first separate a native leak from a managed one, then find the root that holds the growing type.
+
+</A>
+
+<Ex>
+
+```csharp
+public sealed class PriceFeed                 // a singleton, lives for the whole run
+{
+    public event EventHandler<decimal>? PriceChanged;
+    public void Publish(decimal price) => PriceChanged?.Invoke(this, price);
+}
+
+public sealed class PriceWidget : IDisposable // created for every screen
+{
+    private readonly PriceFeed _feed;
+    private readonly byte[] _cache = new byte[100_000]; // leaks together with the widget
+
+    public PriceWidget(PriceFeed feed)
+    {
+        _feed = feed;
+        _feed.PriceChanged += OnPrice; // feed → delegate → this
+    }
+
+    private void OnPrice(object? sender, decimal price) => Console.WriteLine(price);
+
+    // Without unsubscribing, every closed widget stays in memory forever
+    public void Dispose() => _feed.PriceChanged -= OnPrice;
+}
+```
+
+</Ex>
+
+<Ex l="s" title="Pitfall: a shared closure">
+
+```csharp
+static void Subscribe(PriceFeed feed)
+{
+    var report = new byte[10_000_000]; // a large temporary object
+    var name = "EURUSD";
+
+    Task.Run(() => Console.WriteLine(report.Length)); // a short-lived lambda
+    feed.PriceChanged += (_, p) => Console.WriteLine($"{name}: {p}");
+
+    // Both lambdas share one closure class: the long-lived
+    // event handler keeps both name and report (10 MB) alive
+}
+```
+
+</Ex>
+
+<Next>
+
+- Why unsubscribe from a singleton's events but not from events of your own field? — The subscriber of a long-lived publisher leaks; a cycle inside an unreachable graph is collected.
+- How does `dotnet-gcdump` differ from `dotnet-dump`? — A gcdump is just the object graph, light but with a full GC; a dump is all process memory with values.
+- How do you tell a leak from a simply large Server GC heap? — Watch the heap size after full GCs under steady load: with a leak it grows with no plateau.
+- What is a weak event? — A subscription through a `WeakReference` that doesn't prevent collecting the subscriber.
+- Can memory leak even with a correct `Dispose`? — Yes: `Dispose` doesn't remove references to the object from collections and events.
+
+</Next>
+
+<Src>
+
+- [Debug a memory leak](https://learn.microsoft.com/dotnet/core/diagnostics/debug-memory-leak)
+- [dotnet-gcdump](https://learn.microsoft.com/dotnet/core/diagnostics/dotnet-gcdump)
+- [Memory management and patterns in ASP.NET Core](https://learn.microsoft.com/aspnet/core/performance/memory)
+
+</Src>
+
+</Q>
+
+<Q id="dotnet.gc.modes" level="s">
+
+## What GC modes are there, and how do you choose?
+
+<A short l="j">
+
+A GC mode defines how the collector splits its work: <T k="workstation-gc">Workstation GC</T> uses one heap, <T k="server-gc">Server GC</T> uses a heap and a thread per processor. Server gives more throughput at the cost of memory, so ASP.NET Core uses it by default and other apps use Workstation.
+
+</A>
+
+<A short l="m">
+
+There are two modes: Workstation (one heap, the GC runs on the thread that triggered it) and Server (a heap and a dedicated high-priority GC thread per logical processor). Independently of the mode, <T k="background-gc">background GC</T>, on by default, collects generation 2 concurrently with the app. Since .NET 9 Server GC runs with <T k="datas">DATAS</T> by default: the heap count and the generation 0 budget adapt to the amount of live data, so it uses less memory at the cost of a little throughput.
+
+</A>
+
+<A short l="s">
+
+A GC mode is a trade-off between throughput, pauses and memory, and you choose it by measuring: time in GC, pauses, working set, RPS. The biggest recent change is DATAS on by default for Server GC since .NET 9: in Microsoft's benchmarks the working set drops by over 80% for 2–3% of RPS, but startup is slower because it begins with one heap. In a container the GC sees the memory limit and caps the heap at 75% of it by default (<T k="heap-hard-limit">`GCHeapHardLimit`</T>), so for dense packing DATAS is usually enough, while a dedicated machine focused on throughput turns it off.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **Workstation GC** — one heap, the GC runs right on the thread that was allocating. The default for console and desktop apps.
+- **Server GC** — its own heap and GC thread per processor. The default in ASP.NET Core.
+- **Background GC** is on in both modes: the long generation 2 collection runs concurrently with the app.
+
+**Why**
+
+Server GC collects faster and gives more throughput, but uses more memory. Workstation is more frugal.
+
+**How to use**
+
+Set the mode in `.csproj`: `<ServerGarbageCollection>true</ServerGarbageCollection>`.
+
+**Common mistake**
+
+Switching GC mode "to make it faster" without measuring. The defaults suit most applications.
+
+**Takeaway:** Server GC for servers, Workstation for clients, and background GC is on everywhere.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+| | Workstation | Server |
+|---|---|---|
+| Heaps | one | one per logical processor |
+| Where the GC runs | on the thread that triggered it | on dedicated GC threads (`THREAD_PRIORITY_HIGHEST` on Windows) |
+| Memory | less | more |
+
+- On a machine with a single logical processor, Workstation is always used.
+- **Background GC** (`System.GC.Concurrent`, `true` by default) applies only to generation 2: a dedicated thread marks and sweeps while the app runs. Background GC doesn't compact the heap.
+- If generation 0 fills up during a background GC, a regular ephemeral GC runs with threads suspended.
+- **DATAS** arrived in .NET 8 as opt-in and has been on by default for Server GC since .NET 9. It starts with one heap, adds and removes heaps based on load, and caps the generation 0 budget based on the amount of long-lived data.
+
+**When to choose what**
+
+| Scenario | Mode |
+|---|---|
+| Web service, containers, variable load | Server GC with DATAS (the default) |
+| Dedicated machine, startup and peak throughput matter | Server GC without DATAS |
+| Desktop, console tool | Workstation with background GC |
+| Hundreds of small processes on one machine | Workstation without background GC |
+
+**Pitfalls**
+
+- Settings are read once at startup: changing environment variables of a running process does nothing.
+- An explicit `GCHeapCount` disables DATAS.
+
+**Rule of thumb**
+
+Set the mode with the `ServerGarbageCollection` and `ConcurrentGarbageCollection` properties in `.csproj` (or `System.GC.Server` and `System.GC.Concurrent` in `runtimeconfig.json`), and change it only based on measurements.
+
+**Takeaway:** Server GC with DATAS is a sensible default for services, and measurements decide the rest.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- DATAS targets the throughput cost percentage (TCP) — the share lost to GC pauses and allocation waits. The default target is 2% (`GCDTargetTCP`).
+- The upper bound of the generation 0 budget is derived from the application size. .NET 10 added settings for it: `GCDGen0GrowthPercent`, `GCDGen0GrowthMinFactor` and `GCDGen0GrowthMaxFactor`.
+- In a container the GC treats the container limit as physical memory. Without settings, `GCHeapHardLimit` is the larger of 20 MB and 75% of the limit, and with a hard limit the LOH is compacted automatically.
+
+**Cost**
+
+- With DATAS there's one heap at first, so startup is slower, and threads wait on allocations when load spikes.
+- Without DATAS, Server GC sizes budgets for throughput, and on a machine with many cores the heap balloons.
+- Once `GCHeapHardLimit` is reached, allocation fails with `OutOfMemoryException`.
+
+**Trade-offs**
+
+- DATAS is turned off when startup is critical, even a small throughput loss is unacceptable, or most GCs are full ones. Ways to do it: `<GarbageCollectionAdaptationMode>0</GarbageCollectionAdaptationMode>`, `System.GC.DynamicAdaptationMode` = 0 or `DOTNET_GCDynamicAdaptationMode=0`.
+- `GCConserveMemory` (0–9) keeps the heap smaller at the cost of more frequent GCs.
+- `GCSettings.LatencyMode = GCLatencyMode.SustainedLowLatency` suppresses blocking full GCs during critical work, but the heap grows.
+
+**How to check in production**
+
+- A load test with a realistic profile: `dotnet.gc.pause.time`, GC counts, working set, RPS and p99.
+- PerfView GCStats: pause share and generation 0 budget for each GC.
+- For many teams .NET 10 is the first LTS with DATAS on by default, so compare metrics after migrating from .NET 8. Change one setting at a time.
+
+**Takeaway:** pick the GC mode by pause, memory and throughput metrics, not by its name.
+
+</A>
+
+<Ex>
+
+```csharp
+using System.Runtime;
+
+// Mode from the project: <ServerGarbageCollection>true</ServerGarbageCollection>
+Console.WriteLine($"Server GC: {GCSettings.IsServerGC}");     // Server GC: True
+Console.WriteLine($"Latency mode: {GCSettings.LatencyMode}"); // Interactive when background GC is on
+
+var info = GC.GetGCMemoryInfo();
+Console.WriteLine($"Available to GC: {info.TotalAvailableMemoryBytes / 1024 / 1024} MB"); // derived from the limit in a container
+Console.WriteLine($"High memory load threshold: {info.HighMemoryLoadThresholdBytes / 1024 / 1024} MB");
+
+// Effective GC settings (.NET 7+): heap count, limits, DATAS, etc.
+foreach (var (key, value) in GC.GetConfigurationVariables())
+    Console.WriteLine($"{key} = {value}");
+```
+
+</Ex>
+
+<Next>
+
+- Why does Server GC without DATAS bloat memory in a small container on a many-core machine? — Heaps and budgets are sized from the core count and throughput, not from the amount of data.
+- What does background GC do if generation 0 fills up during it? — It pauses, and a regular blocking ephemeral GC runs.
+- How do you turn off DATAS, and when is it justified? — `GCDynamicAdaptationMode=0`; when startup and peak throughput matter and memory isn't scarce.
+- What happens when `GCHeapHardLimit` is reached? — Allocation fails with `OutOfMemoryException`, even if the machine has free memory.
+- When do you need `SustainedLowLatency`? — During latency-sensitive operations, if there's enough memory: the heap grows and fragments.
+
+</Next>
+
+<Src>
+
+- [Workstation and server garbage collection](https://learn.microsoft.com/dotnet/standard/garbage-collection/workstation-server-gc)
+- [Dynamic adaptation to application sizes (DATAS)](https://learn.microsoft.com/dotnet/standard/garbage-collection/datas)
+- [Garbage collector config settings](https://learn.microsoft.com/dotnet/core/runtime-config/garbage-collector)
+
+</Src>
+
+</Q>

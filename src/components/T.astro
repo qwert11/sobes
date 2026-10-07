@@ -1,0 +1,12 @@
+---
+// Термин из глоссария: по нажатию открывается панель с определением и ссылками.
+// span, а не button: button — inline-block, и знак препинания после него переносится отдельно.
+interface Props {
+  /** Ключ термина в src/data/glossary/<lang>/*.yaml. */
+  k: string;
+}
+
+const { k } = Astro.props;
+---
+
+<span class="term" role="button" tabindex="0" data-k={k} aria-haspopup="dialog"><slot /></span>

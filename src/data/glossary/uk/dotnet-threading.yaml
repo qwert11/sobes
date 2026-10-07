@@ -1,0 +1,186 @@
+task:
+  term: Задача (Task)
+  def: >-
+    Об'єкт, який описує асинхронну роботу та її майбутній результат. За замовчуванням делегат задачі виконується на пулі потоків, а задача від асинхронного I/O може взагалі не займати потік.
+  q: Task .NET TPL
+  docs: https://learn.microsoft.com/dotnet/standard/parallel-programming/task-based-asynchronous-programming
+thread-pool:
+  term: Пул потоків (thread pool)
+  def: >-
+    Набір фонових потоків, які CLR створює за потреби й перевикористовує для коротких задач. Сюди потрапляють Task.Run, продовження async-методів і колбеки таймерів.
+  q: thread pool .NET
+  docs: https://learn.microsoft.com/dotnet/standard/threading/the-managed-thread-pool
+background-thread:
+  term: Основний і фоновий потік (foreground/background thread)
+  def: >-
+    Процес не завершиться, доки працює хоча б один основний (foreground) потік, а фонові потоки зупиняються разом із ним. Потоки пулу фонові, new Thread за замовчуванням основний.
+  q: foreground background thread .NET
+  docs: https://learn.microsoft.com/dotnet/standard/threading/foreground-and-background-threads
+work-stealing:
+  term: Work stealing (крадіжка роботи)
+  def: >-
+    Прийом планувальника: вільний потік забирає роботу з локальної черги іншого потоку. Так пул потоків балансує навантаження без спільної точки конкуренції.
+  q: work stealing thread pool .NET
+  docs: https://learn.microsoft.com/dotnet/api/system.threading.tasks.taskscheduler
+race-condition:
+  term: Стан гонитви (race condition)
+  def: >-
+    Помилка, за якої результат програми залежить від того, у якому порядку потоки звертаються до спільних даних. Класичний приклад — загублене збільшення під час count++ з двох потоків.
+  q: race condition C#
+  docs: https://learn.microsoft.com/dotnet/standard/threading/managed-threading-best-practices
+deadlock:
+  term: Взаємоблокування (deadlock)
+  def: >-
+    Ситуація, коли потоки назавжди чекають один на одного: кожен тримає ресурс, потрібний іншому. Типова причина — захоплення тих самих блокувань у різному порядку.
+  q: deadlock C#
+  docs: https://learn.microsoft.com/dotnet/core/diagnostics/debug-deadlock
+critical-section:
+  term: Критична секція (critical section)
+  def: >-
+    Ділянка коду, яка працює зі спільними даними й тому має виконуватися не більше ніж одним потоком одночасно. У C# її зазвичай обмежують оператором lock.
+  q: critical section lock C#
+atomic-operation:
+  term: Атомарна операція
+  def: >-
+    Операція, яка виконується повністю: інші потоки бачать або стан до неї, або після, але не проміжний. У .NET атомарні читання й запис вирівняних значень до розміру вказівника та методи Interlocked.
+  q: atomic operation .NET
+monitor:
+  term: Monitor
+  def: >-
+    Клас .NET для взаємного виключення на будь-якому об'єкті посилального типу. Оператор lock для звичайного об'єкта компілюється в Monitor.Enter і Monitor.Exit у try/finally.
+  q: System.Threading.Monitor
+  docs: https://learn.microsoft.com/dotnet/api/system.threading.monitor
+lock-type:
+  term: System.Threading.Lock
+  def: >-
+    Виділений тип блокування, що з'явився в .NET 9. Якщо вираз у lock має цей тип, C# 13 і новіші генерують виклик EnterScope замість Monitor.
+  q: System.Threading.Lock .NET 9
+  docs: https://learn.microsoft.com/dotnet/api/system.threading.lock
+reentrant-lock:
+  term: Реентерабельне блокування (reentrant lock)
+  def: >-
+    Блокування, у яке потік-власник може ввійти повторно, не чекаючи сам на себе; вийти потрібно стільки ж разів. Monitor і Lock реентерабельні, SemaphoreSlim — ні.
+  q: reentrant lock C#
+sync-block:
+  term: Sync block
+  def: >-
+    Внутрішня структура CLR, куди переїжджає стан Monitor, коли блокування на об'єкті стає конкурентним. Власників і тих, хто чекає, можна побачити командою syncblk у дампі.
+  q: sync block CLR object header
+  docs: https://learn.microsoft.com/dotnet/core/diagnostics/debug-deadlock
+mutex:
+  term: Mutex
+  def: >-
+    Примітив взаємного виключення на основі об'єкта ядра ОС. Повільніший за lock, але іменований Mutex видно іншим процесам.
+  q: System.Threading.Mutex
+  docs: https://learn.microsoft.com/dotnet/api/system.threading.mutex
+semaphore-slim:
+  term: SemaphoreSlim
+  def: >-
+    Легкий семафор усередині одного процесу: пускає одночасно не більше N учасників. Уміє чекати асинхронно через WaitAsync і не має власника.
+  q: SemaphoreSlim WaitAsync
+  docs: https://learn.microsoft.com/dotnet/api/system.threading.semaphoreslim
+reader-writer-lock:
+  term: ReaderWriterLockSlim
+  def: >-
+    Блокування, яке пускає багатьох читачів одночасно або одного писача. Прив'язане до потоку й за замовчуванням не підтримує рекурсію.
+  q: ReaderWriterLockSlim
+  docs: https://learn.microsoft.com/dotnet/api/system.threading.readerwriterlockslim
+thread-affinity:
+  term: Прив'язка до потоку (thread affinity)
+  def: >-
+    Властивість примітива, який має звільнити той самий потік, що його захопив. Вона є в Monitor, Lock, Mutex і ReaderWriterLockSlim, тому їх не можна тримати через await.
+  q: thread affinity synchronization .NET
+  docs: https://learn.microsoft.com/dotnet/standard/threading/overview-of-synchronization-primitives
+concurrent-collections:
+  term: Конкурентні колекції
+  def: >-
+    Потокобезпечні колекції з System.Collections.Concurrent: ConcurrentDictionary, ConcurrentQueue, ConcurrentStack, ConcurrentBag і BlockingCollection.
+  q: System.Collections.Concurrent
+  docs: https://learn.microsoft.com/dotnet/standard/collections/thread-safe/
+fine-grained-locking:
+  term: Дрібнозернисте блокування (fine-grained locking)
+  def: >-
+    Прийом, за якого структуру захищає не одне блокування, а кілька, кожне на свою частину даних. Потоки, що працюють із різними частинами, не заважають одне одному.
+  q: fine-grained locking
+lock-free:
+  term: Lock-free (без блокувань)
+  def: >-
+    Алгоритм, який обходиться без блокувань і будується на атомарних операціях на кшталт CompareExchange. Хоча б один потік завжди просувається, навіть якщо інші призупинені.
+  q: lock-free algorithm
+interlocked:
+  term: Interlocked
+  def: >-
+    Статичний клас атомарних операцій над змінними: Increment, Add, Exchange, CompareExchange та інших. Кожна операція — ще й повний бар'єр пам'яті.
+  q: System.Threading.Interlocked
+  docs: https://learn.microsoft.com/dotnet/api/system.threading.interlocked
+volatile:
+  term: volatile
+  def: >-
+    Модифікатор поля C#: усі звертання до поля стають volatile-читаннями й volatile-записами з порядком acquire/release. Атомарності складених операцій він не дає.
+  q: C# volatile keyword
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/keywords/volatile
+compare-and-swap:
+  term: Compare-and-swap (CAS)
+  def: >-
+    Атомарна операція «записати нове значення, лише якщо поточне дорівнює очікуваному». У .NET це Interlocked.CompareExchange; на ній будують lock-free алгоритми.
+  q: compare and swap Interlocked.CompareExchange
+  docs: https://learn.microsoft.com/dotnet/api/system.threading.interlocked.compareexchange
+memory-barrier:
+  term: Бар'єр пам'яті (memory barrier)
+  def: >-
+    Інструкція, яка забороняє компілятору й процесору переносити звертання до пам'яті через неї. Повний бар'єр у .NET дають Interlocked і Thread.MemoryBarrier.
+  q: memory barrier .NET
+  docs: https://learn.microsoft.com/dotnet/api/system.threading.interlocked.memorybarrier
+memory-model:
+  term: Модель пам'яті .NET
+  def: >-
+    Правила того, які перестановки читань і записів дозволені компілятору, JIT і процесору та що бачать інші потоки. Описана в специфікації Memory-model.md у репозиторії dotnet/runtime.
+  q: .NET memory model
+  docs: https://github.com/dotnet/runtime/blob/main/docs/design/specs/Memory-model.md
+acquire-release:
+  term: Семантика acquire/release
+  def: >-
+    Порядок для пари операцій: після читання з acquire наступні звертання не виконуються раніше за нього, а до запису з release попередні звертання не затримуються після нього. Так працюють Volatile.Read і Volatile.Write.
+  q: acquire release semantics
+  docs: https://learn.microsoft.com/dotnet/api/system.threading.volatile
+producer-consumer:
+  term: Виробник — споживач (producer-consumer)
+  def: >-
+    Схема, де одні потоки кладуть роботу в спільну чергу, а інші забирають і обробляють. Черга розв'язує темп виробництва й обробки.
+  q: producer consumer pattern .NET
+blocking-collection:
+  term: BlockingCollection
+  def: >-
+    Синхронна потокобезпечна черга з обмеженням місткості: Add і Take блокують потік, коли черга повна або порожня. Усередині за замовчуванням ConcurrentQueue.
+  q: BlockingCollection .NET
+  docs: https://learn.microsoft.com/dotnet/standard/collections/thread-safe/blockingcollection-overview
+channels:
+  term: Канали (System.Threading.Channels)
+  def: >-
+    Асинхронні черги виробник — споживач: запис і читання чекають через await і не блокують потоки. Бувають обмежені й необмежені.
+  q: System.Threading.Channels
+  docs: https://learn.microsoft.com/dotnet/core/extensions/channels
+backpressure:
+  term: Зворотний тиск (backpressure)
+  def: >-
+    Механізм, за якого переповнений споживач уповільнює виробника, а не накопичує роботу в пам'яті. У каналах його дає обмежений канал із режимом Wait.
+  q: backpressure channels .NET
+  docs: https://learn.microsoft.com/dotnet/core/extensions/channels
+thread-pool-starvation:
+  term: Голодування пулу потоків (thread pool starvation)
+  def: >-
+    Стан, коли в пулу немає вільних потоків для нової роботи, бо наявні заблоковані. Проявляється зростанням затримок за низького завантаження CPU.
+  q: thread pool starvation .NET
+  docs: https://learn.microsoft.com/dotnet/core/diagnostics/debug-threadpool-starvation
+sync-over-async:
+  term: Sync-over-async
+  def: >-
+    Синхронне очікування асинхронної операції через .Result, .Wait() або GetAwaiter().GetResult(). Блокує потік на весь час операції й найчастіше спричиняє голодування пулу.
+  q: sync over async .NET
+  docs: https://devblogs.microsoft.com/pfxteam/should-i-expose-synchronous-wrappers-for-asynchronous-methods/
+hill-climbing:
+  term: Hill climbing (алгоритм інжекції потоків)
+  def: >-
+    Евристика пулу потоків .NET: вона змінює кількість робочих потоків і залишає ту, за якої пропускна здатність вища. Працює поступово, тому різкий брак потоків не компенсує.
+  q: .NET thread pool hill climbing
+  docs: https://learn.microsoft.com/dotnet/framework/performance/thread-pool-etw-events

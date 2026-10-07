@@ -1,0 +1,153 @@
+abstract-class:
+  term: Abstract class
+  def: >-
+    A class marked `abstract`: you cannot create an instance of it, only inherit from it. It can contain fields, constructors, ready-made methods and abstract members without a body that a derived class must implement.
+  q: C# abstract class
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/keywords/abstract
+default-interface-method:
+  term: Default interface method
+  def: >-
+    An interface member with a body (C# 8). It is used when the type does not provide its own implementation and can be called only through a reference of the interface type. Requires the .NET Core 3.0+ runtime.
+  q: C# default interface methods
+  docs: https://learn.microsoft.com/dotnet/csharp/advanced-topics/interface-implementation/default-interface-methods-versions
+static-abstract-member:
+  term: Static abstract interface member
+  def: >-
+    A static method, property or operator that an interface requires from the implementing type (C# 11). It is called through a type parameter, such as `T.Zero`; generic math is built on it.
+  q: C# static abstract interface members
+  docs: https://learn.microsoft.com/dotnet/csharp/advanced-topics/interface-implementation/static-virtual-interface-members
+virtual-method:
+  term: Virtual method
+  def: >-
+    A method marked `virtual` or `abstract` that a derived class can override with `override`. Which implementation runs is decided by the object's actual type at run time.
+  q: C# virtual override
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/keywords/virtual
+method-hiding:
+  term: Method hiding
+  def: >-
+    Declaring a member in a derived class with the same name as in the base class, without `override`; the `new` modifier makes it explicit. Which method runs is decided by the variable's static type.
+  q: C# new modifier method hiding
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/keywords/new-modifier
+vtable:
+  term: Virtual method table (vtable)
+  def: >-
+    A run-time structure of a type with slots holding the addresses of its virtual methods. A virtual call takes the address from the slot in the table of the object's actual type.
+  q: .NET method table virtual dispatch
+  wiki: Virtual method table
+devirtualization:
+  term: Devirtualization
+  def: >-
+    A JIT optimization that replaces a virtual or interface call with a direct one when the exact type is known, for example for a `sealed` class. The method can then be inlined.
+  q: .NET JIT devirtualization sealed
+stack-trace:
+  term: Stack trace
+  def: >-
+    The list of calls from where an exception was thrown to where it was caught, stored in `Exception.StackTrace`. `throw;` preserves it, `throw ex;` restarts it.
+  q: C# exception stack trace
+  docs: https://learn.microsoft.com/dotnet/api/system.exception.stacktrace
+exception-filter:
+  term: Exception filter
+  def: >-
+    A `when (...)` condition on a `catch` block (C# 6). It runs before the stack is unwound; if it is false, the exception keeps propagating as if this `catch` did not exist.
+  q: C# exception filter when
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/statements/exception-handling-statements
+stack-unwinding:
+  term: Stack unwinding
+  def: >-
+    The second phase of exception handling: the runtime pops stack frames from the throw site to the handler it found and runs `finally` blocks along the way.
+  q: .NET exception handling two-pass stack unwinding
+extension-method:
+  term: Extension method
+  def: >-
+    A static method of a static class with `this` before its first parameter (C# 3). It is called like an instance method; the compiler turns the call into a regular static call.
+  q: C# extension methods
+  docs: https://learn.microsoft.com/dotnet/csharp/programming-guide/classes-and-structs/extension-methods
+extension-receiver:
+  term: Receiver
+  def: >-
+    The value an extension member is called "on": the `this` parameter of a classic extension method or the parameter of an `extension(...)` block in C# 14.
+  q: C# extension receiver parameter
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/keywords/extension
+generic-constraint:
+  term: Generic constraint
+  def: >-
+    A requirement on a type parameter in a `where T : ...` clause: reference or value type, a constructor, a base class, an interface. It lets the compiler call the corresponding members on `T`.
+  q: C# generic constraints
+  docs: https://learn.microsoft.com/dotnet/csharp/programming-guide/generics/constraints-on-type-parameters
+covariance:
+  term: Covariance
+  def: >-
+    Using a generic type with a more derived argument where a more general one is expected: `IEnumerable<string>` instead of `IEnumerable<object>`. Declared with `out T` on interfaces and delegates.
+  q: C# covariance out generic
+  docs: https://learn.microsoft.com/dotnet/standard/generics/covariance-and-contravariance
+contravariance:
+  term: Contravariance
+  def: >-
+    Using a generic type with a more general argument where a more derived one is expected: `Action<object>` instead of `Action<string>`. Declared with `in T` on interfaces and delegates.
+  q: C# contravariance in generic
+  docs: https://learn.microsoft.com/dotnet/standard/generics/covariance-and-contravariance
+invariance:
+  term: Invariance
+  def: >-
+    A generic type accepts only the exact argument it was declared with: `List<string>` cannot be used as `List<object>`. All classes and structs, and interfaces without `in`/`out`, behave this way.
+  q: C# generic invariance
+  docs: https://learn.microsoft.com/dotnet/standard/generics/covariance-and-contravariance
+delegate:
+  term: Delegate
+  def: >-
+    A type whose instance references a method and, for an instance method, the target object. Built-in delegates are `Func<...>` and `Action<...>`.
+  q: C# delegate
+  docs: https://learn.microsoft.com/dotnet/csharp/programming-guide/delegates/
+event:
+  term: Event
+  def: >-
+    A delegate-based class member that lets outside code only subscribe with `+=` and unsubscribe with `-=`. Only the declaring type can raise it.
+  q: C# event
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/keywords/event
+multicast-delegate:
+  term: Multicast delegate
+  def: >-
+    A delegate with an invocation list of several methods that run in order. Created with `+=` or `Delegate.Combine`; it returns the last method's result.
+  q: C# multicast delegate
+  docs: https://learn.microsoft.com/dotnet/api/system.multicastdelegate
+display-class:
+  term: Display class
+  def: >-
+    A hidden class the compiler generates for a capturing lambda: captured variables become its fields and the lambda becomes its method. Creating an instance is a heap allocation.
+  q: C# closure display class allocation
+reference-equality:
+  term: Reference equality
+  def: >-
+    Two references point to the same object. Checked with `object.ReferenceEquals`; `==` and `Equals` on classes behave this way by default.
+  q: C# reference equality
+  docs: https://learn.microsoft.com/dotnet/csharp/programming-guide/statements-expressions-operators/equality-comparisons
+hash-code:
+  term: Hash code (GetHashCode)
+  def: >-
+    A number hash tables (`Dictionary`, `HashSet`) use to pick a bucket. Objects that are equal by `Equals` must have equal hash codes.
+  q: C# GetHashCode Equals contract
+  docs: https://learn.microsoft.com/dotnet/api/system.object.gethashcode
+pattern-matching:
+  term: Pattern matching
+  def: >-
+    Testing a value against a pattern — a type, properties, a range, a list — while extracting data into variables. Works in `is`, `switch` statements and `switch` expressions.
+  q: C# pattern matching
+  docs: https://learn.microsoft.com/dotnet/csharp/fundamentals/functional/pattern-matching
+list-pattern:
+  term: List pattern
+  def: >-
+    A pattern such as `[1, .., var last]` (C# 11) that matches elements of an array, list or `Span<T>` by position; `..` stands for any number of elements.
+  q: C# list patterns
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/operators/patterns
+switch-expression:
+  term: Switch expression
+  def: >-
+    The expression `x switch { pattern => result, ... }` (C# 8) that returns the value of the first matching arm. If no arm matches, it throws `SwitchExpressionException`.
+  q: C# switch expression
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/operators/switch-expression
+exhaustiveness:
+  term: Exhaustiveness
+  def: >-
+    A property of a `switch` expression: its arms cover every possible input value. If they do not, the compiler issues warning CS8509.
+  q: C# switch expression exhaustive CS8509
+  docs: https://learn.microsoft.com/dotnet/csharp/language-reference/operators/switch-expression
