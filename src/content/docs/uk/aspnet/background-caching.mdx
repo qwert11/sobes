@@ -1,0 +1,1034 @@
+---
+title: Фонові задачі й кешування
+description: Hosted services і Worker Service, Hangfire і Quartz.NET, коректна зупинка, IMemoryCache та IDistributedCache, output cache, HybridCache, cache stampede та інвалідація.
+sidebar:
+  order: 6
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+Як виконувати роботу поза HTTP-запитом і як кешувати дані та відповіді: hosted services і Worker Service, Hangfire і Quartz.NET, коректна зупинка й помилки у фоні, кеш у пам'яті та розподілений, output cache і HybridCache, cache stampede та інвалідація. На співбесіді з цієї теми перевіряють, чи розумієте ви гарантії: що переживе перезапуск, що виконається двічі і що застаріє.
+
+**Перед цією темою:** [Асинхронність](/sobes/uk/dotnet/async/), [Впровадження залежностей](/sobes/uk/aspnet/di/).
+
+<Q id="aspnet.background.hosted-service" level="j">
+
+## Що таке `IHostedService` і `BackgroundService` і як їх зареєструвати?
+
+<A short l="j">
+
+<T k="hosted-service">`IHostedService`</T> — інтерфейс фонової служби: хост викликає її `StartAsync` під час запуску застосунку і `StopAsync` під час зупинки, а <T k="background-service">`BackgroundService`</T> — базовий клас, де достатньо перевизначити `ExecuteAsync`. Службу реєструють викликом `builder.Services.AddHostedService<Worker>()`, і вона живе стільки ж, скільки застосунок.
+
+</A>
+
+<A short l="m">
+
+Hosted service — синглтон, життям якого керує хост: під час старту він послідовно викликає `StartAsync` усіх служб, під час зупинки — `StopAsync` у зворотному порядку. `BackgroundService` запускає `ExecuteAsync` як довгу задачу і передає в неї токен, який скасовується під час зупинки. Тому scoped-залежності на кшталт `DbContext` беруть із власного scope, а цикл зобов'язаний слухати токен.
+
+</A>
+
+<A short l="s">
+
+Hosted service — точка розширення <T k="generic-host">Generic Host</T>: той самий механізм запускає Kestrel і воркери у <T k="worker-service">Worker Service</T>, а `AddWindowsService()` та `AddSystemd()` змінюють лише керування процесом. `StartAsync` усіх служб виконується послідовно і до запуску сервера, тому довга ініціалізація затримує старт. Із .NET 10 `BackgroundService` переносить у `Task.Run` увесь `ExecuteAsync`, а раніше його синхронна частина теж тримала запуск. Ціна вбудованого механізму — ні персистентності, ні повторів, ні координації між екземплярами.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+- `IHostedService` — служба з двома методами: `StartAsync` хост викликає під час запуску застосунку, `StopAsync` — під час зупинки.
+- `BackgroundService` — базовий клас поверх нього. Достатньо перевизначити `ExecuteAsync(CancellationToken stoppingToken)` — метод із циклом фонової роботи.
+
+**Навіщо**
+
+Щоб виконувати роботу поза HTTP-запитами: читати чергу, синхронізувати дані за таймером, прогрівати кеш.
+
+**Як користуватися**
+
+1. Успадкуйтеся від `BackgroundService` і крутіть цикл, доки не скасовано `stoppingToken`.
+2. Зареєструйте службу: `builder.Services.AddHostedService<Worker>()`.
+3. Для процесу без HTTP візьміть шаблон `dotnet new worker`. Такий воркер запускається як служба Windows (`AddWindowsService()`) або systemd (`AddSystemd()`).
+
+**Типова помилка**
+
+Не передати `stoppingToken` у `Task.Delay` та інші виклики. Тоді зупинка застосунку чекає на таймаут.
+
+**Підсумок:** `BackgroundService` і `AddHostedService` — стандартний спосіб запустити фонову роботу.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+1. `AddHostedService<T>()` реєструє службу синглтоном `IHostedService`.
+2. Під час старту хост по черзі викликає `StartAsync` усіх служб у порядку реєстрації. В ASP.NET Core це відбувається до запуску сервера.
+3. `BackgroundService.StartAsync` запускає `ExecuteAsync` і одразу повертає керування. Задача живе, доки не скасують `stoppingToken`.
+4. Під час зупинки хост викликає `StopAsync` у зворотному порядку. `BackgroundService` скасовує токен і чекає на `ExecuteAsync`, але не довше за таймаут зупинки.
+
+**Коли що обирати**
+
+| Задача | Рішення |
+|---|---|
+| Нескінченний цикл: черга, таймер | `BackgroundService` |
+| Коротка ініціалізація до приймання запитів | `IHostedService` з роботою в `StartAsync` |
+| Фоновий процес без HTTP | Worker Service: `Host.CreateApplicationBuilder` |
+
+**Пастки**
+
+- Hosted service — синглтон, тому `DbContext` та інші scoped-сервіси в конструктор не впровадити. На кожну ітерацію створюють scope через `IServiceScopeFactory.CreateAsyncScope()` — докладніше в темі [Впровадження залежностей](/sobes/uk/aspnet/di/).
+- Для періодичної роботи беруть `PeriodicTimer` (.NET 6+). На відміну від `System.Threading.Timer`, його ітерації не накладаються одна на одну.
+- Кожен екземпляр застосунку запускає свою копію воркера. Координації між ними немає.
+
+**Правило**
+
+Довгий цикл — у `ExecuteAsync`, коротка ініціалізація — у `StartAsync`, новий scope — на кожну одиницю роботи.
+
+**Підсумок:** hosted service живе стільки ж, скільки хост, і керується ним через `StartAsync`, `StopAsync` і токен зупинки.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- `AddHostedService` реєструє службу через `TryAddEnumerable`: повторна реєстрація того самого типу не створює другого екземпляра.
+- До .NET 10 синхронна частина `ExecuteAsync` до першого `await` виконувалася всередині `StartAsync` і затримувала старт інших служб і сервера. Із .NET 10 `BackgroundService` запускає весь метод через `Task.Run`.
+- `AddWindowsService()` та `AddSystemd()` не чіпають код служб, а підміняють `IHostLifetime`. Служба Windows ще отримує content root `AppContext.BaseDirectory`, бо її поточний каталог — `System32`.
+
+**Ціна**
+
+- Немає персистентності: робота в пам'яті губиться під час деплою, перезапуску чи падіння.
+- Під час масштабування кожен екземпляр виконує ту саму роботу: два поди — два нічні звіти.
+- Фонова робота ділить пул потоків і CPU із запитами.
+
+**Компроміси**
+
+| Варіант | Плюс | Мінус |
+|---|---|---|
+| Воркер у вебпроцесі | один деплой | перезапуск вебу рве задачі |
+| Окремий Worker Service | власні релізи й масштабування | ще один процес |
+
+Єдиний виконавець на всю ферму потребує блокування в спільному сховищі або планувальника з кластером.
+
+**Як перевірити в продакшені**
+
+Логуйте початок і кінець ітерації та віддавайте час останньої ітерації в health check. Завислий воркер видно з того, що ця мітка перестала оновлюватися.
+
+**Підсумок:** hosted service — простий механізм усередині процесу; гарантій доставки, розкладу та єдиності у фермі він не дає.
+
+</A>
+
+<Ex>
+
+```csharp
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddHostedService<HeartbeatWorker>(); // синглтон, стартує разом із хостом
+
+var app = builder.Build();
+app.MapGet("/", () => "OK");
+app.Run();
+
+public sealed class HeartbeatWorker(ILogger<HeartbeatWorker> logger) : BackgroundService
+{
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        // Тіки не накладаються, навіть якщо ітерація довша за період
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(10));
+        while (await timer.WaitForNextTickAsync(stoppingToken)) // під час зупинки — скасування
+        {
+            logger.LogInformation("Heartbeat at {Time}", DateTimeOffset.Now);
+        }
+    }
+}
+```
+
+</Ex>
+
+<Next>
+
+- Чим `BackgroundService` відрізняється від `IHostedService`? — Це базовий клас: сам запускає `ExecuteAsync`, а в `StopAsync` скасовує токен і чекає на задачу.
+- Чи можна впровадити `DbContext` у конструктор воркера? — Ні, воркер — синглтон; scope створюють через `IServiceScopeFactory` на кожну ітерацію.
+- Коли виконується `StartAsync` відносно Kestrel? — До запуску сервера і послідовно для всіх служб.
+- Як запустити воркер службою Windows? — Пакет `Microsoft.Extensions.Hosting.WindowsServices`, `AddWindowsService()` і реєстрація через `sc.exe create`.
+- Що буде з двома екземплярами застосунку? — Два воркери виконують одну роботу; дублі прибирають блокуванням або планувальником із кластером.
+
+</Next>
+
+<Src>
+
+- [Background tasks with hosted services in ASP.NET Core](https://learn.microsoft.com/aspnet/core/fundamentals/host/hosted-services)
+- [Worker services in .NET](https://learn.microsoft.com/dotnet/core/extensions/workers)
+- [BackgroundService runs all of ExecuteAsync as a Task (.NET 10)](https://learn.microsoft.com/dotnet/core/compatibility/extensions/10.0/backgroundservice-executeasync-task)
+
+</Src>
+
+</Q>
+
+<Q id="aspnet.caching.memory-distributed" level="j">
+
+## Чим `IMemoryCache` відрізняється від `IDistributedCache` і що таке абсолютне та ковзне закінчення терміну?
+
+<A short l="j">
+
+<T k="in-memory-cache">`IMemoryCache`</T> зберігає об'єкти в пам'яті поточного процесу, а <T k="distributed-cache">`IDistributedCache`</T> — масиви байтів у зовнішньому сховищі на кшталт Redis чи SQL Server, спільному для всіх екземплярів застосунку. <T k="absolute-expiration">Абсолютне закінчення терміну</T> видаляє запис через заданий час за будь-яких умов, а <T k="sliding-expiration">ковзне</T> — якщо до нього не зверталися заданий інтервал.
+
+</A>
+
+<A short l="m">
+
+Локальний кеш швидкий і зберігає об'єкт як є, але в кожного екземпляра він свій; розподілений спільний і переживає деплой, але кожне звернення — мережа й серіалізація. Тому `IMemoryCache` підходить для одного сервера й довідників, де розбіжність між вузлами не страшна, а `IDistributedCache` — для ферми без <T k="sticky-session">sticky sessions</T>. Ковзне закінчення терміну ставлять лише разом з абсолютним, інакше запис, який часто читають, не застаріє ніколи.
+
+</A>
+
+<A short l="s">
+
+Це вибір між затримкою та узгодженістю: кеш у процесі відповідає за частки мікросекунди без серіалізації, але в кожного вузла своя копія. Redis дає одну копію ціною мережевого виклику, серіалізації та ще однієї залежності. `IMemoryCache` не реагує на брак пам'яті, тому зростання обмежують `SizeLimit` і термінами, а ключі не будують із введення користувача. Рівні часто поєднують — короткий L1 у пам'яті поверх L2 у Redis, — а застосунок зобов'язаний працювати й із порожнім кешем.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+| | `IMemoryCache` | `IDistributedCache` |
+|---|---|---|
+| Де зберігає | у пам'яті процесу | Redis, SQL Server, Postgres |
+| Що зберігає | будь-який об'єкт | `byte[]` і рядки |
+| Після перезапуску | порожньо | дані на місці |
+
+**Як користуватися**
+
+1. Зареєструйте кеш: `AddMemoryCache()` або, наприклад, `AddStackExchangeRedisCache(...)` з пакета `Microsoft.Extensions.Caching.StackExchangeRedis`.
+2. Впровадьте інтерфейс і читайте через `GetOrCreateAsync` або `GetStringAsync` і `SetStringAsync`.
+3. Задайте термін життя:
+   - **абсолютний** (`AbsoluteExpirationRelativeToNow`) — запис живе не довше за N хвилин;
+   - **ковзний** (`SlidingExpiration`) — запис видаляється, якщо його не читали N хвилин, і кожне читання подовжує термін.
+
+**Типова помилка**
+
+Ставити лише ковзне закінчення терміну. Популярний запис читають постійно, і він роками віддає застарілі дані.
+
+**Підсумок:** пам'ять — швидко, але в кожного сервера своя копія; розподілений кеш — спільний, але через мережу.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+- `MemoryCache` — потокобезпечний словник у процесі. Значення зберігається за посиланням: змінили об'єкт після читання — змінили його для всіх.
+- `IDistributedCache` знає лише `byte[]`, серіалізація — на вас. `Refresh` подовжує ковзний термін без читання значення.
+- `AddDistributedMemoryCache()` — реалізація `IDistributedCache` у пам'яті процесу. Вона для розробки й тестів, розподіленою вона не є.
+
+**Коли що обирати**
+
+| Ситуація | Кеш |
+|---|---|
+| Один екземпляр, довідники, налаштування | `IMemoryCache` |
+| Ферма, дані мають збігатися на вузлах | `IDistributedCache` (Redis) |
+| Потрібні і швидкість пам'яті, і спільний кеш | L1 у пам'яті поверх L2 у Redis |
+
+**Пастки**
+
+- `IMemoryCache` не чиститься, коли бракує пам'яті. Обмежуйте його `SizeLimit` на окремому екземплярі `MemoryCache`: за ліміту розмір зобов'язаний вказувати кожен, хто пише в кеш.
+- Зміна закешованого об'єкта змінює його для всіх читачів. Кешуйте незмінні дані.
+- Ключі з введення користувача роздувають кеш — це вектор DoS.
+
+**Правило**
+
+Код має працювати й без кешу: кеш — оптимізація, а не сховище даних.
+
+**Підсумок:** `IMemoryCache` — для даних, яким не потрібна узгодженість між вузлами, `IDistributedCache` — для спільних даних ферми.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- Закінчення терміну ліниве. Прострочений запис не віддається під час читання, а видаляється під час звернень до кешу та фонових проходів не частіше за `ExpirationScanFrequency` (за замовчуванням раз на хвилину).
+- За заданого `SizeLimit` запис без `Size` спричиняє `InvalidOperationException`. Під час переповнення кеш стискається: спершу прострочене, потім за пріоритетом і давністю використання.
+- `IDistributedCache` зберігає байти разом із термінами. Ковзний термін подовжується під час читання, а це запис у сховище на кожне влучання.
+
+**Ціна**
+
+- L1 множить пам'ять на кількість вузлів. Великі довгоживучі об'єкти осідають у поколінні 2 та в LOH.
+- L2 — мережевий виклик і серіалізація на кожне влучання. Збій Redis не повинен валити застосунок: короткі таймаути й читання з джерела.
+
+**Компроміси**
+
+- L1 на різних вузлах розходиться на час життя запису. Короткий термін L1 або повідомлення про інвалідацію звужують це вікно.
+- Дворівнева схема дає швидкість пам'яті та спільний L2, але ускладнює інвалідацію.
+
+**Як перевірити в продакшені**
+
+- `MemoryCacheOptions.TrackStatistics = true` і `GetCurrentStatistics()` (.NET 7+) показують влучання, промахи й кількість записів.
+- Зростання пам'яті видно в `dotnet-counters` за розміром купи, а що саме тримає кеш — у `dotnet-gcdump`.
+
+**Підсумок:** локальний кеш — швидкість без узгодженості, розподілений — узгодженість ціною мережі; розмір і терміни завжди задає розробник.
+
+</A>
+
+<Ex>
+
+```csharp
+using Microsoft.Extensions.Caching.Distributed;
+using Microsoft.Extensions.Caching.Memory;
+
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddMemoryCache();
+builder.Services.AddDistributedMemoryCache(); // у продакшені: AddStackExchangeRedisCache(...)
+
+var app = builder.Build();
+
+app.MapGet("/rates", async (IMemoryCache cache) =>
+    await cache.GetOrCreateAsync("rates", entry =>
+    {
+        entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(10); // не довше за 10 хвилин
+        entry.SlidingExpiration = TimeSpan.FromMinutes(2);   // або 2 хвилини без читань
+        return Task.FromResult(new[] { 41.5m, 44.9m });      // об'єкт зберігається як є
+    }));
+
+app.MapGet("/users/{id:int}/name", async (int id, IDistributedCache cache) =>
+{
+    var key = $"user-name:{id}";
+    var name = await cache.GetStringAsync(key);              // усередині — byte[]
+    if (name is null)
+    {
+        name = $"User {id}";                                 // «завантаження з бази»
+        await cache.SetStringAsync(key, name, new DistributedCacheEntryOptions
+            { AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5) });
+    }
+    return name;
+});
+
+app.Run();
+```
+
+</Ex>
+
+<Next>
+
+- Що зробить `IMemoryCache`, коли бракує пам'яті? — Нічого: сам він не чиститься, зростання обмежують `SizeLimit` і терміни.
+- Чому `AddDistributedMemoryCache` не розподілений? — Дані лежать у пам'яті процесу; це заглушка для розробки й одного сервера.
+- Навіщо поєднувати ковзне й абсолютне закінчення терміну? — Інакше популярний запис не застаріє ніколи.
+- Що класти в Redis: об'єкт чи JSON? — Лише байти; формат серіалізації, версія схеми й розмір — на вас.
+- Як кеш пов'язаний із балансуванням? — Без спільного кешу вузли відповідають по-різному; потрібен розподілений кеш або sticky sessions.
+
+</Next>
+
+<Src>
+
+- [Cache in-memory in ASP.NET Core](https://learn.microsoft.com/aspnet/core/performance/caching/memory)
+- [Distributed caching in ASP.NET Core](https://learn.microsoft.com/aspnet/core/performance/caching/distributed)
+
+</Src>
+
+</Q>
+
+<Q id="aspnet.background.hangfire-quartz" level="m">
+
+## Коли брати Hangfire або Quartz.NET замість `BackgroundService`?
+
+<A short l="j">
+
+<T k="hangfire">Hangfire</T> і <T k="quartz-net">Quartz.NET</T> — бібліотеки фонових задач, які зберігають задачі й розклади в базі та не гублять їх під час перезапуску. Їх беруть, коли потрібні запуск за розкладом (<T k="cron-expression">cron</T>), повтори в разі помилки чи надійна черга, а `BackgroundService` залишають для простих циклів усередині процесу.
+
+</A>
+
+<A short l="m">
+
+Hangfire — черга задач: виклик методу з аргументами серіалізується у сховище (SQL Server, Redis), виконує його будь-який сервер, а повтори й дашборд є з коробки. Quartz.NET — планувальник: завдання з тригерами за cron і календарями, політика пропущених запусків і кластер на спільній базі. `BackgroundService` виграє простотою та відсутністю залежностей, але персистентність, повтори, розклад і захист від дублів між екземплярами доведеться писати самим.
+
+</A>
+
+<A short l="s">
+
+Вибір визначає гарантії: зовнішній планувальник через сховище й блокування дає виконання <T k="at-least-once">щонайменше один раз</T>, тому задачі зобов'язані бути <T k="idempotency">ідемпотентними</T>. Hangfire зручний для fire-and-forget і відкладених задач із коду, Quartz — для складних розкладів і контролю пропусків. Обидва постійно навантажують свою базу й потребують міграцій схеми. Якщо задачі передаються між сервісами, чесніше взяти брокер повідомлень, а не планувальник поверх SQL.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+- **Hangfire** запускає звичайні методи у фоні: `BackgroundJob.Enqueue(() => SendEmail(id))`. Задача зберігається в базі, виконується, у разі помилки повторюється, і все це видно у вебдашборді.
+- **Quartz.NET** — планувальник: завдання (`IJob`) плюс тригер, який вирішує, коли його запускати, наприклад за cron.
+
+**Навіщо**
+
+`BackgroundService` живе в пам'яті процесу. Перезапустили застосунок — втратили задачі з черги й пропустили запуск за розкладом.
+
+**Як користуватися**
+
+| Потрібно | Інструмент |
+|---|---|
+| Цикл, опитування, таймер | `BackgroundService` |
+| Лист у фоні з повторами | Hangfire |
+| Звіт щоночі о 02:00 | Hangfire `RecurringJob` або Quartz |
+
+**Типова помилка**
+
+Передавати в задачу Hangfire сутність EF або великий об'єкт. Аргументи серіалізуються в JSON і лежать у базі, тому передають ідентифікатор.
+
+**Підсумок:** потрібні надійність чи розклад — беріть планувальник, для простого циклу вистачить `BackgroundService`.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+- **Hangfire.** Клієнт серіалізує виклик методу — тип, метод, аргументи — у сховище. Сервер Hangfire (hosted service із пулом воркерів) забирає задачі з черги. Фільтр `AutomaticRetry` за замовчуванням повторює задачу, що впала, 10 разів зі зростаючою затримкою.
+- **Quartz.NET.** Завдання й тригери лежать у `JobStore`: за замовчуванням `RAMJobStore` у пам'яті, для надійності — `AdoJobStore` у базі. Пропущені запуски, наприклад поки застосунок був вимкнений, обробляє <T k="misfire">misfire-політика</T> тригера.
+
+**Коли що обирати**
+
+| Критерій | Hangfire | Quartz.NET |
+|---|---|---|
+| Модель | черга викликів методів | завдання й тригери |
+| Зберігання | завжди у сховищі | у пам'яті або `AdoJobStore` |
+| Повтори | `AutomaticRetry` з коробки | вручну |
+| Розклад | cron | cron із секундами, календарі |
+| Кілька вузлів | спільне сховище | `AdoJobStore` з кластером |
+| Дашборд | вбудований | пакет `Quartz.Dashboard` |
+
+**Пастки**
+
+- Hangfire зберігає імена типу й методу: перейменування чи нова сигнатура ламають задачі, які вже лежать у черзі.
+- Після збою воркера задача виконається повторно, тому її роблять ідемпотентною.
+- Дашборд Hangfire за замовчуванням пускає лише локальні запити; у продакшені потрібен власний фільтр авторизації.
+
+**Правило**
+
+Персистентність, повтори чи «один виконавець на ферму» — зовнішній планувальник. Решта — `BackgroundService`.
+
+**Підсумок:** Hangfire — надійна черга викликів із повторами, Quartz — точний розклад із кластером.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- Hangfire із SQL Server забирає задачу так, що інші сервери її не бачать. Якщо сервер помер посеред роботи, задача за таймаутом повернеться в чергу й виконається знову — звідси гарантія «щонайменше один раз».
+- Вузли кластера Quartz конкурують за тригери через блокування рядків у базі й відмічаються в ній кожні 7,5 секунди. Вузол, чий годинник поспішає, може оголосити живого сусіда таким, що впав, тому годинники синхронізують.
+
+**Ціна**
+
+- Постійне навантаження на базу й власна схема таблиць із міграціями.
+- Аргументи задачі — контракт: їхня серіалізована форма живе довше за версію коду, яка її створила.
+- Подвійне виконання — норма, а не аварія. Ідемпотентність закладають у кожну задачу.
+
+**Компроміси**
+
+- Сховище Redis і пакети задач (batches) у Hangfire — у платній версії Pro.
+- Quartz 4.0 (вересень 2026) працює лише на .NET 10 і змінив API: `IJob.Execute` повертає `ValueTask` і приймає `CancellationToken`, схема бази потребує міграції. Гілка 3.x для .NET Framework підтримується.
+- Обмін задачами між сервісами — брокер повідомлень. Періодичний запуск окремого процесу — Kubernetes CronJob.
+
+**Як перевірити в продакшені**
+
+Стежте в дашборді за кількістю задач у станах Failed і Retrying та за довжиною черг. У Quartz алертять на повідомлення `is still active but was recovered by another instance` — ознаку розсинхрону годинників у кластері.
+
+**Підсумок:** планувальник дає персистентність і повтори ціною навантаження на базу, версіонування аргументів і обов'язкової ідемпотентності.
+
+</A>
+
+<Ex title="Hangfire">
+
+```csharp
+// NuGet: Hangfire.AspNetCore, Hangfire.SqlServer
+using Hangfire;
+
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddHangfire(c => c.UseSqlServerStorage(
+    builder.Configuration.GetConnectionString("Hangfire")));
+builder.Services.AddHangfireServer(); // обробник задач — теж hosted service
+builder.Services.AddScoped<ReceiptService>();
+
+var app = builder.Build();
+app.MapHangfireDashboard("/jobs"); // за замовчуванням — лише локальні запити
+
+// Виклик серіалізується в базу; у разі помилки — до 10 повторів
+app.MapPost("/orders/{id:int}/receipt", (int id, IBackgroundJobClient jobs) =>
+    Results.Accepted(value: jobs.Enqueue<ReceiptService>(s => s.SendAsync(id))));
+
+// Щодня о 02:00 (за замовчуванням UTC)
+app.Services.GetRequiredService<IRecurringJobManager>()
+    .AddOrUpdate<ReceiptService>("cleanup", s => s.CleanupAsync(), Cron.Daily(2));
+
+app.Run();
+
+public class ReceiptService
+{
+    public Task SendAsync(int orderId) => Task.CompletedTask; // id, а не сутність
+    public Task CleanupAsync() => Task.CompletedTask;
+}
+```
+
+</Ex>
+
+<Ex title="Quartz.NET 4.x">
+
+```csharp
+// NuGet: Quartz
+using Quartz;
+
+var builder = Host.CreateApplicationBuilder(args);
+builder.Services.AddQuartz(q =>
+{
+    // Cron у Quartz починається із секунд: щодня о 02:00:00
+    q.ScheduleJob<NightlyReportJob>(t => t.WithIdentity("nightly-report").WithCronSchedule("0 0 2 * * ?"));
+    q.UsePersistentStore(s =>
+    {
+        s.UseSqlServer(builder.Configuration.GetConnectionString("Quartz")!);
+        s.UseClustering(); // тригер спрацює на одному вузлі
+        s.UseSystemTextJsonSerializer();
+    });
+});
+builder.Services.AddQuartzHostedService(o => o.WaitForJobsToComplete = true);
+builder.Build().Run();
+
+[DisallowConcurrentExecution] // одне виконання на ключ завдання в усьому кластері
+public sealed class NightlyReportJob : IJob
+{
+    // У 3.x сигнатура інша: Task Execute(IJobExecutionContext context)
+    public ValueTask Execute(IJobExecutionContext context, CancellationToken cancellationToken = default) => default;
+}
+```
+
+</Ex>
+
+<Next>
+
+- Що буде, якщо сервер Hangfire впаде посеред задачі? — За таймаутом вона повернеться в чергу й виконається знову; звідси ідемпотентність.
+- Чому в задачу передають id, а не сутність? — Аргументи серіалізуються в базу: об'єкт застаріє й роздує сховище.
+- Як Quartz не запускає завдання двічі в кластері? — `AdoJobStore` із блокуваннями в базі та `[DisallowConcurrentExecution]` на ключ завдання.
+- Що таке misfire? — Пропущений запуск тригера; політика вирішує, виконати його одразу, один раз чи пропустити.
+- Коли не потрібні ні Hangfire, ні Quartz? — Для простого циклу всередині процесу та для обміну між сервісами, де потрібен брокер.
+
+</Next>
+
+<Src>
+
+- [Hangfire documentation](https://docs.hangfire.io/)
+- [Quartz.NET documentation](https://www.quartz-scheduler.net/documentation/)
+- [Background tasks with hosted services in ASP.NET Core](https://learn.microsoft.com/aspnet/core/fundamentals/host/hosted-services)
+
+</Src>
+
+</Q>
+
+<Q id="aspnet.caching.output-hybrid" level="m">
+
+## Response caching, output caching і `HybridCache`: що коли?
+
+<A short l="j">
+
+<T k="response-caching">Response caching</T> кешує HTTP-відповіді в браузері, проксі та CDN за заголовком <T k="cache-control">`Cache-Control`</T>, а <T k="output-caching">output caching</T> (.NET 7+) зберігає готові відповіді на сервері за його власними правилами. <T k="hybrid-cache">`HybridCache`</T> (.NET 9+) кешує не відповіді, а дані в коді, наприклад результати запитів до бази.
+
+</A>
+
+<A short l="m">
+
+Response caching дотримується стандарту HTTP: сервер лише виставляє заголовки, а клієнт із `Cache-Control: no-cache` завжди отримує свіжу відповідь, тож він підходить для публічних GET і CDN. Output cache зберігає відповіді за політикою сервера, витісняє їх за <T k="cache-tags">тегами</T> і на промаху пускає до обробника один запит на ключ. `HybridCache` кешує дані у двох рівнях — L1 у пам'яті та L2 в `IDistributedCache` — і захищає від <T k="cache-stampede">cache stampede</T>; ціна — серіалізація та різна свіжість L1 на різних вузлах.
+
+</A>
+
+<A short l="s">
+
+Це три шари з різною точкою контролю: заголовки віддають кеш клієнтам і CDN, output cache керує відповідями на сервері, `HybridCache` — даними. Відповідь, закешовану в CDN, не відкликати до закінчення `max-age`, а output cache витісняє записи за тегом із пам'яті або Redis (.NET 8+). `RemoveByTagAsync` у `HybridCache` — логічна операція: старі записи вважаються промахом, але фізично живуть до закінчення терміну. L1 інших вузлів при цьому не скидається, тому `LocalCacheExpiration` роблять коротшим за `Expiration`.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+| Механізм | Що кешує | Де зберігає |
+|---|---|---|
+| Response caching | HTTP-відповідь | браузер, проксі, CDN, middleware |
+| Output caching (.NET 7+) | HTTP-відповідь | сервер: пам'ять або Redis |
+| `HybridCache` (.NET 9+) | дані в коді | пам'ять плюс розподілений кеш |
+
+**Як користуватися**
+
+- Response caching: `[ResponseCache(Duration = 60)]` виставляє `Cache-Control: public,max-age=60`. Серверний кеш додають `AddResponseCaching()` і `UseResponseCaching()`.
+- Output caching: `AddOutputCache()`, `UseOutputCache()` і `.CacheOutput()` на ендпоінті.
+- `HybridCache`: пакет `Microsoft.Extensions.Caching.Hybrid`, `AddHybridCache()` і `GetOrCreateAsync(key, factory)`.
+
+**Типова помилка**
+
+Кешувати відповіді для авторизованих користувачів: один отримає дані іншого. Output cache за замовчуванням такі відповіді не кешує — не вимикайте це правило без варіювання ключа за користувачем.
+
+**Підсумок:** заголовки — для клієнтів і CDN, output cache — для відповідей на сервері, `HybridCache` — для даних.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+- **Response caching middleware** дотримується RFC 9111: кешує GET і HEAD із кодом 200, без `Authorization` і `Set-Cookie`, і зважає на `Cache-Control` запиту. Браузер із `max-age=0` обходить кеш.
+- **Output caching** ігнорує заголовки клієнта. За замовчуванням кешує лише 200 на GET і HEAD, без cookie та без автентифікації, на 60 секунд. Ключ — увесь URL, його налаштовують `SetVaryByQuery` і `SetVaryByHeader`.
+- **`HybridCache`**: `GetOrCreateAsync` перевіряє L1 (`MemoryCache`), потім L2 (зареєстрований `IDistributedCache`) і лише потім викликає фабрику — одну на ключ в екземплярі застосунку. Значення серіалізуються через System.Text.Json.
+
+**Коли що обирати**
+
+| Задача | Вибір |
+|---|---|
+| Статика й публічні GET для CDN | `Cache-Control`, `[ResponseCache]` |
+| Сторінки й відповіді API повністю | output cache |
+| Результати запитів до бази й зовнішніх API | `HybridCache` |
+
+**Пастки**
+
+- `UseOutputCache` ставлять після `UseCors`, `UseAuthentication` і `UseAuthorization`, інакше можна віддати відповідь, закешовану для іншого користувача.
+- Для output cache на кількох вузлах беруть `AddStackExchangeRedisOutputCache` (.NET 8+), а не `IDistributedCache`: тегам потрібна атомарність.
+- `HybridCache` за замовчуванням десеріалізує нову копію на кожне читання. Повторне використання екземпляра вмикають `sealed` і `[ImmutableObject(true)]` на типі.
+
+**Правило**
+
+Спершу вирішіть, що кешуєте — відповідь чи дані, — потім де зберігається копія і хто її скидає.
+
+**Підсумок:** output cache і `HybridCache` контролює сервер, response caching — клієнт.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- Output cache зберігає відповіді в `IOutputCacheStore`: за замовчуванням у пам'яті з лімітом 100 МБ, а Redis-сховище підтримує теги атомарно. Повторна перевірка за `ETag` та `If-Modified-Since` віддає 304 без тіла.
+- `HybridCache` об'єднує одночасні виклики за ключем усередині екземпляра. Токен фабрики скасовується, лише якщо скасували всі, хто чекає.
+- Теги `HybridCache` — мітки часу інвалідації: під час читання запис, старший за мітку, вважається промахом.
+
+**Ціна**
+
+- `HybridCache`: серіалізація на кожен запис і читання L2. Записи, більші за `MaximumPayloadBytes` (за замовчуванням 1 МБ), не кешуються.
+- Output cache без Redis тримає окрему копію на кожному вузлі. `SetVaryByQuery("*")` множить кількість записів на кількість комбінацій параметрів.
+
+**Компроміси**
+
+- Свіжість проти навантаження: `max-age` у CDN не відкликати. Зазвичай дають короткий `max-age` клієнтам, а на сервері тримають output cache з витісненням за тегами.
+- У `HybridCache` немає вбудованого механізму розсилання інвалідацій між вузлами (backplane). Його дає FusionCache, який реалізує ту саму абстракцію.
+
+**Як перевірити в продакшені**
+
+Дивіться заголовки `Age` і `Cache-Control` у відповідях, рахуйте виклики фабрик і запити до бази, порівнюйте затримку P95 до й після ввімкнення кешу.
+
+**Підсумок:** обирайте шар за тим, хто має вміти скинути копію: CDN — ніхто, output cache — сервер за тегом, `HybridCache` — код за ключем чи тегом.
+
+</A>
+
+<Ex title="Output cache і Cache-Control">
+
+```csharp
+using Microsoft.AspNetCore.OutputCaching;
+
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddOutputCache(o =>
+    o.AddPolicy("products", p => p.Expire(TimeSpan.FromMinutes(5)).Tag("products")));
+
+var app = builder.Build();
+app.UseOutputCache();
+
+// Відповідь повністю зберігається на сервері, Cache-Control клієнта не впливає
+app.MapGet("/products", () => new[] { "apple", "pear" }).CacheOutput("products");
+
+app.MapPost("/products", async (IOutputCacheStore store, CancellationToken ct) =>
+{
+    await store.EvictByTagAsync("products", ct); // скидання всіх відповідей із тегом
+    return Results.NoContent();
+});
+
+// Response caching: лише заголовок для браузера й CDN
+app.MapGet("/logo", (HttpContext ctx) =>
+{
+    ctx.Response.Headers.CacheControl = "public,max-age=86400";
+    return "logo";
+});
+
+app.Run();
+```
+
+</Ex>
+
+<Ex title="HybridCache">
+
+```csharp
+// NuGet: Microsoft.Extensions.Caching.Hybrid
+using Microsoft.Extensions.Caching.Hybrid;
+
+// Реєстрація: builder.Services.AddHybridCache() з пакета Microsoft.Extensions.Caching.Hybrid.
+// L2 — зареєстрований IDistributedCache, наприклад Redis.
+public sealed class PriceService(HybridCache cache)
+{
+    private static readonly HybridCacheEntryOptions Options = new()
+    {
+        Expiration = TimeSpan.FromMinutes(10),         // загальний термін, зокрема L2
+        LocalCacheExpiration = TimeSpan.FromMinutes(1) // L1 коротший: інші вузли не дізнаються про скидання
+    };
+
+    // Одночасні промахи за ключем у цьому процесі чекають на одне завантаження
+    public ValueTask<decimal> GetAsync(int id, CancellationToken ct) =>
+        cache.GetOrCreateAsync($"price:{id}", async token =>
+        {
+            await Task.Delay(100, token); // «запит до бази»
+            return id * 10m;
+        }, Options, tags: ["prices"], cancellationToken: ct);
+
+    // Логічне скидання: записи, старші за цей момент, вважаються промахом
+    public ValueTask InvalidateAllAsync(CancellationToken ct) => cache.RemoveByTagAsync("prices", ct);
+}
+```
+
+</Ex>
+
+<Next>
+
+- Чому браузер обходить response caching? — Він надсилає `Cache-Control: max-age=0`, а middleware зобов'язаний на це зважати.
+- Чим тег в output cache відрізняється від тегу в `HybridCache`? — Перший витісняє записи зі сховища, другий логічно позначає їх застарілими.
+- Як output cache захищає від напливу запитів на промаху? — Блокуванням ресурсу: обробник виконує один запит, решта чекають.
+- Чи можна зберігати output cache в `IDistributedCache`? — Не рекомендовано: тегам потрібна атомарність; є `AddStackExchangeRedisOutputCache` (.NET 8+).
+- Чи потрібен .NET 9 для `HybridCache`? — Ні: абстракція з'явилася в .NET 9, а пакет працює навіть на .NET Framework 4.7.2.
+
+</Next>
+
+<Src>
+
+- [Overview of caching in ASP.NET Core](https://learn.microsoft.com/aspnet/core/performance/caching/overview)
+- [Output caching middleware in ASP.NET Core](https://learn.microsoft.com/aspnet/core/performance/caching/output)
+- [HybridCache library in ASP.NET Core](https://learn.microsoft.com/aspnet/core/performance/caching/hybrid)
+
+</Src>
+
+</Q>
+
+<Q id="aspnet.background.shutdown-errors" level="s">
+
+## Як коректно зупиняти фонові задачі і що буде в разі необробленого винятку?
+
+<A short l="j">
+
+<T k="graceful-shutdown">Коректна зупинка</T> — коли під час вимкнення застосунку хост скасовує `stoppingToken`, а `ExecuteAsync` помічає скасування, доробляє поточний крок і виходить сам. Необроблений виняток у `ExecuteAsync` із .NET 6 за замовчуванням зупиняє весь застосунок, тому помилки окремих ітерацій ловлять усередині циклу.
+
+</A>
+
+<A short l="m">
+
+На <T k="sigterm">SIGTERM</T> чи Ctrl+C `BackgroundService` скасовує токен і чекає на `ExecuteAsync` не довше за <T k="shutdown-timeout">`ShutdownTimeout`</T> (30 секунд із .NET 6, раніше 5), а потім процес просто завершується. Виняток з `ExecuteAsync` хост логує і за `BackgroundServiceExceptionBehavior.StopHost` (за замовчуванням із .NET 6) зупиняє застосунок; `Ignore` повертає стару поведінку, коли служба мовчки вмирала. Тому помилку ітерації ловлять у циклі, а падіння всієї служби вважають фатальним.
+
+</A>
+
+<A short l="s">
+
+Зупинка кооперативна й обмежена бюджетом: `ShutdownTimeout` має вкластися у вікно оркестратора — у Kubernetes це за замовчуванням 30 секунд до SIGKILL. `StopHost` зупиняє хост чисто, і до .NET 11 процес виходить із кодом 0, тому служба Windows без явного `Environment.Exit(1)` не перезапуститься. Порядок запуску й зупинки уточнюють <T k="hosted-lifecycle-service">`IHostedLifecycleService`</T> і прапорці паралельного старту (.NET 8+). Черга в пам'яті на <T k="channels">`Channel<T>`</T> під час зупинки губить необроблене, тому для гарантій потрібне зовнішнє сховище.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+Коректна зупинка — фонова задача завершує поточну роботу й виходить сама, а не обривається посеред операції.
+
+**Як це працює**
+
+1. Застосунок отримує сигнал зупинки: Ctrl+C, зупинку служби, `docker stop`.
+2. Хост скасовує `stoppingToken`, який отримав `ExecuteAsync`.
+3. Код помічає скасування — через `await` із цим токеном або перевірку `IsCancellationRequested` — і виходить.
+4. Хост чекає на завершення, але не довше за таймаут: за замовчуванням 30 секунд.
+
+**Що з винятками**
+
+Якщо `ExecuteAsync` викине виняток, хост запише його в лог і зупинить застосунок. Тому помилку однієї ітерації ловлять усередині циклу, логують і продовжують.
+
+**Типова помилка**
+
+`while (true)` і `Task.Delay` без токена. Застосунок висить до таймауту, а задача обривається.
+
+**Підсумок:** передавайте `stoppingToken` у кожен виклик і ловіть помилки ітерації всередині циклу.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+1. Сигнал зупинки піднімає `ApplicationStopping`, і хост викликає `StopAsync` служб у зворотному порядку реєстрації.
+2. `BackgroundService.StopAsync` скасовує токен і чекає на `ExecuteAsync` або на спрацювання токена зупинки — що настане раніше. Цей токен спрацьовує через `ShutdownTimeout`.
+3. Коли час минув, хост продовжує вимкнення, і незавершена робота гине разом із процесом.
+4. Виняток з `ExecuteAsync` хост логує як `BackgroundService failed`. `OperationCanceledException` під час зупинки помилкою не вважається.
+
+**Коли що обирати**
+
+| Ситуація | Рішення |
+|---|---|
+| Ітерація може впасти, служба має жити | `try/catch` усередині циклу |
+| Без служби застосунок безглуздий | виняток зупиняє хост |
+| Зупинці потрібно більше часу | `HostOptions.ShutdownTimeout` |
+
+**Пастки**
+
+- `BackgroundServiceExceptionBehavior.Ignore` перетворює службу, що впала, на зомбі: процес живий, робота не йде.
+- `StartAsync` виконується послідовно і до запуску сервера, тому важка робота в ньому затримує старт.
+- Таймер, який запускає нову ітерацію, не чекаючи на попередню, під час зупинки залишає хвіст незавершених операцій.
+
+**Правило**
+
+Кожен `await` у фоновій задачі отримує `stoppingToken`, помилки ітерації ловляться в циклі, а падіння служби цілком — сигнал зупинити хост.
+
+**Підсумок:** хост просить зупинитися токеном і чекає обмежений час; усе, що не встигло, обривається.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- Хост окремо чекає на задачу кожного `BackgroundService`. У разі помилки він пише лог і зі `StopHost` викликає `StopApplication()`.
+- У .NET 11 (виходить у листопаді 2026) `RunAsync` і `StopAsync` після такої зупинки викидають виняток служби, і код виходу стає ненульовим. До цього застосунок завершувався з кодом 0.
+- `IHostedLifecycleService` (.NET 8) додає `StartingAsync`, `StartedAsync`, `StoppingAsync` і `StoppedAsync`. Методи зупинки входять у той самий `ShutdownTimeout`.
+
+**Ціна**
+
+- `ShutdownTimeout` — один бюджет на всіх: Kestrel дренує запити, а служби зупиняються по черзі, якщо не ввімкнено `ServicesStopConcurrently`.
+- Вікно оркестратора жорсткіше: Kubernetes дає 30 секунд до SIGKILL, `docker stop` — 10, systemd — 90.
+
+**Компроміси**
+
+- Черга на `Channel<T>` губить елементи під час зупинки й падіння. Варіанти — дочитати її в межах бюджету або зберігати роботу поза процесом (Hangfire, брокер, outbox).
+- Обмежений канал дає <T k="backpressure">зворотний тиск</T>: коли він переповнений, `WriteAsync` чекає, і запити сповільнюються замість зростання пам'яті.
+- У службі Windows документація радить `Environment.Exit(1)` після фатальної помилки, щоб спрацювало відновлення служби. Ціна — `finally` і коректна зупинка не виконаються.
+
+**Як перевірити в продакшені**
+
+Шукайте в логах `BackgroundService failed` і тривалість від `Application is shutting down` до виходу. На стенді надішліть SIGTERM під навантаженням і перевірте, що розпочата робота завершилася.
+
+**Підсумок:** коректна зупинка — це токен у кожному виклику, бюджет менший за вікно оркестратора і робота, яка переживе обрив.
+
+</A>
+
+<Ex>
+
+```csharp
+using System.Threading.Channels;
+
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.Configure<HostOptions>(o =>
+{
+    o.ShutdownTimeout = TimeSpan.FromSeconds(20); // менше за вікно оркестратора (K8s — 30 с)
+    o.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.StopHost; // за замовчуванням
+});
+builder.Services.AddSingleton(Channel.CreateBounded<string>(100)); // переповнений — WriteAsync чекає
+builder.Services.AddHostedService<EmailSender>();
+
+var app = builder.Build();
+app.MapPost("/emails", async (string to, Channel<string> queue, CancellationToken ct) =>
+{
+    await queue.Writer.WriteAsync(to, ct);
+    return Results.Accepted();
+});
+app.Run();
+
+public sealed class EmailSender(Channel<string> queue, ILogger<EmailSender> logger) : BackgroundService
+{
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        // Під час зупинки читання перерветься, непрочитані адреси загубляться
+        await foreach (var to in queue.Reader.ReadAllAsync(stoppingToken))
+        {
+            try
+            {
+                await Task.Delay(200, CancellationToken.None); // розпочатий лист дописуємо
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Failed to send email to {To}", to); // одна помилка не валить хост
+            }
+        }
+    }
+}
+```
+
+</Ex>
+
+<Next>
+
+- Скільки хост чекає на фонові служби за замовчуванням? — 30 секунд із .NET 6, раніше 5; налаштовується `HostOptions.ShutdownTimeout`.
+- Чому служба Windows не перезапускається після падіння воркера? — `StopHost` зупиняє хост чисто, з кодом виходу 0; потрібен `Environment.Exit(1)` або .NET 11.
+- Що буде з елементами в `Channel<T>` під час зупинки? — Необроблені загубляться; дочитуйте в межах бюджету або зберігайте чергу поза процесом.
+- Навіщо `IHostedLifecycleService`? — Код до й після `StartAsync` і `StopAsync` усіх служб: міграції до старту, дренування до зупинки.
+- Чи обробить SIGTERM консольний застосунок без хоста на .NET 10? — Ні: рантайм більше не ставить свій обробник, а хост ставить його через `ConsoleLifetime`.
+
+</Next>
+
+<Src>
+
+- [.NET Generic Host: host shutdown](https://learn.microsoft.com/dotnet/core/extensions/generic-host#host-shutdown)
+- [Create Windows Service using BackgroundService](https://learn.microsoft.com/dotnet/core/extensions/windows-service)
+- [RunAsync and StopAsync throw on BackgroundService failure (.NET 11)](https://learn.microsoft.com/dotnet/core/compatibility/extensions/11/ihost-runasync-stopasync-throw-backgroundservice-failure)
+
+</Src>
+
+</Q>
+
+<Q id="aspnet.caching.stampede" level="s">
+
+## Що таке cache stampede і як організувати інвалідацію та узгодженість кешу?
+
+<A short l="j">
+
+Cache stampede — ситуація, коли популярний запис закінчив термін і сотні запитів одночасно йдуть по нього в базу. Захист — пускати до джерела один запит на ключ, як роблять `HybridCache` і output cache, а після зміни даних видаляти ключ із кешу, щоб не віддавати застаріле.
+
+</A>
+
+<A short l="m">
+
+Stampede виникає на промаху популярного ключа або коли багато ключів закінчують термін одночасно; лікується об'єднанням запитів — одне завантаження, решта чекають на його результат — і <T k="ttl-jitter">випадковим розкидом термінів</T>. Базова схема — <T k="cache-aside">cache-aside</T>: читаємо кеш, на промаху завантажуємо й кладемо, а під час запису в базу видаляємо ключ, а не оновлюємо його. `IMemoryCache.GetOrCreateAsync` від stampede не захищає: за одночасних промахів фабрика виконається кілька разів.
+
+</A>
+
+<A short l="s">
+
+Це компроміс між навантаженням на джерело, свіжістю та складністю. Об'єднання запитів у процесі (`HybridCache`) обмежує завантаження кількістю вузлів, а <T k="distributed-lock">розподілене блокування</T> — одним, але додає затримку й точку відмови. <T k="cache-invalidation">Інвалідація</T> — це термін життя як страховка плюс видалення за ключем чи тегом після коміту, а L1 інших вузлів скидають подією через pub/sub. Повної узгодженості кеш не дає: між записом у базу й видаленням ключа є гонка, і термін життя лише обмежує час життя помилки.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+Cache stampede — масовий промах: запис закінчив термін, і всі запити одночасно йдуть у базу. База отримує в сотні разів більше запитів, ніж зазвичай, і може не витримати.
+
+**Як захиститися**
+
+- Один запит на ключ, решта чекають на його результат. Так працюють `HybridCache.GetOrCreateAsync` і output cache.
+- Різні терміни: до терміну життя додають випадкові секунди, щоб ключі не закінчували термін одночасно.
+
+**Як оновлювати дані**
+
+Змінили дані в базі — видаліть ключ із кешу (`RemoveAsync`). Наступне читання завантажить свіжу версію.
+
+**Типова помилка**
+
+Думати, що `IMemoryCache.GetOrCreateAsync` викликає фабрику один раз. За одночасних промахів її викличуть кілька запитів.
+
+**Підсумок:** на промаху до джерела йде один запит, а після запису ключ видаляють.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+1. Cache-aside: читаємо кеш, на промаху завантажуємо з джерела й кладемо з терміном життя.
+2. Запис: комітимо в базу, потім видаляємо ключ. Видалення ідемпотентне й не кладе в кеш значення, яке програло гонку.
+3. Об'єднання запитів (single-flight): за ключем зберігається задача поточного завантаження, і решта промахів чекають на неї.
+
+**Коли що обирати**
+
+| Патерн | Коли |
+|---|---|
+| Cache-aside | за замовчуванням: кеш необов'язковий, завантажуємо ліниво |
+| <T k="write-through">Write-through</T> | запис іде в кеш і базу синхронно, читання одразу після запису часте |
+| Write-behind | запис у кеш, у базу — пізніше пачками; ризик втрат допустимий |
+
+**Пастки**
+
+- Дані, завантажені під час старту з однаковим терміном, закінчують його одночасно. Додавайте розкид.
+- Видалення ключа до коміту транзакції: паралельне читання знову покладе старе значення.
+- Ключі, яких не існує, б'ють у базу щоразу. Кешуйте й «не знайдено» з коротким терміном.
+
+**Правило**
+
+Термін життя завжди, видалення ключа після коміту, об'єднання запитів для дорогих ключів.
+
+**Підсумок:** cache-aside з видаленням після запису й розкидом термінів закриває більшість проблем свіжості та навантаження.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- `HybridCache` об'єднує виклики лише всередині екземпляра: на п'яти вузлах буде до п'яти завантажень. Блокування ресурсу в output cache теж локальне.
+- Розподілене блокування (наприклад, `SET NX PX` у Redis) зводить завантаження до одного, але потребує таймауту: власник може померти, а блокування — закінчитися посеред роботи.
+- Оновлення заздалегідь (refresh-ahead) і віддавання застарілого значення на час перезавантаження (stale-while-revalidate) прибирають промахи з гарячого шляху. У FusionCache це eager refresh і fail-safe.
+
+**Ціна**
+
+Ті, хто чекає, ділять затримку одного завантаження. Якщо воно впало, помилку отримують усі — або, з fail-safe, застаріле значення.
+
+**Компроміси**
+
+- Гонка: запит A промахнувся й прочитав старе з бази, B записав нове й видалив ключ, A поклав старе в кеш. Вікно обмежує термін життя; звужують його короткі терміни, ключі з версією (`product:42:v7`) і повторне видалення із затримкою.
+- L1 на інших вузлах скидають подією (Redis pub/sub, шина, CDC або outbox) або коротким `LocalCacheExpiration`.
+- Групи записів скидають тегами: `RemoveByTagAsync` у `HybridCache`, `EvictByTagAsync` в output cache.
+
+**Як перевірити в продакшені**
+
+Стежте за часткою влучань і кількістю викликів фабрик за ключами. Піки затримки бази, що збігаються з межами термінів життя, — ознака одночасного закінчення термінів. Навантажувальний тест проводять і з холодним кешем — після деплою чи очищення Redis.
+
+**Підсумок:** stampede гасять об'єднанням запитів і розкидом термінів, а узгодженість обмежують терміном життя, видаленням після коміту й подіями інвалідації.
+
+</A>
+
+<Ex>
+
+```csharp
+using System.Collections.Concurrent;
+using Microsoft.Extensions.Caching.Memory;
+
+var cache = new MemoryCache(new MemoryCacheOptions());
+var inFlight = new ConcurrentDictionary<int, Lazy<Task<decimal>>>();
+int dbCalls = 0;
+
+async Task<decimal> GetPriceAsync(int id)
+{
+    if (cache.TryGetValue(id, out decimal price)) return price;       // влучання
+    // Single-flight: усі промахи за ключем чекають на одне завантаження
+    var load = inFlight.GetOrAdd(id, key => new Lazy<Task<decimal>>(async () =>
+    {
+        Interlocked.Increment(ref dbCalls);
+        await Task.Delay(100);                                        // «запит до бази»
+        var ttl = TimeSpan.FromMinutes(5) + TimeSpan.FromSeconds(Random.Shared.Next(60)); // розкид
+        return cache.Set(key, key * 10m, ttl);
+    }));
+    try { return await load.Value; }
+    finally { inFlight.TryRemove(KeyValuePair.Create(id, load)); }   // прибираємо лише своє завантаження
+}
+
+await Task.WhenAll(Enumerable.Range(0, 100).Select(_ => GetPriceAsync(42)));
+Console.WriteLine(dbCalls); // 1
+```
+
+</Ex>
+
+<Next>
+
+- Чи захищає `IMemoryCache.GetOrCreateAsync` від stampede? — Ні: за одночасних промахів фабрика виконається кілька разів.
+- Чому під час запису ключ видаляють, а не оновлюють? — Видалення ідемпотентне й не кладе в кеш значення, яке програло гонку.
+- Що дає розкид термінів життя? — Ключі, завантажені одночасно, закінчують термін у різний час, і навантаження не приходить піком.
+- Скільки завантажень буде в `HybridCache` на п'яти вузлах? — До п'яти: об'єднання працює всередині екземпляра.
+- Як скинути L1 на всіх вузлах? — Подією через pub/sub чи шину або коротким терміном L1.
+
+</Next>
+
+<Src>
+
+- [HybridCache library in ASP.NET Core](https://learn.microsoft.com/aspnet/core/performance/caching/hybrid)
+- [Cache-Aside pattern](https://learn.microsoft.com/azure/architecture/patterns/cache-aside)
+- [Caching guidance](https://learn.microsoft.com/azure/architecture/best-practices/caching)
+
+</Src>
+
+</Q>

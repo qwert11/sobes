@@ -1,0 +1,192 @@
+kestrel:
+  term: Kestrel
+  def: >-
+    Кроссплатформенный веб-сервер, встроенный в ASP.NET Core. Работает внутри процесса приложения,
+    принимает HTTP/1.1, HTTP/2 и HTTP/3 и передаёт запросы в конвейер middleware.
+  q: Kestrel ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/servers/kestrel
+reverse-proxy:
+  term: Обратный прокси (reverse proxy)
+  def: >-
+    Сервер перед приложением, который принимает запросы из сети и пересылает их приложению. Обычно
+    расшифровывает TLS, балансирует нагрузку и позволяет нескольким приложениям делить порты 80 и 443.
+  q: reverse proxy ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/servers/kestrel/when-to-use-a-reverse-proxy
+forwarded-headers:
+  term: Forwarded headers (X-Forwarded-*)
+  def: >-
+    Заголовки `X-Forwarded-For`, `X-Forwarded-Proto` и `X-Forwarded-Host`, в которых прокси передаёт
+    исходные IP клиента, схему и хост. В ASP.NET Core их применяет `UseForwardedHeaders`, доверяя только
+    известным прокси.
+  q: ASP.NET Core forwarded headers middleware
+  docs: https://learn.microsoft.com/aspnet/core/host-and-deploy/proxy-load-balancer
+tls-termination:
+  term: Терминация TLS (TLS termination)
+  def: >-
+    Расшифровка HTTPS на прокси или балансировщике, после которой запрос идёт к приложению уже по HTTP.
+    Сертификат нужен только в точке терминации.
+  q: TLS termination proxy
+http-sys:
+  term: HTTP.sys
+  def: >-
+    Драйвер режима ядра Windows, который принимает HTTP-запросы для IIS и других серверов. В ASP.NET Core
+    есть одноимённый сервер — альтернатива Kestrel только для Windows, с общим портом и
+    Windows-аутентификацией.
+  q: HTTP.sys ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/servers/httpsys
+middleware:
+  term: Middleware (промежуточное ПО)
+  def: >-
+    Компонент конвейера запросов ASP.NET Core. Получает `HttpContext`, выполняет свою работу и передаёт
+    запрос следующему компоненту или формирует ответ сам.
+  q: ASP.NET Core middleware
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/middleware/
+request-pipeline:
+  term: Конвейер запросов (request pipeline)
+  def: >-
+    Цепочка middleware, через которую проходит каждый HTTP-запрос: в порядке регистрации на входе и в
+    обратном порядке на выходе. Собирается один раз при старте приложения.
+  q: ASP.NET Core request pipeline
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/middleware/
+request-delegate:
+  term: RequestDelegate
+  def: >-
+    Делегат `Task RequestDelegate(HttpContext context)` — сигнатура звена конвейера и endpoint'а. Весь
+    собранный конвейер — тоже один `RequestDelegate`.
+  q: RequestDelegate ASP.NET Core
+  docs: https://learn.microsoft.com/dotnet/api/microsoft.aspnetcore.http.requestdelegate
+terminal-middleware:
+  term: Терминальный middleware
+  def: >-
+    Middleware, который сам формирует ответ и не вызывает следующий компонент, например `app.Run`. Всё,
+    что зарегистрировано после него в той же ветке, не выполняется.
+  q: ASP.NET Core terminal middleware
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/middleware/
+short-circuit:
+  term: Короткое замыкание конвейера (short-circuit)
+  def: >-
+    Ситуация, когда middleware отвечает сам и не вызывает `next`, и остальная часть конвейера не
+    выполняется. Так, например, работает отдача статических файлов.
+  q: ASP.NET Core short-circuit middleware pipeline
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/middleware/
+host-application-lifetime:
+  term: IHostApplicationLifetime
+  def: >-
+    Сервис с событиями жизненного цикла приложения — `ApplicationStarted`, `ApplicationStopping`,
+    `ApplicationStopped` — и методом `StopApplication()` для остановки из кода.
+  q: IHostApplicationLifetime
+  docs: https://learn.microsoft.com/dotnet/api/microsoft.extensions.hosting.ihostapplicationlifetime
+host-lifetime:
+  term: IHostLifetime
+  def: >-
+    Компонент, который решает, когда хост стартует и когда начинает остановку. `ConsoleLifetime`
+    реагирует на Ctrl+C и SIGTERM, `WindowsServiceLifetime` — на команды службы Windows.
+  q: IHostLifetime ConsoleLifetime
+  docs: https://learn.microsoft.com/dotnet/core/extensions/generic-host
+imiddleware:
+  term: IMiddleware
+  def: >-
+    Интерфейс middleware с методом `InvokeAsync(HttpContext, RequestDelegate)`. Такой middleware
+    регистрируется в DI и создаётся на каждый запрос, поэтому принимает scoped-зависимости в конструкторе.
+  q: IMiddleware factory-based middleware
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/middleware/extensibility
+convention-based-middleware:
+  term: Middleware по соглашению (convention-based)
+  def: >-
+    Класс без интерфейса с конструктором от `RequestDelegate` и методом `Invoke` или `InvokeAsync`.
+    Создаётся один раз при сборке конвейера и живёт всё время работы приложения.
+  q: ASP.NET Core convention-based middleware
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/middleware/write
+middleware-factory:
+  term: IMiddlewareFactory
+  def: >-
+    Фабрика, через которую `UseMiddleware` получает экземпляры `IMiddleware` на каждый запрос.
+    Стандартная реализация берёт их из DI-scope запроса; свою подключают для стороннего контейнера.
+  q: IMiddlewareFactory
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/middleware/extensibility
+endpoint-routing:
+  term: Endpoint routing (маршрутизация по endpoint'ам)
+  def: >-
+    Основная система маршрутизации ASP.NET Core с версии 3.0: `UseRouting` выбирает endpoint по URL и
+    методу, а `UseEndpoints` выполняет его. Middleware между ними видят выбранный endpoint и его
+    метаданные.
+  q: ASP.NET Core endpoint routing
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/routing
+endpoint:
+  term: Endpoint
+  def: >-
+    Единица обработки запроса в ASP.NET Core: делегат `RequestDelegate` плюс коллекция метаданных.
+    Endpoint'ы — это обработчики `MapGet`, action контроллеров, Razor Pages, хабы SignalR.
+  q: ASP.NET Core endpoint
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/routing
+route-template:
+  term: Шаблон маршрута (route template)
+  def: >-
+    Строка вида `/orders/{id:int}`, которая описывает, какие URL подходят endpoint'у. Содержит литералы,
+    параметры в фигурных скобках, ограничения, значения по умолчанию и catch-all.
+  q: ASP.NET Core route template
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/routing#route-templates
+route-constraint:
+  term: Ограничение маршрута (route constraint)
+  def: >-
+    Условие на параметр маршрута: `{id:int}`, `{name:alpha}`, `{slug:regex(...)}`. Если значение не
+    подходит, маршрут не совпадает. Нужно, чтобы различать маршруты, а не чтобы проверять ввод.
+  q: ASP.NET Core route constraints
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/routing#route-constraints
+endpoint-metadata:
+  term: Метаданные endpoint'а (endpoint metadata)
+  def: >-
+    Произвольные объекты, прикреплённые к endpoint'у: атрибуты `[Authorize]`, политики CORS, свои маркеры
+    через `WithMetadata`. Их читают middleware после `UseRouting` через `context.GetEndpoint()`.
+  q: ASP.NET Core endpoint metadata
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/routing#endpoint-metadata
+route-precedence:
+  term: Приоритет шаблона маршрута (route precedence)
+  def: >-
+    Правило выбора среди нескольких подходящих маршрутов: побеждает более конкретный шаблон. Литерал
+    сильнее параметра, параметр с ограничением сильнее параметра без него, catch-all слабее всех.
+  q: ASP.NET Core route template precedence
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/routing#route-template-precedence-and-endpoint-selection-order
+ancm:
+  term: ASP.NET Core Module (ANCM)
+  def: >-
+    Нативный модуль IIS, который запускает приложение ASP.NET Core внутри рабочего процесса `w3wp.exe`
+    (in-process) или отдельным процессом с Kestrel (out-of-process). Ставится вместе с .NET Hosting
+    Bundle.
+  q: ASP.NET Core Module ANCM IIS
+  docs: https://learn.microsoft.com/aspnet/core/host-and-deploy/aspnet-core-module
+in-process-hosting:
+  term: In-process хостинг
+  def: >-
+    Модель хостинга в IIS, при которой приложение работает внутри `w3wp.exe`, а запросы принимает
+    `IISHttpServer` вместо Kestrel. Модель по умолчанию с ASP.NET Core 3.0.
+  q: ASP.NET Core in-process hosting IIS
+  docs: https://learn.microsoft.com/aspnet/core/host-and-deploy/iis/in-process-hosting
+out-of-process-hosting:
+  term: Out-of-process хостинг
+  def: >-
+    Модель хостинга в IIS, при которой ANCM запускает приложение отдельным процессом с Kestrel и
+    пересылает ему запросы по HTTP через loopback.
+  q: ASP.NET Core out-of-process hosting IIS
+  docs: https://learn.microsoft.com/aspnet/core/host-and-deploy/iis/out-of-process-hosting
+app-pool:
+  term: Пул приложений IIS (application pool)
+  def: >-
+    Группа сайтов IIS, которую обслуживают рабочие процессы `w3wp.exe` с общими настройками: учётная
+    запись, разрядность, рециклинг. Для in-process ASP.NET Core нужен свой пул на каждое приложение.
+  q: IIS application pool
+  docs: https://learn.microsoft.com/iis/configuration/system.applicationhost/applicationpools/
+app-pool-recycling:
+  term: Рециклинг пула (app pool recycling)
+  def: >-
+    Плановый или вынужденный перезапуск рабочего процесса IIS: по расписанию, по лимиту памяти, при
+    изменении конфигурации. По умолчанию новый процесс стартует до остановки старого (overlapped recycle).
+  q: IIS application pool recycling overlapped
+  docs: https://learn.microsoft.com/iis/configuration/system.applicationhost/applicationpools/add/recycling/
+hosting-bundle:
+  term: .NET Hosting Bundle
+  def: >-
+    Установщик для Windows-сервера с IIS: ставит рантайм .NET, ASP.NET Core и ASP.NET Core Module. Без
+    него IIS не умеет запускать приложения ASP.NET Core.
+  q: .NET Hosting Bundle IIS
+  docs: https://learn.microsoft.com/aspnet/core/host-and-deploy/iis/hosting-bundle

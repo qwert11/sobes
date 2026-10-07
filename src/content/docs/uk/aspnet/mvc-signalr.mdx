@@ -1,0 +1,1073 @@
+---
+title: MVC, Razor і SignalR
+description: Шлях запиту в MVC, Razor і tag helpers, view components і Razor Pages, antiforgery, хаби SignalR, транспорти й масштабування.
+sidebar:
+  order: 5
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+Серверний UI на ASP.NET Core та оновлення в реальному часі: шлях запиту від контролера до HTML, Razor, захист форм від CSRF і SignalR на одному та кількох серверах.
+
+**Перед цією темою:** [Хостинг і конвеєр](/sobes/uk/aspnet/hosting/).
+
+<Q id="aspnet.mvc.mvc-pattern" level="j">
+
+## Як влаштований MVC в ASP.NET Core і який шлях проходить запит до `View()`?
+
+<A short l="j">
+
+<T k="mvc-pattern">MVC</T> ділить застосунок на контролер, який приймає запит, модель з даними й логікою та представлення, яке перетворює дані на HTML. Маршрут обирає <T k="action-method">action</T> контролера, той збирає <T k="view-model">ViewModel</T> і повертає `View(vm)`, а Razor рендерить за нею сторінку.
+
+</A>
+
+<A short l="m">
+
+Маршрутизація зіставляє запит з action за шаблоном `{controller}/{action}/{id?}` або атрибутом, а MVC створює контролер, прив'язує параметри, виконує фільтри й викликає метод. Action повертає не HTML, а <T k="action-result">`IActionResult`</T>: `ViewResult` лише описує, яке представлення і з якою моделлю відмалювати, і рендеринг відбувається вже після виходу з action. Тому в представлення передають готову ViewModel, а не `IQueryable` чи сутності EF з лінивим завантаженням — інакше запити до бази виконаються під час рендерингу.
+
+</A>
+
+<A short l="s">
+
+Під час старту MVC будує модель застосунку: знаходить контролери, застосовує угоди й перетворює кожен action на endpoint маршрутизації. На запит `ControllerActionInvoker` проганяє фільтри, model binding і action, а `ViewResultExecutor` знаходить скомпільоване представлення через <T k="view-discovery">пошук представлень</T> і пише HTML у буфер відповіді. Ціна — більше шарів і алокацій, ніж у Minimal API, зате фільтри, угоди й layout дають структуру великому серверному UI. Для нових проєктів Microsoft рекомендує Blazor, але MVC повністю підтримується й лишається нормальним вибором для наявних застосунків.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+- **Модель** — дані та бізнес-логіка: сутності, сервіси, правила.
+- **Представлення (View)** — файл `.cshtml` з HTML і Razor, який показує дані.
+- **Контролер** — клас із методами-actions: приймає запит, викликає модель, обирає представлення.
+- **ViewModel** — клас під конкретну сторінку: лише поля, які вона показує або приймає.
+
+**Як проходить запит**
+
+1. Шаблон `{controller=Home}/{action=Index}/{id?}` перетворює `/Orders/Details/42` на виклик `OrdersController.Details(42)`.
+2. Action отримує дані й збирає ViewModel.
+3. `return View(vm)` шукає `Views/Orders/Details.cshtml`, потім `Views/Shared/Details.cshtml`.
+4. Razor підставляє дані в розмітку, і браузер отримує готовий HTML.
+
+**Типова помилка**
+
+Писати бізнес-логіку просто в контролері. Тоді її не перевикористати й не протестувати без HTTP. Контролер лише пов'язує запит, сервіс і представлення.
+
+**Підсумок:** контролер приймає запит, модель дає дані, представлення їх показує, а `View(vm)` поєднує їх за ім'ям action.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+1. Запит проходить middleware конвеєра, і маршрутизація обирає endpoint — конкретний action.
+2. MVC створює контролер. Сам клас не зареєстрований у DI, але його залежності беруться зі scope запиту.
+3. Фільтри й model binding готують виклик: параметри заповнюються з маршруту, query і форми (докладно — у темі [Web API](/sobes/uk/aspnet/web-api/)).
+4. Action повертає `IActionResult`. `View(vm)` створює `ViewResult` — опис результату, а не HTML.
+5. Після виходу з action `ViewResult` виконується: рушій Razor знаходить представлення, запускає `_ViewStart`, рендерить представлення та layout.
+
+**Коли що обирати**
+
+| Спосіб передати дані | Коли |
+|---|---|
+| ViewModel і `@model` | основний спосіб: типізація та IntelliSense |
+| `ViewData`, `ViewBag` | дрібниці для layout, наприклад заголовок сторінки |
+| `TempData` | повідомлення, яке переживає один редирект |
+
+**Пастки**
+
+- **Лінивий рендеринг.** Представлення виконується після action. `IQueryable` або сутності з lazy loading у моделі — це запити до бази під час рендерингу, часто N+1.
+- **Регістр імен.** Представлення шукається за ім'ям файлу. На Linux файлова система розрізняє регістр, і `details.cshtml` не знайдеться для action `Details`.
+- **Сутність на вході.** POST, прив'язаний просто до сутності EF, дає змогу підставити поля, яких немає у формі (overposting).
+
+**Правило**
+
+Action тонкий: дані із сервісу, матеріалізована ViewModel, `View`. Після успішного POST — `RedirectToAction` (Post/Redirect/Get), щоб F5 не надсилав форму повторно.
+
+**Підсумок:** `View()` повертає опис результату, а HTML з'являється пізніше, під час виконання `ViewResult`.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- Під час старту `ApplicationPartManager` знаходить контролери у збірках, будується `ApplicationModel`, застосовуються угоди (`IApplicationModelConvention`). Кожен action стає `ActionDescriptor`, а з них — endpoints маршрутизації.
+- На запит `ControllerActionInvoker` виконує конвеєр: фільтри авторизації та ресурсів, model binding, фільтри action, сам action, фільтри результату.
+- Із .NET 6 генератор Razor компілює представлення в основну збірку застосунку: кожне — клас-нащадок `RazorPage<TModel>`, окремого `*.Views.dll` більше немає.
+- `ViewResultExecutor` знаходить представлення (результат пошуку кешується) і рендерить його в буфер із пулу, а потім надсилає у відповідь.
+
+**Ціна**
+
+- Кожен запит — створення контролера, прив'язка, фільтри й рендеринг Razor. Для JSON-ендпоінтів Minimal API дешевший.
+- Велика сторінка повністю лежить у буфері до кінця рендерингу. `await FlushAsync()` у представленні віддає початок раніше, але після цього не можна змінити статус і заголовки.
+
+**Компроміси**
+
+- Microsoft рекомендує Blazor для нових проєктів. MVC і Razor Pages підтримуються й уміють вбудовувати Razor-компоненти Blazor у наявні представлення.
+- Runtime-компіляція Razor (`AddRazorRuntimeCompilation`) із .NET 10 застаріла, попередження ASPDEPR003. Для розробки — Hot Reload, у продакшені — компіляція під час збирання.
+
+**Як перевірити в продакшені**
+
+- Лог MVC рівня Information «Executed ViewResult - view Details executed in 312ms» показує час рендерингу окремо від action.
+- Метрика `http.server.request.duration` (із .NET 8) з тегом `http.route` показує повільні маршрути.
+
+**Підсумок:** MVC — конвеєр навколо action, і найдорожче в ньому часто не action, а рендеринг представлення.
+
+</A>
+
+<Ex>
+
+```csharp
+using Microsoft.AspNetCore.Mvc;
+
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddControllersWithViews(); // контролери + Razor-представлення
+
+var app = builder.Build();
+app.MapStaticAssets(); // .NET 9+
+app.MapControllerRoute(
+    name: "default",
+    pattern: "{controller=Home}/{action=Index}/{id?}")
+    .WithStaticAssets();
+app.Run();
+
+public class OrdersController : Controller
+{
+    // GET /Orders/Details/42 → controller=Orders, action=Details, id=42
+    public IActionResult Details(int id)
+    {
+        if (id != 42) return NotFound();
+
+        var vm = new OrderDetailsViewModel(id, "Contoso", 99.5m);
+        return View(vm); // Views/Orders/Details.cshtml, потім Views/Shared/Details.cshtml
+    }
+}
+
+// ViewModel: лише те, що потрібно сторінці
+public record OrderDetailsViewModel(int Id, string Customer, decimal Total);
+```
+
+```cshtml
+@* Views/Orders/Details.cshtml *@
+@model OrderDetailsViewModel
+
+<h1>Order #@Model.Id</h1>
+<p>@Model.Customer: @Model.Total.ToString("C")</p>
+```
+
+</Ex>
+
+<Next>
+
+- Чим `View()` відрізняється від `ViewResult`? — `View()` — помічник контролера, який створює `ViewResult`; рендеринг відбувається під час виконання результату.
+- Де MVC шукає представлення? — `Views/{Controller}/{Action}.cshtml`, потім `Views/Shared`; правила змінює `IViewLocationExpander`.
+- Навіщо ViewModel, якщо є сутність? — Лише потрібні поля, немає overposting і запитів до бази під час рендерингу.
+- Чим `ViewData` відрізняється від `ViewBag`? — Це одне сховище: словник із рядковими ключами та `dynamic`-обгортка над ним.
+- Що таке Post/Redirect/Get? — Після успішного POST — редирект на GET, щоб оновлення сторінки не надсилало форму знову.
+
+</Next>
+
+<Src>
+
+- [Overview of ASP.NET Core MVC](https://learn.microsoft.com/aspnet/core/mvc/overview)
+- [Views in ASP.NET Core MVC](https://learn.microsoft.com/aspnet/core/mvc/views/overview)
+- [Handle requests with controllers in ASP.NET Core MVC](https://learn.microsoft.com/aspnet/core/mvc/controllers/actions)
+
+</Src>
+
+</Q>
+
+<Q id="aspnet.mvc.razor" level="j">
+
+## Що таке Razor, з чого складається сторінка і чим відрізняються Razor Pages?
+
+<A short l="j">
+
+<T k="razor">Razor</T> — синтаксис шаблонів, у якому C# вбудовується в HTML через `@`, а виведення автоматично кодується проти <T k="xss">XSS</T>. Спільний каркас сторінок задає <T k="layout">layout</T>, повторювані шматки виносять у <T k="partial-view">partial views</T>, а <T k="razor-pages">Razor Pages</T> — та сама техніка, де сторінка має власні обробники замість контролера.
+
+</A>
+
+<A short l="m">
+
+Razor-файли компілюються під час збирання, а сторінку складають із частин: layout, partial views і <T k="view-component">view components</T> — блоків із власною логікою та даними. <T k="tag-helper">Tag helpers</T> дають HTML-елементам серверну поведінку (`asp-for`, `asp-action`) і витіснили більшість HTML helpers. Razor Pages тримають розмітку й обробники `OnGet`/`OnPost` разом: для форм і CRUD це простіше за контролери, а MVC зручніший, коли один контролер обслуговує багато представлень.
+
+</A>
+
+<A short l="s">
+
+Кожне представлення — згенерований під час збирання клас-нащадок `RazorPage<TModel>`, а tag helpers і view components перетворюються на виклики під час його рендерингу. Ціна — об'єкти на кожен елемент: важкі tag helpers і view components у циклі множать роботу, а синхронний `Html.Partial` загрожує блокуванням потоку. Razor Pages працюють на тій самій інфраструктурі MVC, тому вибір між ними — про організацію коду, а не про швидкість. Інтерактивність без JavaScript-фреймворку Microsoft зараз пропонує робити на Blazor, і його компоненти вбудовуються в наявні представлення.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+Razor — розмітка `.cshtml`, де HTML змішаний із C#: `@Model.Name`, `@if`, `@foreach`. Усе, що виводиться через `@`, кодується: `<script>` із даних стане текстом.
+
+**З чого складається сторінка**
+
+| Файл або прийом | Навіщо |
+|---|---|
+| `_Layout.cshtml` | спільний каркас; `@RenderBody()` вставляє сторінку |
+| `_ViewStart.cshtml` | код перед кожним представленням, зазвичай `Layout = "_Layout"` |
+| `_ViewImports.cshtml` | спільні `@using`, `@addTagHelper`, `@inject` |
+| partial view | повторюваний шматок розмітки |
+| view component | шматок із власною логікою: кошик, меню |
+
+**Razor Pages**
+
+Файл `Pages/Contact.cshtml` з директивою `@page` сам відповідає на `/Contact`. Логіка лежить поруч, у класі `ContactModel` з методами `OnGet` і `OnPost`.
+
+**Типова помилка**
+
+Вивести HTML із бази через `@Html.Raw`, щоб «теги відображалися». Так у сторінку потрапляє чужий скрипт.
+
+**Підсумок:** Razor — HTML плюс C# з автокодуванням, а layout, partial і view components прибирають повтори.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+- `_ViewStart` і `_ViewImports` діють на свою папку та вкладені. `_ViewStart` виконується лише для повних представлень, не для partial.
+- Tag helper — клас, який на сервері обробляє HTML-елемент. `<a asp-action="Details">` отримує готовий URL, `<input asp-for="Email">` — ім'я, значення й атрибути валідації.
+- HTML helpers (`@Html.TextBoxFor(m => m.Email)`) роблять те саме через виклики C#. Сторонні набори на кшталт Telerik UI for ASP.NET Core пропонують обидва варіанти.
+
+**Коли що обирати**
+
+| Завдання | Інструмент |
+|---|---|
+| Повторити розмітку з даними батька | partial view |
+| Блок із власними даними: кошик, меню | view component |
+| Змінити поведінку HTML-елемента | tag helper |
+| Сторінка з формою та парою обробників | Razor Pages |
+| Багато представлень навколо ресурсу, спільні фільтри | контролер MVC |
+
+**Пастки**
+
+- `@Html.Partial` синхронний: аналізатор MVC1000 попереджає про ризик дедлоку. Використовуйте `<partial>` або `await Html.PartialAsync`.
+- View component не бере участі в model binding і фільтрах: дані надходять лише аргументами `Invoke` або `InvokeAsync`.
+- Для `<vc:cart>` потрібен `@addTagHelper *, НазваЗбірки` у `_ViewImports`. Без нього тег мовчки потрапляє в HTML як є.
+
+**Правило**
+
+Запити до даних — в action або view component, а не в блоках `@{ }` представлення.
+
+**Підсумок:** partial — для розмітки, view component — для розмітки з логікою, tag helper — для поведінки елемента.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- Генератор Razor перетворює `.cshtml` на клас: статичний HTML — у `WriteLiteral`, вирази `@x` — у `Write`, який кодує значення через `HtmlEncoder`.
+- Layout виконується після тіла: спочатку рендериться представлення і зберігаються його секції, потім layout вставляє їх через `RenderBody` і `RenderSectionAsync`.
+- Tag helpers прив'язуються до елементів під час компіляції за `@addTagHelper`. У рантаймі на кожен цільовий елемент створюється екземпляр і викликається `ProcessAsync`.
+- View component шукає представлення в `Views/{Controller}/Components/{Name}/` і `Views/Shared/Components/{Name}/`.
+
+**Ціна**
+
+- Tag helper — об'єкт і контекст на кожен елемент. У таблиці на тисячі рядків це помітні алокації; гарячий фрагмент пишуть простим HTML з `@`.
+- View component у циклі — окремий пошук представлення й рендеринг на кожну ітерацію. Дані краще завантажити один раз.
+- `<cache>` зберігає фрагмент у пам'яті процесу, і у фермі кожен сервер має власну копію. Для спільного кешу є `<distributed-cache>`.
+
+**Компроміси**
+
+- Razor Pages і MVC працюють на одному рушії. Pages — вертикальні зрізи за сторінками, MVC — контролери за ресурсами зі спільними фільтрами.
+- Razor не дає інтерактивності на клієнті. Її додають JavaScript або Razor-компоненти Blazor через tag helper `<component>` просто в представленні.
+
+**Як перевірити в продакшені**
+
+Час рендерингу видно в логах MVC («Executed ViewResult … executed in N ms»), а алокації tag helpers — у профілювальнику (dotnet-trace, PerfView) під навантаженням.
+
+**Підсумок:** Razor компілюється у звичайний C#, і його ціна — об'єкти на кожен tag helper і view component під час рендерингу.
+
+</A>
+
+<Ex>
+
+```csharp
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.RazorPages;
+
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddControllersWithViews();
+builder.Services.AddRazorPages(); // MVC і Razor Pages в одному застосунку
+
+var app = builder.Build();
+app.MapControllerRoute("default", "{controller=Home}/{action=Index}/{id?}");
+app.MapRazorPages(); // Pages/Contact.cshtml → /Contact
+app.Run();
+
+// View component: власна логіка й представлення Views/Shared/Components/Cart/Default.cshtml
+public class CartViewComponent : ViewComponent
+{
+    public IViewComponentResult Invoke(int maxItems) =>
+        View(new[] { "Keyboard", "Mouse", "Monitor" }.Take(maxItems).ToArray());
+}
+
+// Razor Page: обробники замість actions, модель лежить поруч із розміткою
+public class ContactModel : PageModel
+{
+    [BindProperty] public string Message { get; set; } = "";
+
+    public IActionResult OnPost() =>
+        string.IsNullOrWhiteSpace(Message) ? Page() : RedirectToPage("Thanks");
+}
+```
+
+```cshtml
+@* Views/_ViewImports.cshtml — спільні директиви для папки та вкладених *@
+@addTagHelper *, Microsoft.AspNetCore.Mvc.TagHelpers
+@addTagHelper *, MyShop
+
+@* Views/_ViewStart.cshtml — виконується перед кожним повним представленням *@
+@{ Layout = "_Layout"; }
+
+@* Views/Shared/_Layout.cshtml *@
+<main>@RenderBody()</main>
+@await RenderSectionAsync("Scripts", required: false)
+
+@* Views/Home/Index.cshtml *@
+@model IReadOnlyList<Product>
+@foreach (var p in Model)
+{
+    <partial name="_ProductRow" model="p" />
+}
+<vc:cart max-items="2"></vc:cart>
+<a asp-controller="Products" asp-action="Details" asp-route-id="5">Details</a>
+```
+
+</Ex>
+
+<Next>
+
+- Чим partial view відрізняється від view component? — Partial отримує дані від батька, view component завантажує їх сам і має власну логіку.
+- Де діє `_ViewImports.cshtml`? — У своїй папці та вкладених; файли різних рівнів об'єднуються.
+- Як Razor захищає від XSS? — Кодує все, що виводиться через `@`; `Html.Raw` кодування вимикає.
+- Навіщо `asp-append-version="true"`? — Додає хеш файлу в URL, і браузер не тримає в кеші стару версію.
+- Чи можна змішувати Razor Pages і MVC? — Так: `AddControllersWithViews` і `AddRazorPages` в одному застосунку, зі спільними layout і tag helpers.
+
+</Next>
+
+<Src>
+
+- [Razor syntax reference for ASP.NET Core](https://learn.microsoft.com/aspnet/core/mvc/views/razor)
+- [Tag Helpers in ASP.NET Core](https://learn.microsoft.com/aspnet/core/mvc/views/tag-helpers/intro)
+- [Razor Pages architecture and concepts in ASP.NET Core](https://learn.microsoft.com/aspnet/core/razor-pages/)
+
+</Src>
+
+</Q>
+
+<Q id="aspnet.mvc.signalr-basics" level="j">
+
+## Що таке SignalR і які транспорти він використовує?
+
+<A short l="j">
+
+<T k="signalr">SignalR</T> — бібліотека ASP.NET Core, через яку сервер сам надсилає дані клієнтам у реальному часі, а клієнти викликають методи сервера через <T k="signalr-hub">хаб</T>. Найкращий транспорт — <T k="websocket">WebSockets</T>, а якщо він недоступний, SignalR сам переходить на <T k="server-sent-events">Server-Sent Events</T> або <T k="long-polling">Long Polling</T>.
+
+</A>
+
+<A short l="m">
+
+SignalR — RPC поверх постійного з'єднання: сервер викликає методи клієнта за ім'ям, клієнт — методи хаба, повідомлення кодуються в JSON або MessagePack. З'єднання починається з <T k="signalr-negotiation">negotiate</T>: клієнт надсилає `POST /hub/negotiate`, отримує токен з'єднання й список транспортів і пробує їх по черзі WebSockets → SSE → Long Polling. SSE і Long Polling — «напівтранспорти»: від клієнта до сервера повідомлення йдуть окремими POST, тому вони повільніші й дорожчі за WebSockets.
+
+</A>
+
+<A short l="s">
+
+Транспорт залежить від клієнта, сервера й усього, що між ними: проксі без Upgrade або IIS без компонента WebSocket Protocol тихо переводять клієнтів на SSE чи Long Polling. Лише WebSockets — повний дуплекс в одному TCP-з'єднанні; SSE передає тільки текст і з MessagePack не використовується, а Long Polling платить за кожне повідомлення HTTP-запитом. Negotiate прив'язує з'єднання до процесу, і за балансувальником це вимагає sticky sessions. Тому фактичний транспорт у продакшені вимірюють, а не покладаються на «сам обере найкращий».
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+SignalR тримає постійне з'єднання між браузером і сервером. Сервер сам надсилає повідомлення — нове замовлення, статус задачі, рядок таблиці — без перезавантаження сторінки й опитування за таймером.
+
+**Як користуватися**
+
+1. Сервер: клас-нащадок `Hub` і `app.MapHub<NotificationsHub>("/hubs/notifications")`.
+2. Клієнт: пакет `@microsoft/signalr`, `HubConnectionBuilder` і `connection.on(...)` для вхідних повідомлень.
+3. `connection.invoke("Method", args)` викликає публічний метод хаба.
+
+**Транспорти, від найкращого до запасного**
+
+| Транспорт | Як працює |
+|---|---|
+| WebSockets | одне двостороннє з'єднання |
+| Server-Sent Events | потік подій від сервера, від клієнта — окремі POST |
+| Long Polling | запит висить до появи даних, потім новий |
+
+**Типова помилка**
+
+Вважати, що `withAutomaticReconnect()` перепідключається вічно. Без параметрів він робить чотири спроби — через 0, 2, 10 і 30 секунд — і здається.
+
+**Підсумок:** SignalR — постійне з'єднання з викликами в обидва боки, а транспорт обирається автоматично.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+1. Клієнт надсилає `POST {hub}/negotiate?negotiateVersion=1`. Сервер відповідає `connectionId`, секретним `connectionToken` і списком транспортів із форматами `Text` і `Binary`.
+2. Клієнт пробує транспорти по черзі й підключається з `?id={connectionToken}`.
+3. Першим повідомленням клієнт надсилає handshake із протоколом: JSON (за замовчуванням) або MessagePack.
+4. Далі йдуть виклики в обидва боки. Сервер раз на 15 секунд шле ping (`KeepAliveInterval`) і вважає клієнта відключеним після 30 секунд тиші (`ClientTimeoutInterval`).
+
+**Коли що обирати**
+
+| | JSON | MessagePack |
+|---|---|---|
+| Розмір повідомлень | більший | менший |
+| Налагодження | читається в DevTools | двійковий формат |
+| Пакети й транспорти | вбудований, усі транспорти | окремі пакети, без SSE |
+
+**Пастки**
+
+- `invoke` чекає на відповідь і помилку сервера, `send` — лише на надсилання.
+- Повідомлення від клієнта, більше за 32 КБ, сервер відхиляє (`MaximumReceiveMessageSize`). Великі дані вантажать звичайним HTTP.
+- Після автоматичного перепідключення з'єднання має новий `connectionId`, і все, що було прив'язане до старого, втрачається.
+- Помилку першого `start()` автоматичне перепідключення не обробляє — її ловлять самі.
+
+**Правило**
+
+SignalR — для сповіщень і живих оновлень. Важкі дані за сповіщенням клієнт дозапитує звичайним HTTP.
+
+**Підсумок:** negotiate обирає транспорт і видає токен з'єднання, далі йдуть виклики методів в обидва боки.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- WebSockets — повний дуплекс в одному TCP-з'єднанні після відповіді `101 Switching Protocols`.
+- SSE і Long Polling приймають через `EventSource` або завислий GET, а надсилають окремими POST на той самий endpoint з `?id=`.
+- SSE підтримує лише формат `Text`, тому з MessagePack клієнт його пропускає.
+- Стан з'єднання — буфери, id, користувач — живе в пам'яті процесу, який виконав negotiate.
+
+**Ціна**
+
+- Кожне з'єднання — постійний сокет і пам'ять під буфери (за замовчуванням по 64 КБ на приймання й надсилання). Це ресурс сервера, навіть коли повідомлень немає.
+- Long Polling — HTTP-запит на кожну порцію даних.
+- SSE через HTTP/1.1 займає одне із шести з'єднань браузера на домен.
+
+**Компроміси**
+
+- Тихий відкат на Long Polling маскує проблеми інфраструктури: усе працює, але з більшою затримкою й навантаженням.
+- `Transports = HttpTransportType.WebSockets` на сервері та `skipNegotiation` на клієнті прибирають negotiate і відкат. Ціна — клієнти за «поганими» проксі перестануть підключатися.
+
+**Як перевірити в продакшені**
+
+- Метрика `signalr.server.active_connections` (із .NET 8) з тегом `signalr.transport` показує реальний розподіл транспортів, `kestrel.upgraded_connections` — кількість WebSocket-з'єднань.
+- У DevTools на вкладці Network видно `negotiate` і далі відповідь `101` у WebSockets.
+
+**Підсумок:** транспорт визначає ціну з'єднання, тому фактичний транспорт у продакшені вимірюють, а не припускають.
+
+</A>
+
+<Ex>
+
+```csharp
+using Microsoft.AspNetCore.SignalR;
+
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddSignalR();
+
+var app = builder.Build();
+app.MapHub<NotificationsHub>("/hubs/notifications"); // плюс /hubs/notifications/negotiate
+app.Run();
+
+public class NotificationsHub : Hub
+{
+    // клієнт: connection.invoke("Ping", "hello")
+    public Task Ping(string text) =>
+        Clients.Caller.SendAsync("Pong", text.ToUpperInvariant());
+}
+```
+
+```js
+const connection = new signalR.HubConnectionBuilder()
+    .withUrl("/hubs/notifications") // negotiate, потім WebSockets → SSE → Long Polling
+    .withAutomaticReconnect()        // спроби через 0, 2, 10 і 30 секунд
+    .build();
+
+connection.on("Pong", text => console.log(text)); // HELLO
+
+await connection.start();
+await connection.invoke("Ping", "hello");
+```
+
+</Ex>
+
+<Next>
+
+- Чому WebSockets кращий за SSE? — Повний дуплекс в одному з'єднанні; SSE надсилає від клієнта окремі POST і передає лише текст.
+- Що робить negotiate? — Видає `connectionId`, `connectionToken` і список транспортів; без нього можна підключитися лише через WebSockets (`skipNegotiation`).
+- Що буде, якщо сервер перезапуститься? — З `withAutomaticReconnect` клієнт перепідключиться з новим `connectionId`, без нього спрацює `onclose`.
+- Чим `invoke` відрізняється від `send`? — `invoke` чекає на результат і помилку сервера, `send` — лише на факт надсилання.
+- Як SignalR помічає обрив? — Ping раз на 15 секунд; сервер вважає клієнта відключеним після 30 секунд тиші.
+
+</Next>
+
+<Src>
+
+- [Overview of ASP.NET Core SignalR](https://learn.microsoft.com/aspnet/core/signalr/introduction)
+- [ASP.NET Core SignalR configuration](https://learn.microsoft.com/aspnet/core/signalr/configuration)
+- [ASP.NET Core SignalR JavaScript client](https://learn.microsoft.com/aspnet/core/signalr/javascript-client)
+
+</Src>
+
+</Q>
+
+<Q id="aspnet.mvc.antiforgery" level="m">
+
+## Що таке CSRF і як працює antiforgery в MVC і Razor Pages?
+
+<A short l="j">
+
+<T k="csrf">CSRF</T> — атака, за якої чужий сайт змушує браузер користувача надіслати запит на ваш сайт, а браузер сам додає cookie входу. Захищає <T k="antiforgery-token">antiforgery-токен</T>: форма містить приховане поле з токеном, якого чужий сайт не має, а `[ValidateAntiForgeryToken]` перевіряє його на сервері.
+
+</A>
+
+<A short l="m">
+
+ASP.NET Core реалізує <T k="synchronizer-token-pattern">synchronizer token pattern</T>: токен у cookie й токен у полі форми чи заголовку видаються парою, прив'язані до користувача й перевіряються разом. FormTagHelper додає поле `__RequestVerificationToken` у POST-форми, Razor Pages перевіряють токен самі, а в MVC зручний глобальний `AutoValidateAntiforgeryToken`, який пропускає без перевірки лише GET, HEAD, OPTIONS і TRACE. Ціна — токен треба вручну додавати в AJAX-запити; API з bearer-токеном у заголовку від CSRF не страждає, і antiforgery йому не потрібен.
+
+</A>
+
+<A short l="s">
+
+CSRF можливий скрізь, де браузер сам надсилає облікові дані: cookie, Basic- і Windows-автентифікація. Захист шарами: токени через Data Protection, <T k="samesite-cookie">SameSite</T> у cookie (в auth-cookie ASP.NET Core за замовчуванням `Lax`, в antiforgery — `Strict`) і заборона змінювати стан на GET. Із .NET 8 Minimal API з `[FromForm]` вимагають `app.UseAntiforgery()`, а MVC і Razor Pages, як і раніше, перевіряють токени фільтрами. У фермі серверів ключі <T k="data-protection">Data Protection</T> мають бути спільними, інакше токен з одного вузла не пройде перевірку на іншому.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+1. Користувач увійшов на `bank.example`, браузер має cookie входу.
+2. Він відкриває `evil.example`, де схована форма з `action="https://bank.example/transfer"`.
+3. Скрипт надсилає форму. Браузер додає cookie банку, і сервер бачить звичайний запит користувача, який увійшов.
+
+**Як захищає токен**
+
+- Сервер видає токен у cookie та парний токен у прихованому полі форми.
+- Чужий сайт може змусити браузер надіслати cookie, але не може прочитати сторінку банку й дізнатися значення поля.
+- Фільтр звіряє пару й відповідає 400, якщо токена немає або він не підходить.
+
+`<form method="post">` з tag helpers отримує токен автоматично — лишається ввімкнути перевірку атрибутом або глобальним фільтром.
+
+**Типова помилка**
+
+Змінювати дані GET-запитом. `<img src="/orders/delete/5">` на чужій сторінці виконає видалення, а GET токеном не перевіряється.
+
+**Підсумок:** CSRF використовує автоматичне надсилання cookie, а токен у формі доводить, що запит прийшов із вашої сторінки.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+1. Під час рендерингу форми `IAntiforgery` створює cookie-токен (`.AspNetCore.Antiforgery.*`) і request-токен, пов'язані між собою та з користувачем.
+2. FormTagHelper вставляє request-токен у поле `__RequestVerificationToken`, якщо форма має `method="post"`, а `action` не задано вручну.
+3. Під час запиту фільтр бере токен із заголовка `RequestVerificationToken` або з форми й звіряє його з cookie.
+
+**Коли що обирати**
+
+| Атрибут | Що робить |
+|---|---|
+| `[ValidateAntiForgeryToken]` | вимагає токен для будь-яких методів, навіть GET |
+| `[AutoValidateAntiforgeryToken]` | вимагає для всіх, крім GET, HEAD, OPTIONS, TRACE |
+| `[IgnoreAntiforgeryToken]` | вимикає перевірку, перекриваючи рівні вище |
+
+Документація радить `AutoValidateAntiforgeryToken` глобально та `IgnoreAntiforgeryToken` точково: забутий атрибут на POST не залишить діри.
+
+**Пастки**
+
+- `AddControllers()` antiforgery не вмикає — потрібен `AddControllersWithViews()`.
+- AJAX сам токен не надішле. Його кладуть у заголовок `RequestVerificationToken` або у власне ім'я через `options.HeaderName`.
+- Токен прив'язаний до користувача, тому після входу потрібен редирект на нову сторінку зі свіжим токеном.
+- Кілька вкладок під різними користувачами не підтримуються.
+
+**Правило**
+
+Cookie-автентифікація плюс форма чи AJAX — потрібен токен. Bearer-токен, який JavaScript кладе в заголовок, — CSRF незастосовний.
+
+**Підсумок:** глобальний `AutoValidateAntiforgeryToken` захищає всі змінювальні запити за замовчуванням.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- Токени шифруються й підписуються через Data Protection. Request-токен містить посилання на cookie-токен та ідентифікатор користувача.
+- Cookie-токен за замовчуванням `HttpOnly` і `SameSite=Strict`. Відповідь із токеном отримує `Cache-Control: no-cache, no-store`, щоб проксі не роздав її іншим.
+- Із .NET 8 є middleware `UseAntiforgery`. Він перевіряє POST, PUT і PATCH на endpoints з метаданими antiforgery і записує результат в `IAntiforgeryValidationFeature`. Minimal API з `[FromForm]` без нього падає з `InvalidOperationException`.
+
+**Ціна**
+
+- У фермі серверів потрібен спільний key ring Data Protection: Redis, база або Blob Storage. Інакше — 400 після перемикання вузла чи перезапуску.
+- Сторінка з формою персональна, і повністю на CDN її не закешувати.
+
+**Компроміси**
+
+- SameSite=Lax не надсилає cookie в міжсайтових POST, але не рятує від атак із піддоменів того самого сайту й від GET із побічними ефектами. Тому токени лишаються.
+- Bearer-токен у заголовку закриває CSRF, але токен у `localStorage` доступний будь-якому скрипту в разі XSS.
+- У .NET 11 (виходить у листопаді 2026) з'являється автоматичний CSRF-захист за заголовками `Sec-Fetch-Site` і `Origin`. Він доповнює токени, а не замінює.
+
+**Як перевірити в продакшені**
+
+- Хвиля 400 на POST після деплою і в логах «Antiforgery token validation failed» — ознака різних ключів Data Protection на вузлах.
+- Тест: POST без токена має отримувати 400.
+
+**Підсумок:** токени, SameSite і заборона змін на GET працюють разом, а у фермі токени тримаються на спільному ключі Data Protection.
+
+</A>
+
+<Ex>
+
+```csharp
+using Microsoft.AspNetCore.Mvc;
+
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddControllersWithViews(options =>
+    // усі запити, крім GET/HEAD/OPTIONS/TRACE, вимагають токен
+    options.Filters.Add(new AutoValidateAntiforgeryTokenAttribute()));
+builder.Services.AddAntiforgery(options => options.HeaderName = "X-XSRF-TOKEN");
+
+var app = builder.Build();
+app.UseAntiforgery(); // для Minimal API і Blazor; MVC перевіряє фільтром
+
+// .NET 8+: endpoint з [FromForm] перевіряє токен автоматично
+app.MapPost("/feedback", ([FromForm] string text) => Results.Ok(text.Length));
+
+app.MapControllerRoute("default", "{controller=Home}/{action=Index}/{id?}");
+app.Run();
+
+public class ProfileController : Controller
+{
+    [HttpPost] // токен уже перевірено глобальним фільтром
+    public IActionResult Save(string displayName) => RedirectToAction("Index");
+
+    [HttpPost, IgnoreAntiforgeryToken] // вебхук партнера: cookie немає, токена теж
+    public IActionResult Webhook() => Ok();
+}
+```
+
+```cshtml
+@inject Microsoft.AspNetCore.Antiforgery.IAntiforgery Antiforgery
+
+@* FormTagHelper сам додасть приховане поле __RequestVerificationToken *@
+<form asp-controller="Profile" asp-action="Save" method="post">
+    <input name="displayName" />
+    <button>Save</button>
+</form>
+
+@* fetch: токен — у заголовок *@
+<script>
+    fetch("/Profile/Save", {
+        method: "POST",
+        headers: { "X-XSRF-TOKEN": "@Antiforgery.GetAndStoreTokens(Context).RequestToken" },
+        body: new FormData(document.forms[0])
+    });
+</script>
+```
+
+</Ex>
+
+<Next>
+
+- Чим `ValidateAntiForgeryToken` відрізняється від `AutoValidateAntiforgeryToken`? — Другий не перевіряє GET, HEAD, OPTIONS і TRACE, тому його можна ввімкнути глобально.
+- Чи потрібен antiforgery для API з JWT? — Ні, якщо токен іде в заголовку `Authorization`: браузер сам його не додає.
+- Чи захищає SameSite=Lax повністю? — Ні: лишаються атаки з піддоменів і GET із побічними ефектами.
+- Чому після деплою на ферму форми віддають 400? — На вузлах різні ключі Data Protection; key ring треба зробити спільним.
+- Як передати токен в AJAX? — `IAntiforgery.GetAndStoreTokens` і заголовок `RequestVerificationToken` або власне ім'я з `HeaderName`.
+
+</Next>
+
+<Src>
+
+- [Prevent Cross-Site Request Forgery (XSRF/CSRF) attacks in ASP.NET Core](https://learn.microsoft.com/aspnet/core/security/anti-request-forgery)
+- [Work with SameSite cookies in ASP.NET Core](https://learn.microsoft.com/aspnet/core/security/samesite)
+
+</Src>
+
+</Q>
+
+<Q id="aspnet.mvc.signalr-hubs" level="m">
+
+## Як працюють хаби, групи й надсилання конкретним користувачам у SignalR?
+
+<A short l="j">
+
+Хаб — клас на сервері, публічні методи якого викликають клієнти, а через `Clients` хаб сам викликає методи клієнтів: усім (`All`), тому, хто викликав (`Caller`), <T k="signalr-group">групі</T> (`Group`) або всім з'єднанням користувача (`User`). Щоб надіслати повідомлення з контролера чи фонової задачі, використовують <T k="hub-context">`IHubContext`</T>.
+
+</A>
+
+<A short l="m">
+
+Екземпляр хаба створюється на кожен виклик, тому стан у ньому не зберігають, а адресують повідомлення через групи й користувачів. Група — іменований набір з'єднань у пам'яті, а `Clients.User(id)` надсилає в усі з'єднання користувача; id за замовчуванням береться з claim `NameIdentifier` і змінюється через <T k="user-id-provider">`IUserIdProvider`</T>. Автентифікація відбувається під час підключення: cookie браузер надсилає сам, а <T k="bearer-token">bearer-токен</T> для WebSockets і SSE іде в query string `access_token`, бо браузерні API не вміють ставити заголовки.
+
+</A>
+
+<A short l="s">
+
+Хаб — фасад над `HubLifetimeManager`, який знає з'єднання процесу й розсилає повідомлення; групи та користувачі — індекси в ньому, а не збережені сутності. Звідси обмеження: членство в групі втрачається під час перепідключення, учасників групи не порахувати, а для кількох серверів потрібен backplane. Користувач кешується під час підключення й не перевіряється повторно: відкликана роль діє до розриву, якщо не ввімкнути `CloseOnAuthenticationExpiration`. <T k="strongly-typed-hub">Типізований хаб</T> `Hub<T>` прибирає рядкові імена методів, але контракт із JS-клієнтом однаково не перевіряється компілятором.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+- **Хаб** — нащадок `Hub`. Клієнт викликає його публічні методи за ім'ям.
+- **`Clients`** — кому надіслати: `All`, `Caller`, `Others`, `Client(connectionId)`, `Group(name)`, `User(userId)`.
+- **Група** — іменований набір з'єднань: кімната чату, конкретне замовлення.
+- **`Context`** — дані поточного з'єднання: `ConnectionId`, `User`, `UserIdentifier`.
+
+**Як користуватися**
+
+1. У методі хаба додайте з'єднання до групи: `Groups.AddToGroupAsync(Context.ConnectionId, "order-42")`.
+2. Надішліть усім у групі: `Clients.Group("order-42").SendAsync("OrderShipped", 42)`.
+3. Поза хабом впровадьте `IHubContext<OrdersHub>` і викличте ті самі `Clients`.
+
+**Типова помилка**
+
+Зберігати дані в полях хаба. Новий екземпляр створюється на кожен виклик, і поле завжди порожнє.
+
+**Підсумок:** хаб приймає виклики, `Clients` адресує повідомлення, а `IHubContext` надсилає їх з будь-якого місця застосунку.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+- Хаб створюється на кожен виклик методу, scoped-залежності живуть стільки ж. Методи одного клієнта за замовчуванням виконуються по черзі (`MaximumParallelInvocationsPerClient = 1`).
+- `Clients.User(id)` знаходить усі з'єднання користувача: вкладки, телефон. Id дає `IUserIdProvider`, за замовчуванням це claim `ClaimTypes.NameIdentifier`.
+- Групи живуть у пам'яті, а під час відключення з'єднання видаляється з них автоматично.
+
+**Автентифікація**
+
+| Клієнт | Як передаються облікові дані |
+|---|---|
+| Браузер із cookie-входом | cookie надсилається автоматично |
+| Браузер із JWT | `accessTokenFactory`; для WebSockets і SSE — `?access_token=` |
+| .NET-клієнт | заголовок `Authorization` |
+
+На сервері токен із query string дістають у `JwtBearerEvents.OnMessageReceived` і лише для шляху хаба.
+
+**Пастки**
+
+- Групи не переживають перепідключення: клієнт вступає в них знову в `onreconnected`, або сервер — в `OnConnectedAsync`.
+- Група — не механізм безпеки. Під час відкликання прав з'єднання прибирають із групи явно.
+- Токен в URL потрапляє в логи проксі й сервера, їх треба фільтрувати.
+- `IHubContext` не має `Caller` і `Context`: поза хабом немає «того, хто викликав».
+- `SendAsync` без `await` у методі хаба може не встигнути до завершення виклику.
+
+**Правило**
+
+Адресуйте через користувачів і групи, а не через збережені `connectionId`: вони змінюються під час кожного перепідключення.
+
+**Підсумок:** хаб без стану, адресація — через групи й користувачів, токен браузерних WebSockets — у query string.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- `DefaultHubLifetimeManager<THub>` зберігає з'єднання процесу та словник груп. Надсилання групі — обхід її з'єднань із записом у кожне.
+- Повідомлення серіалізується один раз на протокол, а не на кожне з'єднання. Якщо запис клієнту не завершується за `TransportSendTimeout` (10 секунд), з'єднання закривається.
+- `ClaimsPrincipal` кешується під час підключення, навіть якщо Long Polling робить нові HTTP-запити. `CloseOnAuthenticationExpiration` закриває з'єднання, коли токен спливає, а в .NET 11 з'явиться оновлення облікових даних без перепідключення.
+- Із .NET 7 сервер може чекати на відповідь клієнта: `Clients.Client(id).InvokeAsync<T>(...)`.
+
+**Ціна**
+
+- Широкомовлення на 10 000 клієнтів — 10 000 записів у сокети. Повільний клієнт накопичує повідомлення в пам'яті сервера.
+- Хаб живе один виклик, і `DbContext` із DI теж. У довгих методах зручніше `IDbContextFactory`.
+
+**Компроміси**
+
+- `Hub<T>` перевіряє імена методів під час компіляції, але JS-клієнт про контракт не знає. Імена й аргументи звіряють тестами.
+- Cookie простіші для браузера, bearer — для мобільних і .NET-клієнтів. Токен у query string вимагає чищення логів.
+
+**Як перевірити в продакшені**
+
+- Метрики `signalr.server.active_connections` і `signalr.server.connection.duration` (із .NET 8): багато коротких з'єднань — ознака проблем з автентифікацією або проксі.
+- `EnableDetailedErrors` — лише в Development. У продакшені виняток логують на сервері, а клієнту віддають `HubException` з безпечним текстом.
+
+**Підсумок:** хаб — тонкий фасад над менеджером з'єднань, а групи, користувачі й права живуть не довше за з'єднання.
+
+</A>
+
+<Ex>
+
+```csharp
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.SignalR;
+
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddAuthentication().AddCookie(); // із JWT токен читають з ?access_token=
+builder.Services.AddAuthorization();
+builder.Services.AddSignalR();
+builder.Services.AddSingleton<IUserIdProvider, EmailUserIdProvider>();
+
+var app = builder.Build();
+app.MapHub<OrdersHub>("/hubs/orders");
+
+// Надсилання поза хабом: з endpoint, контролера або BackgroundService
+app.MapPost("/orders/{id}/ship", async (int id, string email, IHubContext<OrdersHub, IOrdersClient> hub) =>
+{
+    await hub.Clients.User(email).OrderShipped(id);           // усі вкладки й пристрої користувача
+    await hub.Clients.Group($"order-{id}").OrderShipped(id);  // усі, хто стежить за замовленням
+    return Results.NoContent();
+});
+app.Run();
+
+public interface IOrdersClient
+{
+    Task OrderShipped(int orderId); // на клієнті: connection.on("OrderShipped", ...)
+}
+
+[Authorize]
+public class OrdersHub : Hub<IOrdersClient>
+{
+    public Task Watch(int orderId) =>
+        Groups.AddToGroupAsync(Context.ConnectionId, $"order-{orderId}");
+}
+
+public class EmailUserIdProvider : IUserIdProvider
+{
+    public string? GetUserId(HubConnectionContext connection) =>
+        connection.User?.FindFirst(ClaimTypes.Email)?.Value;
+}
+```
+
+```js
+const connection = new signalR.HubConnectionBuilder()
+    .withUrl("/hubs/orders", { accessTokenFactory: () => getAccessToken() })
+    .withAutomaticReconnect()
+    .build();
+
+connection.on("OrderShipped", id => showToast(`Order ${id} shipped`));
+// після перепідключення id новий, групи порожні — вступаємо знову
+connection.onreconnected(() => connection.invoke("Watch", currentOrderId));
+
+await connection.start();
+await connection.invoke("Watch", currentOrderId);
+```
+
+</Ex>
+
+<Next>
+
+- Чому не можна зберігати стан у полях хаба? — Екземпляр створюється на кожен виклик методу.
+- Чи зберігаються групи після перепідключення? — Ні: з'єднання має новий id, у групи вступають знову.
+- Як надіслати повідомлення з контролера чи `BackgroundService`? — Через `IHubContext<THub>` або типізований `IHubContext<THub, T>`.
+- Чому JWT для WebSockets передається в query string? — Браузерні API WebSocket і EventSource не дають задати заголовок `Authorization`.
+- Що буде, якщо в користувача відкликали роль під час з'єднання? — Хаб бачить старий `Context.User` до перепідключення.
+
+</Next>
+
+<Src>
+
+- [Use hubs in ASP.NET Core SignalR](https://learn.microsoft.com/aspnet/core/signalr/hubs)
+- [Manage users and groups in SignalR](https://learn.microsoft.com/aspnet/core/signalr/groups)
+- [Authentication and authorization in ASP.NET Core SignalR](https://learn.microsoft.com/aspnet/core/signalr/authn-and-authz)
+
+</Src>
+
+</Q>
+
+<Q id="aspnet.mvc.signalr-scaleout" level="s">
+
+## Як масштабувати SignalR на кілька серверів і що ламається за балансувальником?
+
+<A short l="j">
+
+Кожен сервер знає лише свої з'єднання, тому повідомлення «всім» з одного сервера не дійде до клієнтів іншого. Це розв'язують <T k="signalr-backplane">backplane</T> на Redis, який пересилає повідомлення між серверами, або <T k="azure-signalr-service">Azure SignalR Service</T>, а балансувальник налаштовують на <T k="sticky-session">sticky sessions</T>.
+
+</A>
+
+<A short l="m">
+
+Redis backplane через <T k="pub-sub">pub/sub</T> пересилає повідомлення між серверами, але не скасовує sticky sessions: negotiate і запити SSE та Long Polling мають потрапити в той самий процес. Без прив'язки можна обійтися, лише якщо клієнти ходять через WebSockets зі `skipNegotiation`. Azure SignalR Service забирає клієнтські з'єднання собі, тому sticky sessions застосунку не потрібні, а сервери масштабують за кількістю повідомлень, а не з'єднань.
+
+</A>
+
+<A short l="s">
+
+SignalR зберігає з'єднання в пам'яті процесу, тому масштабування — це маршрутизація до процесу й розсилання між процесами. Redis backplane простий, але в разі падіння Redis повідомлення втрачаються без буферизації, а сам Redis має стояти в тому самому дата-центрі. Azure SignalR Service знімає sticky sessions і навантаження з'єднань, але додає мережевий перехід, залежність від хмари й оплату за юнітами. Гарантованої доставки немає ні там, ні там: після перепідключення клієнт сам перечитує пропущений стан.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+Сервер SignalR тримає з'єднання своїх клієнтів у пам'яті. Коли серверів кілька, сервер A нічого не знає про клієнтів сервера B, і `Clients.All` із сервера A дійде лише до клієнтів A.
+
+**Як розв'язують**
+
+| Спосіб | Ідея |
+|---|---|
+| Redis backplane | сервери обмінюються повідомленнями через Redis |
+| Azure SignalR Service | клієнти підключаються до хмарного сервісу |
+| Sticky sessions | балансувальник надсилає клієнта на той самий сервер |
+
+Sticky sessions потрібні майже завжди. Обійтися без них можна з Azure SignalR Service або якщо клієнти використовують лише WebSockets і пропускають negotiate.
+
+**Типова помилка**
+
+Підключити Redis backplane і забути sticky sessions. З'єднання через SSE і Long Polling рвуться, щойно балансувальник надішле черговий запит на інший сервер.
+
+**Підсумок:** кільком серверам потрібні спільний канал повідомлень і прив'язка клієнта до сервера.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+1. З Redis backplane кожен сервер підписується на канали Redis: загальний, своїх з'єднань, користувачів і груп, де має учасників.
+2. `Clients.Group("g").SendAsync(...)` публікує повідомлення в канал групи.
+3. Сервери, підписані на цей канал, надсилають його своїм з'єднанням із групи.
+
+**Коли що обирати**
+
+| | Redis backplane | Azure SignalR Service |
+|---|---|---|
+| Де | власна інфраструктура | Azure |
+| Sticky sessions | потрібні | не потрібні |
+| Хто тримає з'єднання | ваші сервери | сервіс |
+
+**Пастки**
+
+- Один Redis на кілька застосунків без власного `ChannelPrefix` змішує їхні повідомлення.
+- Redis недоступний — повідомлення втрачаються. SignalR їх не буферизує, але до Redis перепідключається сам.
+- Кількість учасників групи не порахувати: кожен сервер бачить лише свою частину.
+- Балансувальник без підтримки Upgrade переводить клієнтів на Long Polling, а короткий idle-тайм-аут рве з'єднання.
+- IIS на клієнтських Windows тримає не більше 10 одночасних з'єднань — для навантажувальних тестів він не годиться.
+
+**Правило**
+
+Власна інфраструктура — Redis backplane у тому самому дата-центрі плюс sticky sessions. Хостинг в Azure — Azure SignalR Service.
+
+**Підсумок:** backplane розв'язує доставку між серверами, sticky sessions — прив'язку з'єднання до процесу.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- `connectionToken` із negotiate знає лише процес, який його видав, а SSE і Long Polling надсилають кожне повідомлення окремим POST. WebSockets без negotiate — одне з'єднання, йому прив'язка не потрібна.
+- З Azure SignalR Service negotiate застосунку повертає клієнту редирект на URL сервісу з токеном доступу. Сервер застосунку тримає кілька постійних з'єднань із сервісом і шле через них усі повідомлення.
+- Redis pub/sub не зберігає повідомлень: що не доставлено, те не повториться.
+
+**Ціна**
+
+- З backplane кожен сервер, як і раніше, тримає свої з'єднання, і масштабувати доводиться за кількістю клієнтів, навіть якщо повідомлень мало.
+- Redis Cluster підвищує доступність, але знижує пропускну здатність: повідомлення йдуть на всі вузли кластера.
+- Azure SignalR Service тарифікується юнітами по 1000 одночасних з'єднань.
+
+**Компроміси**
+
+- Деплой або перезапуск пулу IIS рве всі з'єднання вузла разом. Затримки `withAutomaticReconnect` за замовчуванням однакові в усіх клієнтів, тому потрібен `IRetryPolicy` з випадковою паузою, інакше хвиля перепідключень ударить по решті вузлів.
+- <T k="stateful-reconnect">Stateful reconnect</T> (.NET 8+) досилає повідомлення після короткого обриву, але лише на той самий сервер і в межах буфера (за замовчуванням 100 000 байтів). Він узгоджується в negotiate, тому зі `skipNegotiation` недоступний.
+
+**Як перевірити в продакшені**
+
+- `signalr.server.active_connections` за вузлами: перекіс — погане балансування, зростання частки `long_polling` у `signalr.transport` — проксі ріже WebSockets.
+- `signalr.server.connection.duration` зі статусом `timeout` — idle-тайм-аути балансувальника.
+- Навантажувальний тест на двох вузлах: повідомлення в групу з вузла A має дійти до клієнта на вузлі B.
+
+**Підсумок:** масштабування SignalR — це sticky sessions плюс backplane або сервіс, а надійність доставки забезпечує сам клієнт.
+
+</A>
+
+<Ex>
+
+```csharp
+// NuGet: Microsoft.AspNetCore.SignalR.StackExchangeRedis
+using StackExchange.Redis;
+
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddSignalR()
+    .AddStackExchangeRedis(builder.Configuration.GetConnectionString("Redis")!, options =>
+        options.Configuration.ChannelPrefix = RedisChannel.Literal("shop")); // власний префікс у кожного застосунку
+
+// В Azure замість Redis — пакет Microsoft.Azure.SignalR:
+// builder.Services.AddSignalR().AddAzureSignalR();
+
+var app = builder.Build();
+app.MapHub<OrdersHub>("/hubs/orders", options =>
+    options.AllowStatefulReconnects = true); // .NET 8+: досилання після короткого обриву
+app.Run();
+
+public class OrdersHub : Microsoft.AspNetCore.SignalR.Hub { }
+```
+
+```js
+// Варіант 1: negotiate і sticky sessions, stateful reconnect доступний
+const connection = new signalR.HubConnectionBuilder()
+    .withUrl("/hubs/orders")
+    .withStatefulReconnect()
+    .withAutomaticReconnect({
+        // випадкова пауза: після деплою клієнти повертаються не всі разом
+        nextRetryDelayInMilliseconds: ctx =>
+            ctx.previousRetryCount < 10 ? 1000 + Math.random() * 10000 : null
+    })
+    .build();
+
+// Варіант 2: без sticky sessions — лише WebSockets і без negotiate
+// (stateful reconnect узгоджується в negotiate, тому тут недоступний)
+const wsOnly = new signalR.HubConnectionBuilder()
+    .withUrl("/hubs/orders", {
+        transport: signalR.HttpTransportType.WebSockets,
+        skipNegotiation: true
+    })
+    .build();
+```
+
+</Ex>
+
+<Next>
+
+- Чому з Redis backplane досі потрібні sticky sessions? — `connectionToken` знає лише сервер, який його видав, а SSE і Long Polling шлють багато окремих запитів.
+- Коли sticky sessions не потрібні? — Один сервер, Azure SignalR Service або лише WebSockets зі `skipNegotiation`.
+- Що буде з повідомленнями, якщо Redis упав? — Втратяться: backplane не буферизує, до Redis SignalR перепідключиться сам.
+- Навіщо `ChannelPrefix`? — Ізолює застосунки, які ділять один Redis.
+- Як не покласти кластер хвилею перепідключень після деплою? — Випадкова пауза в `IRetryPolicy` і поетапне виведення вузлів із балансування.
+
+</Next>
+
+<Src>
+
+- [ASP.NET Core SignalR production hosting and scaling](https://learn.microsoft.com/aspnet/core/signalr/scale)
+- [Redis backplane for ASP.NET Core SignalR scale-out](https://learn.microsoft.com/aspnet/core/signalr/redis-backplane)
+- [What is Azure SignalR Service?](https://learn.microsoft.com/azure/azure-signalr/signalr-overview)
+
+</Src>
+
+</Q>

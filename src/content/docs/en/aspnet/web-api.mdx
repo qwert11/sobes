@@ -1,0 +1,1181 @@
+---
+title: Web API
+description: Controllers and Minimal APIs, binding and validation, REST, errors and ProblemDetails, filters, versioning and OpenAPI, performance.
+sidebar:
+  order: 4
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+How to build HTTP APIs on ASP.NET Core: controllers or Minimal APIs, where parameters come from and how they are validated, how to design resources and status codes, return errors, version and describe an API, and handle load. This is the core of any .NET backend interview.
+
+**Before this topic:** [Hosting and the pipeline](/sobes/en/aspnet/hosting/), [Dependency injection](/sobes/en/aspnet/di/).
+
+<Q id="aspnet.api.controllers-vs-minimal" level="j">
+
+## How do controllers differ from Minimal APIs, and when do you choose each?
+
+<A short l="j">
+
+A <T k="controller">controller</T> is a class with action methods, attribute routes and the MVC pipeline, while a <T k="minimal-api">Minimal API</T> is a handler lambda registered right in `Program.cs` with `MapGet` and `MapPost`. Both produce the same HTTP endpoints, so Microsoft recommends Minimal APIs for new services and controllers when you need MVC features.
+
+</A>
+
+<A short l="m">
+
+Both approaches sit on top of the same routing, but a controller action goes through the MVC pipeline: <T k="mvc-filter">filters</T>, extensible <T k="model-binding">model binding</T>, output formatters. Minimal APIs are lighter, and their structure comes from <T k="route-group">route groups</T> (`MapGroup`), <T k="endpoint-filter">endpoint filters</T> and <T k="typed-results">`TypedResults`</T> — all since .NET 7. You choose by the features you need: OData, custom `IModelBinder`, XML responses driven by the `Accept` header, and a team used to MVC structure keep you on controllers.
+
+</A>
+
+<A short l="s">
+
+The difference is the pipeline, not HTTP capabilities: an action goes through MVC infrastructure with controller activation, a filter chain and formatter selection, while a Minimal API handler is compiled into a single `RequestDelegate`. That makes Minimal APIs cheaper per request and Native AOT-compatible: since .NET 8 the Request Delegate Generator, a source generator, builds parameter binding at compile time, while MVC does not support AOT. The cost is fewer built-in extension points: conventions, formatters and MVC filters are replaced with endpoint filters and your own code. In a large service both styles coexist, and the choice becomes a team convention.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **Controller** — a class deriving from `ControllerBase` with the `[ApiController]` attribute. Each public action method serves one endpoint, and the route comes from `[Route]` and `[HttpGet]` attributes.
+- **Minimal API** — a delegate mapped to a route in `Program.cs`: `app.MapGet("/products/{id}", (int id) => ...)`.
+
+**How to use**
+
+- Controllers take two lines: `builder.Services.AddControllers()` and `app.MapControllers()`.
+- In Minimal APIs you define endpoints with `MapGet`, `MapPost`, `MapPut`, `MapDelete`. A shared prefix goes into a group: `var orders = app.MapGroup("/api/orders");`.
+- Return responses via `TypedResults.Ok(...)` or `TypedResults.NotFound()`: the result type is visible in the signature.
+
+**Common mistake**
+
+Piling every Minimal API handler into a thousand-line `Program.cs`. Group endpoints by resource into extension methods such as `MapOrders(this IEndpointRouteBuilder app)`.
+
+**Takeaway:** a controller is a class of actions in the MVC pipeline, a Minimal API is a lambda on a route; start new APIs with Minimal APIs.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+1. Both approaches register endpoints in the same routing system: `MapControllers()` builds them from attributes, `MapGet` from delegates.
+2. A controller endpoint runs MVC: controller activation through DI, filters, model binding, validation, the action and result formatting.
+3. A Minimal API endpoint is a single `RequestDelegate`: parameters are read by code built at startup, and the response is serialized to JSON.
+
+**When to choose what**
+
+| Need | Approach |
+|---|---|
+| New service, microservice, Native AOT | Minimal API |
+| Custom `IModelBinder`, `IModelValidator`, application parts, OData | controllers |
+| XML or another format chosen by `Accept` | controllers (formatters) |
+
+**Pitfalls**
+
+- Without structure, a Minimal API turns into a huge `Program.cs`. A route group sets a shared prefix, filters, authorization and metadata for a set of endpoints.
+- `Results.Ok(...)` returns `IResult` and tells the API description nothing about the response type. `TypedResults` and `Results<Ok<T>, NotFound>` list every possible response right in the signature.
+- MVC filters do not apply to Minimal APIs: they have their own endpoint filters.
+
+**Rule of thumb**
+
+New API — Minimal APIs with groups per resource and `TypedResults`. Controllers — when you cannot do without MVC features or when they are the standard in existing code.
+
+**Takeaway:** both approaches produce the same endpoints; controllers add the MVC pipeline, Minimal APIs add less code and overhead.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- A Minimal API handler becomes a `RequestDelegate` once, at startup. Normally `RequestDelegateFactory` does this with expression trees; with `PublishAot` the Request Delegate Generator does it at compile time.
+- A controller action goes through `ControllerActionInvoker` on every request: controller activation, the filter chain, `ModelStateDictionary`, formatter selection.
+- `TypedResults` types implement `IEndpointMetadataProvider`, so response codes and types land in endpoint metadata without attributes.
+
+**Cost**
+
+- MVC overhead is per-request allocations of contexts and filters. It shows up in benchmarks but is usually smaller than a single database round trip.
+- Native AOT works only with Minimal APIs and requires source-generated JSON (`JsonSerializerContext`): trimming cuts reflection away at publish time.
+
+**Trade-offs**
+
+- Controllers give you one consistent style out of the box: filters, conventions, `[ApiController]`. In Minimal APIs the same discipline comes from groups, extension methods and endpoint filters — and it has to be written down as team rules.
+- The approaches mix in one app: routing is shared, and `AddEndpointFilter` works on `MapControllers()` too.
+- Rewriting controllers for speed rarely pays off: the gain is microseconds per request.
+
+**How to check in production**
+
+Compare your own endpoint with identical logic, not the approaches in general: BenchmarkDotNet plus the `http.server.request.duration` metric before and after the rewrite.
+
+**Takeaway:** Minimal APIs mean less infrastructure per request and a path to Native AOT, controllers mean a rich, extensible MVC pipeline; choose by features, not by fashion.
+
+</A>
+
+<Ex>
+
+```csharp
+using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.AspNetCore.Mvc;
+
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddControllers();
+var app = builder.Build();
+
+// Minimal API: a group with a shared prefix, every response variant in the signature
+var products = app.MapGroup("/api/v2/products").WithTags("Products");
+products.MapGet("/{id:int}", Results<Ok<ProductDto>, NotFound> (int id) =>
+    id == 1 ? TypedResults.Ok(new ProductDto(1, "Laptop")) : TypedResults.NotFound());
+
+app.MapControllers(); // controller routes come from attributes
+app.Run();
+
+// The same endpoint on a controller
+[ApiController]
+[Route("api/v1/products")]
+public class ProductsController : ControllerBase
+{
+    [HttpGet("{id:int}")]
+    public ActionResult<ProductDto> Get(int id) =>
+        id == 1 ? new ProductDto(1, "Laptop") : NotFound();
+}
+
+public record ProductDto(int Id, string Name);
+```
+
+</Ex>
+
+<Next>
+
+- How do you move Minimal API endpoints out of `Program.cs`? — Extension methods on `IEndpointRouteBuilder` and a `MapGroup` per resource.
+- Why `Results<Ok<T>, NotFound>` when there is `IResult`? — Every response variant is visible in the signature, the API description and unit tests.
+- Do MVC filters work in Minimal APIs? — No, they use endpoint filters (`AddEndpointFilter`, .NET 7+).
+- Can controllers be published with Native AOT? — No, MVC is not compatible with Native AOT; only Minimal APIs are supported.
+- How does `ControllerBase` differ from `Controller`? — `Controller` adds view support; `ControllerBase` is enough for an API.
+
+</Next>
+
+<Src>
+
+- [APIs overview](https://learn.microsoft.com/aspnet/core/fundamentals/apis)
+- [Minimal APIs quick reference](https://learn.microsoft.com/aspnet/core/fundamentals/minimal-apis)
+- [Create web APIs with ASP.NET Core](https://learn.microsoft.com/aspnet/core/web-api/)
+
+</Src>
+
+</Q>
+
+<Q id="aspnet.api.binding-validation" level="j">
+
+## How do model binding and validation work?
+
+<A short l="j">
+
+Model binding fills handler parameters with request data: from the route, the query string, headers and the JSON body. Attributes `[FromRoute]`, `[FromQuery]` and `[FromBody]` point to the source, validation rules come from <T k="data-annotations">DataAnnotations</T> attributes such as `[Required]` and `[Range]`, and on failure the client gets a 400.
+
+</A>
+
+<A short l="m">
+
+Each parameter gets a source: an explicit attribute or inference rules — simple types from the route or query, complex types from the body, registered services from DI. In controllers with <T k="api-controller-attribute">`[ApiController]`</T>, validation errors collect in <T k="model-state">`ModelState`</T>, and a filter automatically responds with a 400 in <T k="problem-details">ProblemDetails</T> format. Minimal APIs got built-in DataAnnotations validation only in .NET 10 (`AddValidation()`); before that you wrote it by hand or plugged in FluentValidation.
+
+</A>
+
+<A short l="s">
+
+In MVC, binding and validation are separate stages before the action: model binders fill the model, the validator walks the object graph, and `ModelStateInvalidFilter` turns errors into a 400 before the method runs. In .NET 10, Minimal APIs gained validation built on a source generator: it finds validatable types at build time, and an endpoint filter performs the checks. Attributes check only the shape of the data; domain rules like "this product exists" stay in the service and come back as 404, 409 or 422.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **Model binding** — the framework pulls values out of the request and passes them to method parameters.
+- **Validation** — checking the populated model against rules, usually attributes from `System.ComponentModel.DataAnnotations`.
+
+**Where values come from**
+
+| Attribute | Source |
+|---|---|
+| `[FromRoute]` | path segment: `/orders/{id}` |
+| `[FromQuery]` | query string: `?page=2` |
+| `[FromHeader]` | request header |
+| `[FromBody]` | JSON request body |
+
+**How to use**
+
+1. Put attributes on <T k="dto">DTO</T> properties: `[Required]`, `[StringLength(50)]`, `[Range(1, 100)]`.
+2. In a controller with `[ApiController]`, an invalid model produces a 400 immediately; no need to check `ModelState.IsValid`.
+3. In Minimal APIs on .NET 10, call `builder.Services.AddValidation()`.
+
+**Common mistake**
+
+Expecting `[Required]` on an `int` to catch a missing field. A value type without a value gets `0`, and the attribute treats it as present. You need `int?` with `[Required]`, or `[Range]`.
+
+**Takeaway:** binding fills parameters from the request, attributes validate them, and a failure becomes a 400 response.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+| Parameter | `[ApiController]` | Minimal API |
+|---|---|---|
+| Name matches a route segment | `[FromRoute]` | from the route |
+| Other simple type | `[FromQuery]` | from the query string |
+| Type registered in DI | `[FromServices]` | from DI |
+| Complex type | `[FromBody]` | from the JSON body |
+| `IFormFile` | `[FromForm]` | from the form |
+
+**Validation**
+
+- In controllers, validation runs right after binding and errors collect in `ModelState`. `[ApiController]` adds a filter that returns a 400 with `ValidationProblemDetails` — a "field → messages" dictionary.
+- Without `[ApiController]` you check `ModelState.IsValid` by hand in every action.
+- In Minimal APIs since .NET 10, `AddValidation()` checks DataAnnotations and `IValidatableObject` on parameters and nested objects and also returns a 400. To turn validation off for an endpoint, use `DisableValidation()`.
+
+**Pitfalls**
+
+- A parse failure (`abc` for an `int`) in a Minimal API produces a 400 before the handler, without per-field errors.
+- In MVC with the nullable context enabled, a non-nullable reference property (`string Name`) is treated as `[Required]`.
+- An action has at most one parameter bound from the body: the body is read once.
+
+**Rule of thumb**
+
+DataAnnotations are for the shape of data: required fields, lengths, ranges. Cross-field rules go to `IValidatableObject` or FluentValidation, business checks to the service.
+
+**Takeaway:** attributes or inference rules set each parameter's source, and `[ApiController]` and `AddValidation()` turn validation errors into a standard 400.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- The MVC order: resource filters → model binding (an `IModelBinder` per parameter, values from value providers) → validation (`IObjectModelValidator` walks the graph) → action filters.
+- The automatic 400 is the `ModelStateInvalidFilter` action filter with a very early order (`-2000`), so even your own action filters never see the request.
+- Minimal APIs build binding code once per endpoint. Simple types are parsed via `TryParse` or `IParsable<T>`, custom ones via a static `BindAsync`.
+- .NET 10 validation is built by a source generator, and it only sees types in its own assembly. If endpoints live in another assembly, call `AddValidation()` there.
+
+**Cost**
+
+- The MVC validator walks the whole model graph, collections included: a large JSON array in the body costs noticeable CPU.
+- `[FromBody]` reads the whole body into memory; the limit is Kestrel's `MaxRequestBodySize`, about 28.6 MB by default.
+
+**Trade-offs**
+
+- DataAnnotations are declarative and show up in the API description, but conditional rules are awkward with them. FluentValidation is more flexible, but its authors no longer recommend the automatic MVC integration — call the validator explicitly or from a filter.
+- By default, shape errors are 400. Business rule violations are often returned as 422 — make that decision part of the API contract.
+
+**How to check in production**
+
+Automatic 400s never reach the action and are easy to miss. Log them through `InvalidModelStateResponseFactory` and watch the share of 400s in `http.server.request.duration` by `http.route`.
+
+**Takeaway:** binding and validation are separate stages before the handler; attributes describe the shape of data, and domain rules live in service code.
+
+</A>
+
+<Ex>
+
+```csharp
+using System.ComponentModel.DataAnnotations;
+using Microsoft.AspNetCore.Mvc;
+
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddControllers();
+builder.Services.AddValidation(); // .NET 10: validation in Minimal APIs
+var app = builder.Build();
+
+// customerId comes from the route, requestId from a header, order from the JSON body
+app.MapPost("/api/customers/{customerId:int}/orders",
+    (int customerId, [FromHeader(Name = "X-Request-Id")] string? requestId, CreateOrderRequest order) =>
+        TypedResults.Created($"/api/customers/{customerId}/orders/1", order));
+// body { "sku": "", "quantity": 0 } → 400, the handler is not called
+
+app.MapControllers();
+app.Run();
+
+[ApiController] // invalid parameters → automatic 400
+[Route("api/products")]
+public class ProductsController : ControllerBase
+{
+    [HttpGet] // ?page=2&name=phone
+    public IActionResult Search([FromQuery, Range(1, 1000)] int page = 1, [FromQuery] string? name = null) =>
+        Ok(new { page, name });
+}
+
+public record CreateOrderRequest([Required, StringLength(50)] string Sku, [Range(1, 100)] int Quantity);
+```
+
+</Ex>
+
+<Next>
+
+- How do you bind several query parameters into one object in a Minimal API? — `[AsParameters]` (.NET 7+): the object's properties bind as separate parameters.
+- Why doesn't `[Required]` work on an `int`? — A value type always has the value `0`; use `int?`.
+- How do you turn off the automatic 400 of `[ApiController]`? — `ApiBehaviorOptions.SuppressModelStateInvalidFilter = true`.
+- What happens in MVC when the JSON lacks a non-nullable `string` property? — A validation error: with the nullable context it is treated as `[Required]`.
+- Where do you check that a product exists? — In the service or handler: it is a business rule, answered with 404 or 409, not 400.
+
+</Next>
+
+<Src>
+
+- [Model binding in ASP.NET Core](https://learn.microsoft.com/aspnet/core/mvc/models/model-binding)
+- [Model validation in ASP.NET Core MVC](https://learn.microsoft.com/aspnet/core/mvc/models/validation)
+- [What's new in ASP.NET Core 10.0](https://learn.microsoft.com/aspnet/core/release-notes/aspnetcore-10.0)
+
+</Src>
+
+</Q>
+
+<Q id="aspnet.api.rest-design" level="m">
+
+## How do you design a REST API: resources, methods, status codes, idempotency, pagination?
+
+<A short l="j">
+
+<T k="rest">REST</T> is an API style where the URL names a resource (`/orders/42`) and the HTTP method is the action on it: GET reads, POST creates, PUT replaces, DELETE removes. The status code reports the outcome, so a created order comes back with 201 and a missing one with 404.
+
+</A>
+
+<A short l="m">
+
+REST design builds on HTTP semantics: resources are plural nouns, methods differ in <T k="safe-method">safety</T> and <T k="idempotency">idempotency</T>, and status codes fall into the 2xx, 4xx and 5xx classes. Idempotency lets clients and proxies retry PUT and DELETE without harm, and POST gets it through an idempotency key. Collections are always paginated with a server-side limit, or one day a single request returns a million rows.
+
+</A>
+
+<A short l="s">
+
+A good REST API is a contract built for network failures and concurrent edits: a retried request does not create a duplicate, and simultaneous changes do not silently overwrite each other. So POST is made idempotent with an `Idempotency-Key` header, updates are guarded with an <T k="etag">ETag</T> and `If-Match` returning 412, and large collections use <T k="keyset-pagination">keyset pagination</T> instead of `OFFSET`. The cost is server-side state — a key store, row versions, cursors — but clients can retry without fear.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+REST models an API as a set of resources. A resource has an address, and operations on it are expressed with standard HTTP methods.
+
+**How to use**
+
+| Request | Action and response |
+|---|---|
+| `GET /orders` | list orders, 200 |
+| `GET /orders/42` | one order, 200 or 404 |
+| `POST /orders` | create an order, 201 plus a `Location` header |
+| `PUT /orders/42` | replace it entirely, 200 or 204 |
+| `DELETE /orders/42` | delete, 204 |
+
+Client errors are 4xx: 400 (invalid request), 401 (not authenticated), 403 (not allowed), 404 (no such resource), 409 (conflict). Server errors are 5xx.
+
+**Common mistake**
+
+Verbs in URLs (`/getOrders`, `/createOrder`) and a 200 response with `{ "error": "..." }` inside. The action is already expressed by the method, and the error by the status code.
+
+**Takeaway:** the URL is the resource, the method is the action, the status code is the outcome.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+| Method | Safe | Idempotent |
+|---|---|---|
+| GET, HEAD | yes | yes |
+| PUT, DELETE | no | yes |
+| POST | no | no |
+| PATCH | no | not guaranteed |
+
+- A **safe** method does not change server state.
+- An **idempotent** one leaves the server in the same state whether the request runs once or many times. A repeated DELETE breaks nothing, even if it returns 404.
+
+**When to choose what**
+
+- Full replacement — PUT; partial update — PATCH (JSON Merge Patch or JSON Patch).
+- An action outside CRUD, such as cancelling an order, becomes a sub-resource: `POST /orders/42/cancellation`.
+- A long-running operation — 202 Accepted plus a URL where the client checks its status.
+
+**Pagination**
+
+- `?offset=40&limit=20` is simple and gives page numbers, but slows down on far pages and skips rows when new ones are inserted.
+- Keyset: `?after=40&limit=20`, where `after` is the key of the last row. Stable and fast on an index, but it cannot jump to an arbitrary page.
+
+**Pitfalls**
+
+- 401 means "who are you?", 403 means "I know who you are, but no".
+- Without a server-side maximum, a request with `limit=1000000` takes the database down.
+
+**Rule of thumb**
+
+Resource — a noun, action — a method, outcome — a code. Every list has a server-side limit and a pointer to the next page.
+
+**Takeaway:** HTTP semantics are a contract: safe and idempotent requests can be retried, and pagination protects the server from huge responses.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- The network is unreliable: if a response is lost, the client does not know whether the request was applied. Retrying a PUT is safe, retrying a POST creates a duplicate.
+- `Idempotency-Key` is a widespread practice (an IETF draft, not an RFC). The client sends a unique key, the server stores the result of the first processing and returns it for a retry with the same key without executing again.
+- An ETag is a version of the resource representation. `GET` returns an `ETag`, and a `PUT` with `If-Match` succeeds only if the version is unchanged, otherwise 412 Precondition Failed. This is optimistic concurrency over HTTP; in EF Core the counterpart is a concurrency token.
+
+**Cost**
+
+- Idempotency keys need a store with a TTL, an atomic write of the key together with the operation, and an answer for "key still in progress", usually 409.
+- `OFFSET N` makes the database read and discard N rows: time grows with the page number. A `WHERE id > @after ORDER BY id` query with a limit walks the index in constant time.
+- `COUNT(*)` for "total pages" is expensive on large tables and is often dropped.
+
+**Trade-offs**
+
+- Make the cursor opaque, for example base64 of the sort key, so the implementation can change without changing the contract.
+- <T k="hateoas">HATEOAS</T> — links to possible actions in the response — is the full REST model, but in practice teams settle for a next-page link and a machine-readable API description.
+- Strict REST is not dogma: a search with complex filters can be `POST /orders/search`.
+
+**How to check in production**
+
+Look for duplicate entities caused by retries and track the share of 409 and 412 per `http.route`. Slow far pages show up in the query plan and the database slow query log.
+
+**Takeaway:** a robust API is built for retries and concurrency: idempotency for retries, ETags for concurrent edits, keyset pagination for large collections.
+
+</A>
+
+<Ex>
+
+```csharp
+var builder = WebApplication.CreateBuilder(args);
+var app = builder.Build();
+var db = new List<Order>(); // stands in for a database
+var orders = app.MapGroup("/api/orders");
+
+// GET /api/orders?after=40&limit=20 — keyset pagination by Id
+orders.MapGet("/", (int? after, int? limit) =>
+{
+    int size = Math.Clamp(limit ?? 20, 1, 100); // server-side maximum
+    var items = db.Where(o => o.Id > (after ?? 0)).OrderBy(o => o.Id).Take(size).ToList();
+    return TypedResults.Ok(new Page<Order>(items, items.Count == size ? items[^1].Id : null));
+});
+
+// POST creates a resource: 201 plus a Location header
+orders.MapPost("/", (NewOrder dto) =>
+{
+    var order = new Order(db.Count + 1, dto.Sku, dto.Quantity);
+    db.Add(order);
+    return TypedResults.Created($"/api/orders/{order.Id}", order);
+});
+
+// DELETE is idempotent: a repeated call also returns 204
+orders.MapDelete("/{id:int}", (int id) =>
+{
+    db.RemoveAll(o => o.Id == id);
+    return TypedResults.NoContent();
+});
+
+app.Run();
+
+record Order(int Id, string Sku, int Quantity);
+record NewOrder(string Sku, int Quantity);
+record Page<T>(List<T> Items, int? NextAfter);
+```
+
+</Ex>
+
+<Next>
+
+- How does PUT differ from PATCH? — PUT replaces the whole resource and is idempotent; PATCH changes part of it, and idempotency is not guaranteed.
+- What should a repeated DELETE return? — 204 or 404, both are fine; server state does not change, and that is idempotency.
+- How do you make POST safe to retry? — An `Idempotency-Key` header and the stored result of the first processing.
+- Why is OFFSET pagination slow? — The database reads and discards every skipped row; keyset walks the index.
+- When do you return 202 Accepted? — The operation is accepted but will run later; the response points to a status URL.
+
+</Next>
+
+<Src>
+
+- [RFC 9110: HTTP Semantics](https://www.rfc-editor.org/rfc/rfc9110)
+- [Web API design best practices](https://learn.microsoft.com/azure/architecture/best-practices/api-design)
+- [Pagination — EF Core](https://learn.microsoft.com/ef/core/querying/pagination)
+
+</Src>
+
+</Q>
+
+<Q id="aspnet.api.errors" level="m">
+
+## How do you handle errors in an API: ProblemDetails, `UseExceptionHandler` and `IExceptionHandler`?
+
+<A short l="j">
+
+API errors are returned in one format, ProblemDetails — JSON with `type`, `title`, `status` and `detail` fields defined by RFC 9457. In ASP.NET Core you enable it with `AddProblemDetails()` and the `UseExceptionHandler()` <T k="middleware">middleware</T>, and an unhandled exception becomes a 500 response without a stack trace.
+
+</A>
+
+<A short l="m">
+
+Global handling is done by `UseExceptionHandler`: it catches the exception, clears the response and writes ProblemDetails through `IProblemDetailsService`. Since .NET 8, known exceptions are mapped to status codes in <T k="iexception-handler">`IExceptionHandler`</T> implementations, and `UseStatusCodePages` gives empty 4xx responses, such as a routing 404, the same format. Exception details never go to the client — only a <T k="trace-id">`traceId`</T> that leads to the error in the logs.
+
+</A>
+
+<A short l="s">
+
+An error is part of the contract: the client needs a stable `type` to branch on, the operator needs a `traceId` to search logs, and nobody outside needs a stack trace. So expected outcomes (not found, conflict) are returned as results without exceptions, and `IExceptionHandler` stays a safety net for the unexpected: throwing is far more expensive than returning. Since .NET 10, exceptions handled by an `IExceptionHandler` no longer reach logs and metrics by default, and for alerting you change that with `SuppressDiagnosticsCallback`.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+ProblemDetails is a standard error response body (RFC 9457, formerly RFC 7807) with the `application/problem+json` content type:
+
+- `type` — a link that identifies the kind of error;
+- `title` — a short summary;
+- `status` — the HTTP code;
+- `detail` — specifics of this occurrence.
+
+**Why**
+
+The client parses every error with one piece of code instead of guessing the format of each endpoint.
+
+**How to use**
+
+1. `builder.Services.AddProblemDetails();`
+2. `app.UseExceptionHandler();` — an exception becomes a 500 with ProblemDetails.
+3. `app.UseStatusCodePages();` — empty 4xx and 5xx responses get a ProblemDetails body.
+4. Return expected errors explicitly: `TypedResults.NotFound()`, `TypedResults.Problem(...)`.
+
+**Common mistake**
+
+Sending `exception.ToString()` to the client. A stack trace reveals how the service is built and helps an attacker; the details belong in the log.
+
+**Takeaway:** every error in ProblemDetails format, no stack trace, details in the logs.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+1. `UseExceptionHandler` sits early in the pipeline and wraps the rest of the middleware in `try/catch`.
+2. On an exception it clears the response, if sending has not started, and sets status 500.
+3. It then calls the registered `IExceptionHandler` implementations in order until one returns `true`.
+4. If none handles it, it writes ProblemDetails through `IProblemDetailsService` or re-executes the request on a path like `/error`.
+
+**When to choose what**
+
+| Situation | Tool |
+|---|---|
+| Expected outcome: no resource, conflict | `TypedResults.NotFound()`, `TypedResults.Conflict()` |
+| Your exception → status code and body | `IExceptionHandler` (.NET 8+) |
+| Simple "type → code" mapping | `ExceptionHandlerOptions.StatusCodeSelector` (.NET 9+) |
+| Shared fields in every response | `ProblemDetailsOptions.CustomizeProblemDetails` |
+
+**Pitfalls**
+
+- An `IExceptionHandler` without `app.UseExceptionHandler()` is never called.
+- `app.UseExceptionHandler()` with no arguments and no `AddProblemDetails()` fails at startup with `InvalidOperationException`.
+- If the response has already started, for example while streaming, the status cannot change: the connection is simply aborted.
+- In Development an unhandled exception shows the <T k="developer-exception-page">Developer Exception Page</T> with the stack; it must never run in production.
+
+**Rule of thumb**
+
+Exceptions for the unexpected, results for the expected. One error format across the API and a `traceId` in every response.
+
+**Takeaway:** `AddProblemDetails`, `UseExceptionHandler` and `IExceptionHandler` give a single error format without leaking details.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- `DefaultProblemDetailsWriter` writes the response only if the `Accept` header allows `application/json` or `application/problem+json`. Otherwise `TryWriteAsync` returns `false`, and you need a fallback.
+- The writer adds a `traceId` from `Activity.Current`: the W3C trace id, the same one that appears in logs and distributed traces.
+- Controllers with `[ApiController]` turn bodiless results with status 400 and above, such as `NotFound()`, into ProblemDetails themselves via `ProblemDetailsFactory`.
+
+**Cost**
+
+- An exception means capturing the stack and unwinding frames — orders of magnitude more expensive than `return`. A stream of exceptions on ordinary paths (validation, "not found") is visible in a CPU profile.
+- So domain outcomes are expressed as result types: `Results<Ok<T>, NotFound, Conflict>` or your own `Result`.
+
+**Trade-offs**
+
+- Since .NET 10 the middleware writes no logs or metrics for exceptions handled by an `IExceptionHandler`. Log errors that matter for alerts in the handler itself, or restore the old behavior with `SuppressDiagnosticsCallback = _ => false`.
+- A stable `type`, such as a URI in your docs, is part of the contract: clients branch on it, while `title` and `detail` may change.
+- Exception details in the response are acceptable only in Development.
+
+**How to check in production**
+
+- The `aspnetcore.diagnostics.exceptions` metric (.NET 8+) counts exceptions in the middleware by type; since .NET 10, those handled by an `IExceptionHandler` are excluded by default.
+- `http.server.request.duration` with the `error.type` attribute shows which `http.route` values have a growing share of 5xx.
+- The `traceId` from the client's response leads to the error in logs and traces.
+
+**Takeaway:** ProblemDetails is the error contract: a stable `type` for the client, a `traceId` for the operator, and no internals leaking out.
+
+</A>
+
+<Ex>
+
+```csharp
+using Microsoft.AspNetCore.Diagnostics;
+
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddProblemDetails();
+builder.Services.AddExceptionHandler<NotFoundExceptionHandler>(); // .NET 8+
+var app = builder.Build();
+
+app.UseExceptionHandler(); // exception → 500 and ProblemDetails without a stack trace
+app.UseStatusCodePages();  // empty 4xx and 5xx → ProblemDetails
+
+app.MapGet("/api/orders/{id:int}", (int id) =>
+    id == 1 ? TypedResults.Ok(new { Id = 1 }) : throw new KeyNotFoundException($"Order {id} not found"));
+// /api/orders/2 → 404, body: type, title, status, detail, traceId
+
+app.MapGet("/api/crash", () => { throw new InvalidOperationException("Connection failed: password=secret"); });
+// → 500, the exception text is not in the response
+
+app.Run();
+
+sealed class NotFoundExceptionHandler(IProblemDetailsService problemDetails) : IExceptionHandler
+{
+    public async ValueTask<bool> TryHandleAsync(HttpContext context, Exception exception, CancellationToken ct)
+    {
+        if (exception is not KeyNotFoundException) return false; // not ours — next in the chain
+        context.Response.StatusCode = StatusCodes.Status404NotFound;
+        return await problemDetails.TryWriteAsync(new()
+        {
+            HttpContext = context,
+            Exception = exception,
+            ProblemDetails = { Title = "Resource not found", Detail = exception.Message }
+        });
+    }
+}
+```
+
+</Ex>
+
+<Next>
+
+- Why `IExceptionHandler` rather than your own middleware with `try/catch`? — It is built into `UseExceptionHandler`: response clearing, a handler chain, ProblemDetails and DI out of the box.
+- What happens if the exception occurs after the response has started? — The status and headers cannot change; the middleware rethrows and the connection is aborted.
+- Why `UseStatusCodePages`? — Empty 4xx and 5xx responses, such as a routing 404, get a ProblemDetails body.
+- Why not express expected errors as exceptions? — Exceptions are expensive and hide control flow; prefer `Results<...>` or your own Result type.
+- What changed in .NET 10 for handled exceptions? — They are no longer logged by default; `SuppressDiagnosticsCallback` brings that back.
+
+</Next>
+
+<Src>
+
+- [Handle errors in ASP.NET Core APIs](https://learn.microsoft.com/aspnet/core/fundamentals/error-handling-api)
+- [Handle errors in ASP.NET Core](https://learn.microsoft.com/aspnet/core/fundamentals/error-handling)
+- [RFC 9457: Problem Details for HTTP APIs](https://www.rfc-editor.org/rfc/rfc9457)
+
+</Src>
+
+</Q>
+
+<Q id="aspnet.api.filters" level="m">
+
+## How do filters differ from middleware, and what kinds are there?
+
+<A short l="j">
+
+A filter is code that runs before or after a controller action, for example logging or argument checks. Unlike middleware, it works only for MVC endpoints and sees the action context — arguments and result.
+
+</A>
+
+<A short l="m">
+
+Middleware processes every request in the pipeline and knows only `HttpContext`, while MVC filters run inside the selected action and see the arguments, `ModelState` and the `IActionResult`. In execution order they are authorization, resource, action, exception and result; Minimal APIs use endpoint filters instead (.NET 7+), with access to handler arguments. <T k="cross-cutting-concern">Cross-cutting</T> logic for all requests (compression, CORS, HTTP logging) goes into middleware, action-level logic into filters.
+
+</A>
+
+<A short l="s">
+
+Filters are a second, nested pipeline inside an endpoint: middleware does not know which action was selected or with what arguments, while a filter does and can <T k="short-circuit">short-circuit</T> execution by setting its own `Result`. The cost is coupling to MVC: MVC filters do not apply to Minimal APIs, and an exception filter does not catch exceptions from resource and result filters. So global errors belong in `UseExceptionHandler`, filters handle arguments, `ModelState` and results, and logic shared by both styles is written as an endpoint filter, which also attaches to `MapControllers()`.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+A filter is a class or attribute that ASP.NET Core calls around a controller action. It can run code before the action, after it, or prevent the action from running at all.
+
+**Why**
+
+To remove repeated code from actions: timing, header checks, auditing, a uniform response format.
+
+**How to use**
+
+1. Implement an interface, for example `IAsyncActionFilter` with `OnActionExecutionAsync`.
+2. Register the filter globally (`options.Filters.Add<T>()` in `AddControllers`) or as an attribute on a controller or action.
+3. A filter with DI dependencies needs `[ServiceFilter(typeof(...))]` or `[TypeFilter(typeof(...))]`.
+
+**Common mistake**
+
+Putting logic that must apply to every request, such as CORS, into a filter. The filter is not called for static files, Minimal APIs or requests that never reach an action.
+
+**Takeaway:** middleware is for the whole pipeline, a filter is for logic around an action.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+The order inside MVC:
+
+1. **Authorization** — run first and can return 401 or 403 immediately.
+2. **Resource** — wrap everything else and run before model binding.
+3. Model binding and validation.
+4. **Action** — before and after the action method, see arguments and the result.
+5. **Exception** — catch exceptions from controller creation, binding, action filters and the action.
+6. **Result** — before and after the `IActionResult` executes.
+
+**When to choose what**
+
+| Task | Where |
+|---|---|
+| Compression, CORS, HTTP logging | middleware |
+| Argument checks, action auditing | action filter or endpoint filter |
+| One controller's exceptions → a special response | exception filter |
+| Global error handling | `UseExceptionHandler` |
+
+**Pitfalls**
+
+- Global filters wrap controller filters, which wrap action filters. Change the order with `IOrderedFilter.Order`.
+- Result filters do not run if an authorization or resource filter short-circuited the pipeline. That case is covered by `IAlwaysRunResultFilter`.
+- A filter attribute instance is reused across requests: a stateful field in it is a race, and you cannot pass dependencies into the attribute's constructor.
+
+**Rule of thumb**
+
+Anything that does not depend on the selected action goes into middleware. Anything that works with arguments, `ModelState` or the action result goes into a filter.
+
+**Takeaway:** middleware is the application-wide pipeline, filters are a pipeline around the action that knows its context.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- A controller endpoint runs `ControllerActionInvoker`. The filter list for an action is built once and cached, and per request the invoker walks it as a state machine.
+- An endpoint filter receives an `EndpointFilterInvocationContext` with the handler arguments: `GetArgument<T>(index)`. Code before `next` runs in registration order, code after `next` in reverse.
+- `AddEndpointFilterFactory` receives the handler's `MethodInfo` when the endpoint is built and can skip adding the filter if the signature does not fit.
+
+**Cost**
+
+- Each filter is an extra call per request, and `TypeFilter` or a transient filter via `ServiceFilter` also allocates an object. Dozens of global filters are noticeable on hot endpoints.
+- A resource filter runs before model binding: it can reject a request without reading the body and save work.
+
+**Trade-offs**
+
+- An exception filter knows the controller and action but misses errors from middleware, resource and result filters, and response serialization. The global safety net is `UseExceptionHandler`.
+- In a mixed app, shared logic (auditing, client version checks) is written as an endpoint filter and attached to both `MapGroup` and `MapControllers()`.
+- Filters are invisible in `Program.cs`: many attributes on controllers hide behavior. Global registration in one place is easier to read.
+
+**How to check in production**
+
+At the `Debug` log level for `Microsoft.AspNetCore.Mvc`, MVC logs the execution plan for each filter type. The time spent in individual filters shows up in traces if you wrap them in an `Activity`.
+
+**Takeaway:** filters give you the action context at the price of MVC coupling; keep cross-cutting logic in middleware and global errors in `UseExceptionHandler`.
+
+</A>
+
+<Ex>
+
+```csharp
+using System.Diagnostics;
+using Microsoft.AspNetCore.Mvc.Filters;
+
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddControllers(o => o.Filters.Add<TimingFilter>()); // global action filter
+var app = builder.Build();
+
+app.MapControllers();
+
+// Minimal API: the endpoint filter sees the handler arguments
+app.MapGet("/api/items/{id:int}", (int id) => TypedResults.Ok(id))
+   .AddEndpointFilter(async (context, next) =>
+   {
+       int id = context.GetArgument<int>(0);
+       if (id <= 0)
+           return TypedResults.Problem("Id must be positive", statusCode: 400); // handler not called
+       return await next(context);
+   });
+
+app.Run();
+
+// Action filter: after model binding, around the action method
+public class TimingFilter(ILogger<TimingFilter> logger) : IAsyncActionFilter
+{
+    public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
+    {
+        var sw = Stopwatch.StartNew();
+        ActionExecutedContext executed = await next(); // the action itself runs here
+        logger.LogInformation("{Action}: {Ms} ms, failed: {Failed}",
+            context.ActionDescriptor.DisplayName, sw.ElapsedMilliseconds, executed.Exception is not null);
+    }
+}
+```
+
+</Ex>
+
+<Next>
+
+- In what order do MVC filters run? — Authorization → resource → model binding → action → exception → result.
+- Will an exception filter catch a response serialization error? — No: it does not see exceptions from result filters or result execution.
+- How do you inject a dependency into a filter attribute? — `[ServiceFilter]` resolves the filter from DI, `[TypeFilter]` creates it via `ObjectFactory`.
+- How do you short-circuit the pipeline in a filter? — Set `context.Result` and do not call `next`.
+- Do Minimal APIs have filters? — Yes, `AddEndpointFilter` and `IEndpointFilter` since .NET 7; they can be attached to a route group.
+
+</Next>
+
+<Src>
+
+- [Filters in ASP.NET Core](https://learn.microsoft.com/aspnet/core/mvc/controllers/filters)
+- [Filters in Minimal API apps](https://learn.microsoft.com/aspnet/core/fundamentals/minimal-apis/min-api-filters)
+
+</Src>
+
+</Q>
+
+<Q id="aspnet.api.versioning-openapi" level="m">
+
+## How do you version an API and describe it with OpenAPI?
+
+<A short l="j">
+
+<T k="api-versioning">Versioning</T> lets you change an API without breaking existing clients: the new version lives next to the old one, for example `/api/v1/orders` and `/api/v2/orders`. <T k="openapi">OpenAPI</T> is a machine-readable description of endpoints used to build documentation and generate clients; since .NET 9 it is produced by the built-in `Microsoft.AspNetCore.OpenApi` package.
+
+</A>
+
+<A short l="m">
+
+A new version is introduced only for <T k="breaking-change">breaking changes</T> — removing a field, changing a type or meaning — while an optional field goes into the current one. The version travels in a path segment, the `api-version` query parameter, a header or the media type, and the Asp.Versioning library handles endpoint selection and version reporting in headers. The description comes from `Microsoft.AspNetCore.OpenApi`, which replaced Swashbuckle in the .NET 9 templates and generates OpenAPI 3.1 by default in .NET 10.
+
+</A>
+
+<A short l="s">
+
+A version is a support promise, so what matters is the policy: which changes are breaking, how long an old version lives, and how a client learns about retirement (`Deprecation` and `Sunset` headers). A path segment is simpler for caches, logs and gateway routing, while a header keeps the resource URL stable but hides the version from browsers and proxy logs. Generate the OpenAPI document at build time and diff it against the previous release in CI: that catches a breaking change before release rather than through client complaints.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **API version** — a contract number. The client picks it in the request, and the server responds by that version's rules.
+- **OpenAPI** (formerly Swagger) — a JSON or YAML document listing paths, parameters, request bodies, responses and status codes.
+
+**Why**
+
+You cannot update an old mobile app instantly. While it is still in use, `/v1` must keep working as before, and new clients move to `/v2`.
+
+**How to use**
+
+1. Add the `Microsoft.AspNetCore.OpenApi` package and call `builder.Services.AddOpenApi()` and `app.MapOpenApi()`. The document appears at `/openapi/v1.json`.
+2. There is no built-in UI: a documentation page such as Swagger UI or Scalar is added separately.
+3. The simplest versioning is a route group per version: `app.MapGroup("/api/v1")`.
+
+**Common mistake**
+
+Changing the response format inside an existing version: renaming a field or making it required. Old clients stop parsing the response.
+
+**Takeaway:** a version shields existing clients from breaking changes, and OpenAPI describes the contract of each version.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+| Where the version goes | Example |
+|---|---|
+| Path segment | `/api/v2/orders` |
+| Query parameter | `/api/orders?api-version=2.0` |
+| Header | `X-Api-Version: 2.0` |
+| Media type | `Accept: application/json; v=2.0` |
+
+- Asp.Versioning (`Asp.Versioning.Http` for Minimal APIs, `Asp.Versioning.Mvc` for controllers) reads the version from the request, selects the endpoint and, with the `ReportApiVersions` option, writes supported versions to the `api-supported-versions` header.
+- `Microsoft.AspNetCore.OpenApi` builds the document from endpoint metadata: the route, parameters, `TypedResults`, `Produces`, `WithSummary`, and since .NET 10 XML comments as well.
+
+**When to choose what**
+
+- A path segment is explicit, easy to route on a gateway and visible in logs — it is the most common choice.
+- Query and header keep the resource URL unchanged, but clients easily forget the version, so you need a default version.
+
+**Pitfalls**
+
+- Without configuration, all versions land in one document. You need a document per version: `AddOpenApi("v2")` and `WithGroupName("v2")` on endpoints; Asp.Versioning 10 with the `Asp.Versioning.OpenApi` package does this for you.
+- `WithOpenApi()` is deprecated in .NET 10 (warning ASPDEPR002): adjust the description with document and operation transformers.
+- Exposing the document in production widens the attack surface, so the template serves it only in Development.
+
+**Rule of thumb**
+
+Bump the version only for a breaking change. Backward-compatible additions — a new optional field, a new endpoint — go into the current version.
+
+**Takeaway:** pass the version in the path, query or a header via Asp.Versioning, and describe it with built-in OpenAPI — one document per version.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- Asp.Versioning adds version metadata to endpoints and its own matcher policy: endpoints with the same template differ by the requested version, and an unsupported version gets an error in ProblemDetails format.
+- `Microsoft.AspNetCore.OpenApi` reads metadata from API Explorer. Since .NET 10 it runs on Microsoft.OpenApi 2.0: OpenAPI 3.1 with JSON Schema 2020-12 schemas, and YAML via `MapOpenApi("/openapi/{documentName}.yaml")`.
+- The `Microsoft.Extensions.ApiDescription.Server` package with `OpenApiGenerateDocumentsOnBuild` generates the document at build time, without a deployed service.
+
+**Cost**
+
+- Every live version means code, tests and monitoring. Teams usually support the current and previous versions and retire the rest on a schedule.
+- The document is built on request to `/openapi/...`; in production cache it (`CacheOutput()`) or serve a prebuilt file.
+
+**Trade-offs**
+
+- Code-first (the document from code) suits a single .NET team. Contract-first (YAML first, then code) suits a contract negotiated by several teams; the generated document is then diffed against the reference in CI.
+- Announce deprecation ahead of time: Asp.Versioning marks versions as deprecated and publishes a retirement policy that clients see in headers.
+- One version for the whole API is simpler for clients, per-resource versions mean less duplicated code.
+
+**How to check in production**
+
+- Count requests per version, for example by `http.route` with the path segment: without that data you cannot retire an old version.
+- In CI, diff the OpenAPI document against the previous release with a tool like oasdiff and fail the build on breaking changes.
+
+**Takeaway:** versioning is a lifecycle policy for contracts, and OpenAPI lets you enforce it automatically instead of in code review.
+
+</A>
+
+<Ex>
+
+```csharp
+// NuGet: Microsoft.AspNetCore.OpenApi
+using Microsoft.AspNetCore.Http.HttpResults;
+
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddOpenApi();
+var app = builder.Build();
+app.MapOpenApi();              // document: GET /openapi/v1.json
+
+// v1: existing clients keep the old contract
+var v1 = app.MapGroup("/api/v1/orders").WithTags("Orders");
+v1.MapGet("/{id:int}", (int id) => TypedResults.Ok(new OrderV1(id, 100m)))
+  .WithSummary("Get order (v1)");
+
+// v2: a breaking change — the total became an object with a currency
+var v2 = app.MapGroup("/api/v2/orders").WithTags("Orders");
+v2.MapGet("/{id:int}", Results<Ok<OrderV2>, NotFound> (int id) =>
+        id > 0 ? TypedResults.Ok(new OrderV2(id, new Money(100m, "EUR"))) : TypedResults.NotFound())
+  .WithSummary("Get order (v2)")
+  .ProducesProblem(StatusCodes.Status500InternalServerError);
+
+app.Run();
+
+record OrderV1(int Id, decimal Total);
+record OrderV2(int Id, Money Total);
+record Money(decimal Amount, string Currency);
+```
+
+The `WithTags`, `WithSummary` and `ProducesProblem` metadata and the `TypedResults` types end up in the OpenAPI document without attributes.
+
+</Ex>
+
+<Next>
+
+- Do you need a new version if you add a field to a response? — No, it is backward compatible as long as clients ignore unknown fields.
+- How does built-in OpenAPI differ from Swashbuckle? — A Microsoft package, in the templates since .NET 9, transformers instead of filters, no built-in UI.
+- How do you get the document without running the service? — `Microsoft.Extensions.ApiDescription.Server` and `OpenApiGenerateDocumentsOnBuild` generate it at build time.
+- How do you tell clients a version is being retired? — Mark it deprecated in Asp.Versioning, send `Deprecation` and `Sunset`, and publish the shutdown date.
+- Where is the version easiest to handle on an API gateway? — In the path segment: prefix routing without header parsing.
+
+</Next>
+
+<Src>
+
+- [Overview of OpenAPI support in ASP.NET Core API apps](https://learn.microsoft.com/aspnet/core/fundamentals/openapi/overview)
+- [API versioning in .NET 10 applications](https://devblogs.microsoft.com/dotnet/api-versioning-in-dotnet-10-applications/)
+- [What's new in ASP.NET Core 10.0](https://learn.microsoft.com/aspnet/core/release-notes/aspnetcore-10.0)
+
+</Src>
+
+</Q>
+
+<Q id="aspnet.api.performance" level="s">
+
+## How do you make an API fast and resilient under load, and how do you measure it?
+
+<A short l="j">
+
+A fast API does not hold threads while waiting and does not return more than needed: `async`/`await` everywhere, lists by page, only the needed columns from the database. Resilience comes from <T k="rate-limiting">rate limiting</T> and timeouts, so one client or one slow request cannot take the service down.
+
+</A>
+
+<A short l="m">
+
+Performance has three parts: do not block threads (async all the way, no `.Result`), do less work (pagination, <T k="projection">projections</T> into DTOs, compression, caching) and limit load (rate limiting since .NET 7, <T k="request-timeout">request timeouts</T> since .NET 8). Large collections are streamed with <T k="async-stream">`IAsyncEnumerable<T>`</T> instead of being collected in memory. Every improvement is confirmed with a load test and metrics, not intuition.
+
+</A>
+
+<A short l="s">
+
+Under load an API fails not on average latency but on <T k="tail-latency">tail latency</T> and queues: thread pool starvation, an exhausted database connection pool, GC pressure from large responses. So protection is layered: rate limiting that answers 429, timeouts via `RequestAborted`, concurrency limits on expensive endpoints, streaming instead of buffering, and compression and TLS are often cheaper at the reverse proxy. Decisions are validated with a <T k="load-testing">load test</T> on p99 and the metrics `http.server.request.duration`, `dotnet.thread_pool.queue.length` and the database connection pool.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+API speed is the response time of a single request. Resilience is the ability to handle many requests and survive spikes.
+
+**How to use**
+
+- **Async all the way.** Database and network calls only through `await`: `ToListAsync`, `SaveChangesAsync`, `HttpClient.GetAsync`.
+- **Less data.** Lists by page with a maximum page size; only the needed columns from the database via `Select` into a DTO.
+- **Compression.** `AddResponseCompression()` shrinks JSON several times over.
+- **Protection.** `AddRateLimiter()` limits requests per client, `AddRequestTimeouts()` cancels requests that run too long.
+
+**Common mistake**
+
+Calling `.Result` or `.Wait()` on a task in a handler. A thread pool thread blocks, and under load the service stalls while the CPU sits idle.
+
+**Takeaway:** async everywhere, less data in responses, limits at the entrance.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+| Technique | What it gives |
+|---|---|
+| Rate limiting (.NET 7+) | rejects excess requests before processing |
+| Request timeouts (.NET 8+) | cancels `RequestAborted` on timeout, otherwise a 504 response |
+| Response compression | less traffic at the cost of CPU (Brotli, Gzip) |
+| `IAsyncEnumerable<T>` as the response | the JSON array goes out as it is read, without a buffer |
+
+**When to choose what**
+
+- Fixed window, sliding window and token bucket limit requests per period; the concurrency limiter limits simultaneous ones. Attach a policy with `RequireRateLimiting` and partition it by user or API key.
+- A timeout — for endpoints with unpredictably long work: reports, external calls.
+- Compression in the app — only if no proxy in front of it compresses already.
+
+**Pitfalls**
+
+- `RejectionStatusCode` defaults to 503, while 429 Too Many Requests is the right answer for the client.
+- A timeout only cancels the token: code that does not pass the `CancellationToken` to the database keeps running. Timeouts do not fire under a debugger.
+- `EnableForHttps` for compression is off by default because of the CRIME and BREACH attacks: do not compress responses that mix secrets with user-controlled data.
+
+**Rule of thumb**
+
+First measure where the time goes: database, network, serialization. Optimize the bottleneck, and always put limits and timeouts in place.
+
+**Takeaway:** async and less data make it faster, limits and timeouts protect it, and metrics show which of these you actually need.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- When handlers wait on the database, `http.server.active_requests` and the thread pool queue grow, and p99 climbs into seconds before the CPU gets busy.
+- A buffered response of tens of megabytes means objects on the LOH and Gen 2 collections. Streaming `IAsyncEnumerable<T>` with EF Core's `AsAsyncEnumerable()` keeps one element in memory, not the whole list.
+- Synchronous I/O on the request body has been disallowed since ASP.NET Core 3.0 (`AllowSynchronousIO = false`): it would block a thread pool thread.
+- HTTP/2 multiplexes requests over one connection, HTTP/3 removes head-of-line blocking on packet loss. In Kestrel, HTTP/3 is enabled explicitly (`Http1AndHttp2AndHttp3`) and requires TLS.
+
+**Cost**
+
+- An in-memory rate limiter counts requests for one instance: with five pods the effective limit is five times higher. A shared limit belongs on the gateway or in a distributed store.
+- An IP partition behind a proxy sees the proxy's address until forwarded headers are configured, and it is vulnerable to address spoofing.
+- Streaming commits the 200 status until the end: a failure midway yields truncated JSON, not ProblemDetails.
+
+**Trade-offs**
+
+- Caching is a separate layer: output caching for whole responses and `HybridCache` for data are covered in the caching topic.
+- Rejecting early is cheaper: a 429 in milliseconds beats a timeout after 30 seconds that the client will retry.
+
+**How to check in production**
+
+1. A load test (k6, NBomber, bombardier) with RPS ramping up to degradation: look at p95, p99 and the error rate, not the average.
+2. `dotnet-counters monitor --counters Microsoft.AspNetCore.Hosting,System.Runtime` — request duration, active requests, thread pool queue, allocations.
+3. `aspnetcore.rate_limiting.requests` shows limiter rejections, `kestrel.queued_connections` shows whether connection acceptance is the bottleneck.
+
+**Takeaway:** resilience is layers of protection plus measurement on tail latency, not a single optimization.
+
+</A>
+
+<Ex>
+
+```csharp
+using System.Runtime.CompilerServices;
+using System.Threading.RateLimiting;
+
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddRequestTimeouts();
+builder.Services.AddRateLimiter(o =>
+{
+    o.RejectionStatusCode = StatusCodes.Status429TooManyRequests; // 503 by default
+    o.AddPolicy("per-ip", ctx => RateLimitPartition.GetFixedWindowLimiter(
+        ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = 100, Window = TimeSpan.FromSeconds(1) }));
+});
+var app = builder.Build();
+app.UseRateLimiter();
+app.UseRequestTimeouts();
+
+// After 2 s RequestAborted is cancelled; an unhandled cancellation → 504
+app.MapGet("/api/report", async (CancellationToken ct) =>
+{
+    await Task.Delay(TimeSpan.FromSeconds(5), ct);
+    return TypedResults.Ok("done");
+}).WithRequestTimeout(TimeSpan.FromSeconds(2)).RequireRateLimiting("per-ip");
+
+// Streaming: items go to the client as they are ready, no buffer for the whole response
+app.MapGet("/api/events", (CancellationToken ct) => ReadEventsAsync(ct)).RequireRateLimiting("per-ip");
+
+app.Run();
+
+static async IAsyncEnumerable<EventDto> ReadEventsAsync([EnumeratorCancellation] CancellationToken ct)
+{
+    for (int i = 0; i < 1_000; i++)
+    {
+        await Task.Delay(10, ct); // simulates reading from a database
+        yield return new EventDto(i, DateTimeOffset.UtcNow);
+    }
+}
+
+record EventDto(int Id, DateTimeOffset At);
+```
+
+</Ex>
+
+<Next>
+
+- What status does the rate limiter return by default? — 503; usually you set 429 and a `Retry-After` header.
+- Will a request timeout stop a database query? — Only if the `RequestAborted` token is passed into the call; the timeout itself just cancels the token.
+- Why doesn't an in-memory limiter work across several instances? — Each counts its own requests; a shared limit lives on the gateway or in a distributed store.
+- Why stream `IAsyncEnumerable<T>`? — The response goes out as it is read and the whole list is never in memory; but the 200 status is committed until the end.
+- Why leave compression to the proxy? — Less CPU in the app, and server compression modules outperform the ASP.NET Core middleware.
+
+</Next>
+
+<Src>
+
+- [Rate limiting middleware in ASP.NET Core](https://learn.microsoft.com/aspnet/core/performance/rate-limit)
+- [Request timeouts middleware in ASP.NET Core](https://learn.microsoft.com/aspnet/core/performance/timeouts)
+- [ASP.NET Core best practices](https://learn.microsoft.com/aspnet/core/fundamentals/best-practices)
+
+</Src>
+
+</Q>

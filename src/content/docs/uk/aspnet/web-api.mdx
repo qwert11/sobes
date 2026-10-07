@@ -1,0 +1,1181 @@
+---
+title: Web API
+description: Контролери й Minimal API, прив'язка та валідація, REST, помилки й ProblemDetails, фільтри, версії та OpenAPI, продуктивність.
+sidebar:
+  order: 4
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+Як будувати HTTP API на ASP.NET Core: контролери чи Minimal API, звідки беруться параметри і як вони перевіряються, як проєктувати ресурси й статус-коди, віддавати помилки, версіонувати й описувати API та тримати навантаження. Це ядро співбесіди на бекенд-позицію в .NET.
+
+**Перед цією темою:** [Хостинг і конвеєр](/sobes/uk/aspnet/hosting/), [Впровадження залежностей](/sobes/uk/aspnet/di/).
+
+<Q id="aspnet.api.controllers-vs-minimal" level="j">
+
+## Чим контролери відрізняються від Minimal API і що коли обирати?
+
+<A short l="j">
+
+<T k="controller">Контролер</T> — клас із методами-action, маршрутами з атрибутів і конвеєром MVC, а <T k="minimal-api">Minimal API</T> — обробники-лямбди, які реєструються просто в `Program.cs` через `MapGet` і `MapPost`. Обидва способи дають однакові HTTP-ендпоінти, тому для нового сервісу Microsoft радить Minimal API, а контролери — коли потрібні можливості MVC.
+
+</A>
+
+<A short l="m">
+
+Обидва підходи працюють поверх спільної маршрутизації, але action контролера проходить конвеєр MVC: <T k="mvc-filter">фільтри</T>, розширювану <T k="model-binding">прив'язку моделі</T>, форматери відповіді. Minimal API легший, а структуру йому дають <T k="route-group">групи маршрутів</T> (`MapGroup`), <T k="endpoint-filter">фільтри ендпоінтів</T> і <T k="typed-results">`TypedResults`</T> — усе з .NET 7. Обирають за потрібними можливостями: OData, власні `IModelBinder`, відповідь у XML за заголовком `Accept` і звична команді структура MVC залишають контролери.
+
+</A>
+
+<A short l="s">
+
+Різниця в конвеєрі, а не в можливостях HTTP: action проходить інфраструктуру MVC зі створенням контролера, ланцюжком фільтрів і вибором форматера, а обробник Minimal API збирається в один `RequestDelegate`. Тому Minimal API дешевший на запит і підтримує Native AOT: із .NET 8 Request Delegate Generator — генератор вихідного коду — будує прив'язку параметрів під час збирання, а MVC з AOT несумісний. Ціна — менше готових точок розширення: conventions, форматери й фільтри MVC замінюють фільтрами ендпоінтів і власним кодом. У великому сервісі обидва стилі уживаються, а вибір фіксують правилом для команди.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+- **Контролер** — клас-нащадок `ControllerBase` з атрибутом `[ApiController]`. Кожен публічний метод-action обслуговує один ендпоінт, маршрут задають атрибути `[Route]` і `[HttpGet]`.
+- **Minimal API** — делегат, зареєстрований на маршрут у `Program.cs`: `app.MapGet("/products/{id}", (int id) => ...)`.
+
+**Як користуватися**
+
+- Контролери підключають двома рядками: `builder.Services.AddControllers()` і `app.MapControllers()`.
+- У Minimal API ендпоінти задають через `MapGet`, `MapPost`, `MapPut`, `MapDelete`. Спільний префікс виносять у групу: `var orders = app.MapGroup("/api/orders");`.
+- Відповідь повертають через `TypedResults.Ok(...)` або `TypedResults.NotFound()`: тип результату видно в сигнатурі.
+
+**Типова помилка**
+
+Складати всі обробники Minimal API в один `Program.cs` на тисячу рядків. Ендпоінти групують за ресурсами в методи-розширення на кшталт `MapOrders(this IEndpointRouteBuilder app)`.
+
+**Підсумок:** контролер — клас з action-методами в конвеєрі MVC, Minimal API — лямбда на маршруті; новий API починають з Minimal API.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+1. Обидва підходи реєструють ендпоінти в спільній маршрутизації: `MapControllers()` будує їх з атрибутів, `MapGet` — з делегатів.
+2. Ендпоінт контролера запускає MVC: створення контролера через DI, фільтри, прив'язку моделі, валідацію, action і форматування результату.
+3. Ендпоінт Minimal API — один `RequestDelegate`: параметри читає код, побудований під час старту, а відповідь серіалізується в JSON.
+
+**Коли що обирати**
+
+| Потрібно | Підхід |
+|---|---|
+| Новий сервіс, мікросервіс, Native AOT | Minimal API |
+| Власні `IModelBinder`, `IModelValidator`, application parts, OData | контролери |
+| Відповідь у XML чи іншому форматі за `Accept` | контролери (форматери) |
+
+**Пастки**
+
+- Без структури Minimal API перетворюється на величезний `Program.cs`. Група маршрутів задає спільний префікс, фільтри, авторизацію й метадані для набору ендпоінтів.
+- `Results.Ok(...)` повертає `IResult` і не повідомляє тип відповіді в опис API. `TypedResults` і `Results<Ok<T>, NotFound>` перелічують усі варіанти відповіді просто в сигнатурі.
+- Фільтри MVC на Minimal API не діють: там свої фільтри ендпоінтів.
+
+**Правило**
+
+Новий API — Minimal API з групами за ресурсами й `TypedResults`. Контролери — коли без можливостей MVC не обійтися або коли це стандарт наявного коду.
+
+**Підсумок:** обидва підходи дають однакові ендпоінти; контролери додають конвеєр MVC, Minimal API — менше коду й накладних витрат.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- Обробник Minimal API перетворюється на `RequestDelegate` один раз під час старту. Зазвичай це робить `RequestDelegateFactory` через дерева виразів, а з `PublishAot` — Request Delegate Generator під час компіляції.
+- Action контролера на кожен запит проходить через `ControllerActionInvoker`: створення контролера, ланцюжок фільтрів, `ModelStateDictionary`, вибір форматера.
+- Типи `TypedResults` реалізують `IEndpointMetadataProvider`, тому коди й типи відповідей потрапляють у метадані ендпоінта без атрибутів.
+
+**Ціна**
+
+- Накладні витрати MVC — алокації контекстів і фільтрів на кожен запит. Їх видно в бенчмарках, але зазвичай вони менші за один похід у базу.
+- Native AOT працює лише з Minimal API і вимагає source-generated JSON (`JsonSerializerContext`): рефлексію під час публікації відрізає trimming.
+
+**Компроміси**
+
+- Контролери дають єдиний стиль з коробки: фільтри, conventions, `[ApiController]`. У Minimal API ту саму дисципліну задають групи, методи-розширення й фільтри ендпоінтів — це треба описати в правилах команди.
+- Підходи змішуються в одному застосунку: маршрутизація спільна, а `AddEndpointFilter` працює і на `MapControllers()`.
+- Переписувати контролери заради швидкості рідко окупається: виграш — мікросекунди на запит.
+
+**Як перевірити в продакшені**
+
+Порівнюють не підходи, а свій ендпоінт з однаковою логікою: BenchmarkDotNet і метрика `http.server.request.duration` до й після переписування.
+
+**Підсумок:** Minimal API — менше інфраструктури на запит і шлях до Native AOT, контролери — багатий розширюваний конвеєр MVC; обирають за можливостями, а не за модою.
+
+</A>
+
+<Ex>
+
+```csharp
+using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.AspNetCore.Mvc;
+
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddControllers();
+var app = builder.Build();
+
+// Minimal API: група зі спільним префіксом, усі варіанти відповіді — у сигнатурі
+var products = app.MapGroup("/api/v2/products").WithTags("Products");
+products.MapGet("/{id:int}", Results<Ok<ProductDto>, NotFound> (int id) =>
+    id == 1 ? TypedResults.Ok(new ProductDto(1, "Laptop")) : TypedResults.NotFound());
+
+app.MapControllers(); // маршрути контролерів — з атрибутів
+app.Run();
+
+// Той самий ендпоінт на контролері
+[ApiController]
+[Route("api/v1/products")]
+public class ProductsController : ControllerBase
+{
+    [HttpGet("{id:int}")]
+    public ActionResult<ProductDto> Get(int id) =>
+        id == 1 ? new ProductDto(1, "Laptop") : NotFound();
+}
+
+public record ProductDto(int Id, string Name);
+```
+
+</Ex>
+
+<Next>
+
+- Як винести ендпоінти Minimal API з `Program.cs`? — Методи-розширення над `IEndpointRouteBuilder` і `MapGroup` на кожен ресурс.
+- Навіщо `Results<Ok<T>, NotFound>`, якщо є `IResult`? — Усі варіанти відповіді видно в сигнатурі, в описі API та в unit-тестах.
+- Чи працюють фільтри MVC у Minimal API? — Ні, там фільтри ендпоінтів (`AddEndpointFilter`, .NET 7+).
+- Чи можна опублікувати контролери в Native AOT? — Ні, MVC з Native AOT несумісний, підтримується лише Minimal API.
+- Чим `ControllerBase` відрізняється від `Controller`? — `Controller` додає підтримку представлень; для API досить `ControllerBase`.
+
+</Next>
+
+<Src>
+
+- [APIs overview](https://learn.microsoft.com/aspnet/core/fundamentals/apis)
+- [Minimal APIs quick reference](https://learn.microsoft.com/aspnet/core/fundamentals/minimal-apis)
+- [Create web APIs with ASP.NET Core](https://learn.microsoft.com/aspnet/core/web-api/)
+
+</Src>
+
+</Q>
+
+<Q id="aspnet.api.binding-validation" level="j">
+
+## Як працюють прив'язка моделі та валідація?
+
+<A short l="j">
+
+Прив'язка моделі — заповнення параметрів обробника даними запиту: з маршруту, рядка запиту, заголовків і JSON-тіла. Джерело підказують атрибути `[FromRoute]`, `[FromQuery]`, `[FromBody]`, правила перевірки задають атрибути <T k="data-annotations">DataAnnotations</T> на кшталт `[Required]` і `[Range]`, а в разі помилки клієнт отримує 400.
+
+</A>
+
+<A short l="m">
+
+Для кожного параметра обирається джерело: явний атрибут або правила виведення — прості типи з маршруту чи query, складні з тіла, зареєстровані сервіси з DI. У контролерах з <T k="api-controller-attribute">`[ApiController]`</T> помилки валідації накопичуються в <T k="model-state">`ModelState`</T>, і фільтр сам відповідає 400 у форматі <T k="problem-details">ProblemDetails</T>. У Minimal API перевірка DataAnnotations вбудована лише з .NET 10 (`AddValidation()`), раніше її писали вручну або підключали FluentValidation.
+
+</A>
+
+<A short l="s">
+
+У MVC прив'язка й валідація — окремі етапи перед action: binder'и заповнюють модель, валідатор обходить граф об'єктів, а `ModelStateInvalidFilter` перетворює помилки на 400 ще до виклику методу. У .NET 10 Minimal API отримав валідацію на source generator: він знаходить типи, що валідуються, під час збирання, а перевірку виконує фільтр ендпоінта. Атрибути перевіряють лише форму даних; правила домену на кшталт «такий товар існує» залишаються в сервісі й повертаються як 404, 409 або 422.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+- **Прив'язка моделі (model binding)** — фреймворк сам дістає значення із запиту й передає їх у параметри методу.
+- **Валідація** — перевірка заповненої моделі за правилами, зазвичай за атрибутами з `System.ComponentModel.DataAnnotations`.
+
+**Звідки беруться значення**
+
+| Атрибут | Джерело |
+|---|---|
+| `[FromRoute]` | сегмент шляху: `/orders/{id}` |
+| `[FromQuery]` | рядок запиту: `?page=2` |
+| `[FromHeader]` | заголовок запиту |
+| `[FromBody]` | JSON-тіло запиту |
+
+**Як користуватися**
+
+1. Повісьте атрибути на властивості <T k="dto">DTO</T>: `[Required]`, `[StringLength(50)]`, `[Range(1, 100)]`.
+2. У контролері з `[ApiController]` невалідна модель одразу дає відповідь 400, перевіряти `ModelState.IsValid` не потрібно.
+3. У Minimal API на .NET 10 викличте `builder.Services.AddValidation()`.
+
+**Типова помилка**
+
+Чекати, що `[Required]` у `int` спіймає пропущене поле. Значущий тип без значення отримує `0`, і атрибут вважає його заповненим. Потрібен `int?` з `[Required]` або `[Range]`.
+
+**Підсумок:** прив'язка заповнює параметри із запиту, атрибути перевіряють їх, а помилка перетворюється на відповідь 400.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+| Параметр | `[ApiController]` | Minimal API |
+|---|---|---|
+| Ім'я збігається із сегментом маршруту | `[FromRoute]` | з маршруту |
+| Інший простий тип | `[FromQuery]` | з рядка запиту |
+| Тип зареєстровано в DI | `[FromServices]` | з DI |
+| Складний тип | `[FromBody]` | з JSON-тіла |
+| `IFormFile` | `[FromForm]` | з форми |
+
+**Валідація**
+
+- У контролерах перевірка йде одразу після прив'язки, помилки накопичуються в `ModelState`. `[ApiController]` додає фільтр, який у разі помилок повертає 400 з `ValidationProblemDetails` — словником «поле → повідомлення».
+- Без `[ApiController]` `ModelState.IsValid` перевіряють у кожному action вручну.
+- У Minimal API з .NET 10 `AddValidation()` перевіряє DataAnnotations та `IValidatableObject` у параметрів і вкладених об'єктів і теж відповідає 400. Вимкнути перевірку для ендпоінта — `DisableValidation()`.
+
+**Пастки**
+
+- Помилка розбору (`abc` замість `int`) у Minimal API дає 400 ще до обробника й без списку помилок за полями.
+- У MVC з увімкненим nullable-контекстом ненульова посилальна властивість (`string Name`) вважається `[Required]`.
+- Параметр із тіла в action один: тіло запиту читається один раз.
+
+**Правило**
+
+DataAnnotations — для форми даних: обов'язковість, довжини, діапазони. Міжпольові правила — `IValidatableObject` або FluentValidation, бізнес-перевірки — у сервісі.
+
+**Підсумок:** джерело параметра задають атрибути або правила виведення, а `[ApiController]` і `AddValidation()` перетворюють помилки валідації на стандартну відповідь 400.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- Порядок у MVC: resource-фільтри → прив'язка моделі (`IModelBinder` на параметр, значення з value providers) → валідація (`IObjectModelValidator` обходить граф) → action-фільтри.
+- Автоматичний 400 — action-фільтр `ModelStateInvalidFilter` з дуже раннім порядком (`-2000`), тому до нього не доходять навіть ваші action-фільтри.
+- Minimal API будує код прив'язки один раз на ендпоінт. Прості типи розбираються через `TryParse` або `IParsable<T>`, власні — через статичний `BindAsync`.
+- Валідацію .NET 10 будує source generator, і він бачить лише типи своєї збірки. Якщо ендпоінти лежать в іншій збірці, `AddValidation()` викликають там.
+
+**Ціна**
+
+- Валідатор MVC обходить увесь граф моделі, зокрема колекції: великий JSON-масив у тілі помітно навантажує CPU.
+- `[FromBody]` читає тіло в пам'ять повністю; межу задає `MaxRequestBodySize` Kestrel, за замовчуванням близько 28,6 МБ.
+
+**Компроміси**
+
+- DataAnnotations декларативні й потрапляють в опис API, але умовні правила на них незручні. FluentValidation гнучкіший, а його автоматичну інтеграцію з MVC автори більше не рекомендують — валідатор викликають явно або з фільтра.
+- За замовчуванням помилки форми — 400. Порушення бізнес-правил часто віддають як 422 — це рішення фіксують у контракті API.
+
+**Як перевірити в продакшені**
+
+Автоматичні 400 не доходять до action і губляться з поля зору. Їх логують через `InvalidModelStateResponseFactory` і дивляться частку 400 у `http.server.request.duration` у розрізі `http.route`.
+
+**Підсумок:** прив'язка й валідація — окремі етапи перед обробником; атрибути описують форму даних, а правила домену живуть у коді сервісу.
+
+</A>
+
+<Ex>
+
+```csharp
+using System.ComponentModel.DataAnnotations;
+using Microsoft.AspNetCore.Mvc;
+
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddControllers();
+builder.Services.AddValidation(); // .NET 10: валідація в Minimal API
+var app = builder.Build();
+
+// customerId — з маршруту, requestId — із заголовка, order — з JSON-тіла
+app.MapPost("/api/customers/{customerId:int}/orders",
+    (int customerId, [FromHeader(Name = "X-Request-Id")] string? requestId, CreateOrderRequest order) =>
+        TypedResults.Created($"/api/customers/{customerId}/orders/1", order));
+// тіло { "sku": "", "quantity": 0 } → 400, обробник не викликається
+
+app.MapControllers();
+app.Run();
+
+[ApiController] // невалідні параметри → автоматичний 400
+[Route("api/products")]
+public class ProductsController : ControllerBase
+{
+    [HttpGet] // ?page=2&name=phone
+    public IActionResult Search([FromQuery, Range(1, 1000)] int page = 1, [FromQuery] string? name = null) =>
+        Ok(new { page, name });
+}
+
+public record CreateOrderRequest([Required, StringLength(50)] string Sku, [Range(1, 100)] int Quantity);
+```
+
+</Ex>
+
+<Next>
+
+- Як зібрати кілька параметрів із query в один об'єкт у Minimal API? — `[AsParameters]` (.NET 7+): властивості об'єкта прив'язуються як окремі параметри.
+- Чому `[Required]` у `int` не спрацьовує? — Значущий тип завжди має значення `0`; потрібен `int?`.
+- Як вимкнути автоматичний 400 у `[ApiController]`? — `ApiBehaviorOptions.SuppressModelStateInvalidFilter = true`.
+- Що буде в MVC, якщо в JSON немає ненульової властивості `string`? — Помилка валідації: з nullable-контекстом вона вважається `[Required]`.
+- Де перевіряти, що товар існує? — У сервісі чи обробнику: це бізнес-правило, відповідь 404 або 409, а не 400.
+
+</Next>
+
+<Src>
+
+- [Model binding in ASP.NET Core](https://learn.microsoft.com/aspnet/core/mvc/models/model-binding)
+- [Model validation in ASP.NET Core MVC](https://learn.microsoft.com/aspnet/core/mvc/models/validation)
+- [What's new in ASP.NET Core 10.0](https://learn.microsoft.com/aspnet/core/release-notes/aspnetcore-10.0)
+
+</Src>
+
+</Q>
+
+<Q id="aspnet.api.rest-design" level="m">
+
+## Як спроєктувати REST API: ресурси, методи, статус-коди, ідемпотентність, пагінація?
+
+<A short l="j">
+
+<T k="rest">REST</T> — стиль API, де URL позначає ресурс (`/orders/42`), а HTTP-метод — дію над ним: GET читає, POST створює, PUT замінює, DELETE видаляє. Результат повідомляє статус-код, тому створене замовлення повертають із 201, а неіснуюче — із 404.
+
+</A>
+
+<A short l="m">
+
+REST-дизайн спирається на семантику HTTP: ресурси — іменники в множині, методи різняться <T k="safe-method">безпечністю</T> та <T k="idempotency">ідемпотентністю</T>, статус-коди — класами 2xx, 4xx і 5xx. Ідемпотентність дозволяє клієнту й проксі повторювати PUT і DELETE без шкоди, а для POST її додають ключем ідемпотентності. Колекції завжди віддають посторінково з лімітом на сервері, інакше одного дня один запит поверне мільйон рядків.
+
+</A>
+
+<A short l="s">
+
+Хороший REST API — контракт, розрахований на збої мережі й паралельні правки: повтор запиту не створює дубль, а одночасні зміни не затирають одна одну мовчки. Тому POST роблять ідемпотентним через заголовок `Idempotency-Key`, оновлення захищають <T k="etag">ETag</T> і `If-Match` з відповіддю 412, а великі колекції гортають <T k="keyset-pagination">keyset-пагінацією</T> замість `OFFSET`. Ціна — стан на сервері: сховище ключів, версії рядків, курсори; зате клієнти повторюють запити без страху.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+REST описує API як набір ресурсів. Ресурс має адресу, а операції над ним виражаються стандартними HTTP-методами.
+
+**Як користуватися**
+
+| Запит | Дія й відповідь |
+|---|---|
+| `GET /orders` | список замовлень, 200 |
+| `GET /orders/42` | одне замовлення, 200 або 404 |
+| `POST /orders` | створити замовлення, 201 і заголовок `Location` |
+| `PUT /orders/42` | замінити повністю, 200 або 204 |
+| `DELETE /orders/42` | видалити, 204 |
+
+Помилки клієнта — 4xx: 400 (невалідний запит), 401 (не автентифікований), 403 (немає прав), 404 (немає ресурсу), 409 (конфлікт). Помилки сервера — 5xx.
+
+**Типова помилка**
+
+Дієслова в URL (`/getOrders`, `/createOrder`) і відповідь 200 з `{ "error": "..." }` усередині. Дію вже виражено методом, а помилку — статус-кодом.
+
+**Підсумок:** URL — ресурс, метод — дія, статус-код — результат.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+| Метод | Безпечний | Ідемпотентний |
+|---|---|---|
+| GET, HEAD | так | так |
+| PUT, DELETE | ні | так |
+| POST | ні | ні |
+| PATCH | ні | не гарантовано |
+
+- **Безпечний** метод не змінює стан сервера.
+- **Ідемпотентний** — повтор запиту залишає сервер у тому самому стані, що й один виклик. Повторний DELETE нічого не ламає, навіть якщо поверне 404.
+
+**Коли що обирати**
+
+- Повна заміна — PUT, часткова зміна — PATCH (JSON Merge Patch або JSON Patch).
+- Дію поза CRUD, наприклад скасування замовлення, оформлюють підресурсом: `POST /orders/42/cancellation`.
+- Довга операція — 202 Accepted і адреса, де перевірити її статус.
+
+**Пагінація**
+
+- `?offset=40&limit=20` проста й дає номери сторінок, але повільнішає на далеких сторінках і пропускає рядки під час вставок.
+- Keyset: `?after=40&limit=20`, де `after` — ключ останнього рядка. Стабільна й швидка за індексом, але не вміє стрибати на довільну сторінку.
+
+**Пастки**
+
+- 401 — «хто ви?», 403 — «знаю, хто ви, але не можна».
+- Без серверного максимуму запит з `limit=1000000` покладе базу.
+
+**Правило**
+
+Ресурс — іменник, дія — метод, результат — код. Будь-який список — з лімітом на сервері та вказівником на наступну сторінку.
+
+**Підсумок:** семантика HTTP — це контракт: безпечні й ідемпотентні запити можна повторювати, а пагінація захищає сервер від величезних відповідей.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- Мережа ненадійна: якщо відповідь загубилася, клієнт не знає, чи виконався запит. Повтор PUT безпечний, повтор POST створює дубль.
+- `Idempotency-Key` — поширена практика (чернетка IETF, не RFC). Клієнт надсилає унікальний ключ, сервер зберігає результат першої обробки й на повтор із тим самим ключем повертає його без повторного виконання.
+- ETag — версія представлення ресурсу. `GET` віддає `ETag`, а `PUT` з `If-Match` проходить, лише якщо версія не змінилася, інакше 412 Precondition Failed. Це оптимістичне блокування поверх HTTP; в EF Core йому відповідає concurrency token.
+
+**Ціна**
+
+- Ключі ідемпотентності потребують сховища з TTL, атомарного запису ключа разом з операцією й відповіді на «ключ ще в обробці», зазвичай 409.
+- `OFFSET N` змушує базу прочитати й викинути N рядків: час зростає з номером сторінки. Запит `WHERE id > @after ORDER BY id` з лімітом іде за індексом за однаковий час.
+- `COUNT(*)` для «всього сторінок» на великих таблицях дорогий, його часто прибирають.
+
+**Компроміси**
+
+- Курсор роблять непрозорим, наприклад base64 від ключа сортування: реалізацію можна змінювати без зміни контракту.
+- <T k="hateoas">HATEOAS</T> — посилання на можливі дії у відповіді — повна модель REST, але на практиці обходяться посиланням на наступну сторінку й машинозчитуваним описом API.
+- Строгий REST не догма: пошук зі складними фільтрами допустимо оформити як `POST /orders/search`.
+
+**Як перевірити в продакшені**
+
+Шукають дублі сутностей від повторів і стежать за часткою 409 та 412 за `http.route`. Повільні далекі сторінки видно в плані запиту й у журналі повільних запитів бази.
+
+**Підсумок:** надійний API розрахований на повтори й конкуренцію: ідемпотентність для повторів, ETag для паралельних правок, keyset для великих колекцій.
+
+</A>
+
+<Ex>
+
+```csharp
+var builder = WebApplication.CreateBuilder(args);
+var app = builder.Build();
+var db = new List<Order>(); // замість бази даних
+var orders = app.MapGroup("/api/orders");
+
+// GET /api/orders?after=40&limit=20 — keyset-пагінація за Id
+orders.MapGet("/", (int? after, int? limit) =>
+{
+    int size = Math.Clamp(limit ?? 20, 1, 100); // серверний максимум
+    var items = db.Where(o => o.Id > (after ?? 0)).OrderBy(o => o.Id).Take(size).ToList();
+    return TypedResults.Ok(new Page<Order>(items, items.Count == size ? items[^1].Id : null));
+});
+
+// POST створює ресурс: 201 і заголовок Location
+orders.MapPost("/", (NewOrder dto) =>
+{
+    var order = new Order(db.Count + 1, dto.Sku, dto.Quantity);
+    db.Add(order);
+    return TypedResults.Created($"/api/orders/{order.Id}", order);
+});
+
+// DELETE ідемпотентний: повторний виклик теж поверне 204
+orders.MapDelete("/{id:int}", (int id) =>
+{
+    db.RemoveAll(o => o.Id == id);
+    return TypedResults.NoContent();
+});
+
+app.Run();
+
+record Order(int Id, string Sku, int Quantity);
+record NewOrder(string Sku, int Quantity);
+record Page<T>(List<T> Items, int? NextAfter);
+```
+
+</Ex>
+
+<Next>
+
+- Чим PUT відрізняється від PATCH? — PUT замінює ресурс повністю й ідемпотентний, PATCH змінює частину, і ідемпотентність не гарантована.
+- Що повернути на повторний DELETE? — 204 або 404 — допустимі обидва; стан сервера не змінюється, це і є ідемпотентність.
+- Як зробити POST безпечним для повторів? — Заголовок `Idempotency-Key` і збережений результат першої обробки.
+- Чому OFFSET-пагінація повільна? — База читає й відкидає всі пропущені рядки; keyset іде за індексом.
+- Коли відповідати 202 Accepted? — Операцію прийнято, але виконається вона пізніше; у відповіді — адреса для перевірки статусу.
+
+</Next>
+
+<Src>
+
+- [RFC 9110: HTTP Semantics](https://www.rfc-editor.org/rfc/rfc9110)
+- [Web API design best practices](https://learn.microsoft.com/azure/architecture/best-practices/api-design)
+- [Pagination — EF Core](https://learn.microsoft.com/ef/core/querying/pagination)
+
+</Src>
+
+</Q>
+
+<Q id="aspnet.api.errors" level="m">
+
+## Як обробляти помилки в API: ProblemDetails, `UseExceptionHandler` і `IExceptionHandler`?
+
+<A short l="j">
+
+Помилки API віддають в єдиному форматі ProblemDetails — JSON з полями `type`, `title`, `status` і `detail` за стандартом RFC 9457. В ASP.NET Core його вмикають `AddProblemDetails()` і <T k="middleware">middleware</T> `UseExceptionHandler()`, і тоді необроблений виняток перетворюється на відповідь 500 без stack trace.
+
+</A>
+
+<A short l="m">
+
+Глобальну обробку робить `UseExceptionHandler`: він ловить виняток, скидає відповідь і пише ProblemDetails через `IProblemDetailsService`. Із .NET 8 відомі винятки зіставляють зі статус-кодами в реалізаціях <T k="iexception-handler">`IExceptionHandler`</T>, а `UseStatusCodePages` доповнює порожні відповіді 4xx, наприклад 404 маршрутизації, тим самим форматом. Деталі винятку клієнту не віддають — лише <T k="trace-id">`traceId`</T>, за яким помилку знаходять у логах.
+
+</A>
+
+<A short l="s">
+
+Помилка — частина контракту: клієнту потрібен стабільний `type` для розгалуження логіки, операторові — `traceId` для пошуку в логах, і нікому ззовні не потрібен stack trace. Тому очікувані результати (не знайдено, конфлікт) повертають результатом без винятків, а `IExceptionHandler` залишається сіткою для неочікуваного: виняток набагато дорожчий за звичайне повернення. Із .NET 10 винятки, оброблені `IExceptionHandler`, за замовчуванням не потрапляють у логи й метрики, і для алертів цю поведінку змінюють через `SuppressDiagnosticsCallback`.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+ProblemDetails — стандартне тіло відповіді з помилкою (RFC 9457, раніше RFC 7807) з типом вмісту `application/problem+json`:
+
+- `type` — посилання-ідентифікатор виду помилки;
+- `title` — короткий опис;
+- `status` — HTTP-код;
+- `detail` — подробиці цього випадку.
+
+**Навіщо**
+
+Клієнт розбирає всі помилки одним кодом, а не вгадує формат кожного ендпоінта.
+
+**Як користуватися**
+
+1. `builder.Services.AddProblemDetails();`
+2. `app.UseExceptionHandler();` — виняток перетворюється на 500 з ProblemDetails.
+3. `app.UseStatusCodePages();` — порожні відповіді 4xx і 5xx отримують тіло ProblemDetails.
+4. Очікувані помилки повертайте явно: `TypedResults.NotFound()`, `TypedResults.Problem(...)`.
+
+**Типова помилка**
+
+Віддавати клієнту `exception.ToString()`. Stack trace розкриває будову сервісу й допомагає зловмиснику, а подробицям місце в лозі.
+
+**Підсумок:** усі помилки — у форматі ProblemDetails, без stack trace, з подробицями в логах.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+1. `UseExceptionHandler` стоїть на початку конвеєра й обгортає решту middleware в `try/catch`.
+2. У разі винятку він очищає відповідь, якщо надсилання ще не почалося, і ставить код 500.
+3. Потім по черзі викликає зареєстровані `IExceptionHandler`, доки один не поверне `true`.
+4. Якщо ніхто не обробив, пише ProblemDetails через `IProblemDetailsService` або виконує запит заново за шляхом на кшталт `/error`.
+
+**Коли що обирати**
+
+| Ситуація | Інструмент |
+|---|---|
+| Очікуваний результат: немає ресурсу, конфлікт | `TypedResults.NotFound()`, `TypedResults.Conflict()` |
+| Власний виняток → статус-код і тіло | `IExceptionHandler` (.NET 8+) |
+| Просте зіставлення «тип → код» | `ExceptionHandlerOptions.StatusCodeSelector` (.NET 9+) |
+| Спільні поля в усіх відповідях | `ProblemDetailsOptions.CustomizeProblemDetails` |
+
+**Пастки**
+
+- `IExceptionHandler` без `app.UseExceptionHandler()` ніколи не викликається.
+- `app.UseExceptionHandler()` без аргументів і без `AddProblemDetails()` падає під час старту з `InvalidOperationException`.
+- Якщо відповідь уже почала надсилатися, наприклад під час стримінгу, код не змінити: з'єднання просто обірветься.
+- У Development необроблений виняток показує <T k="developer-exception-page">Developer Exception Page</T> зі стеком; у продакшені її бути не повинно.
+
+**Правило**
+
+Винятки — для неочікуваного, очікуване — результатом. Один формат помилок на весь API і `traceId` у кожній відповіді.
+
+**Підсумок:** `AddProblemDetails`, `UseExceptionHandler` і `IExceptionHandler` дають єдиний формат помилок без витоку деталей.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- `DefaultProblemDetailsWriter` пише відповідь, лише якщо заголовок `Accept` допускає `application/json` або `application/problem+json`. Інакше `TryWriteAsync` поверне `false`, і потрібна запасна відповідь.
+- Writer додає `traceId` з `Activity.Current`: це W3C trace id, той самий, що в логах і розподіленому трасуванні.
+- Контролери з `[ApiController]` самі перетворюють результати з кодом від 400 без тіла, наприклад `NotFound()`, на ProblemDetails через `ProblemDetailsFactory`.
+
+**Ціна**
+
+- Виняток — захоплення стека й розмотування кадрів, на порядки дорожче за `return`. Потік винятків на звичайних шляхах (валідація, «не знайдено») помітний у профілі CPU.
+- Тому доменні результати виражають типом результату: `Results<Ok<T>, NotFound, Conflict>` або власним `Result`.
+
+**Компроміси**
+
+- Із .NET 10 middleware не пише логи й метрики для винятків, оброблених `IExceptionHandler`. Важливі для алертів помилки логують у самому обробнику або повертають стару поведінку: `SuppressDiagnosticsCallback = _ => false`.
+- Стабільний `type`, наприклад URI вашої документації, — частина контракту: клієнти розгалужуються за ним, а `title` і `detail` можна змінювати.
+- Деталі винятку у відповіді допустимі лише в Development.
+
+**Як перевірити в продакшені**
+
+- Метрика `aspnetcore.diagnostics.exceptions` (.NET 8+) рахує винятки в middleware за типом; оброблені `IExceptionHandler` із .NET 10 за замовчуванням у неї не потрапляють.
+- `http.server.request.duration` з атрибутом `error.type` показує, на яких `http.route` зростає частка 5xx.
+- За `traceId` з відповіді клієнта помилку знаходять у логах і трасах.
+
+**Підсумок:** ProblemDetails — контракт помилок: стабільний `type` для клієнта, `traceId` для оператора й жодних нутрощів назовні.
+
+</A>
+
+<Ex>
+
+```csharp
+using Microsoft.AspNetCore.Diagnostics;
+
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddProblemDetails();
+builder.Services.AddExceptionHandler<NotFoundExceptionHandler>(); // .NET 8+
+var app = builder.Build();
+
+app.UseExceptionHandler(); // виняток → 500 і ProblemDetails без stack trace
+app.UseStatusCodePages();  // порожні 4xx і 5xx → ProblemDetails
+
+app.MapGet("/api/orders/{id:int}", (int id) =>
+    id == 1 ? TypedResults.Ok(new { Id = 1 }) : throw new KeyNotFoundException($"Order {id} not found"));
+// /api/orders/2 → 404, у тілі: type, title, status, detail, traceId
+
+app.MapGet("/api/crash", () => { throw new InvalidOperationException("Connection failed: password=secret"); });
+// → 500, тексту винятку у відповіді немає
+
+app.Run();
+
+sealed class NotFoundExceptionHandler(IProblemDetailsService problemDetails) : IExceptionHandler
+{
+    public async ValueTask<bool> TryHandleAsync(HttpContext context, Exception exception, CancellationToken ct)
+    {
+        if (exception is not KeyNotFoundException) return false; // не наш — далі ланцюжком
+        context.Response.StatusCode = StatusCodes.Status404NotFound;
+        return await problemDetails.TryWriteAsync(new()
+        {
+            HttpContext = context,
+            Exception = exception,
+            ProblemDetails = { Title = "Resource not found", Detail = exception.Message }
+        });
+    }
+}
+```
+
+</Ex>
+
+<Next>
+
+- Чим `IExceptionHandler` кращий за власний middleware з `try/catch`? — Вбудований в `UseExceptionHandler`: очищення відповіді, ланцюжок обробників, ProblemDetails і DI з коробки.
+- Що буде, якщо виняток стався після початку надсилання відповіді? — Код і заголовки не змінити; middleware прокине виняток, і з'єднання обірветься.
+- Навіщо `UseStatusCodePages`? — Порожні 4xx і 5xx, наприклад 404 маршрутизації, отримують тіло ProblemDetails.
+- Чому очікувані помилки не виражають винятками? — Винятки дорогі й ховають потік керування; краще `Results<...>` або власний Result-тип.
+- Що змінилося в .NET 10 для оброблених винятків? — Вони більше не логуються за замовчуванням; повернути поведінку — `SuppressDiagnosticsCallback`.
+
+</Next>
+
+<Src>
+
+- [Handle errors in ASP.NET Core APIs](https://learn.microsoft.com/aspnet/core/fundamentals/error-handling-api)
+- [Handle errors in ASP.NET Core](https://learn.microsoft.com/aspnet/core/fundamentals/error-handling)
+- [RFC 9457: Problem Details for HTTP APIs](https://www.rfc-editor.org/rfc/rfc9457)
+
+</Src>
+
+</Q>
+
+<Q id="aspnet.api.filters" level="m">
+
+## Чим фільтри відрізняються від middleware і які вони бувають?
+
+<A short l="j">
+
+Фільтр — код, який виконується до або після action контролера, наприклад логування чи перевірка аргументів. На відміну від middleware, він працює лише для ендпоінтів MVC і бачить контекст action — аргументи й результат.
+
+</A>
+
+<A short l="m">
+
+Middleware обробляє кожен запит конвеєра й знає лише `HttpContext`, а фільтри MVC запускаються всередині обраного action і бачать аргументи, `ModelState` та `IActionResult`. За порядком виконання це authorization, resource, action, exception і result; у Minimal API замість них — фільтри ендпоінтів (.NET 7+) з доступом до аргументів обробника. <T k="cross-cutting-concern">Наскрізну</T> логіку для всіх запитів (стиснення, CORS, логування HTTP) кладуть у middleware, логіку рівня action — у фільтри.
+
+</A>
+
+<A short l="s">
+
+Фільтри — другий, вкладений конвеєр усередині ендпоінта: middleware не знає, який action обрано і з якими аргументами, а фільтр знає й може <T k="short-circuit">перервати виконання</T>, підставивши свій `Result`. Ціна — прив'язка до MVC: на Minimal API фільтри MVC не діють, а винятки з resource- і result-фільтрів exception-фільтр не ловить. Тому глобальні помилки тримають в `UseExceptionHandler`, фільтри — для аргументів, `ModelState` і результатів, а спільну логіку для обох стилів пишуть фільтром ендпоінта: він вішається і на `MapControllers()`.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+Фільтр — клас або атрибут, який ASP.NET Core викликає навколо action контролера. Він може виконати код до action, після нього або взагалі не дати action виконатися.
+
+**Навіщо**
+
+Щоб прибрати повторюваний код з action: вимірювання часу, перевірку заголовка, аудит, єдиний формат відповіді.
+
+**Як користуватися**
+
+1. Реалізуйте інтерфейс, наприклад `IAsyncActionFilter` з методом `OnActionExecutionAsync`.
+2. Підключіть фільтр глобально (`options.Filters.Add<T>()` в `AddControllers`) або атрибутом на контролер чи action.
+3. Фільтру із залежностями з DI потрібен `[ServiceFilter(typeof(...))]` або `[TypeFilter(typeof(...))]`.
+
+**Типова помилка**
+
+Писати у фільтрі те, що має працювати для всіх запитів, наприклад CORS. Фільтр не викличеться для статичних файлів, Minimal API і запитів, які не дійшли до action.
+
+**Підсумок:** middleware — для всього конвеєра, фільтр — для логіки навколо action.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+Порядок усередині MVC:
+
+1. **Authorization** — першими, можуть одразу повернути 401 або 403.
+2. **Resource** — обгортають усе інше й виконуються до прив'язки моделі.
+3. Прив'язка моделі й валідація.
+4. **Action** — до й після методу action, бачать аргументи й результат.
+5. **Exception** — ловлять винятки зі створення контролера, прив'язки, action-фільтрів і action.
+6. **Result** — до й після виконання `IActionResult`.
+
+**Коли що обирати**
+
+| Задача | Де |
+|---|---|
+| Стиснення, CORS, логування HTTP | middleware |
+| Перевірка аргументів, аудит action | action-фільтр або фільтр ендпоінта |
+| Винятки одного контролера → особлива відповідь | exception-фільтр |
+| Глобальна обробка помилок | `UseExceptionHandler` |
+
+**Пастки**
+
+- Глобальні фільтри обгортають фільтри контролера, а ті — фільтри action. Змінити порядок можна через `IOrderedFilter.Order`.
+- Result-фільтри не викликаються, якщо authorization- або resource-фільтр перервав конвеєр. Для цього випадку є `IAlwaysRunResultFilter`.
+- Екземпляр фільтра-атрибута перевикористовується між запитами: поле зі станом у ньому — гонка, а залежності в конструктор атрибута не передати.
+
+**Правило**
+
+Усе, що не залежить від обраного action, — у middleware. Усе, що працює з аргументами, `ModelState` або результатом action, — у фільтр.
+
+**Підсумок:** middleware — конвеєр усього застосунку, фільтри — конвеєр навколо action зі знанням його контексту.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- Ендпоінт контролера запускає `ControllerActionInvoker`. Список фільтрів для action будується один раз і кешується, а на запит invoker проходить його як машину станів.
+- Фільтр ендпоінта отримує `EndpointFilterInvocationContext` з аргументами обробника: `GetArgument<T>(index)`. Код до `next` виконується в порядку реєстрації, після `next` — у зворотному.
+- `AddEndpointFilterFactory` отримує `MethodInfo` обробника під час побудови ендпоінта й може не додавати фільтр, якщо сигнатура не підходить.
+
+**Ціна**
+
+- Кожен фільтр — зайвий виклик на запит, а `TypeFilter` і transient-фільтр через `ServiceFilter` ще й створюють об'єкт. Десятки глобальних фільтрів помітні на гарячих ендпоінтах.
+- Resource-фільтр стоїть до прив'язки моделі: він може відхилити запит, не читаючи тіла, і заощадити роботу.
+
+**Компроміси**
+
+- Exception-фільтр знає контролер і action, але не ловить помилки middleware, resource- і result-фільтрів та серіалізації відповіді. Глобальна сітка — `UseExceptionHandler`.
+- У змішаному застосунку спільну логіку (аудит, перевірку версії клієнта) пишуть фільтром ендпоінта й вішають і на `MapGroup`, і на `MapControllers()`.
+- Фільтрів не видно в `Program.cs`: багато атрибутів на контролерах ховають поведінку. Глобальну реєстрацію в одному місці читати простіше.
+
+**Як перевірити в продакшені**
+
+На рівні логування `Debug` для `Microsoft.AspNetCore.Mvc` MVC пише план виконання фільтрів кожного типу. Час окремих фільтрів видно в трасі, якщо обгорнути їх в `Activity`.
+
+**Підсумок:** фільтри дають контекст action ціною прив'язки до MVC; наскрізну логіку тримають у middleware, глобальні помилки — в `UseExceptionHandler`.
+
+</A>
+
+<Ex>
+
+```csharp
+using System.Diagnostics;
+using Microsoft.AspNetCore.Mvc.Filters;
+
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddControllers(o => o.Filters.Add<TimingFilter>()); // глобальний action-фільтр
+var app = builder.Build();
+
+app.MapControllers();
+
+// Minimal API: фільтр ендпоінта бачить аргументи обробника
+app.MapGet("/api/items/{id:int}", (int id) => TypedResults.Ok(id))
+   .AddEndpointFilter(async (context, next) =>
+   {
+       int id = context.GetArgument<int>(0);
+       if (id <= 0)
+           return TypedResults.Problem("Id must be positive", statusCode: 400); // обробник не викликано
+       return await next(context);
+   });
+
+app.Run();
+
+// Action-фільтр: після прив'язки моделі, навколо методу action
+public class TimingFilter(ILogger<TimingFilter> logger) : IAsyncActionFilter
+{
+    public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
+    {
+        var sw = Stopwatch.StartNew();
+        ActionExecutedContext executed = await next(); // виконується сам action
+        logger.LogInformation("{Action}: {Ms} ms, failed: {Failed}",
+            context.ActionDescriptor.DisplayName, sw.ElapsedMilliseconds, executed.Exception is not null);
+    }
+}
+```
+
+</Ex>
+
+<Next>
+
+- У якому порядку виконуються фільтри MVC? — Authorization → resource → прив'язка моделі → action → exception → result.
+- Чи спіймає exception-фільтр помилку серіалізації відповіді? — Ні: винятків result-фільтрів і виконання результату він не бачить.
+- Як впровадити залежність у фільтр-атрибут? — `[ServiceFilter]` бере фільтр із DI, `[TypeFilter]` створює його через `ObjectFactory`.
+- Як перервати конвеєр у фільтрі? — Присвоїти `context.Result` і не викликати `next`.
+- Чи є фільтри в Minimal API? — Так, `AddEndpointFilter` та `IEndpointFilter` із .NET 7; їх можна повісити на групу маршрутів.
+
+</Next>
+
+<Src>
+
+- [Filters in ASP.NET Core](https://learn.microsoft.com/aspnet/core/mvc/controllers/filters)
+- [Filters in Minimal API apps](https://learn.microsoft.com/aspnet/core/fundamentals/minimal-apis/min-api-filters)
+
+</Src>
+
+</Q>
+
+<Q id="aspnet.api.versioning-openapi" level="m">
+
+## Як версіонувати API та описувати його в OpenAPI?
+
+<A short l="j">
+
+<T k="api-versioning">Версіонування</T> — спосіб змінювати API, не ламаючи старих клієнтів: нова версія живе поруч зі старою, наприклад `/api/v1/orders` і `/api/v2/orders`. <T k="openapi">OpenAPI</T> — машинозчитуваний опис ендпоінтів, за яким будують документацію й генерують клієнтів; із .NET 9 його створює вбудований пакет `Microsoft.AspNetCore.OpenApi`.
+
+</A>
+
+<A short l="m">
+
+Нову версію вводять лише заради <T k="breaking-change">несумісних змін</T> — видалити поле, змінити тип чи зміст, а необов'язкове поле додають у поточну. Версію передають сегментом шляху, query-параметром `api-version`, заголовком або media type, а вибір ендпоінта й звіт про версії в заголовках бере на себе бібліотека Asp.Versioning. Опис дає `Microsoft.AspNetCore.OpenApi`: він замінив Swashbuckle у шаблонах .NET 9, а в .NET 10 за замовчуванням генерує OpenAPI 3.1.
+
+</A>
+
+<A short l="s">
+
+Версія — обіцянка підтримки, тому головне в ній — політика: які зміни несумісні, скільки живе стара версія, як клієнт дізнається про вимкнення (заголовки `Deprecation` і `Sunset`). Сегмент шляху простіший для кешів, логів і маршрутизації на шлюзі, а заголовок тримає URL ресурсу стабільним, але версії в ньому не видно в браузері й логах проксі. OpenAPI-документ варто генерувати під час збирання й порівнювати в CI з минулим релізом: так несумісну зміну ловлять до випуску, а не за скаргами клієнтів.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+- **Версія API** — номер контракту. Клієнт обирає її в запиті, і сервер відповідає за правилами цієї версії.
+- **OpenAPI** (раніше Swagger) — документ JSON або YAML зі списком шляхів, параметрів, тіл запитів, відповідей і кодів.
+
+**Навіщо**
+
+Мобільний застосунок старої версії не можна оновити миттєво. Поки він живе, `/v1` має працювати як раніше, а нові клієнти переходять на `/v2`.
+
+**Як користуватися**
+
+1. Додайте пакет `Microsoft.AspNetCore.OpenApi`, викличте `builder.Services.AddOpenApi()` і `app.MapOpenApi()`. Документ з'явиться за адресою `/openapi/v1.json`.
+2. Вбудованого UI немає: сторінку документації підключають окремо, наприклад Swagger UI або Scalar.
+3. Найпростіше версіонування — група маршрутів на версію: `app.MapGroup("/api/v1")`.
+
+**Типова помилка**
+
+Змінювати формат відповіді всередині наявної версії: перейменувати поле або зробити його обов'язковим. Старі клієнти перестають розбирати відповідь.
+
+**Підсумок:** версія захищає старих клієнтів від несумісних змін, а OpenAPI описує контракт кожної версії.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+| Де передати версію | Приклад |
+|---|---|
+| Сегмент шляху | `/api/v2/orders` |
+| Query-параметр | `/api/orders?api-version=2.0` |
+| Заголовок | `X-Api-Version: 2.0` |
+| Media type | `Accept: application/json; v=2.0` |
+
+- Asp.Versioning (`Asp.Versioning.Http` для Minimal API, `Asp.Versioning.Mvc` для контролерів) читає версію із запиту, обирає ендпоінт і з опцією `ReportApiVersions` пише підтримувані версії в заголовок `api-supported-versions`.
+- `Microsoft.AspNetCore.OpenApi` будує документ з метаданих ендпоінтів: маршруту, параметрів, `TypedResults`, `Produces`, `WithSummary`, а з .NET 10 — і XML-коментарів.
+
+**Коли що обирати**
+
+- Сегмент шляху наочний, легко маршрутизується на шлюзі й видний у логах — його обирають найчастіше.
+- Query й заголовок залишають URL ресурсу незмінним, але версію легко забути передати, тому потрібна версія за замовчуванням.
+
+**Пастки**
+
+- Без налаштування всі версії потрапляють в один документ. Потрібен окремий документ на версію: `AddOpenApi("v2")` і `WithGroupName("v2")` в ендпоінтів; Asp.Versioning 10 з пакетом `Asp.Versioning.OpenApi` робить це сам.
+- `WithOpenApi()` у .NET 10 застарів (попередження ASPDEPR002): опис правлять трансформерами документа й операцій.
+- Документ у продакшені розкриває поверхню атаки, тому шаблон віддає його лише в Development.
+
+**Правило**
+
+Версію змінюють лише через несумісну зміну. Зворотно сумісне — нове необов'язкове поле, новий ендпоінт — додають у поточну версію.
+
+**Підсумок:** версію передають у шляху, query чи заголовку через Asp.Versioning, а описує її вбудований OpenAPI — по документу на версію.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- Asp.Versioning додає ендпоінтам метадані версій і свою політику зіставлення: ендпоінти з одним шаблоном різняться версією із запиту, а непідтримувана версія отримує помилку у форматі ProblemDetails.
+- `Microsoft.AspNetCore.OpenApi` читає метадані з API Explorer. Із .NET 10 він працює на Microsoft.OpenApi 2.0: OpenAPI 3.1 зі схемами JSON Schema 2020-12 і YAML через `MapOpenApi("/openapi/{documentName}.yaml")`.
+- Пакет `Microsoft.Extensions.ApiDescription.Server` з `OpenApiGenerateDocumentsOnBuild` генерує документ під час збирання, без розгорнутого сервісу.
+
+**Ціна**
+
+- Кожна жива версія — код, тести й моніторинг. Зазвичай підтримують поточну й попередню, решту виводять за графіком.
+- Документ будується на запит до `/openapi/...`; у продакшені його кешують (`CacheOutput()`) або віддають готовим файлом.
+
+**Компроміси**
+
+- Code-first (документ із коду) зручний одній .NET-команді. Contract-first (спочатку YAML, потім код) — коли контракт погоджують кілька команд; тоді згенерований документ звіряють з еталоном у CI.
+- Застарівання оголошують заздалегідь: Asp.Versioning позначає версії як deprecated і публікує політику вимкнення, клієнт бачить її в заголовках.
+- Одна версія на весь API простіша для клієнтів, окремі версії ресурсів дають менше дублювання коду.
+
+**Як перевірити в продакшені**
+
+- Рахуйте запити за версіями, наприклад за `http.route` із сегментом шляху: без цих даних стару версію не вимкнути.
+- У CI порівнюйте OpenAPI-документ з минулим релізом утилітою на кшталт oasdiff і валіть збирання на несумісних змінах.
+
+**Підсумок:** версіонування — політика життя контрактів, а OpenAPI дозволяє перевіряти її автоматично, а не на рев'ю.
+
+</A>
+
+<Ex>
+
+```csharp
+// NuGet: Microsoft.AspNetCore.OpenApi
+using Microsoft.AspNetCore.Http.HttpResults;
+
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddOpenApi();
+var app = builder.Build();
+app.MapOpenApi();              // документ: GET /openapi/v1.json
+
+// v1: старі клієнти отримують попередній контракт
+var v1 = app.MapGroup("/api/v1/orders").WithTags("Orders");
+v1.MapGet("/{id:int}", (int id) => TypedResults.Ok(new OrderV1(id, 100m)))
+  .WithSummary("Get order (v1)");
+
+// v2: несумісна зміна — сума стала об'єктом із валютою
+var v2 = app.MapGroup("/api/v2/orders").WithTags("Orders");
+v2.MapGet("/{id:int}", Results<Ok<OrderV2>, NotFound> (int id) =>
+        id > 0 ? TypedResults.Ok(new OrderV2(id, new Money(100m, "EUR"))) : TypedResults.NotFound())
+  .WithSummary("Get order (v2)")
+  .ProducesProblem(StatusCodes.Status500InternalServerError);
+
+app.Run();
+
+record OrderV1(int Id, decimal Total);
+record OrderV2(int Id, Money Total);
+record Money(decimal Amount, string Currency);
+```
+
+Метадані `WithTags`, `WithSummary`, `ProducesProblem` і типи `TypedResults` потрапляють в OpenAPI-документ без атрибутів.
+
+</Ex>
+
+<Next>
+
+- Чи потрібна нова версія, якщо у відповідь додали поле? — Ні, це зворотно сумісно, якщо клієнти ігнорують незнайомі поля.
+- Чим вбудований OpenAPI відрізняється від Swashbuckle? — Пакет Microsoft, у шаблонах із .NET 9, трансформери замість фільтрів, без вбудованого UI.
+- Як отримати документ без запуску сервісу? — `Microsoft.Extensions.ApiDescription.Server` і `OpenApiGenerateDocumentsOnBuild` генерують його під час збирання.
+- Як повідомити клієнтам, що версія застаріває? — Позначити її deprecated в Asp.Versioning, віддавати `Deprecation` і `Sunset`, назвати дату вимкнення.
+- Де версію зручніше розбирати на API Gateway? — У сегменті шляху: маршрутизація за префіксом без розбору заголовків.
+
+</Next>
+
+<Src>
+
+- [Overview of OpenAPI support in ASP.NET Core API apps](https://learn.microsoft.com/aspnet/core/fundamentals/openapi/overview)
+- [API versioning in .NET 10 applications](https://devblogs.microsoft.com/dotnet/api-versioning-in-dotnet-10-applications/)
+- [What's new in ASP.NET Core 10.0](https://learn.microsoft.com/aspnet/core/release-notes/aspnetcore-10.0)
+
+</Src>
+
+</Q>
+
+<Q id="aspnet.api.performance" level="s">
+
+## Як зробити API швидким і стійким під навантаженням і як це виміряти?
+
+<A short l="j">
+
+Швидкий API не тримає потоки в очікуванні й не віддає зайвого: скрізь `async`/`await`, списки — посторінково, з бази — лише потрібні поля. Стійкість дають <T k="rate-limiting">обмеження частоти запитів</T> і тайм-аути, щоб один клієнт або повільний запит не поклали сервіс.
+
+</A>
+
+<A short l="m">
+
+Продуктивність складається з трьох частин: не блокувати потоки (async до кінця, жодного `.Result`), робити менше роботи (пагінація, <T k="projection">проєкції</T> в DTO, стиснення, кеш) і обмежувати навантаження (rate limiting із .NET 7, <T k="request-timeout">тайм-аути запитів</T> із .NET 8). Великі колекції віддають потоком через <T k="async-stream">`IAsyncEnumerable<T>`</T>, не збираючи список у пам'яті. Кожне покращення підтверджують навантажувальним тестом і метриками, а не інтуїцією.
+
+</A>
+
+<A short l="s">
+
+Під навантаженням API ламається не за середнім часом, а за <T k="tail-latency">хвостовими затримками</T> й чергами: голодування пулу потоків, вичерпаний пул з'єднань до бази, тиск на GC від великих відповідей. Тому захист будують шарами: rate limiting з відповіддю 429, тайм-аути через `RequestAborted`, обмеження конкурентності на дорогих ендпоінтах, стримінг замість буферизації, а стиснення й TLS часто дешевше віддати reverse proxy. Рішення перевіряють <T k="load-testing">навантажувальним тестом</T> за p99 і метриками `http.server.request.duration`, `dotnet.thread_pool.queue.length` і пулу з'єднань БД.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+Швидкість API — час відповіді на один запит. Стійкість — здатність тримати багато запитів і не падати від піків.
+
+**Як користуватися**
+
+- **Async до кінця.** База й мережа — лише через `await`: `ToListAsync`, `SaveChangesAsync`, `GetAsync` у `HttpClient`.
+- **Менше даних.** Списки — посторінково з максимальним розміром сторінки; з бази — лише потрібні поля через `Select` у DTO.
+- **Стиснення.** `AddResponseCompression()` зменшує JSON у кілька разів.
+- **Захист.** `AddRateLimiter()` обмежує кількість запитів від клієнта, `AddRequestTimeouts()` скасовує надто довгі.
+
+**Типова помилка**
+
+Викликати `.Result` або `.Wait()` у задачі в обробнику. Потік пулу блокується, і під навантаженням сервіс зависає, хоча процесор вільний.
+
+**Підсумок:** async скрізь, менше даних у відповіді, ліміти на вході.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+| Прийом | Що дає |
+|---|---|
+| Rate limiting (.NET 7+) | відмова зайвим запитам до обробки |
+| Request timeouts (.NET 8+) | скасування `RequestAborted` за тайм-аутом, інакше відповідь 504 |
+| Стиснення відповідей | менше трафіку ціною CPU (Brotli, Gzip) |
+| `IAsyncEnumerable<T>` у відповіді | JSON-масив іде в міру читання, без буфера |
+
+**Коли що обирати**
+
+- Fixed window, sliding window і token bucket обмежують кількість запитів за період, concurrency limiter — кількість одночасних. Політику вішають через `RequireRateLimiting` і ділять за користувачем або ключем API.
+- Тайм-аут — для ендпоінтів з непередбачувано довгою роботою: звіти, зовнішні виклики.
+- Стиснення в застосунку — якщо перед ним немає проксі, який стискає сам.
+
+**Пастки**
+
+- `RejectionStatusCode` за замовчуванням — 503, а клієнту правильніше 429 Too Many Requests.
+- Тайм-аут лише скасовує токен: код, який не передає `CancellationToken` у базу, продовжить працювати. Під налагоджувачем тайм-аути не спрацьовують.
+- `EnableForHttps` у стиснення за замовчуванням вимкнено через атаки CRIME і BREACH: не стискайте відповіді, де секрети змішано з даними користувача.
+
+**Правило**
+
+Спочатку виміряйте, куди йде час: база, мережа, серіалізація. Оптимізуйте вузьке місце, а ліміти й тайм-аути ставте завжди.
+
+**Підсумок:** async і менше даних пришвидшують, ліміти й тайм-аути захищають, а метрики показують, що з цього справді потрібно.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- Коли обробники чекають на базу, зростають `http.server.active_requests` і черга пулу потоків, і p99 іде в секунди раніше, ніж завантажиться CPU.
+- Буферизована відповідь на десятки мегабайтів — це об'єкти в LOH і збирання Gen 2. Стримінг `IAsyncEnumerable<T>` і `AsAsyncEnumerable()` в EF Core тримають у пам'яті елемент, а не весь список.
+- Синхронне введення-виведення з тілом запиту заборонене з ASP.NET Core 3.0 (`AllowSynchronousIO = false`): воно блокувало б потік пулу.
+- HTTP/2 мультиплексує запити в одному з'єднанні, HTTP/3 прибирає блокування черги під час втрати пакетів. У Kestrel HTTP/3 вмикають явно (`Http1AndHttp2AndHttp3`), і він вимагає TLS.
+
+**Ціна**
+
+- Rate limiter у пам'яті рахує запити одного екземпляра: на п'яти подах ліміт фактично вп'ятеро вищий. Спільний ліміт — на шлюзі або в розподіленому сховищі.
+- Партиція за IP за проксі бачить адресу проксі, доки не налаштовано forwarded headers, і вразлива до підміни адрес.
+- Стримінг фіксує статус 200 до кінця відповіді: помилка посередині дає обірваний JSON, а не ProblemDetails.
+
+**Компроміси**
+
+- Кеш — окремий шар: output caching для цілих відповідей і `HybridCache` для даних розбирають у темі про кешування.
+- Рання відмова дешевша: 429 за мілісекунди краща за тайм-аут через 30 секунд, який клієнт повторить.
+
+**Як перевірити в продакшені**
+
+1. Навантажувальний тест (k6, NBomber, bombardier) зі зростанням RPS до деградації: дивляться p95 і p99 та частку помилок, а не середнє.
+2. `dotnet-counters monitor --counters Microsoft.AspNetCore.Hosting,System.Runtime` — час запитів, активні запити, черга пулу потоків, алокації.
+3. `aspnetcore.rate_limiting.requests` показує відмови лімітера, `kestrel.queued_connections` — упор у прийом з'єднань.
+
+**Підсумок:** стійкість — це шари захисту й вимірювання за хвостовими затримками, а не одна оптимізація.
+
+</A>
+
+<Ex>
+
+```csharp
+using System.Runtime.CompilerServices;
+using System.Threading.RateLimiting;
+
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddRequestTimeouts();
+builder.Services.AddRateLimiter(o =>
+{
+    o.RejectionStatusCode = StatusCodes.Status429TooManyRequests; // за замовчуванням 503
+    o.AddPolicy("per-ip", ctx => RateLimitPartition.GetFixedWindowLimiter(
+        ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = 100, Window = TimeSpan.FromSeconds(1) }));
+});
+var app = builder.Build();
+app.UseRateLimiter();
+app.UseRequestTimeouts();
+
+// Через 2 с скасовується RequestAborted; необроблене скасування → 504
+app.MapGet("/api/report", async (CancellationToken ct) =>
+{
+    await Task.Delay(TimeSpan.FromSeconds(5), ct);
+    return TypedResults.Ok("done");
+}).WithRequestTimeout(TimeSpan.FromSeconds(2)).RequireRateLimiting("per-ip");
+
+// Стримінг: елементи йдуть клієнту в міру готовності, без буфера на всю відповідь
+app.MapGet("/api/events", (CancellationToken ct) => ReadEventsAsync(ct)).RequireRateLimiting("per-ip");
+
+app.Run();
+
+static async IAsyncEnumerable<EventDto> ReadEventsAsync([EnumeratorCancellation] CancellationToken ct)
+{
+    for (int i = 0; i < 1_000; i++)
+    {
+        await Task.Delay(10, ct); // імітація читання з бази
+        yield return new EventDto(i, DateTimeOffset.UtcNow);
+    }
+}
+
+record EventDto(int Id, DateTimeOffset At);
+```
+
+</Ex>
+
+<Next>
+
+- Який код поверне rate limiter за замовчуванням? — 503; зазвичай ставлять 429 і заголовок `Retry-After`.
+- Чи зупинить request timeout запит до бази? — Лише якщо токен `RequestAborted` передано у виклик; сам тайм-аут лише скасовує токен.
+- Чому лімітер у пам'яті не працює на кількох екземплярах? — Кожен рахує свої запити; спільний ліміт — на шлюзі або в розподіленому сховищі.
+- Навіщо стримити `IAsyncEnumerable<T>`? — Відповідь іде в міру читання, у пам'яті не весь список; але статус 200 зафіксовано до кінця.
+- Чому стиснення краще віддати проксі? — Менше CPU в застосунку, а серверні модулі стиснення швидші за middleware ASP.NET Core.
+
+</Next>
+
+<Src>
+
+- [Rate limiting middleware in ASP.NET Core](https://learn.microsoft.com/aspnet/core/performance/rate-limit)
+- [Request timeouts middleware in ASP.NET Core](https://learn.microsoft.com/aspnet/core/performance/timeouts)
+- [ASP.NET Core best practices](https://learn.microsoft.com/aspnet/core/fundamentals/best-practices)
+
+</Src>
+
+</Q>

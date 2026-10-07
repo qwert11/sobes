@@ -1058,6 +1058,8 @@ Run a load test at different degrees of parallelism. If throughput stops growing
 <Ex>
 
 ```csharp
+using System.Collections.Concurrent;
+
 // At most 8 requests at a time
 var options = new ParallelOptions { MaxDegreeOfParallelism = 8, CancellationToken = ct };
 var lengths = new ConcurrentDictionary<string, int>();
@@ -1222,6 +1224,8 @@ One `ValueTask` — one consumption: `await`, or `AsTask()`, or `Result` after c
 <Ex>
 
 ```csharp
+using System.Collections.Concurrent;
+
 private readonly ConcurrentDictionary<int, Product> _cache = new();
 
 // The result is almost always in the cache already

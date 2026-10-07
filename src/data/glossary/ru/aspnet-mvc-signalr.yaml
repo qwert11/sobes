@@ -1,0 +1,234 @@
+mvc-pattern:
+  term: MVC (Model-View-Controller)
+  def: >-
+    Архитектурный шаблон, который делит UI-приложение на модель (данные и логика), представление
+    (отображение) и контроллер (обработка запроса). В ASP.NET Core MVC контроллер выбирает
+    представление и передаёт ему модель.
+  q: ASP.NET Core MVC pattern
+  docs: https://learn.microsoft.com/aspnet/core/mvc/overview
+  wiki: Model-View-Controller
+action-method:
+  term: Action (метод действия)
+  def: >-
+    Публичный метод контроллера, который обрабатывает запрос по маршруту. Возвращает
+    `IActionResult`, например представление, редирект или JSON.
+  q: ASP.NET Core MVC action method
+  docs: https://learn.microsoft.com/aspnet/core/mvc/controllers/actions
+view-model:
+  term: ViewModel (модель представления)
+  def: >-
+    Класс, созданный под конкретную страницу: только поля, которые она показывает или принимает.
+    Отделяет представление от сущностей базы и защищает от overposting.
+  q: ASP.NET Core MVC ViewModel
+  docs: https://learn.microsoft.com/aspnet/core/mvc/views/overview
+action-result:
+  term: IActionResult (результат действия)
+  def: >-
+    Объект, который action возвращает вместо готового ответа. Фреймворк выполняет его после
+    action: `ViewResult` рендерит представление, `RedirectResult` отправляет редирект.
+  q: IActionResult ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/mvc/controllers/actions
+view-discovery:
+  term: Поиск представлений (view discovery)
+  def: >-
+    Процесс, которым MVC находит файл представления по имени. По умолчанию сначала
+    `Views/{Controller}/{View}.cshtml`, затем `Views/Shared/{View}.cshtml`.
+  q: ASP.NET Core MVC view discovery
+  docs: https://learn.microsoft.com/aspnet/core/mvc/views/overview
+razor:
+  term: Razor
+  def: >-
+    Синтаксис шаблонов, который встраивает C# в HTML через символ `@`. Файлы `.cshtml`
+    компилируются в C#-классы при сборке, а выводимые значения автоматически кодируются.
+  q: Razor syntax ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/mvc/views/razor
+xss:
+  term: XSS (межсайтовый скриптинг)
+  def: >-
+    Атака, при которой в страницу попадает чужой JavaScript, например из пользовательских данных.
+    Скрипт выполняется в браузере жертвы с правами вашего сайта.
+  q: cross-site scripting XSS prevention ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/security/cross-site-scripting
+  wiki: Межсайтовый скриптинг
+layout:
+  term: Layout (макет)
+  def: >-
+    Общий каркас страниц: шапка, меню, подвал, подключение стилей и скриптов. Представление
+    вставляется в него через `@RenderBody()`, а именованные куски — через секции.
+  q: ASP.NET Core Razor layout
+  docs: https://learn.microsoft.com/aspnet/core/mvc/views/layout
+partial-view:
+  term: Partial view (частичное представление)
+  def: >-
+    Файл `.cshtml` с повторяющимся куском разметки, который вставляют в другие представления
+    через `<partial>`. Своей логики не имеет и получает данные от родителя.
+  q: ASP.NET Core partial view
+  docs: https://learn.microsoft.com/aspnet/core/mvc/views/partial
+razor-pages:
+  term: Razor Pages
+  def: >-
+    Модель серверного UI, где страница `.cshtml` с директивой `@page` сама отвечает на маршрут, а
+    обработчики `OnGet` и `OnPost` лежат рядом в классе `PageModel`. Построена на инфраструктуре MVC.
+  q: ASP.NET Core Razor Pages
+  docs: https://learn.microsoft.com/aspnet/core/razor-pages/
+view-component:
+  term: View component (компонент представления)
+  def: >-
+    Класс-наследник `ViewComponent` со своим представлением, который сам загружает данные и
+    рендерит блок страницы: корзину, меню. Вызывается из представления, а не по HTTP.
+  q: ASP.NET Core view components
+  docs: https://learn.microsoft.com/aspnet/core/mvc/views/view-components
+tag-helper:
+  term: Tag helper
+  def: >-
+    Класс, который на сервере обрабатывает HTML-элемент в Razor-разметке, например
+    `<a asp-action="...">` или `<input asp-for="...">`. Подключается директивой `@addTagHelper`.
+  q: ASP.NET Core tag helpers
+  docs: https://learn.microsoft.com/aspnet/core/mvc/views/tag-helpers/intro
+signalr:
+  term: SignalR
+  def: >-
+    Библиотека ASP.NET Core для обмена сообщениями в реальном времени. Держит постоянное
+    соединение и позволяет серверу и клиенту вызывать методы друг друга.
+  q: ASP.NET Core SignalR
+  docs: https://learn.microsoft.com/aspnet/core/signalr/introduction
+signalr-hub:
+  term: Хаб SignalR (hub)
+  def: >-
+    Класс-наследник `Hub`, через который клиенты вызывают методы сервера, а сервер — методы
+    клиентов. Экземпляр создаётся на каждый вызов метода.
+  q: SignalR hub ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/signalr/hubs
+websocket:
+  term: WebSocket
+  def: >-
+    Протокол постоянного двустороннего соединения поверх одного TCP-соединения. Начинается с
+    HTTP-запроса на Upgrade и ответа `101 Switching Protocols`.
+  q: WebSocket protocol
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/websockets
+  wiki: WebSocket
+server-sent-events:
+  term: Server-Sent Events (SSE)
+  def: >-
+    Стандарт браузера для потока текстовых событий от сервера к клиенту по обычному HTTP
+    (`EventSource`). В обратную сторону SignalR отправляет данные отдельными POST.
+  q: Server-Sent Events EventSource
+  docs: https://developer.mozilla.org/docs/Web/API/Server-sent_events
+long-polling:
+  term: Long Polling (длинный опрос)
+  def: >-
+    Приём сообщений через HTTP-запрос, который сервер держит открытым до появления данных. После
+    ответа клиент сразу отправляет следующий запрос.
+  q: long polling HTTP
+signalr-negotiation:
+  term: Negotiate (согласование) в SignalR
+  def: >-
+    Первый запрос клиента `POST {hub}/negotiate`. Сервер возвращает id и токен соединения и список
+    доступных транспортов, а Azure SignalR Service — редирект на свой адрес.
+  q: SignalR negotiate request
+  docs: https://learn.microsoft.com/aspnet/core/signalr/configuration
+csrf:
+  term: CSRF (межсайтовая подделка запроса)
+  def: >-
+    Атака, при которой чужой сайт заставляет браузер отправить запрос на ваш сайт от имени
+    вошедшего пользователя. Работает, потому что браузер сам прикладывает cookie.
+  q: CSRF cross-site request forgery
+  docs: https://learn.microsoft.com/aspnet/core/security/anti-request-forgery
+  wiki: Межсайтовая подделка запроса
+antiforgery-token:
+  term: Antiforgery-токен
+  def: >-
+    Пара связанных токенов: один в cookie, другой в скрытом поле формы или заголовке. Сервер
+    сверяет их, и запрос с чужого сайта, не знающего значение поля, отклоняется.
+  q: ASP.NET Core antiforgery token
+  docs: https://learn.microsoft.com/aspnet/core/security/anti-request-forgery
+synchronizer-token-pattern:
+  term: Synchronizer token pattern
+  def: >-
+    Схема защиты от CSRF: сервер выдаёт клиенту непредсказуемый токен, связанный с пользователем,
+    и принимает изменяющий запрос, только если токен вернулся вместе с ним.
+  q: synchronizer token pattern CSRF
+  docs: https://learn.microsoft.com/aspnet/core/security/anti-request-forgery
+samesite-cookie:
+  term: SameSite (атрибут cookie)
+  def: >-
+    Атрибут cookie, который ограничивает её отправку в межсайтовых запросах: `Strict` — никогда,
+    `Lax` — только при навигации верхнего уровня, `None` — всегда (только с `Secure`).
+  q: SameSite cookie attribute
+  docs: https://learn.microsoft.com/aspnet/core/security/samesite
+data-protection:
+  term: Data Protection (защита данных ASP.NET Core)
+  def: >-
+    Подсистема шифрования и подписи данных, на которой держатся cookie аутентификации и
+    antiforgery-токены. В ферме серверов ей нужно общее хранилище ключей.
+  q: ASP.NET Core Data Protection key ring
+  docs: https://learn.microsoft.com/aspnet/core/security/data-protection/introduction
+signalr-group:
+  term: Группа SignalR
+  def: >-
+    Именованный набор соединений, которым можно отправить сообщение одним вызовом
+    `Clients.Group(name)`. Хранится в памяти и не сохраняется при переподключении.
+  q: SignalR groups
+  docs: https://learn.microsoft.com/aspnet/core/signalr/groups
+hub-context:
+  term: IHubContext
+  def: >-
+    Сервис для отправки сообщений клиентам хаба извне хаба: из контроллера, endpoint или фоновой
+    задачи. Даёт `Clients` и `Groups`, но не знает вызывающего клиента.
+  q: SignalR IHubContext
+  docs: https://learn.microsoft.com/aspnet/core/signalr/hubcontext
+user-id-provider:
+  term: IUserIdProvider
+  def: >-
+    Интерфейс, который определяет id пользователя соединения для `Clients.User`. По умолчанию
+    берёт claim `ClaimTypes.NameIdentifier`.
+  q: SignalR IUserIdProvider
+  docs: https://learn.microsoft.com/aspnet/core/signalr/authn-and-authz
+bearer-token:
+  term: Bearer-токен
+  def: >-
+    Токен доступа, обычно JWT, который клиент отправляет в заголовке `Authorization: Bearer ...`.
+    Браузер не прикладывает его сам, поэтому CSRF к нему неприменим.
+  q: bearer token authentication
+  docs: https://learn.microsoft.com/aspnet/core/security/authentication/
+strongly-typed-hub:
+  term: Типизированный хаб (Hub<T>)
+  def: >-
+    Хаб, у которого методы клиента описаны интерфейсом. Вместо `SendAsync("Name", ...)` вызывается
+    метод интерфейса, и опечатку в имени ловит компилятор.
+  q: SignalR strongly typed hub
+  docs: https://learn.microsoft.com/aspnet/core/signalr/hubs
+signalr-backplane:
+  term: Backplane (общая шина) SignalR
+  def: >-
+    Канал, через который серверы SignalR пересылают друг другу сообщения для клиентов, подключённых
+    к другим серверам. Стандартная реализация — Redis pub/sub.
+  q: SignalR Redis backplane
+  docs: https://learn.microsoft.com/aspnet/core/signalr/redis-backplane
+azure-signalr-service:
+  term: Azure SignalR Service
+  def: >-
+    Управляемый сервис Azure, который принимает клиентские соединения SignalR вместо вашего
+    сервера и пересылает сообщения. Снимает необходимость в sticky sessions и backplane.
+  q: Azure SignalR Service
+  docs: https://learn.microsoft.com/azure/azure-signalr/signalr-overview
+sticky-session:
+  term: Sticky sessions (привязка сессии)
+  def: >-
+    Настройка балансировщика, при которой все запросы клиента идут на один и тот же сервер,
+    обычно по cookie или IP. Также называется session affinity.
+  q: sticky sessions load balancer
+  docs: https://learn.microsoft.com/aspnet/core/signalr/scale
+pub-sub:
+  term: Pub/sub (публикация и подписка)
+  def: >-
+    Схема обмена сообщениями: отправитель публикует сообщение в канал, а получают его все текущие
+    подписчики канала. Сообщения не хранятся: кто не подписан сейчас, тот их не получит.
+  q: Redis pub/sub
+stateful-reconnect:
+  term: Stateful reconnect (переподключение с состоянием)
+  def: >-
+    Режим SignalR (.NET 8+), при котором сервер и клиент буферизуют неподтверждённые сообщения и
+    после короткого обрыва восстанавливают то же соединение без потерь.
+  q: SignalR stateful reconnect
+  docs: https://learn.microsoft.com/aspnet/core/signalr/configuration

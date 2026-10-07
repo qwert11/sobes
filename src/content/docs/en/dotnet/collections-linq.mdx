@@ -768,6 +768,8 @@ Console.WriteLine(q2 is IQueryable<int>);      // False — the provider knows n
 <Ex title="EF Core">
 
 ```csharp
+using System.Linq.Expressions;
+
 // db is a DbContext with DbSet<User> Users
 // 1. Filter in SQL: SELECT ... WHERE IsActive
 var active = await db.Users.Where(u => u.IsActive).ToListAsync();
@@ -1271,6 +1273,7 @@ Rewrite only what you have measured:
 <Ex>
 
 ```csharp
+// NuGet: BenchmarkDotNet
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Running;
 

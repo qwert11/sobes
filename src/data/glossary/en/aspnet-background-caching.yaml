@@ -1,0 +1,196 @@
+hosted-service:
+  term: Hosted service (IHostedService)
+  def: >-
+    A service whose lifetime the .NET host manages: `StartAsync` is called when the app starts and
+    `StopAsync` when it stops. It is registered with `AddHostedService` as a singleton; the web
+    server runs on the same mechanism.
+  q: IHostedService ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/host/hosted-services
+generic-host:
+  term: Generic Host
+  def: >-
+    The `IHost` object that owns configuration, logging, the DI container and hosted services, and
+    manages app startup and shutdown. ASP.NET Core and Worker Service are built on it.
+  q: .NET Generic Host
+  docs: https://learn.microsoft.com/dotnet/core/extensions/generic-host
+worker-service:
+  term: Worker Service
+  def: >-
+    A .NET template (`dotnet new worker`) for a long-running background process without HTTP: a
+    Generic Host plus a class derived from `BackgroundService`. It runs as a console app, a
+    container, a Windows service or under systemd.
+  q: .NET Worker Service template
+  docs: https://learn.microsoft.com/dotnet/core/extensions/workers
+in-memory-cache:
+  term: In-memory cache (IMemoryCache)
+  def: >-
+    A cache inside the app process: it stores objects by reference, without serialization. Every
+    app instance has its own, and it is lost on restart.
+  q: IMemoryCache ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/performance/caching/memory
+distributed-cache:
+  term: Distributed cache (IDistributedCache)
+  def: >-
+    A cache in external storage (Redis, SQL Server, Postgres) shared by all app instances. It
+    stores byte arrays, so serialization is up to the app.
+  q: IDistributedCache ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/performance/caching/distributed
+absolute-expiration:
+  term: Absolute expiration
+  def: >-
+    The entry is removed from the cache at a set moment or a set time after it was added, no
+    matter how often it is read.
+  q: absolute expiration MemoryCacheEntryOptions
+  docs: https://learn.microsoft.com/dotnet/api/microsoft.extensions.caching.memory.memorycacheentryoptions.absoluteexpirationrelativetonow
+sliding-expiration:
+  term: Sliding expiration
+  def: >-
+    The entry is removed if nobody accessed it for a set interval; every read extends its
+    lifetime. Without absolute expiration a frequently read entry never goes stale.
+  q: sliding expiration MemoryCacheEntryOptions
+  docs: https://learn.microsoft.com/dotnet/api/microsoft.extensions.caching.memory.memorycacheentryoptions.slidingexpiration
+hangfire:
+  term: Hangfire
+  def: >-
+    A background job library for .NET: it serializes method calls into storage (SQL Server, Redis),
+    executes them on Hangfire servers, retries on failure and shows everything in a web dashboard.
+  q: Hangfire .NET background jobs
+  docs: https://docs.hangfire.io/
+quartz-net:
+  term: Quartz.NET
+  def: >-
+    A job scheduler for .NET: a job (`IJob`) runs on triggers — an interval, cron or a calendar.
+    With `AdoJobStore` it keeps the schedule in a database and runs as a cluster.
+  q: Quartz.NET scheduler
+  docs: https://www.quartz-scheduler.net/
+cron-expression:
+  term: Cron expression
+  def: >-
+    A schedule string made of fields for minutes, hours, day of month, month and day of week:
+    `0 2 * * *` means every day at 02:00. In Quartz the first field is seconds.
+  q: cron expression syntax
+  wiki: Cron
+at-least-once:
+  term: At-least-once
+  def: >-
+    A delivery or execution guarantee under which work is never lost but may run again after a
+    failure. The handler has to be idempotent.
+  q: at-least-once delivery semantics
+idempotency:
+  term: Idempotency
+  def: >-
+    The property of an operation where running it again gives the same result as running it once.
+    It is needed wherever retries are possible: background jobs, messages, HTTP retries.
+  q: idempotent operation
+  wiki: Idempotence
+misfire:
+  term: Misfire
+  def: >-
+    A Quartz trigger fire that did not happen on time, for example while the scheduler was down.
+    The misfire policy decides whether to run it immediately, once, or skip it.
+  q: Quartz.NET misfire instructions
+response-caching:
+  term: Response caching
+  def: >-
+    Caching HTTP responses by standard headers: browsers, proxies and CDNs store a response
+    according to `Cache-Control`. ASP.NET Core has the `[ResponseCache]` attribute and a middleware
+    of the same name.
+  q: response caching ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/performance/caching/response
+cache-control:
+  term: Cache-Control
+  def: >-
+    An HTTP header with caching directives: `public`, `private`, `max-age`, `no-cache`,
+    `no-store`. The client sets it on requests, the server on responses.
+  q: Cache-Control header
+  docs: https://developer.mozilla.org/docs/Web/HTTP/Headers/Cache-Control
+output-caching:
+  term: Output caching
+  def: >-
+    ASP.NET Core middleware (.NET 7+) that stores ready responses on the server by server-side
+    policies and ignores client headers. It supports tags, locking on a miss and Redis.
+  q: output caching ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/performance/caching/output
+hybrid-cache:
+  term: HybridCache
+  def: >-
+    A caching API from .NET 9: L1 in process memory plus L2 in `IDistributedCache`, stampede
+    protection, serialization and tag-based invalidation. The implementation ships in the
+    `Microsoft.Extensions.Caching.Hybrid` package.
+  q: HybridCache .NET
+  docs: https://learn.microsoft.com/aspnet/core/performance/caching/hybrid
+cache-tags:
+  term: Cache tags
+  def: >-
+    Labels attached to cache entries so a whole group can be cleared with one call:
+    `EvictByTagAsync` in output cache, `RemoveByTagAsync` in `HybridCache`.
+  q: cache tag invalidation ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/performance/caching/hybrid#remove-cache-entries-by-tag
+cache-stampede:
+  term: Cache stampede
+  def: >-
+    A situation where a popular entry disappears from the cache and many requests recompute it
+    from the source at the same time. The source gets a load spike and may fall over.
+  q: cache stampede
+  wiki: Cache stampede
+graceful-shutdown:
+  term: Graceful shutdown
+  def: >-
+    A shutdown in which the app stops accepting new work, finishes what it started and releases
+    resources instead of being cut off mid-operation. Its duration is bounded by
+    `HostOptions.ShutdownTimeout`.
+  q: graceful shutdown .NET Generic Host
+  docs: https://learn.microsoft.com/dotnet/core/extensions/generic-host#host-shutdown
+sigterm:
+  term: SIGTERM
+  def: >-
+    The Unix signal asking a process to terminate. `docker stop`, Kubernetes and systemd send it;
+    if the process does not exit in the allotted time, SIGKILL follows.
+  q: SIGTERM signal
+  wiki: Signal (IPC)
+shutdown-timeout:
+  term: ShutdownTimeout
+  def: >-
+    How long the Generic Host waits for services and the server to stop
+    (`HostOptions.ShutdownTimeout`). The default is 30 seconds since .NET 6; it used to be 5.
+  q: HostOptions.ShutdownTimeout
+  docs: https://learn.microsoft.com/dotnet/api/microsoft.extensions.hosting.hostoptions.shutdowntimeout
+hosted-lifecycle-service:
+  term: IHostedLifecycleService
+  def: >-
+    An extension of `IHostedService` from .NET 8 with `StartingAsync`, `StartedAsync`,
+    `StoppingAsync` and `StoppedAsync`, which run before and after services start and stop.
+  q: IHostedLifecycleService .NET 8
+  docs: https://learn.microsoft.com/dotnet/api/microsoft.extensions.hosting.ihostedlifecycleservice
+ttl-jitter:
+  term: TTL jitter
+  def: >-
+    A random addition to a cache entry's lifetime so that keys loaded together do not expire at
+    the same moment and cause a wave of misses.
+  q: cache TTL jitter
+cache-aside:
+  term: Cache-aside
+  def: >-
+    A pattern in which the app itself reads the cache, loads data from the source on a miss and
+    stores it in the cache, and deletes the key when the data changes.
+  q: cache-aside pattern
+  docs: https://learn.microsoft.com/azure/architecture/patterns/cache-aside
+distributed-lock:
+  term: Distributed lock
+  def: >-
+    A lock shared by several processes or nodes, usually in Redis or a database. It needs a
+    timeout, because the holder may crash without releasing it.
+  q: distributed lock Redis
+cache-invalidation:
+  term: Cache invalidation
+  def: >-
+    Removing cache entries or marking them stale when the underlying data changes: by lifetime, by
+    key, by tag or by event.
+  q: cache invalidation strategies
+  wiki: Cache invalidation
+write-through:
+  term: Write-through
+  def: >-
+    A pattern in which a write goes to the cache and the source at the same time, so the cache
+    always holds the latest written version. The price is slower writes.
+  q: write-through cache

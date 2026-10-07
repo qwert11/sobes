@@ -1,0 +1,998 @@
+---
+title: Хостинг и конвейер
+description: Kestrel и reverse proxy, middleware и их порядок, Generic Host и корректная остановка, свой middleware, endpoint routing, in-process и out-of-process в IIS.
+sidebar:
+  order: 1
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+Путь запроса в ASP.NET Core: какой сервер его принимает, как он проходит конвейер middleware, как маршрутизация выбирает обработчик и как хост запускает и останавливает приложение. По этим вопросам видно, понимает ли кандидат, что происходит между сетью и его кодом.
+
+**Перед этой темой:** [Асинхронность](/sobes/dotnet/async/).
+
+<Q id="aspnet.hosting.kestrel-iis" level="j">
+
+## Что такое Kestrel и зачем перед ним IIS или reverse proxy?
+
+<A short l="j">
+
+<T k="kestrel">Kestrel</T> — встроенный кроссплатформенный веб-сервер ASP.NET Core, который работает внутри процесса приложения и передаёт запросы в конвейер middleware. Перед ним часто ставят <T k="reverse-proxy">reverse proxy</T> (IIS, Nginx, YARP): он принимает трафик из сети, держит TLS-сертификаты и делит порт 443 между несколькими приложениями.
+
+</A>
+
+<A short l="m">
+
+Kestrel — сервер на сокетах и `System.IO.Pipelines` с HTTP/1.1, HTTP/2 и HTTP/3, и Microsoft поддерживает его как на краю сети, так и за прокси. Прокси добавляет то, чего у Kestrel нет: общий порт для нескольких процессов, балансировку, единое место для TLS и фильтрации запросов. Цена — лишний сетевой переход и настройка <T k="forwarded-headers">forwarded headers</T>, иначе приложение видит IP прокси и схему `http` вместо `https`.
+
+</A>
+
+<A short l="s">
+
+Выбор не «Kestrel или IIS», а где проходит граница доверия и кто расшифровывает TLS. В контейнерах Kestrel стоит за ingress или облачным балансировщиком, на Windows Server — за IIS, причём в режиме in-process Kestrel вообще нет: его место занимает `IISHttpServer`. Прокси даёт <T k="tls-termination">терминацию TLS</T>, лимиты и фильтрацию на краю сети, но добавляет задержку, второй разбор HTTP и буферизацию, которая мешает стримингу. Поэтому прокси настраивают явно: таймауты, буферы и список доверенных адресов для `X-Forwarded-For`.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+- **Kestrel** — веб-сервер, встроенный в ASP.NET Core. Он слушает порт и превращает HTTP-запрос в `HttpContext` для конвейера middleware.
+- **Reverse proxy** — сервер перед приложением, который пересылает запросы из сети в Kestrel.
+
+**Зачем прокси**
+
+- Один порт 443 на несколько сайтов: Kestrel не делит порт с другими процессами.
+- Сертификаты и HTTPS настраиваются в одном месте.
+- Балансировка между экземплярами приложения.
+- Ещё один слой защиты.
+
+**Как пользоваться**
+
+`WebApplication.CreateBuilder` включает Kestrel сам. Без настроек он слушает `http://localhost:5000`. За прокси первым в конвейере вызывают `app.UseForwardedHeaders()`.
+
+**Частая ошибка**
+
+Забыть про forwarded headers. Приложение видит IP прокси вместо IP клиента и `http` вместо `https`, а `UseHttpsRedirection` зацикливает редиректы.
+
+**Итог:** Kestrel обрабатывает HTTP внутри приложения, а прокси защищает вход из сети и делит его между сайтами.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+1. Транспорт принимает соединение: TCP-сокет, Unix-сокет за Nginx или, с .NET 8, именованный канал Windows.
+2. Если включён HTTPS, соединение проходит TLS через `SslStream`.
+3. Парсер HTTP/1.1, HTTP/2 или HTTP/3 читает байты из `System.IO.Pipelines` и создаёт `HttpContext`.
+4. Запрос уходит в конвейер middleware на потоке пула.
+
+**Когда что выбирать**
+
+| Среда | Вариант |
+|---|---|
+| Linux, виртуальная машина | Kestrel за Nginx, YARP или Apache |
+| Kubernetes | Kestrel за ingress или балансировщиком |
+| Windows Server с IIS | IIS и ASP.NET Core Module |
+| Windows без IIS, нужен общий порт | <T k="http-sys">HTTP.sys</T> |
+
+**Ловушки**
+
+- Forwarded headers по умолчанию принимаются только от loopback-адресов. Адрес своего прокси добавляют в `KnownProxies`, иначе заголовки молча игнорируются.
+- `ForwardLimit` по умолчанию равен 1: из цепочки прокси читается только последнее значение `X-Forwarded-For`.
+- Лимиты Kestrel (`MaxRequestBodySize` — 30 000 000 байт, таймауты заголовков) и лимиты прокси действуют одновременно. Срабатывает меньший.
+
+**Правило**
+
+Одно приложение и TLS больше негде расшифровать — Kestrel может смотреть в сеть сам. Несколько сайтов на одном IP или централизованный TLS — ставьте прокси и настраивайте forwarded headers.
+
+**Итог:** прокси — инфраструктурное решение, и настройка forwarded headers входит в него обязательно.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- Kestrel читает и пишет через `System.IO.Pipelines` с буферами из своего пула памяти, поэтому заголовки разбираются почти без аллокаций. С .NET 10 пулы Kestrel, IIS и HTTP.sys сами возвращают память при простое.
+- Сокеты обслуживают IOCP или epoll, а код приложения работает в пуле потоков. Блокирующий вызов в обработчике отнимает поток у всех соединений.
+- В IIS in-process Kestrel нет: запрос идёт из HTTP.sys через IIS прямо в `IISHttpServer` внутри `w3wp.exe`.
+
+**Цена**
+
+- Прокси — дополнительный переход и повторный разбор HTTP. Обычно это доли миллисекунды, но под нагрузкой это ещё соединения, буферы и CPU второго сервера.
+- Буферизация ответов в Nginx ломает стриминг и Server-Sent Events, а таймауты прокси рвут долгие WebSocket, если их не настроить.
+- TLS на Kestrel тратит CPU приложения. TLS на прокси разгружает приложение, но внутри сети трафик идёт открытым.
+
+**Компромиссы**
+
+- Доверие к `X-Forwarded-For` — граница безопасности. Широкий `KnownIPNetworks` (до .NET 10 — `KnownNetworks`) или `ForwardLimit = null` позволяют клиенту подделать свой IP и обойти лимиты по IP.
+- `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` включает forwarded headers без ограничения по адресам прокси. Это удобно за облачным балансировщиком и опасно, если приложение доступно напрямую.
+
+**Как проверить в проде**
+
+- `dotnet-counters monitor` с метриками .NET 8+ из `Microsoft.AspNetCore.Server.Kestrel`: `kestrel.active_connections`, `kestrel.queued_connections`, `kestrel.rejected_connections`, `kestrel.tls_handshake.duration`.
+- В логах вместо IP клиентов IP прокси — включите уровень Debug для forwarded headers: middleware пишет «Unknown proxy» с адресом, которого нет в списке доверенных.
+
+**Итог:** прокси переносит TLS, лимиты и доверие на край сети, а платят за это задержкой, буферизацией и аккуратной настройкой forwarded headers.
+
+</A>
+
+<Ex>
+
+```csharp
+using System.Net;
+using Microsoft.AspNetCore.HttpOverrides;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// Лимиты самого Kestrel
+builder.WebHost.ConfigureKestrel(options =>
+    options.Limits.MaxRequestBodySize = 10 * 1024 * 1024); // 10 МБ
+
+// Прокси (Nginx, YARP) передаёт IP клиента и схему в X-Forwarded-*
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.KnownProxies.Add(IPAddress.Parse("10.0.0.10")); // доверяем только своему прокси
+});
+
+var app = builder.Build();
+
+app.UseForwardedHeaders(); // первым: остальные увидят настоящие схему и IP
+app.UseHttpsRedirection();
+
+app.MapGet("/", (HttpContext ctx) =>
+    $"{ctx.Request.Scheme} {ctx.Connection.RemoteIpAddress}"); // https 203.0.113.5
+
+app.Run();
+```
+
+</Ex>
+
+<Next>
+
+- Есть ли Kestrel при хостинге в IIS? — В out-of-process да, в in-process нет: там работает `IISHttpServer` внутри `w3wp.exe`.
+- Почему `UseForwardedHeaders` ставят первым? — Остальные middleware должны видеть настоящие схему и IP клиента.
+- Чем HTTP.sys отличается от Kestrel? — Работает только на Windows поверх драйвера ядра, умеет общий порт и Windows-аутентификацию, с IIS не сочетается.
+- Можно ли выставить Kestrel прямо в интернет? — Да, это поддерживаемая конфигурация, но порт не делится с другими процессами.
+- Почему за Nginx зацикливается редирект на HTTPS? — Прокси расшифровал TLS, и без forwarded headers приложение считает каждый запрос HTTP.
+
+</Next>
+
+<Src>
+
+- [Kestrel web server in ASP.NET Core](https://learn.microsoft.com/aspnet/core/fundamentals/servers/kestrel)
+- [Configure ASP.NET Core to work with proxy servers and load balancers](https://learn.microsoft.com/aspnet/core/host-and-deploy/proxy-load-balancer)
+
+</Src>
+
+</Q>
+
+<Q id="aspnet.hosting.middleware" level="j">
+
+## Что такое middleware и почему важен их порядок?
+
+<A short l="j">
+
+<T k="middleware">Middleware</T> — звено <T k="request-pipeline">конвейера запросов</T>, которое получает `HttpContext`, делает свою работу и вызывает следующее звено или отвечает само. Порядок регистрации в `Program.cs` и есть порядок выполнения, поэтому обработчик исключений ставят первым, а авторизацию — перед endpoint'ами.
+
+</A>
+
+<A short l="m">
+
+Конвейер — цепочка делегатов <T k="request-delegate">`RequestDelegate`</T>: запрос идёт по ней в порядке регистрации, ответ — в обратном. `Use` добавляет звено с вызовом `next`, `Run` — <T k="terminal-middleware">терминальное</T> звено, `Map` и `MapWhen` создают ветку, а звено без вызова `next` делает <T k="short-circuit">короткое замыкание</T>. Порядок определяет и безопасность, и цену: статика до аутентификации не тратит на неё время, а обработчик исключений в середине не поймает ошибки звеньев выше него.
+
+</A>
+
+<A short l="s">
+
+Конвейер собирается один раз при старте хоста: `IApplicationBuilder.Build()` сворачивает список фабрик middleware в один делегат, и каждый запрос идёт по готовой цепочке. Порядок — это контракт: звено видит только то, что сделали стоящие выше, и ловит исключения только стоящих ниже. Отсюда документированные правила: `UseForwardedHeaders` первым, `UseExceptionHandler` рано, `UseCors` до `UseAuthentication` и `UseAuthorization`, `UseRateLimiter` с политиками endpoint'ов — после `UseRouting`. Короткое замыкание экономит работу, но после начала ответа заголовки и статус уже не изменить, поэтому код после `next` проверяет `Response.HasStarted`.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+Middleware — звено конвейера. Каждое звено получает `HttpContext` и решает:
+
+- обработать запрос и передать его дальше через `next`;
+- ответить само и не вызывать `next`.
+
+**Зачем**
+
+Сквозные задачи — ошибки, HTTPS, статика, аутентификация, сжатие — живут в отдельных звеньях и не смешиваются с бизнес-кодом.
+
+**Как пользоваться**
+
+| Метод | Что делает |
+|---|---|
+| `app.Use(...)` | звено с вызовом `next` |
+| `app.Run(...)` | конечное звено, `next` нет |
+| `app.Map("/path", ...)` | ветка конвейера по префиксу пути |
+| `app.UseXxx()` | встроенный middleware: `UseExceptionHandler`, `UseStaticFiles` |
+
+**Частая ошибка**
+
+Поставить `UseExceptionHandler` после других middleware. Исключения из звеньев, которые стоят выше него, он не поймает.
+
+**Итог:** запрос проходит middleware в порядке регистрации, ответ — в обратном.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+1. Код звена до `await next(context)` выполняется на пути запроса «внутрь».
+2. Код после `next` выполняется на обратном пути, когда нижние звенья уже сформировали ответ.
+3. Звено, которое не вызывает `next`, замыкает конвейер: нижние звенья не выполняются.
+4. `Map` переносит совпавший префикс из `Path` в `PathBase`. `MapWhen` ветвит по условию, а `UseWhen` после ветки возвращается в основной конвейер.
+
+**Рекомендуемый порядок**
+
+1. `UseForwardedHeaders`, если приложение за прокси.
+2. `UseExceptionHandler` и `UseHsts`; в Development — страница ошибок разработчика.
+3. `UseHttpsRedirection`.
+4. `UseStaticFiles` — отдаёт файл и замыкает конвейер.
+5. `UseRouting`.
+6. `UseRateLimiter`, `UseCors`.
+7. `UseAuthentication`, `UseAuthorization`.
+8. Свои middleware, затем endpoint'ы: `MapControllers`, `MapGet`.
+
+**Ловушки**
+
+- После начала ответа заголовки и статус менять нельзя — будет исключение. Запись в тело после `next` может нарушить `Content-Length`.
+- `UseRateLimiter` с политиками на endpoint'ах (`[EnableRateLimiting]`) работает только после `UseRouting`.
+- Аутентификация не отклоняет анонимные запросы, она только определяет пользователя. Отказ даёт авторизация.
+
+**Правило**
+
+Сначала то, что должно видеть все запросы и ловить все ошибки, потом то, что дёшево отсекает лишнее, потом безопасность, потом бизнес-логика.
+
+**Итог:** порядок middleware — это порядок обработки, поэтому он определяет и безопасность, и производительность.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- `Use` добавляет в `ApplicationBuilder` фабрику `Func<RequestDelegate, RequestDelegate>`. При старте хоста `Build()` проходит список с конца и оборачивает каждое звено вокруг следующего.
+- Результат — один `RequestDelegate`, который сервер вызывает на каждый запрос. Порядок «заморожен» до перезапуска.
+- `Map` и `MapWhen` собирают вложенный конвейер тоже при старте, а не на каждый запрос.
+
+**Цена**
+
+- Звено — это вызов делегата, а async-звено — ещё и своя state machine. Десяток лёгких middleware почти бесплатны.
+- Медленное звено в начале конвейера замедляет все запросы, включая статику и health checks. Дорогое логирование до `UseStaticFiles` платится за каждую картинку.
+
+**Компромиссы**
+
+- Middleware против фильтров MVC: middleware не знает о модели и action, зато работает для любых endpoint'ов и статики. Логику, привязанную к контроллерам, удобнее держать в фильтрах.
+- Звено, которому нужно знать выбранный endpoint, ставят после `UseRouting`. Тогда решение принимается по метаданным endpoint'а, а не по строке пути.
+
+**Как проверить в проде**
+
+- Медленное звено ищут, вставляя между middleware замер времени через `Stopwatch` — так советует документация по маршрутизации.
+- Метрика `http.server.request.duration` (.NET 8+) против времени action в логах показывает, сколько съедает конвейер вокруг endpoint'а.
+- Порядок закрепляют интеграционными тестами на `WebApplicationFactory`: запрос без токена получает 401, статика отдаётся без аутентификации.
+
+**Итог:** конвейер — цепочка делегатов, собранная один раз при старте, и порядок звеньев — часть архитектуры, а не стиль кода.
+
+</A>
+
+<Ex>
+
+```csharp
+var builder = WebApplication.CreateBuilder(args);
+var app = builder.Build();
+
+app.Use(async (context, next) =>
+{
+    Console.WriteLine("A: before");
+    await next(context);              // дальше по конвейеру
+    Console.WriteLine("A: after");    // на обратном пути
+});
+
+app.Map("/health", health =>          // ветка: /health отвечает здесь
+    health.Run(ctx => ctx.Response.WriteAsync("OK")));
+
+app.Use(async (context, next) =>
+{
+    if (!context.Request.Headers.ContainsKey("X-Api-Key"))
+    {
+        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+        return;                       // короткое замыкание: next не вызываем
+    }
+    await next(context);
+});
+
+app.Run(ctx => ctx.Response.WriteAsync("Hello")); // терминальное звено
+
+app.Run();
+// GET /health        -> 200 OK
+// GET /              -> 401
+// GET / с X-Api-Key  -> 200 Hello; в консоли всегда A: before, A: after
+```
+
+</Ex>
+
+<Next>
+
+- Чем `Use` отличается от `Run`? — `Use` получает `next` и может передать запрос дальше, `Run` всегда конечный.
+- Чем `Map` отличается от `UseWhen`? — `Map` уводит запрос в отдельную ветку, `UseWhen` после ветки возвращается в основной конвейер.
+- Где ставить `UseExceptionHandler`? — В начале: он ловит исключения только звеньев, которые стоят после него.
+- Можно ли изменить заголовок после `await next(context)`? — Только если ответ ещё не начат (`Response.HasStarted`); надёжнее подписаться заранее через `Response.OnStarting`.
+- Почему `UseCors` стоит до `UseAuthentication`? — Так требует документация: CORS должен отработать до проверок доступа, иначе отказ может уйти без CORS-заголовков, и браузер покажет ошибку CORS вместо 401.
+
+</Next>
+
+<Src>
+
+- [ASP.NET Core Middleware](https://learn.microsoft.com/aspnet/core/fundamentals/middleware/)
+
+</Src>
+
+</Q>
+
+<Q id="aspnet.hosting.generic-host" level="m">
+
+## Как запускается и останавливается приложение: Generic Host и `WebApplicationBuilder`?
+
+<A short l="j">
+
+<T k="generic-host">Хост</T> — объект, который собирает конфигурацию, логирование и DI-контейнер, запускает веб-сервер и останавливает приложение. В `Program.cs` его настраивают через `WebApplication.CreateBuilder`, а `app.Run()` запускает приложение и ждёт сигнала остановки, после чего текущие запросы получают до 30 секунд на завершение.
+
+</A>
+
+<A short l="m">
+
+`WebApplicationBuilder` (.NET 6+) — линейная обёртка над Generic Host: `CreateBuilder` подключает конфигурацию, логирование и сервер, `Build()` собирает контейнер, а `Run()` запускает <T k="hosted-service">hosted services</T> в порядке регистрации и затем сервер. По Ctrl+C или SIGTERM хост вызывает `ApplicationStopping`, сервер перестаёт принимать соединения и ждёт текущие запросы, а hosted services останавливаются в обратном порядке. На всё это есть `HostOptions.ShutdownTimeout` — 30 секунд с .NET 6, раньше было 5.
+
+</A>
+
+<A short l="s">
+
+Хост — это корневой DI-контейнер, <T k="host-lifetime">`IHostLifetime`</T>, который переводит сигналы ОС в остановку, и список `IHostedService`, где веб-сервер — лишь один из сервисов. <T k="graceful-shutdown">Корректная остановка</T> работает, только если её бюджет согласован со средой: `docker stop` ждёт 10 секунд, Kubernetes — 30, пул IIS — 90, и `ShutdownTimeout` должен в них уложиться. Долгий `StartAsync` задерживает открытие порта, а синхронные колбэки `ApplicationStopping` съедают бюджет остановки. С .NET 8 есть `IHostedLifecycleService` и параллельный старт сервисов, а в .NET 10 `WebHostBuilder` объявлен устаревшим.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+Хост (Generic Host) владеет всем, что нужно приложению:
+
+- конфигурацией и логированием;
+- контейнером зависимостей;
+- фоновыми сервисами (`IHostedService`) и веб-сервером.
+
+**Как пользоваться**
+
+1. `WebApplication.CreateBuilder(args)` — builder с настройками по умолчанию.
+2. `builder.Services.Add...` — регистрация сервисов.
+3. `builder.Build()` — сборка приложения.
+4. `app.Use...` и `app.Map...` — описание конвейера.
+5. `app.Run()` — запуск и ожидание остановки.
+
+**Жизненный цикл**
+
+<T k="host-application-lifetime">`IHostApplicationLifetime`</T> сообщает о трёх событиях: `ApplicationStarted`, `ApplicationStopping`, `ApplicationStopped`. Метод `StopApplication()` останавливает приложение из кода.
+
+**Частая ошибка**
+
+Регистрировать сервисы после `builder.Build()`. Контейнер уже собран, и вызов бросит `InvalidOperationException`: коллекция сервисов стала только для чтения.
+
+**Итог:** `CreateBuilder` — настройка, `Build` — сборка, `Run` — запуск и ожидание остановки.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+1. `CreateBuilder` задаёт content root и читает `appsettings.json`, `appsettings.{Environment}.json`, user secrets (в Development), переменные окружения и аргументы командной строки. Он же добавляет логирование и сервер: Kestrel и интеграцию с IIS.
+2. `Build()` создаёт контейнер. В Development включены проверки scope и зависимостей.
+3. `Run()` вызывает `StartAsync`: hosted services стартуют по очереди в порядке регистрации, затем собирается конвейер, стартует сервер и срабатывает `ApplicationStarted`.
+4. Остановка: `ApplicationStopping` → сервер перестаёт принимать соединения и ждёт текущие запросы → `StopAsync` остальных hosted services в обратном порядке → `ApplicationStopped`.
+
+**Когда что выбирать**
+
+| Способ | Когда |
+|---|---|
+| `WebApplication.CreateBuilder` | обычное веб-приложение, .NET 6+ |
+| `WebApplication.CreateSlimBuilder` | <T k="native-aot">Native AOT</T> и минимум функций, .NET 8+ |
+| `Host.CreateApplicationBuilder` | worker-сервис без HTTP |
+| `Host.CreateDefaultBuilder` и `Startup` | старый код .NET Core 3.x–5 |
+
+**Ловушки**
+
+- Запросы, которые не уложились в `ShutdownTimeout` (по умолчанию 30 секунд), обрываются.
+- Колбэки `ApplicationStopping` выполняются синхронно: долгий колбэк задерживает всю остановку.
+- Долгий `StartAsync` у hosted service задерживает старт сервера — порт ещё не слушается.
+
+**Правило**
+
+Долгую инициализацию делайте через `await` до `app.Run()` или в `BackgroundService`, а не в `StartAsync`. Если запросы бывают длиннее 30 секунд, задайте `ShutdownTimeout` явно.
+
+**Итог:** хост запускает сервисы по порядку, останавливает в обратном и даёт на остановку ограниченное время.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- Веб-сервер — тоже hosted service (`GenericWebHostService`). При старте он собирает конвейер и запускает `IServer`: Kestrel, `IISHttpServer` или HTTP.sys.
+- `IHostLifetime` решает, когда начинать и заканчивать: `ConsoleLifetime` (Ctrl+C, SIGINT, SIGTERM, SIGQUIT), `WindowsServiceLifetime`, `SystemdLifetime`. С .NET 6 SIGTERM обрабатывается через POSIX-сигналы, а не через `AppDomain.ProcessExit`.
+- С .NET 8 `IHostedLifecycleService` добавляет `StartingAsync`, `StartedAsync`, `StoppingAsync` и `StoppedAsync`. `HostOptions.ServicesStartConcurrently` и `ServicesStopConcurrently` включают параллельный старт и остановку.
+
+**Цена**
+
+Бюджет остановки задаёт среда, и приложение должно в него уложиться:
+
+| Среда | Ждёт до принудительного завершения |
+|---|---|
+| `docker stop` | 10 секунд |
+| Kubernetes | `terminationGracePeriodSeconds`, по умолчанию 30 |
+| Пул IIS | Shutdown Time Limit, по умолчанию 90 секунд |
+
+Если `ShutdownTimeout` больше бюджета среды, процесс убьют посреди остановки, и `ApplicationStopped` не выполнится.
+
+**Компромиссы**
+
+- Длинный `ShutdownTimeout` бережёт запросы, но замедляет деплой и масштабирование.
+- В Kubernetes под убирается из балансировки параллельно с SIGTERM. Поэтому добавляют короткую паузу перед остановкой (`preStop`), пока новые запросы не перестанут приходить.
+- `WebHostBuilder` и `WebHost` в .NET 10 устарели (предупреждения ASPDEPR004 и ASPDEPR008): новый код — только на Generic Host.
+
+**Как проверить в проде**
+
+- Категория логов `Microsoft.Hosting.Lifetime` пишет «Application started» и «Application is shutting down...». По ним видно, сколько длилась остановка.
+- Ошибки 502 и 503 у клиентов во время деплоя и `OperationCanceledException` в логах — признак, что бюджет среды меньше нужного.
+
+**Итог:** корректная остановка — это согласованные таймауты хоста, сервера и среды, а не одна настройка `ShutdownTimeout`.
+
+</A>
+
+<Ex>
+
+```csharp
+var builder = WebApplication.CreateBuilder(args);
+
+// Текущим запросам при остановке даём до 20 секунд
+builder.Services.Configure<HostOptions>(o => o.ShutdownTimeout = TimeSpan.FromSeconds(20));
+
+var app = builder.Build();
+
+IHostApplicationLifetime lifetime = app.Lifetime;
+lifetime.ApplicationStarted.Register(() => app.Logger.LogInformation("Started"));
+lifetime.ApplicationStopping.Register(() => app.Logger.LogInformation("Stopping: draining requests"));
+lifetime.ApplicationStopped.Register(() => app.Logger.LogInformation("Stopped"));
+
+app.MapGet("/slow", async (CancellationToken ct) =>
+{
+    await Task.Delay(TimeSpan.FromSeconds(10), ct); // при Ctrl+C успеет завершиться
+    return "done";
+});
+
+app.Run(); // блокирует поток до остановки хоста
+// Ctrl+C во время /slow: Stopping → ответ "done" → Stopped
+```
+
+</Ex>
+
+<Next>
+
+- Что раньше: `StartAsync` hosted service или старт Kestrel? — Сначала `StartAsync` всех hosted services, затем сервер и `ApplicationStarted`.
+- Что будет с запросом, который длится дольше `ShutdownTimeout`? — Его оборвут, клиент получит разрыв соединения.
+- Чем `WebApplicationBuilder` отличается от `Host.CreateDefaultBuilder` со `Startup`? — Это тот же Generic Host, но настройка линейная, без колбэков и класса `Startup`.
+- Почему приложение в Docker не успевает корректно остановиться? — `docker stop` ждёт 10 секунд и шлёт SIGKILL; `ShutdownTimeout` должен быть меньше.
+- Как остановить приложение из кода? — `IHostApplicationLifetime.StopApplication()`.
+
+</Next>
+
+<Src>
+
+- [.NET Generic Host in ASP.NET Core](https://learn.microsoft.com/aspnet/core/fundamentals/host/generic-host)
+- [.NET Generic Host](https://learn.microsoft.com/dotnet/core/extensions/generic-host)
+- [WebHostBuilder, IWebHost, and WebHost are obsolete](https://learn.microsoft.com/dotnet/core/compatibility/aspnet-core/10/webhostbuilder-deprecated)
+
+</Src>
+
+</Q>
+
+<Q id="aspnet.hosting.custom-middleware" level="m">
+
+## Как написать свой middleware и чем отличаются способы по времени жизни?
+
+<A short l="j">
+
+Свой middleware пишут лямбдой в `app.Use`, классом с конструктором от `RequestDelegate` и методом `InvokeAsync` или классом, который реализует <T k="imiddleware">`IMiddleware`</T>. Класс подключают через `app.UseMiddleware<T>()`, и он обязан вызвать `next`, если не отвечает сам.
+
+</A>
+
+<A short l="m">
+
+Лямбда и <T k="convention-based-middleware">класс по соглашению</T> создаются один раз при сборке конвейера и живут как синглтоны, а `IMiddleware` берётся из DI на каждый запрос. Поэтому <T k="service-lifetime">scoped-зависимости</T> вроде `DbContext` классу по соглашению передают параметрами `InvokeAsync`, а `IMiddleware` принимает их в конструкторе, но сам должен быть зарегистрирован в контейнере. Цена `IMiddleware` — разрешение из контейнера на каждый запрос и запрет передавать аргументы через `UseMiddleware`.
+
+</A>
+
+<A short l="s">
+
+`UseMiddleware<T>` при сборке конвейера создаёт класс по соглашению один раз через `ActivatorUtilities`, а для дополнительных параметров `InvokeAsync` строит делегат, который берёт их из `context.RequestServices`. Для `IMiddleware` на каждый запрос вызывается <T k="middleware-factory">`IMiddlewareFactory`</T> и достаёт экземпляр из scope запроса. Главная ловушка — scoped-сервис в конструкторе класса по соглашению: в Development приложение не стартует из-за <T k="scope-validation">проверки scope</T>, а в проде сервис молча живёт всё время приложения и делится между потоками. Для горячего пути выбирают класс по соглашению, для строгого контракта и тестируемости — `IMiddleware`.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+Свой middleware — звено конвейера с вашей логикой: замер времени, идентификатор корреляции, проверка заголовка.
+
+**Как пользоваться**
+
+1. **Лямбда:** `app.Use(async (context, next) => { ...; await next(context); })`. Подходит для пары строк.
+2. **Класс по соглашению:**
+   - конструктор принимает `RequestDelegate next`;
+   - публичный метод `InvokeAsync(HttpContext context)` возвращает `Task`;
+   - подключение — `app.UseMiddleware<MyMiddleware>()` или свой метод расширения `app.UseMy()`.
+3. **`IMiddleware`:** класс реализует метод `InvokeAsync(HttpContext, RequestDelegate)` и регистрируется в DI.
+
+**Частая ошибка**
+
+Забыть `await next(context)`. Запрос дальше не пойдёт, и клиент получит пустой ответ 200.
+
+**Итог:** для пары строк — лямбда, для переиспользуемой логики — класс с методом расширения `UseXxx`.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+| Способ | Когда создаётся | Scoped-зависимости |
+|---|---|---|
+| Лямбда в `app.Use` | один раз при сборке конвейера | через `context.RequestServices` |
+| Класс по соглашению | один раз при сборке конвейера | параметрами `InvokeAsync` |
+| `IMiddleware` | на каждый запрос, из DI | в конструкторе |
+
+**Когда что выбирать**
+
+- **Класс по соглашению** — по умолчанию. Нет лишней работы на запрос, настройки передаются через `UseMiddleware<T>(args)` или `IOptions<T>`.
+- **`IMiddleware`** — когда нужен конструктор со scoped-зависимостями и сигнатура, которую проверяет компилятор.
+
+**Ловушки**
+
+- Поля класса по соглашению общие для всех запросов. Состояние запроса в поле — гонка между потоками.
+- Scoped-сервис в конструкторе класса по соглашению: в Development — исключение «Cannot resolve scoped service ... from root provider» при старте, в проде — один экземпляр на всё приложение.
+- Незарегистрированный `IMiddleware` не мешает старту, но первый же запрос получит 500.
+- Аргументы в `UseMiddleware<T>(...)` для `IMiddleware` передать нельзя — `NotSupportedException`.
+
+**Правило**
+
+Конструктор — для синглтонов и настроек, `InvokeAsync` — для всего, что живёт в рамках запроса.
+
+**Итог:** класс по соглашению живёт всё время приложения, `IMiddleware` — один запрос.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- `UseMiddleware<T>` работает при сборке конвейера. Для класса по соглашению он находит `Invoke` или `InvokeAsync` и создаёт экземпляр через `ActivatorUtilities` из корневого контейнера.
+- Если у `InvokeAsync` только параметр `HttpContext`, вызов идёт прямым делегатом. Дополнительные параметры разрешаются на каждый запрос из `context.RequestServices`.
+- Для `IMiddleware` в конвейер встаёт обёртка. На каждый запрос она берёт `IMiddlewareFactory` из scope запроса, получает экземпляр, вызывает его и возвращает фабрике через `Release`. Освобождает экземпляр контейнер вместе со scope.
+
+**Цена**
+
+- `IMiddleware` с регистрацией Transient — аллокация и разрешение зависимостей на каждый запрос.
+- Перегрузка `app.Use` с `Func<Task>` вместо `RequestDelegate` создаёт на каждый запрос два лишних объекта. С .NET 6 есть перегрузка `app.Use((context, next) => next(context))`, где `next` — `RequestDelegate`, и этих аллокаций нет.
+
+**Компромиссы**
+
+- Класс по соглашению быстрее, но его контракт не проверяет компилятор: опечатка в имени `InvokeAsync` всплывёт не при сборке проекта, а исключением при старте.
+- `IMiddleware` проще тестировать и декорировать. Свой `IMiddlewareFactory` позволяет брать middleware из стороннего контейнера.
+
+**Как проверить в проде**
+
+- Захваченный scoped-сервис ловит проверка scope: держите её включённой в Development и в интеграционных тестах.
+- Аллокации на запрос видны в `dotnet-counters` (скорость аллокаций GC) и в нагрузочном тесте до и после изменения.
+- Незарегистрированный `IMiddleware` ловит smoke-тест на `WebApplicationFactory`, который делает хотя бы один запрос.
+
+**Итог:** выбор способа — это выбор времени жизни: синглтон с зависимостями запроса в параметрах или объект на каждый запрос.
+
+</A>
+
+<Ex>
+
+```csharp
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddScoped<RequestInfo>();
+builder.Services.AddScoped<TimingMiddleware>(); // IMiddleware должен быть в DI
+
+var app = builder.Build();
+app.UseMiddleware<CorrelationMiddleware>("X-Correlation-Id"); // аргумент конструктора
+app.UseMiddleware<TimingMiddleware>();
+app.MapGet("/", (RequestInfo info) => info.Id); // тот же scoped-объект, что у middleware
+app.Run();
+
+// По соглашению: один экземпляр на всё приложение
+public class CorrelationMiddleware(RequestDelegate next, string header)
+{
+    public Task InvokeAsync(HttpContext context, RequestInfo info) // scoped — параметром
+    {
+        info.Id = context.Request.Headers[header].FirstOrDefault() ?? Guid.NewGuid().ToString();
+        return next(context);
+    }
+}
+
+// IMiddleware: свой экземпляр на каждый запрос, scoped — в конструкторе
+public class TimingMiddleware(RequestInfo info, ILogger<TimingMiddleware> logger) : IMiddleware
+{
+    public async Task InvokeAsync(HttpContext context, RequestDelegate next)
+    {
+        long start = Environment.TickCount64;
+        await next(context);
+        logger.LogInformation("{Id}: {Ms} ms", info.Id, Environment.TickCount64 - start);
+    }
+}
+
+public class RequestInfo { public string Id { get; set; } = ""; }
+```
+
+</Ex>
+
+<Next>
+
+- Почему `DbContext` нельзя принимать в конструкторе обычного middleware? — Конструктор вызывается один раз, и контекст станет общим для всех запросов и потоков.
+- Как передать настройки в middleware? — Аргументами `UseMiddleware<T>(...)` или через `IOptions<T>` в конструкторе; для `IMiddleware` — только через DI.
+- Что будет, если не зарегистрировать `IMiddleware` в DI? — Приложение стартует, но каждый запрос через это звено получит 500.
+- Зачем перегрузка `app.Use` с `RequestDelegate`? — С .NET 6 она экономит две аллокации на запрос по сравнению с `Func<Task>`.
+- Как протестировать middleware? — Через `WebApplicationFactory` или `TestServer`, либо вызвать `InvokeAsync` с `DefaultHttpContext`.
+
+</Next>
+
+<Src>
+
+- [Write custom ASP.NET Core middleware](https://learn.microsoft.com/aspnet/core/fundamentals/middleware/write)
+- [Factory-based middleware activation in ASP.NET Core](https://learn.microsoft.com/aspnet/core/fundamentals/middleware/extensibility)
+
+</Src>
+
+</Q>
+
+<Q id="aspnet.hosting.routing" level="m">
+
+## Как работает endpoint routing и как выбирается маршрут?
+
+<A short l="j">
+
+<T k="endpoint-routing">Маршрутизация</T> сопоставляет URL и HTTP-метод с <T k="endpoint">endpoint</T> — обработчиком вроде `app.MapGet("/orders/{id:int}", ...)`. <T k="route-template">Шаблон</T> задаёт параметры и <T k="route-constraint">ограничения</T>: `{id:int}` совпадёт с `/orders/5`, а `/orders/abc` получит 404.
+
+</A>
+
+<A short l="m">
+
+Маршрутизация — это два middleware: `UseRouting` выбирает endpoint и кладёт его в `HttpContext`, а `UseEndpoints` его выполняет. Между ними middleware видят выбранный endpoint и его <T k="endpoint-metadata">метаданные</T> — так работают авторизация, CORS и rate limiting. `WebApplication` с .NET 6 сам добавляет `UseRouting` в начало конвейера и `UseEndpoints` в конец, а из нескольких подходящих шаблонов побеждает самый конкретный, а не первый зарегистрированный.
+
+</A>
+
+<A short l="s">
+
+Endpoint — это `RequestDelegate` плюс коллекция метаданных, и все решения о диспетчеризации и политиках безопасности принимаются в маршрутизации, а не в middleware, которые разбирают путь строкой. Сопоставление идёт по автомату (DFA), где время зависит от длины пути, а не от числа маршрутов; затем работают ограничения, `MatcherPolicy` и финальный выбор по `Order` и <T k="route-precedence">приоритету шаблона</T>. Неоднозначность обнаруживается только во время запроса — `AmbiguousMatchException`. Дороже всего обходятся regex-ограничения, составные сегменты и тысячи маршрутов с параметром в первом сегменте: автомат раздувается по памяти.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+- **Endpoint** — обработчик запроса: делегат `MapGet`, action контроллера, Razor Page, хаб SignalR.
+- **Маршрут** — шаблон URL, по которому выбирается endpoint.
+
+**Как пользоваться**
+
+| Шаблон | Что значит |
+|---|---|
+| `/orders/{id}` | параметр `id` |
+| `/orders/{id:int}` | только целое число |
+| `/orders/{id?}` | необязательный параметр |
+| `/{page=Home}` | значение по умолчанию |
+| `/files/{**path}` | catch-all: весь остаток пути |
+
+Значения параметров приходят в аргументы обработчика: `(int id) => ...`.
+
+**Частая ошибка**
+
+Проверять ввод ограничениями маршрута. Неверное значение даст 404, хотя клиенту нужен 400 с понятным сообщением.
+
+**Итог:** маршрут выбирает обработчик по URL и методу, а ограничения различают маршруты, но не валидируют ввод.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+1. `UseRouting` сопоставляет запрос со всеми endpoint'ами и сохраняет победителя: `context.GetEndpoint()`, значения параметров — в `Request.RouteValues`.
+2. Middleware между `UseRouting` и `UseEndpoints` читают метаданные endpoint'а: `[Authorize]`, политику CORS, лимиты.
+3. `UseEndpoints` вызывает делегат endpoint'а.
+
+`WebApplication` (.NET 6+) добавляет `UseRouting` в начало, если вы не вызвали его сами, и `UseEndpoints` в конец. Где бы ни стоял `app.MapGet` в коде, endpoint выполняется в конце конвейера.
+
+**Как выбирается маршрут**
+
+Порядок регистрации не важен, побеждает более конкретный шаблон:
+
+- литерал сильнее параметра: `/orders/new` побеждает `/orders/{id}`;
+- параметр с ограничением сильнее параметра без него;
+- catch-all слабее всех.
+
+Если два endpoint'а равны по приоритету, запрос падает с `AmbiguousMatchException`. Явный `Order` — крайняя мера.
+
+**Ловушки**
+
+- Middleware перед явным `UseRouting` не видят endpoint: `GetEndpoint()` возвращает `null`.
+- `UseCors` и `UseRateLimiter` с политиками endpoint'ов ставят после `UseRouting`.
+- Неоднозначность не видна при старте: `/{x:alpha}` и `/{x:int}` равны по приоритету, но не пересекаются, поэтому маршрутизация не может проверить это заранее.
+
+**Правило**
+
+Общий префикс и общие метаданные выносите в `MapGroup` (.NET 7+). Решение «пускать или нет» принимайте по метаданным endpoint'а, а не по строке пути.
+
+**Итог:** `UseRouting` выбирает endpoint, middleware после него работают с его метаданными, `UseEndpoints` его выполняет.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- При первом запросе маршрутизация строит из всех шаблонов автомат (DFA) и перестраивает его при изменении источников endpoint'ов. Время сопоставления зависит от длины пути, а не от числа маршрутов.
+- Кандидатов из автомата отсеивают ограничения и `MatcherPolicy`: HTTP-метод, хост, тип содержимого. `EndpointSelector` выбирает лучший по `Order` и приоритету шаблона.
+- Endpoint — `RequestDelegate` плюс `EndpointMetadataCollection`. Метаданные — любые объекты: атрибуты, `RequireAuthorization()`, `WithMetadata(...)`.
+
+**Цена**
+
+- Regex-ограничения и составные сегменты вроде `{x}-{y}` заметно дороже обычных и создают больше строк.
+- Тысячи маршрутов с параметром в первых сегментах (`{tenant}/...`) раздувают автомат: долгий первый запрос и множество объектов `DfaNode` в дампе. Помогают ограничения вроде `{tenant:int}` и перенос параметров ближе к концу шаблона.
+
+**Компромиссы**
+
+- `ShortCircuit()` и `MapShortCircuit` (.NET 8+) выполняют endpoint сразу после маршрутизации и пропускают остальные middleware. Это экономит работу на health checks и `robots.txt`, но несовместимо с `[Authorize]` и CORS.
+- Свой терминальный middleware вместо endpoint'а лишает авторизацию и CORS метаданных: интеграцию придётся писать вручную.
+
+**Как проверить в проде**
+
+- Логи категории `Microsoft.AspNetCore.Routing` на уровне Debug показывают кандидатов и выбранный endpoint.
+- Метрики .NET 8+: `aspnetcore.routing.match_attempts` с признаком успеха и тег `http.route` у `http.server.request.duration` — задержка по шаблону маршрута, а не по сырому URL.
+- Полный список маршрутов отдаёт `EndpointDataSource` из DI.
+
+**Итог:** маршрутизация — единая точка решений: быстрый автомат, предсказуемый приоритет и метаданные, на которые опираются политики.
+
+</A>
+
+<Ex>
+
+```csharp
+var builder = WebApplication.CreateBuilder(args);
+var app = builder.Build();
+
+app.Use(async (context, next) =>
+{
+    // Неявный UseRouting стоит в начале: endpoint уже выбран
+    var endpoint = context.GetEndpoint();
+    if (endpoint?.Metadata.GetMetadata<AuditAttribute>() is not null)
+        app.Logger.LogInformation("Audit: {Endpoint}", endpoint.DisplayName);
+    await next(context);
+});
+
+var orders = app.MapGroup("/orders");
+orders.MapGet("/{id:int}", (int id) => $"by id {id}");        // /orders/5
+orders.MapGet("/{name}", (string name) => $"by name {name}"); // /orders/abc
+orders.MapGet("/new", () => "new order form")                 // литерал сильнее параметров
+      .WithMetadata(new AuditAttribute());
+
+app.MapGet("/robots.txt", () => "User-agent: *").ShortCircuit(); // middleware выше не выполнится
+
+app.Run();
+
+sealed class AuditAttribute : Attribute { }
+```
+
+</Ex>
+
+<Next>
+
+- Что вернёт `GetEndpoint()` в middleware до `UseRouting`? — `null`: endpoint ещё не выбран.
+- Почему `/orders/new` не попадает в `/orders/{id}`? — У литерального сегмента приоритет выше, чем у параметра.
+- Что будет, если два маршрута равны по приоритету? — `AmbiguousMatchException` во время запроса, а не при старте.
+- Зачем `MapGroup`? — Общий префикс и общие метаданные (авторизация, фильтры) для группы endpoint'ов, .NET 7+.
+- Чем `ShortCircuit()` отличается от терминального middleware? — Это endpoint с метаданными, который выполняется сразу после маршрутизации и пропускает остальной конвейер.
+
+</Next>
+
+<Src>
+
+- [Routing in ASP.NET Core](https://learn.microsoft.com/aspnet/core/fundamentals/routing)
+
+</Src>
+
+</Q>
+
+<Q id="aspnet.hosting.iis-inprocess" level="s">
+
+## In-process и out-of-process в IIS: как работает ASP.NET Core Module и что выбрать?
+
+<A short l="j">
+
+<T k="ancm">ASP.NET Core Module (ANCM)</T> — нативный модуль IIS, который запускает приложение ASP.NET Core. В режиме <T k="in-process-hosting">in-process</T> (по умолчанию с ASP.NET Core 3.0) приложение работает внутри рабочего процесса IIS `w3wp.exe`, а в <T k="out-of-process-hosting">out-of-process</T> — в отдельном процессе с Kestrel, куда IIS пересылает запросы.
+
+</A>
+
+<A short l="m">
+
+In-process обрабатывает запрос в `w3wp.exe` через `IISHttpServer` без сетевого перехода, поэтому даёт заметно большую пропускную способность. Out-of-process запускает отдельный процесс с Kestrel на случайном порту и проксирует туда запросы по HTTP через loopback, зато процесс приложения не зависит от рабочего процесса IIS. Цена in-process — ограничения: одно приложение на <T k="app-pool">пул приложений</T>, разрядность пула совпадает с приложением, нет публикации в один файл.
+
+</A>
+
+<A short l="s">
+
+ANCM — нативная прослойка с обработчиком для каждой модели: in-process поднимает CoreCLR внутри `w3wp.exe`, out-of-process запускает дочерний процесс с `ASPNETCORE_PORT` и `ASPNETCORE_TOKEN` и проксирует запросы с этим токеном. В in-process приложение живёт и умирает вместе с `w3wp`: его перезапускают <T k="app-pool-recycling">рециклинг пула</T>, правка `web.config` и `app_offline.htm`, а при overlapped recycle две копии какое-то время работают одновременно. По умолчанию выбирают in-process, out-of-process — для публикации в один файл, единого поведения Kestrel с контейнерами или изоляции от `w3wp`. Холодный старт после рециклинга снимают Application Initialization, `startMode="AlwaysRunning"` и отключённый idle timeout.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+ASP.NET Core Module — модуль IIS из <T k="hosting-bundle">.NET Hosting Bundle</T>. Он связывает IIS и приложение одним из двух способов:
+
+- **in-process** — приложение загружается прямо в `w3wp.exe`, вместо Kestrel работает `IISHttpServer`;
+- **out-of-process** — ANCM запускает `dotnet.exe` или `MyApp.exe` с Kestrel и пересылает туда запросы.
+
+**Как пользоваться**
+
+1. Установите на сервер .NET Hosting Bundle: рантайм и ANCM.
+2. Создайте пул с .NET CLR version = No Managed Code.
+3. Задайте модель в `.csproj`: `<AspNetCoreHostingModel>InProcess</AspNetCoreHostingModel>` (по умолчанию) или `OutOfProcess`. Публикация перенесёт её в `web.config`.
+
+**Частая ошибка**
+
+Положить два in-process-приложения в один пул. Второе не запустится с ошибкой 500.35: каждому приложению нужен свой пул.
+
+**Итог:** in-process — приложение внутри IIS, out-of-process — IIS как прокси перед Kestrel.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+| | In-process | Out-of-process |
+|---|---|---|
+| Процесс | `w3wp.exe` | `dotnet.exe` или `MyApp.exe` |
+| Сервер | `IISHttpServer` | Kestrel на случайном порту |
+| Путь запроса | HTTP.sys → IIS → приложение | HTTP.sys → IIS → loopback → Kestrel |
+| Падение приложения | падает `w3wp`, IIS запускает новый | ANCM перезапускает процесс |
+| Ошибка старта | 500.30 | 502.5 |
+
+**Когда что выбирать**
+
+- **In-process** — по умолчанию: быстрее, нет лишнего процесса и порта.
+- **Out-of-process** — публикация в один файл (in-process её не поддерживает, ошибка 500.38) или одинаковое поведение Kestrel в IIS и в других средах.
+
+**Ловушки**
+
+- Разрядность пула (Enable 32-Bit Applications) должна совпадать с разрядностью приложения и рантайма.
+- Лимит IIS `maxAllowedContentLength` (30 000 000 байт по умолчанию) проверяется раньше, чем `MaxRequestBodySize` приложения.
+- `requestTimeout` (по умолчанию 2 минуты) действует только в out-of-process: дольше ANCM ответа не ждёт.
+- DLL работающего приложения заблокированы. Для деплоя кладут `app_offline.htm` или включают shadow copy (.NET 7+).
+
+**Правило**
+
+In-process по умолчанию и один пул на приложение. Out-of-process — только с конкретной причиной.
+
+**Итог:** in-process быстрее и проще, out-of-process даёт отдельный процесс с Kestrel ценой лишнего перехода по сети.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- ANCM — это прослойка `aspnetcorev2.dll` в конвейере IIS и обработчик для выбранной модели.
+- In-process: обработчик загружает CoreCLR в `w3wp.exe` и вызывает `Main` приложения. `UseIIS` регистрирует `IISHttpServer`, который получает запросы из нативного конвейера IIS без сокетов.
+- Out-of-process: `aspnetcorev2_outofprocess.dll` запускает процесс с `ASPNETCORE_PORT` и `ASPNETCORE_TOKEN`. Каждый запрос несёт заголовок `MS-ASPNETCORE-TOKEN`, а middleware IIS-интеграции отклоняет запросы без него и включает forwarded headers.
+
+**Цена**
+
+- Out-of-process: второй разбор HTTP, соединения через loopback и отдельный процесс со своей памятью.
+- In-process: приложение делит процесс с IIS, и его падение — это падение `w3wp`.
+- Рециклинг пула (по умолчанию раз в 1740 минут) и остановка после 20 минут простоя означают холодный старт: JIT, прогрев кешей, новые соединения.
+
+**Компромиссы**
+
+- Overlapped recycle поднимает новый `w3wp` до остановки старого. Две копии приложения работают одновременно, и фоновые задачи, блокировки файлов и in-memory-кеши должны это переживать.
+- При рециклинге ANCM ждёт `shutdownDelay` (по умолчанию 1 секунда), затем хост тратит до `ShutdownTimeout` на текущие запросы. Нулевой простой не гарантируют ни overlapped recycle, ни shadow copy — для этого нужен blue-green.
+- Холодный старт убирают Application Initialization с `preloadEnabled`, `startMode="AlwaysRunning"` и idle timeout, равным 0.
+
+**Как проверить в проде**
+
+- Журнал событий Windows, источник «IIS AspNetCore Module V2».
+- Временно `stdoutLogEnabled="true"` или отладочный лог ANCM: `debugLevel` и `debugFile` в `handlerSettings`.
+- Дамп снимают с `w3wp.exe` при in-process и с `dotnet.exe` при out-of-process; к тому же процессу подключают `dotnet-counters`.
+
+**Итог:** in-process даёт максимум производительности ценой общей с IIS судьбы процесса, поэтому рециклинг и деплой планируют под это.
+
+</A>
+
+<Ex title="Настройки IIS со стороны приложения">
+
+```csharp
+var builder = WebApplication.CreateBuilder(args);
+
+// In-process: лимиты IISHttpServer (лимит IIS maxAllowedContentLength проверяется раньше)
+builder.Services.Configure<IISServerOptions>(o => o.MaxRequestBodySize = 50_000_000);
+
+var app = builder.Build();
+
+// w3wp — in-process, dotnet или имя приложения — out-of-process
+app.MapGet("/host", () => System.Diagnostics.Process.GetCurrentProcess().ProcessName);
+
+app.Run();
+```
+
+</Ex>
+
+<Ex title="Модель хостинга и web.config">
+
+```xml
+<!-- .csproj: модель хостинга (InProcess — по умолчанию) -->
+<PropertyGroup>
+  <AspNetCoreHostingModel>InProcess</AspNetCoreHostingModel>
+</PropertyGroup>
+
+<!-- web.config, который создаёт публикация -->
+<aspNetCore processPath="dotnet" arguments=".\MyApp.dll" hostingModel="inprocess"
+            stdoutLogEnabled="false" stdoutLogFile=".\logs\stdout">
+  <handlerSettings>
+    <!-- пауза перед остановкой старого экземпляра при рециклинге, мс -->
+    <handlerSetting name="shutdownDelay" value="5000" />
+    <!-- деплой без блокировки DLL, .NET 7+ -->
+    <handlerSetting name="enableShadowCopy" value="true" />
+    <handlerSetting name="shadowCopyDirectory" value="../ShadowCopy/" />
+  </handlerSettings>
+</aspNetCore>
+```
+
+</Ex>
+
+<Next>
+
+- Почему in-process быстрее? — Нет пересылки через loopback и второго HTTP-сервера: запрос идёт из IIS прямо в `IISHttpServer`.
+- Что означают 500.30 и 502.5? — Ошибку старта приложения в in-process и out-of-process; причину ищут в журнале событий и stdout-логе.
+- Можно ли держать два приложения в одном пуле? — Два in-process — нет (500.35), смешивать модели в одном пуле тоже нельзя (500.34).
+- Как обновить приложение без блокировки DLL? — `app_offline.htm` или shadow copy (.NET 7+); для нулевого простоя — blue-green.
+- Почему первый запрос утром медленный? — Пул остановился по idle timeout или после рециклинга; помогают Application Initialization и `AlwaysRunning`.
+
+</Next>
+
+<Src>
+
+- [ASP.NET Core Module (ANCM) for IIS](https://learn.microsoft.com/aspnet/core/host-and-deploy/aspnet-core-module)
+- [In-process hosting with IIS and ASP.NET Core](https://learn.microsoft.com/aspnet/core/host-and-deploy/iis/in-process-hosting)
+- [Advanced configuration of the ASP.NET Core Module and IIS](https://learn.microsoft.com/aspnet/core/host-and-deploy/iis/advanced)
+
+</Src>
+
+</Q>

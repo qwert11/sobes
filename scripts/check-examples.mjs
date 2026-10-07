@@ -21,7 +21,7 @@ const CONTEXT_CODES = new Set([
   'CS0012', // тип определён в сборке без ссылки
 ]);
 
-const filters = process.argv.slice(2).map((f) => f.replace(/\\/g, '/').replace(/\.mdx?$/, ''));
+const filters = process.argv.slice(2).filter((a) => !a.startsWith('--')).map((f) => f.replace(/\\/g, '/').replace(/\.mdx?$/, ''));
 const userDotnet = path.join(process.env.LOCALAPPDATA ?? '', 'Microsoft', 'dotnet', 'dotnet.exe');
 const dotnet = fs.existsSync(userDotnet) ? userDotnet : 'dotnet';
 
@@ -72,7 +72,38 @@ const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sobes-examples-'));
 
 // Примеры ASP.NET Core собираются с Web SDK (WebApplication, Results и т. п. без пакетов).
 const WEB_PREFIXES = ['aspnet/'];
-const csproj = (rel) => `<Project Sdk="${WEB_PREFIXES.some((w) => rel.startsWith(w)) ? 'Microsoft.NET.Sdk.Web' : 'Microsoft.NET.Sdk'}">
+
+// Пакеты, которые нужны примеру, объявляются в нём комментарием — его видит и читатель:
+//   // NuGet: Serilog.AspNetCore, OpenTelemetry.Extensions.Hosting
+//   // NuGet: Quartz@4.3.0
+// Без версии берётся последняя стабильная.
+function packagesOf(code) {
+  return [...code.matchAll(/^\s*\/\/\s*NuGet:\s*(.+)$/gm)]
+    .flatMap((m) => m[1].split(/[,\s]+/))
+    .filter(Boolean)
+    .map((p) => {
+      const [name, version = '*'] = p.split('@');
+      return { name, version };
+    });
+}
+
+// Web SDK нужен и примерам из других категорий, если они используют хостинг или Microsoft.Extensions.
+const needsWeb = (rel, code) =>
+  WEB_PREFIXES.some((w) => rel.startsWith(w)) || /\bWebApplication\b|\bMicrosoft\.Extensions\.|\bIHttpClientFactory\b/.test(code);
+
+// Директивы using и пометки NuGet в начале примера: при обёртке в класс они остаются снаружи.
+const HEAD_LINE = /^\s*(\/\/\s*NuGet:.*|(global\s+)?using\s+(static\s+)?[\w.]+(\s*=\s*[\w.<>]+)?\s*;)?\s*$/;
+function splitHead(code) {
+  const lines = code.split('\n');
+  let i = 0;
+  while (i < lines.length && HEAD_LINE.test(lines[i])) i++;
+  return { head: lines.slice(0, i).join('\n'), rest: lines.slice(i).join('\n') };
+}
+
+const csproj = (rel, packages, code) => `<Project Sdk="${needsWeb(rel, code) ? 'Microsoft.NET.Sdk.Web' : 'Microsoft.NET.Sdk'}">
+  <ItemGroup>
+${packages.map((p) => `    <PackageReference Include="${p.name}" Version="${p.version}" />`).join('\n')}
+  </ItemGroup>
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
@@ -90,7 +121,7 @@ const projects = snippets.map((s, i) => {
   const dir = path.join(root, `s${String(i).padStart(3, '0')}`);
   fs.mkdirSync(dir);
   fs.writeFileSync(path.join(dir, 'Program.cs'), s.code);
-  fs.writeFileSync(path.join(dir, `${path.basename(dir)}.csproj`), csproj(s.rel));
+  fs.writeFileSync(path.join(dir, `${path.basename(dir)}.csproj`), csproj(s.rel, packagesOf(s.code), s.code));
   return { ...s, dir, name: path.basename(dir) };
 });
 
@@ -108,6 +139,14 @@ function build(list, slnx) {
   const errors = new Map();
   const out = `${res.stdout}\n${res.stderr}`;
   for (const line of out.split(/\r?\n/)) {
+    // ошибка восстановления пакета (NU1101 и т. п.): без неё непостроенный проект выглядел бы успешным
+    const nu = line.match(/[\\/](s\d{3})[\\/]s\d{3}\.csproj\s*:\s*error (NU\d+): (.*?)(?: \[.*\])?$/);
+    if (nu) {
+      const errs = errors.get(nu[1]) ?? [];
+      if (!errs.some((e) => e.key === nu[2])) errs.push({ key: nu[2], ln: 0, code: nu[2], msg: nu[3] });
+      errors.set(nu[1], errs);
+      continue;
+    }
     const m = line.match(/[\\/](s\d{3})[\\/]Program\.cs\((\d+),(\d+)\): error (CS\d+): (.*?)(?: \[.*\])?$/);
     if (!m) continue;
     const [, name, ln, col, code, msg] = m;
@@ -129,8 +168,9 @@ const MEMBER_FRAGMENT = new Set(['CS0106', 'CS0026', 'CS0027']);
 const members = projects.filter((p) => (byProject.get(p.name) ?? []).some((e) => MEMBER_FRAGMENT.has(e.code)));
 if (members.length) {
   for (const p of members) {
-    const body = p.code.replace(/^/gm, '    ');
-    fs.writeFileSync(path.join(p.dir, 'Program.cs'), `public partial class Snippet\n{\n${body}\n}\n`);
+    const { head, rest } = splitHead(p.code);
+    const body = rest.replace(/^/gm, '    ');
+    fs.writeFileSync(path.join(p.dir, 'Program.cs'), `${head}\npublic partial class Snippet\n{\n${body}\n}\n`);
   }
   console.log(`Ещё раз собираю ${members.length} фрагментов-членов класса внутри class Snippet…`);
   const second = build(members, 'members.slnx');
@@ -151,7 +191,8 @@ const mixed = members.filter(hasReal);
 if (mixed.length) {
   for (const p of mixed) {
     // кусок, начинающийся с отступа или скобки, — продолжение предыдущего (пустая строка внутри метода)
-    const chunks = p.code.split(/\n\s*\n/).reduce((acc, c) => {
+    const { head, rest } = splitHead(p.code);
+    const chunks = rest.split(/\n\s*\n/).reduce((acc, c) => {
       if (acc.length && /^[\s{}]/.test(c)) acc[acc.length - 1] += `\n\n${c}`;
       else acc.push(c);
       return acc;
@@ -165,7 +206,7 @@ if (mixed.length) {
     const bodyCode = chunks.filter((c) => !isMember(c)).map((c) => indent(c, 8)).join('\n\n');
     fs.writeFileSync(
       path.join(p.dir, 'Program.cs'),
-      `public partial class Snippet\n{\n${memberCode}\n\n    async Task __Body()\n    {\n${bodyCode}\n    }\n}\n`,
+      `${head}\npublic partial class Snippet\n{\n${memberCode}\n\n    async Task __Body()\n    {\n${bodyCode}\n    }\n}\n`,
     );
   }
   console.log(`Ещё раз собираю ${mixed.length} смешанных примеров: методы — в класс, операторы — в метод…`);
@@ -193,7 +234,14 @@ for (const p of projects) {
   const errs = byProject.get(p.name) ?? [];
   const real = errs.filter((e) => !CONTEXT_CODES.has(e.code));
   if (!errs.length) ok++;
-  else if (!real.length) contextOnly++;
+  else if (!real.length) {
+    contextOnly++;
+    // --fragments: показать, чего не хватает фрагментам (например, какой пакет объявить через // NuGet:)
+    if (process.argv.includes('--fragments')) {
+      const why = [...new Set(errs.map((e) => `${e.code} ${e.msg}`))].slice(0, 3).join(' | ');
+      console.log(`frag  ${DOCS}/${p.rel}.mdx:${p.line}  ${p.qid} #${p.n}: ${why}`);
+    }
+  }
   else broken.push({ p, real, context: errs.length - real.length });
 }
 

@@ -768,6 +768,8 @@ Console.WriteLine(q2 is IQueryable<int>);      // False — провайдер �
 <Ex title="EF Core">
 
 ```csharp
+using System.Linq.Expressions;
+
 // db — DbContext с DbSet<User> Users
 // 1. Фильтр в SQL: SELECT ... WHERE IsActive
 var active = await db.Users.Where(u => u.IsActive).ToListAsync();
@@ -1271,6 +1273,7 @@ LINQ — удобная надстройка над циклами. За удо�
 <Ex>
 
 ```csharp
+// NuGet: BenchmarkDotNet
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Running;
 

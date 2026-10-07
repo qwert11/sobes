@@ -1,0 +1,951 @@
+---
+title: Конфігурація й логування
+description: Джерела налаштувань і їхній порядок, середовища й секрети, Options і валідація, ILogger і Serilog, LoggerMessage, кореляція та OpenTelemetry.
+sidebar:
+  order: 3
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+Звідки застосунок ASP.NET Core бере налаштування, де тримати секрети й як перевірити конфігурацію під час старту, як писати структурні логи й пов'язувати їх із трейсами та метриками. На цій темі перевіряють не лише API, а й досвід експлуатації: що ви робите, коли в продакшені «нічого не видно».
+
+**Перед цією темою:** [Впровадження залежностей](/sobes/uk/aspnet/di/).
+
+<Q id="aspnet.config.sources" level="j">
+
+## Як влаштована конфігурація: джерела, їхній порядок і ключі `Section:Key`?
+
+<A short l="j">
+
+Конфігурація — плаский набір пар «ключ — значення», який <T k="iconfiguration">`IConfiguration`</T> збирає з кількох <T k="configuration-provider">джерел</T>: `appsettings.json`, `appsettings.{Environment}.json`, змінних середовища й командного рядка. Якщо ключ є в кількох джерелах, перемагає доданий пізніше, тому змінна середовища перекриває значення з JSON.
+
+</A>
+
+<A short l="m">
+
+`WebApplication.CreateBuilder` підключає джерела по черзі: `appsettings.json`, `appsettings.{Environment}.json`, User Secrets у Development, змінні середовища, командний рядок — останнє виграє. Вкладеність сплющується в ключі через двокрапку (`Payments:TimeoutSeconds`), а в змінних середовища замість неї пишуть `__`, бо не всі оболонки приймають `:`. Значення зберігаються рядками й отримують тип лише під час читання, тому друкарська помилка в ключі мовчки дає `null` або значення за замовчуванням.
+
+</A>
+
+<A short l="s">
+
+`ConfigurationManager` (.NET 6+) — список провайдерів із власними словниками: читання йде з кінця списку до першого збігу, а `reloadOnChange` перечитує файл і сигналізує через <T k="change-token">change token</T>. Звідси неочевидні ефекти: джерело, додане після `CreateBuilder`, перекриває навіть командний рядок, а масиви з різних файлів зливаються за індексами. У .NET 10 `null` з JSON прив'язується як `null`, а не як порожній рядок. Тому порядок джерел — частина контракту деплою, а походження значення перевіряють через `GetDebugView()`.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+Конфігурація — словник рядків «ключ — значення». Застосунок читає його через `IConfiguration`, а наповнюють його провайдери, по одному на джерело.
+
+**Джерела за замовчуванням**
+
+`WebApplication.CreateBuilder` підключає їх у такому порядку, і кожне наступне перекриває попередні:
+
+1. `appsettings.json` — спільні налаштування.
+2. `appsettings.{Environment}.json` — відмінності середовища.
+3. User Secrets — лише в Development.
+4. Змінні середовища.
+5. Аргументи командного рядка.
+
+**Як користуватися**
+
+- Вкладеність JSON перетворюється на ключ через двокрапку: `config["Payments:TimeoutSeconds"]`.
+- У змінній середовища двокрапку замінюють на `__`: `Payments__TimeoutSeconds=60`.
+- `GetValue<int>(...)` приводить рядок до типу, `GetConnectionString("Default")` читає ключ `ConnectionStrings:Default`.
+
+**Типова помилка**
+
+Друкарська помилка в ключі: `config["Payment:Timeout"]` поверне `null` без винятку.
+
+**Підсумок:** налаштування — плаский словник із кількох джерел, і останнє джерело перемагає.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+1. `builder.Configuration` — це `ConfigurationManager` (.NET 6+): водночас будівник і готова конфігурація, читати її можна просто в `Program.cs`.
+2. Кожен провайдер завантажує свій словник. Читання ключа йде від останнього провайдера до першого до першого збігу.
+3. Ключі нечутливі до регістру. Елементи масиву — це ключі з індексами: `Payments:Currencies:0`.
+4. Командний рядок розуміє `--Key=value`, `--Key value`, `/Key value` і `Key=value`.
+
+**Коли що обирати**
+
+| Що налаштовуємо | Де зберігати |
+|---|---|
+| Несекретні значення за замовчуванням | `appsettings.json` у репозиторії |
+| Відмінності стенда | `appsettings.{Environment}.json` або змінні середовища |
+| Значення конкретного деплою, секрети | змінні середовища, сховище секретів |
+| Разовий запуск, налагодження | аргументи командного рядка |
+
+**Пастки**
+
+- **Власне джерело після `CreateBuilder`.** `builder.Configuration.AddJsonFile(...)` стає в кінець списку й перекриває змінні середовища та командний рядок.
+- **Масиви зливаються за індексами.** Якщо в базовому файлі три елементи, а у файлі середовища два, третій залишиться з базового.
+
+**Правило**
+
+Після власного джерела повторно викличте `AddEnvironmentVariables()` і `AddCommandLine(args)`, щоб деплой і далі міг усе перекрити.
+
+**Підсумок:** перемагає останній провайдер, тому порядок джерел — частина контракту деплою.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- `ConfigurationManager` будує провайдер одразу під час додавання джерела. Тому значення доступні ще до `Build()`.
+- Провайдер — словник рядків без урахування регістру. Типи з'являються лише під час <T k="configuration-binding">прив'язки</T>: `ConfigurationBinder` розбирає рядки через `TypeConverter` і рефлексію.
+- Файлові провайдери з `reloadOnChange: true` стежать за файлом, перечитують його й сигналізують через `IChangeToken`. Шаблон за замовчуванням вмикає це для `appsettings*.json`.
+
+**Ціна**
+
+- Читання за ключем — прохід провайдерами з кінця. У гарячому коді значення один раз прив'язують до об'єкта через Options, а не читають `config["..."]` на кожен запит.
+- У контейнерах і на мережевих дисках події файлової системи ненадійні. Тоді вмикають `DOTNET_USE_POLLING_FILE_WATCHER=true`: опитування раз на чотири секунди.
+
+**Компроміси**
+
+- У .NET 10 `null` у JSON прив'язується як `null`, а порожній масив `[]` — як порожній масив. Раніше `null` перетворювався на порожній рядок, і під час міграції поведінка змінюється.
+- Прив'язка через рефлексію дає попередження trimming і несумісна з <T k="native-aot">Native AOT</T>. Генератор прив'язки (.NET 8+) вмикають властивістю `EnableConfigurationBindingGenerator`.
+
+**Як перевірити в продакшені**
+
+`((IConfigurationRoot)config).GetDebugView()` показує для кожного ключа значення й провайдер, з якого воно прийшло. Перевантаження з `processValue` маскує секрети; без нього не виводьте результат назовні.
+
+**Підсумок:** конфігурація — стек словників рядків, і порядок провайдерів разом із моментом прив'язки визначає, що побачить код.
+
+</A>
+
+<Ex>
+
+```json
+{
+  "Payments": {
+    "TimeoutSeconds": 30,
+    "Currencies": [ "UAH", "EUR" ]
+  },
+  "ConnectionStrings": {
+    "Default": "Host=localhost;Database=shop"
+  }
+}
+```
+
+```csharp
+var builder = WebApplication.CreateBuilder(args);
+
+// Значення вже зібрані з усіх джерел, читати можна до Build()
+int timeout = builder.Configuration.GetValue<int>("Payments:TimeoutSeconds");
+
+var app = builder.Build();
+
+app.MapGet("/config", (IConfiguration config) => new
+{
+    Timeout = timeout,                                     // 30, а з Payments__TimeoutSeconds=60 — 60
+    FirstCurrency = config["Payments:Currencies:0"],       // "UAH"
+    HasDb = config.GetConnectionString("Default") is not null, // ключ ConnectionStrings:Default
+    Typo = config["Payment:Timeout"]                       // null: друкарська помилка, винятку немає
+});
+
+app.Run();
+```
+
+Запуск `dotnet run --Payments:TimeoutSeconds=90` дасть 90 навіть за заданої змінної середовища: командний рядок підключено останнім.
+
+</Ex>
+
+<Next>
+
+- Що переможе: `appsettings.Production.json` чи змінна середовища? — Змінна середовища: її провайдер додано пізніше.
+- Чому в змінних середовища пишуть `__`, а не `:`? — Bash і частина платформ не приймають `:` в іменах; `__` перетворюється на `:` під час читання.
+- Що буде, якщо додати власний JSON-файл після `CreateBuilder`? — Він опиниться останнім і перекриє навіть командний рядок.
+- Як перевизначити другий елемент масиву із середовища? — Ключем з індексом: `Payments__Currencies__1=USD`.
+- Як дізнатися, звідки прийшло значення? — `GetDebugView()` в `IConfigurationRoot` показує провайдер кожного ключа.
+
+</Next>
+
+<Src>
+
+- [Configuration in ASP.NET Core](https://learn.microsoft.com/aspnet/core/fundamentals/configuration/)
+- [Configuration providers in .NET](https://learn.microsoft.com/dotnet/core/extensions/configuration-providers)
+- [Breaking change: Null values preserved in configuration](https://learn.microsoft.com/dotnet/core/compatibility/extensions/10.0/configuration-null-values-preserved)
+
+</Src>
+
+</Q>
+
+<Q id="aspnet.config.environments-secrets" level="j">
+
+## Як працюють середовища й де зберігати секрети?
+
+<A short l="j">
+
+<T k="hosting-environment">Середовище</T> — ім'я на кшталт `Development`, `Staging` або `Production`, яке задає змінна `ASPNETCORE_ENVIRONMENT` чи `DOTNET_ENVIRONMENT`; від нього залежать файл `appsettings.{Environment}.json` і налагоджувальні функції. Секрети не комітять: локально їх зберігають у <T k="user-secrets">User Secrets</T>, а на сервері — у змінних середовища або в сховищі на кшталт Azure Key Vault.
+
+</A>
+
+<A short l="m">
+
+Середовище обирається один раз під час старту хоста, а якщо його не задано, це `Production`, тому налагоджувальні речі вмикаються лише явною перевіркою `IsDevelopment()`. User Secrets — незашифрований JSON у профілі користувача, який `CreateBuilder` підключає лише в Development. У продакшені секрети надходять із середовища, змонтованих файлів або <T k="secret-store">сховища секретів</T>, куди застосунок входить за <T k="managed-identity">керованою ідентичністю</T>, і в конфігурації не лишається паролів.
+
+</A>
+
+<A short l="s">
+
+Середовище — це розгалуження поведінки й джерел, тому що менше `if (IsDevelopment())` у коді, то менша різниця між протестованим і задеплоєним. Секрет у змінній середовища видно в дампах процесу та в `docker inspect`, а сховище має доступ за ідентичністю, аудит і ротацію. Ціна сховища — мережевий виклик під час старту й залежність від його доступності. Секрет, що потрапив у git, вважається скомпрометованим: його відкликають, а не вичищають з історії.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+Середовище — рядок, який застосунок читає під час старту. Стандартні значення — `Development`, `Staging` і `Production`; якщо нічого не задано, це `Production`.
+
+**Як користуватися**
+
+- Локально середовище задає <T k="launch-settings">`launchSettings.json`</T>, на сервері — змінна `ASPNETCORE_ENVIRONMENT`.
+- У коді перевіряють `builder.Environment.IsDevelopment()` або `app.Environment.IsProduction()`.
+- Налаштування стенда кладуть в `appsettings.{Environment}.json`.
+
+**Де зберігати секрети**
+
+| Де | Чим |
+|---|---|
+| Машина розробника | User Secrets: `dotnet user-secrets set` |
+| Сервер, контейнер | змінні середовища, секрети оркестратора |
+| Хмара | Azure Key Vault, AWS Secrets Manager, HashiCorp Vault |
+
+**Типова помилка**
+
+Покласти пароль в `appsettings.Development.json` і закомітити. Усе, що лежить у репозиторії, вважайте публічним.
+
+**Підсумок:** середовище обирає поведінку й файл налаштувань, а секрети живуть поза репозиторієм.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+1. Ім'я середовища береться з `DOTNET_ENVIRONMENT` або `ASPNETCORE_ENVIRONMENT`, з аргументу `--environment` чи з `WebApplicationOptions.EnvironmentName`. У `WebApplication` у .NET 7+ за обох змінних перемагає `DOTNET_ENVIRONMENT`.
+2. Середовище фіксується під час побудови хоста й під час роботи не змінюється.
+3. У Development `CreateBuilder` підключає User Secrets, а `WebApplication` сам показує сторінку винятків для розробника.
+4. User Secrets лежать у `secrets.json` у профілі користувача: `%APPDATA%\Microsoft\UserSecrets\<id>` у Windows, `~/.microsoft/usersecrets/<id>` у Linux і macOS. `<id>` — це `UserSecretsId` з `.csproj`, його додає `dotnet user-secrets init`.
+
+**Коли що обирати**
+
+| Варіант | Коли |
+|---|---|
+| User Secrets | лише локальна розробка, файл не шифрується |
+| Змінні середовища | простий деплой, контейнери |
+| Файли секретів (`AddKeyPerFile`) | секрети Docker і Kubernetes, змонтовані в каталог |
+| Key Vault та аналоги | хмара: managed identity, аудит, ротація |
+
+**Пастки**
+
+- **Регістр імені файлу.** У Linux файлова система чутлива до регістру: за середовища `Production` файл `appsettings.production.json` не підхопиться.
+- **`launchSettings.json` не публікується.** На сервері без змінної середовище мовчки стане `Production`.
+
+**Правило**
+
+У репозиторії — лише несекретні значення за замовчуванням. Усе, що відрізняється між стендами або є секретним, надходить ззовні.
+
+**Підсумок:** середовище задає поведінку й набір файлів, а секрети на кожному етапі надходять зі свого джерела, але ніколи з git.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- Ім'я середовища — ключ конфігурації хоста `environment`. Його задають змінні `DOTNET_` і `ASPNETCORE_` або `--environment`, але не `appsettings.json`: файли читаються вже після вибору середовища.
+- Провайдер Key Vault (`Azure.Extensions.AspNetCore.Configuration.Secrets`) завантажує секрети під час старту й замінює `--` в імені на `:`: секрет `Payments--ApiKey` стане ключем `Payments:ApiKey`. Перечитує він їх, лише якщо задано `ReloadInterval`.
+- `AddKeyPerFile` перетворює кожен файл каталогу на ключ, а `__` в імені файлу — на `:`.
+
+**Ціна**
+
+- Змінні середовища доступні всім, хто бачить процес: вони потрапляють у дампи, у `/proc` у Linux і в `docker inspect`.
+- Сховище — мережевий виклик під час старту й зовнішня залежність: недоступний Key Vault означає, що застосунок не стартує.
+
+**Компроміси**
+
+- Кожен `if (env.IsProduction())` — код, який уперше виконається просто в продакшені. Відмінності виносять у конфігурацію, а не в розгалуження.
+- `DefaultAzureCredential` зручний: локально бере обліковий запис розробника, в Azure — managed identity. Для продакшену документація радить конкретний `ManagedIdentityCredential`: менше спроб і передбачуваніша відмова.
+- Найкращий секрет — відсутній: managed identity для бази даних і хмарних сервісів прибирає пароль з конфігурації зовсім.
+
+**Як перевірити в продакшені**
+
+- Під час старту хост пише в лог `Hosting environment: Production` — це перше, що дивляться за «дивних» налаштувань.
+- Сканер секретів у CI, наприклад gitleaks або secret scanning у GitHub, ловить паролі до злиття.
+
+**Підсумок:** надійний секрет — той, якого немає в конфігурації: ідентичність замість пароля, сховище замість файлу.
+
+</A>
+
+<Ex>
+
+```csharp
+var builder = WebApplication.CreateBuilder(args);
+
+// Секрети Docker/Kubernetes: файл /run/secrets/Payments__ApiKey стане ключем Payments:ApiKey.
+// Джерело додано останнім, тому воно перекриває й змінні середовища.
+builder.Configuration.AddKeyPerFile("/run/secrets", optional: true);
+
+var app = builder.Build();
+
+if (!app.Environment.IsDevelopment())
+{
+    app.UseExceptionHandler("/error"); // у Development замість нього — сторінка винятків
+    app.UseHsts();
+}
+
+app.MapGet("/env", (IHostEnvironment env, IConfiguration config) => new
+{
+    env.EnvironmentName,                                          // "Development"
+    HasApiKey = !string.IsNullOrEmpty(config["Payments:ApiKey"])  // сам секрет не виводимо
+});
+
+app.Run();
+```
+
+```bash
+# Локально: секрет зберігається поза репозиторієм
+dotnet user-secrets init
+dotnet user-secrets set "Payments:ApiKey" "dev-key"
+
+# Сервер або контейнер: двокрапку замінюють на __
+export ASPNETCORE_ENVIRONMENT=Staging
+export Payments__ApiKey="..."
+```
+
+</Ex>
+
+<Next>
+
+- Яке середовище буде, якщо нічого не задати? — `Production`.
+- Чи шифруються User Secrets? — Ні, це звичайний JSON у профілі користувача, лише для розробки.
+- Чим поганий секрет у змінній середовища? — Його видно в дампах і метаданих контейнера, немає аудиту й ротації.
+- Як Key Vault зберігає ієрархічні ключі? — Через `--`: `Payments--ApiKey` перетворюється на `Payments:ApiKey`.
+- Що робити із секретом, який потрапив у git? — Відкликати й перевипустити: переписування історії не рятує.
+
+</Next>
+
+<Src>
+
+- [ASP.NET Core runtime environments](https://learn.microsoft.com/aspnet/core/fundamentals/environments)
+- [Safe storage of app secrets in development](https://learn.microsoft.com/aspnet/core/security/app-secrets)
+- [Azure Key Vault configuration provider](https://learn.microsoft.com/aspnet/core/security/key-vault-configuration)
+
+</Src>
+
+</Q>
+
+<Q id="aspnet.config.options" level="m">
+
+## Чим відрізняються `IOptions`, `IOptionsSnapshot` і `IOptionsMonitor` і як валідувати налаштування?
+
+<A short l="j">
+
+<T k="options-pattern">Options pattern</T> — прив'язка секції конфігурації до класу, який сервіси отримують через DI як `IOptions<T>`. `IOptions<T>` читає значення один раз, `IOptionsSnapshot<T>` — заново на кожен запит, а `IOptionsMonitor<T>` завжди віддає поточні й повідомляє про зміни.
+
+</A>
+
+<A short l="m">
+
+Усі три інтерфейси будують об'єкт однією фабрикою, а відрізняються часом життя й кешем: `IOptions<T>` — singleton, обчислюється один раз; <T k="ioptions-snapshot">`IOptionsSnapshot<T>`</T> — scoped, перераховується на запит; <T k="ioptions-monitor">`IOptionsMonitor<T>`</T> — singleton із `CurrentValue` і `OnChange`. Валідація через `ValidateDataAnnotations`, `Validate` або `IValidateOptions<T>` за замовчуванням спрацьовує під час першого звернення, тому додають <T k="validate-on-start">`ValidateOnStart`</T>. Ціна snapshot — новий об'єкт на кожен запит, а в monitor значення може змінитися посеред операції.
+
+</A>
+
+<A short l="s">
+
+`OptionsFactory` застосовує всі `Configure`, потім `PostConfigure`, потім валідатори, а `OptionsMonitor` кешує результат за іменем і скидає кеш за change token конфігурації. `ValidateOnStart` захищає лише старт: якщо на диску з'явиться невалідний файл, `CurrentValue` не відкотиться до старого значення, а почне кидати `OptionsValidationException`. Для Native AOT валідатор без рефлексії пише <T k="source-generator">source generator</T> `[OptionsValidator]` (.NET 8+). Перезавантажуваними роблять лише налаштування, зміна яких безпечна на льоту: рівні логів, прапорці, ліміти.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+Options pattern — спосіб читати налаштування не рядками за ключем, а типізованим класом. Секція `Payments` з `appsettings.json` прив'язується до класу `PaymentsOptions`, і сервіс отримує його через DI.
+
+**Як користуватися**
+
+1. Опишіть клас із властивостями `{ get; set; }`.
+2. Зареєструйте його: `builder.Services.Configure<PaymentsOptions>(builder.Configuration.GetSection("Payments"))`.
+3. Впровадьте `IOptions<PaymentsOptions>` і читайте `.Value`.
+
+**Який інтерфейс брати**
+
+| Інтерфейс | Коли бачить нові значення |
+|---|---|
+| `IOptions<T>` | ніколи, прочитаний один раз |
+| `IOptionsSnapshot<T>` | на наступному запиті |
+| `IOptionsMonitor<T>` | одразу після зміни файлу |
+
+**Типова помилка**
+
+Чекати, що `IOptions<T>` побачить правку `appsettings.json` без перезапуску. Для цього потрібен snapshot або monitor.
+
+**Підсумок:** налаштування читають типізованим класом, а інтерфейс обирають за тим, чи потрібні зміни на льоту.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+1. `Configure<T>` і `AddOptions<T>().BindConfiguration("Payments")` реєструють не сам об'єкт, а спосіб його налаштувати.
+2. Під час першого звернення `IOptionsFactory<T>` створює екземпляр і застосовує всі `Configure`, потім `PostConfigure`, потім валідатори.
+3. Результат кешується: в `IOptions<T>` назавжди, в `IOptionsSnapshot<T>` — на scope запиту, в `IOptionsMonitor<T>` — до зміни конфігурації.
+
+**Коли що обирати**
+
+| Інтерфейс | Час життя | Кому підходить |
+|---|---|---|
+| `IOptions<T>` | singleton | усім, якщо значення не змінюються без рестарту |
+| `IOptionsSnapshot<T>` | scoped | обробникам запиту; є <T k="named-options">іменовані опції</T> |
+| `IOptionsMonitor<T>` | singleton | singleton-сервісам і реакції через `OnChange` |
+
+**Валідація**
+
+- `ValidateDataAnnotations()` — атрибути `[Required]`, `[Range]`, `[Url]`.
+- `Validate(o => ..., "message")` — правило лямбдою, наприклад зв'язок двох полів.
+- `IValidateOptions<T>` — окремий клас, якщо правилу потрібні сервіси.
+- `ValidateOnStart()` (.NET 6+) — перевірка під час запуску, а не на першому запиті.
+
+**Пастки**
+
+- `IOptionsSnapshot<T>` — scoped-сервіс, у singleton його не впровадити.
+- Вкладені об'єкти атрибутами не перевіряються без `[ValidateObjectMembers]` і `[ValidateEnumeratedItems]` (.NET 8+).
+- Друкарська помилка в імені секції — не помилка: прив'яжеться об'єкт зі значеннями за замовчуванням. Упіймає її лише `[Required]`.
+
+**Правило**
+
+Для кожної секції: `AddOptions<T>().BindConfiguration(...).ValidateDataAnnotations().ValidateOnStart()`.
+
+**Підсумок:** інтерфейс обирають за часом життя споживача, а валідацію запускають під час старту.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- `OptionsMonitor<T>` підписаний на change token конфігурації. Під час перезавантаження він видаляє екземпляр із кешу, створює новий через фабрику й викликає підписників `OnChange`.
+- Якщо новий екземпляр невалідний, старе значення не зберігається: `CurrentValue` кидає `OptionsValidationException` під час кожного звернення, доки файл не виправлять.
+- `IOptionsSnapshot<T>` створює екземпляр заново в кожному scope: прив'язка через рефлексію й валідація виконуються на кожен запит.
+
+**Ціна**
+
+- Snapshot — зайві алокації й CPU на кожен запит. У гарячому шляху його замінюють на monitor і читають `CurrentValue`.
+- `ValidateDataAnnotations` і прив'язка працюють через рефлексію: вони повільніші й дають попередження під час trimming і Native AOT.
+
+**Компроміси**
+
+- `[OptionsValidator]` над порожнім `partial`-класом генерує `IValidateOptions<T>` під час компіляції. Його реєструють як singleton, і `ValidateDataAnnotations` більше не потрібен.
+- Перезавантаження на льоту зручне для рівнів логів і прапорців. Для рядка підключення чи розміру пулу воно небезпечне: об'єкт, створений під час старту, старе значення не забуде.
+- Валідація під час старту робить деплой «гучним»: процес не підніметься, але й не віддаватиме 500 на кожному запиті.
+
+**Як перевірити в продакшені**
+
+З `ValidateOnStart` невалідна конфігурація валить хост під час запуску з `OptionsValidationException` і повним списком помилок. Це видно в логах деплою та в проваленій readiness-пробі.
+
+**Підсумок:** monitor — для перезавантажуваних налаштувань, генератор — для валідації без рефлексії, `ValidateOnStart` — щоб помилка виявилася під час деплою.
+
+</A>
+
+<Ex>
+
+```csharp
+using System.ComponentModel.DataAnnotations;
+using Microsoft.Extensions.Options;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddOptions<PaymentsOptions>()
+    .BindConfiguration("Payments")
+    .ValidateDataAnnotations()
+    .Validate(o => o.TimeoutSeconds < 120, "TimeoutSeconds must be less than 120")
+    .ValidateOnStart(); // помилка виявиться під час старту, а не на першому запиті
+
+var app = builder.Build();
+
+app.MapGet("/snapshot", (IOptionsSnapshot<PaymentsOptions> o) => o.Value.BaseUrl);          // перераховано для цього запиту
+app.MapGet("/monitor", (IOptionsMonitor<PaymentsOptions> o) => o.CurrentValue.TimeoutSeconds); // поточне значення
+
+app.Run();
+
+public sealed class PaymentsOptions
+{
+    [Required, Url]
+    public string BaseUrl { get; set; } = "";
+
+    [Range(1, 300)]
+    public int TimeoutSeconds { get; set; } = 30;
+}
+```
+
+</Ex>
+
+<Ex title="Валідатор із source generator (.NET 8+)">
+
+```csharp
+using System.ComponentModel.DataAnnotations;
+using Microsoft.Extensions.Options;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddOptions<PaymentsOptions>().BindConfiguration("Payments").ValidateOnStart();
+// Замість ValidateDataAnnotations(): валідатор згенеровано під час компіляції, без рефлексії
+builder.Services.AddSingleton<IValidateOptions<PaymentsOptions>, PaymentsOptionsValidator>();
+
+var app = builder.Build();
+app.Run();
+
+[OptionsValidator]
+public partial class PaymentsOptionsValidator : IValidateOptions<PaymentsOptions> { }
+
+public sealed class PaymentsOptions
+{
+    [Required, Url]
+    public string BaseUrl { get; set; } = "";
+}
+```
+
+</Ex>
+
+<Next>
+
+- Чи можна впровадити `IOptionsSnapshot<T>` у singleton? — Ні, він scoped; у singleton беруть `IOptionsMonitor<T>`.
+- Коли спрацьовує валідація без `ValidateOnStart`? — Під час першого звернення до `.Value` або `CurrentValue`.
+- Що таке іменовані опції? — Кілька екземплярів одного типу під різними іменами: `Get("Primary")` у snapshot або monitor.
+- Чи перевіряються вкладені об'єкти атрибутами? — Ні, потрібні `[ValidateObjectMembers]` і `[ValidateEnumeratedItems]`.
+- Що станеться з `IOptionsMonitor<T>` після запису невалідного файлу? — Старе значення не збережеться, `CurrentValue` почне кидати `OptionsValidationException`.
+
+</Next>
+
+<Src>
+
+- [Options pattern in .NET](https://learn.microsoft.com/dotnet/core/extensions/options)
+- [Options pattern in ASP.NET Core](https://learn.microsoft.com/aspnet/core/fundamentals/configuration/options)
+- [Compile-time options validation source generation](https://learn.microsoft.com/dotnet/core/extensions/options-validation-generator)
+
+</Src>
+
+</Q>
+
+<Q id="aspnet.config.logging" level="m">
+
+## Як влаштоване логування в ASP.NET Core і чому повідомлення пишуть шаблоном, а не інтерполяцією?
+
+<A short l="j">
+
+`ILogger<T>` пише повідомлення з рівнем від `Trace` до `Critical` і <T k="log-category">категорією</T> — повним іменем класу, а куди вони потраплять, вирішують <T k="logging-provider">провайдери</T>: консоль, файл, Elastic. Повідомлення пишуть шаблоном `"Order {OrderId} created"` з аргументами, а не інтерполяцією, щоб `OrderId` став окремим полем, за яким можна шукати.
+
+</A>
+
+<A short l="m">
+
+`ILoggerFactory` створює логер категорії, який передає запис усім провайдерам, а фільтри із секції `Logging` відсікають рівні за найдовшим префіксом категорії, що збігається. <T k="message-template">Шаблон повідомлення</T> з іменованими плейсхолдерами дає <T k="structured-logging">структурний лог</T> — текст плюс властивості для пошуку в Elastic чи Seq, а інтерполяція втрачає властивості й форматує рядок навіть за вимкненого рівня. Serilog додає <T k="serilog-sink">sinks</T>, <T k="serilog-enricher">enrichers</T> і деструктуризацію об'єктів ціною другої конфігурації рівнів.
+
+</A>
+
+<A short l="s">
+
+`Microsoft.Extensions.Logging` — абстракція: API, фільтри й scopes, а формат і доставку вирішує провайдер. Шаблон — ще й ключ групування: усі події `Order {OrderId} created` — одна подія з різними властивостями, а інтерпольовані рядки унікальні й ламають групування. Ціна `LogInformation(template, args)` — масив `params` і упакування значущих аргументів навіть за вимкненого рівня, тому гарячий код пишуть через `[LoggerMessage]`. Із Serilog рівні з `Logging:LogLevel` перестають діяти, фільтри переїжджають у `Serilog:MinimumLevel` — часта причина «зниклих» логів.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+- **`ILogger<T>`** — інтерфейс для запису логів, його отримують через DI.
+- **Категорія** — ім'я логера, зазвичай повне ім'я класу `T`. За нею фільтрують.
+- **Рівень** — важливість: `Trace`, `Debug`, `Information`, `Warning`, `Error`, `Critical`.
+- **Провайдер** — куди йде запис. `CreateBuilder` підключає Console, Debug, EventSource і EventLog у Windows.
+
+**Як користуватися**
+
+1. Пишіть шаблоном: `logger.LogInformation("Order {OrderId} created", id)`.
+2. Виняток передавайте першим аргументом: `logger.LogError(ex, "Payment {PaymentId} failed", paymentId)`.
+3. Рівні задавайте в секції `Logging:LogLevel` файлу `appsettings.json`.
+
+**Типова помилка**
+
+Інтерполяція `$"Order {id} created"`. У лог потрапить готовий рядок без поля `OrderId`, і знайти всі записи за замовленням буде складно.
+
+**Підсумок:** логер із категорією, рівень у конфігурації, повідомлення — шаблоном з іменованими параметрами.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+1. `ILoggerFactory` створює логер категорії, а той передає запис кожному провайдеру.
+2. Для пари «провайдер — категорія» обирається одне правило: правила цього провайдера важливіші за загальні, серед них перемагає найдовший префікс категорії, що збігається, а без збігів — `Default`.
+3. Аргументи підставляються в шаблон за порядком, а не за іменами. Імена плейсхолдерів стають іменами властивостей.
+4. Структурний провайдер (JSON-консоль, Serilog, OpenTelemetry) зберігає властивості окремо, разом із вихідним шаблоном.
+
+**Коли що обирати**
+
+| Задача | Рішення |
+|---|---|
+| Контейнер, логи збирає агент | консоль у JSON: `AddJsonConsole()` |
+| Файли, Seq, Elastic, багато sinks | Serilog: `Serilog.AspNetCore` |
+| Логи разом із трейсами й метриками | експорт через OpenTelemetry |
+
+**Serilog**
+
+- **Sink** — куди писати: Console, File, Seq, Elasticsearch (`Elastic.Serilog.Sinks`), OpenTelemetry.
+- **Enricher** — що додати до кожної події: `FromLogContext`, `WithMachineName`, `WithThreadId`.
+- `{@Order}` розкладає об'єкт на поля, `{$Order}` пише його `ToString()`.
+- `UseSerilogRequestLogging()` пише одну подію на запит замість кількох від ASP.NET Core.
+
+**Пастки**
+
+- Із Serilog рівні задає `Serilog:MinimumLevel`, а `Logging:LogLevel` більше не діє.
+- Аналізатор CA2254 попереджає, якщо шаблон не константа.
+
+**Підсумок:** фільтри працюють за категоріями й провайдерами, а структура логу з'являється лише в шаблону з іменованими параметрами.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- `LogInformation(string message, params object?[] args)` створює масив і упаковує значущі аргументи до перевірки рівня. Навіть за вимкненого `Debug` виклик `LogDebug` алокує.
+- Шаблон розбирається один раз і кешується. Інтерпольований рядок форматується в місці виклику, навіть якщо запис потім відфільтрують.
+- Перевантажень з обробником інтерпольованих рядків (interpolated string handler) у `LoggerExtensions` немає, тому `$"..."` завжди форматується заздалегідь.
+
+**Ціна**
+
+- Кожна подія — CPU на форматування, алокації, трафік і місце у сховищі. Зберігання й індексація в Elastic часто коштують більше за обчислення.
+- Висока кардинальність властивостей роздуває індекс. Деструктурують лише DTO, а не сутності EF з навігаційними властивостями.
+
+**Компроміси**
+
+- `Microsoft.Extensions.Logging` з експортом в OpenTelemetry — менше залежностей, логи й трейси в одному протоколі.
+- Serilog — багатші sinks і форматування, але це другий конвеєр із власною конфігурацією рівнів. В OTLP він теж уміє писати: `Serilog.Sinks.OpenTelemetry`.
+- Sink, що пише синхронно в мережу, гальмує запити. Повільні sinks обгортають у `Serilog.Sinks.Async` і стежать за переповненням буфера.
+
+**Як перевірити в продакшені**
+
+- Агрегація у сховищі за шаблоном повідомлення й категорією показує найбільш «галасливі» рядки коду.
+- Алокації від логування видно в профілювальнику алокацій (dotnet-trace) і в BenchmarkDotNet з `[MemoryDiagnoser]`.
+
+**Підсумок:** шаблон — це і структура, і ключ групування, а інтерполяція платить за форматування, навіть коли лог не потрібен.
+
+</A>
+
+<Ex>
+
+```json
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning",
+      "Orders": "Debug"
+    },
+    "Console": {
+      "FormatterName": "json"
+    }
+  }
+}
+```
+
+```csharp
+var builder = WebApplication.CreateBuilder(args);
+var app = builder.Build();
+
+app.MapPost("/orders/{id:int}", (int id, ILoggerFactory factory) =>
+{
+    ILogger log = factory.CreateLogger("Orders.Api"); // префікс "Orders" → рівень Debug
+
+    // Добре: OrderId і Total — окремі поля, шаблон один на всі замовлення
+    log.LogInformation("Order {OrderId} created, total {Total}", id, 99.5m);
+
+    // Погано: готовий рядок без полів, форматується навіть за вимкненого рівня
+    log.LogInformation($"Order {id} created, total {99.5m}");
+
+    log.LogDebug("Reserved stock for {OrderId}", id); // потрапить у лог: для "Orders" увімкнено Debug
+    return Results.Created($"/orders/{id}", null);
+});
+
+app.Run();
+```
+
+</Ex>
+
+<Ex title="Serilog: зовнішній пакет Serilog.AspNetCore">
+
+```csharp
+// NuGet: Serilog.AspNetCore
+using Serilog;
+
+Log.Logger = new LoggerConfiguration()
+    .WriteTo.Console()
+    .CreateBootstrapLogger(); // ловить помилки старту до побудови хоста
+
+try
+{
+    var builder = WebApplication.CreateBuilder(args);
+
+    builder.Services.AddSerilog((services, lc) => lc
+        .ReadFrom.Configuration(builder.Configuration) // рівні й sinks із секції "Serilog"
+        .ReadFrom.Services(services)
+        .Enrich.FromLogContext());                     // властивості зі scopes і LogContext
+
+    var app = builder.Build();
+    app.UseSerilogRequestLogging(); // одна подія на запит
+    app.MapGet("/", () => "Hello");
+    app.Run();
+}
+catch (Exception ex)
+{
+    Log.Fatal(ex, "Host terminated unexpectedly");
+}
+finally
+{
+    Log.CloseAndFlush(); // дописати буфери sinks перед виходом
+}
+```
+
+```json
+{
+  "Serilog": {
+    "MinimumLevel": {
+      "Default": "Information",
+      "Override": { "Microsoft.AspNetCore": "Warning" }
+    },
+    "WriteTo": [
+      { "Name": "Console" },
+      { "Name": "File", "Args": { "path": "logs/app-.log", "rollingInterval": "Day" } }
+    ]
+  }
+}
+```
+
+</Ex>
+
+<Next>
+
+- Як обирається рівень для категорії `Microsoft.AspNetCore.Routing`? — Правило провайдера важливіше за загальне, далі найдовший префікс категорії, що збігається.
+- Чому аргументи підставляються за порядком, а не за іменем? — Шаблон розбирається позиційно, імена стають лише іменами властивостей.
+- Чим `{@Order}` відрізняється від `{Order}` у Serilog? — `@` розкладає об'єкт на поля, без нього пишеться `ToString()`.
+- Чому після підключення Serilog перестали діяти рівні з `Logging`? — Фільтрує сам Serilog, рівні задаються в `Serilog:MinimumLevel`.
+- Як правильно залогувати виняток? — Передати його першим аргументом `LogError(ex, ...)`, а не вставляти `ex.Message` у текст.
+
+</Next>
+
+<Src>
+
+- [Logging in .NET and ASP.NET Core](https://learn.microsoft.com/aspnet/core/fundamentals/logging/)
+- [Serilog.AspNetCore](https://github.com/serilog/serilog-aspnetcore)
+- [Message Templates](https://messagetemplates.org)
+
+</Src>
+
+</Q>
+
+<Q id="aspnet.config.observability" level="s">
+
+## Як зробити логування швидким і спостережуваним: `LoggerMessage`, scopes, кореляція та OpenTelemetry?
+
+<A short l="j">
+
+Часті повідомлення пишуть через атрибут `[LoggerMessage]`: генератор створює метод, який спершу перевіряє рівень і не витрачає пам'ять, якщо запис не потрібен. Спостережуваність — це коли за одним `TraceId` знаходяться всі логи, трейси й метрики запиту в усіх сервісах, і стандартно її дає <T k="opentelemetry">OpenTelemetry</T>.
+
+</A>
+
+<A short l="m">
+
+`[LoggerMessage]` (.NET 6+) генерує типізований метод: перевірка `IsEnabled`, без масиву `params` і упакування, шаблон перевірено під час компіляції. <T k="log-scope">Scope</T> додає властивості до всіх записів усередині блоку, а ASP.NET Core сам додає `TraceId`, `SpanId` і `RequestId`, тому лог пов'язується з трейсом. OpenTelemetry збирає логи, метрики й трейси з <T k="activity">`Activity`</T> і надсилає їх за <T k="otlp">OTLP</T> у будь-який бекенд ціною ще одного конвеєра й обсягу даних.
+
+</A>
+
+<A short l="s">
+
+Швидкий лог не виконує жодної роботи до перевірки рівня (`[LoggerMessage]`), надсилається у фоні, а його обсяг обмежують семплюванням і буферизацією. Кореляція тримається на `Activity`: ASP.NET Core продовжує вхідний <T k="w3c-trace-context">W3C Trace Context</T> (`traceparent`), `HttpClient` передає його далі, а логер додає `TraceId` до кожного запису. OpenTelemetry відокремлює інструментування від бекенду: код пише в `ILogger`, `Meter` і `ActivitySource`, а Elastic, Jaeger чи <T k="apm">APM</T>-система отримують дані за OTLP. Головна ціна — обсяг телеметрії, тому її бюджетують, як будь-яку інфраструктуру.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+- **`[LoggerMessage]`** — атрибут над `partial`-методом. Тіло методу пише генератор: перевірка рівня й запис без зайвих алокацій.
+- **Scope** — блок `using (logger.BeginScope(...))`, властивості якого додаються до всіх записів усередині.
+- **Кореляція** — спільний `TraceId` у всіх записах одного запиту, навіть якщо запит пройшов через кілька сервісів.
+- **OpenTelemetry** — стандарт і бібліотеки для трьох сигналів: логів, метрик і трейсів.
+
+**Як користуватися**
+
+1. Часті повідомлення оголосіть методами з `[LoggerMessage]`.
+2. Номер замовлення чи користувача покладіть у scope один раз, а не в кожне повідомлення.
+3. Підключіть OpenTelemetry й експорт за OTLP у ваш бекенд.
+
+**Типова помилка**
+
+Вигадувати власний `CorrelationId`, коли вже є `TraceId`. Виходять два непов'язані ідентифікатори.
+
+**Підсумок:** `[LoggerMessage]` — для швидкості, scopes і `TraceId` — для зв'язності логів.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+1. Генератор створює для методу структуру стану й викликає `logger.Log` лише після `IsEnabled`. Значущі аргументи не упаковуються.
+2. `BeginScope` кладе стан у стек на `AsyncLocal`, тому scope переживає `await`. Консольний провайдер виводить scopes за `IncludeScopes`.
+3. ASP.NET Core відкриває на запит `Activity` і scope з `RequestId` та `RequestPath`. Логер додає `TraceId`, `SpanId` і `ParentId` поточної `Activity`.
+4. `HttpClient` передає заголовок `traceparent`, і наступний сервіс продовжує той самий трейс.
+
+**Коли що обирати**
+
+| Сигнал | На яке питання відповідає |
+|---|---|
+| Метрики (`Meter`) | скільки й як швидко: RPS, затримки, частка помилок |
+| Трейси (`Activity`) | де витрачається час конкретного запиту |
+| Логи (`ILogger`) | що саме сталося і з якими даними |
+
+**Пастки**
+
+- Метод із `[LoggerMessage]` має бути `partial` і повертати `void`. Виняток передають параметром і не згадують у шаблоні.
+- `ActivitySource.StartActivity` повертає `null`, якщо джерело ніхто не слухає, тому звертаються через `activity?.`.
+- Scope зі словником — алокація на кожен виклик, у гарячому циклі його не відкривають.
+
+**Правило**
+
+Метрики — для алертів, трейси — для пошуку вузького місця, логи — для деталей; пов'язує їх `TraceId`.
+
+**Підсумок:** генератор прибирає ціну вимкнених логів, а `Activity` дає спільний `TraceId` логам і трейсам.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- Згенерований метод передає в `ILogger.Log` типізовану структуру стану. Якщо рівень вимкнено, не створюється ні масив, ні рядок.
+- `Activity.Current` зберігається в `AsyncLocal` і тече через `await` разом з `ExecutionContext`. Заголовок `traceparent` несе `trace-id`, `parent-id` і прапорець sampled.
+- У .NET 10 пропагатор за замовчуванням — W3C: baggage іде в заголовку `baggage`, а не в нестандартному `Correlation-Context`.
+
+**Ціна**
+
+- Телеметрія — це CPU на серіалізацію, пам'ять під буфери експортера й трафік. Експортер OpenTelemetry надсилає пакетами у фоні й у разі переповнення черги відкидає дані, а не блокує запит.
+- Сховище оплачується гігабайтами. Трейси семплюють (`ParentBasedSampler` і `TraceIdRatioBasedSampler`), `Debug` у продакшені вимикають, а детальні логи буферизують і випускають лише за помилки (`AddPerIncomingRequestBuffer`, .NET 9+).
+
+**Компроміси**
+
+- Агент Elastic APM інструментує все сам, але прив'язує до вендора. OpenTelemetry — стандарт: бекенд змінюється адресою експорту, а Elastic приймає OTLP і випускає власний дистрибутив EDOT .NET.
+- Агент Elastic APM .NET з версії 1.23 сам підхоплює спани з `ActivitySource`, тому ручне інструментування через `Activity` не прив'язує до агента.
+- Висока кардинальність тегів метрик (id користувача, URL з параметрами) роздуває кількість часових рядів. Такі значення кладуть у трейси й логи.
+
+**Як перевірити в продакшені**
+
+- `dotnet-counters monitor --counters Microsoft.AspNetCore.Hosting,System.Runtime` показує метрики працюючого процесу без SDK і перезапуску.
+- `dotnet-trace` із провайдером `Microsoft-Extensions-Logging` знімає логи процесу, навіть якщо сховище логів недоступне.
+
+**Підсумок:** швидкий лог не працює до перевірки рівня, а спостережуваність — це спільний `TraceId` і бюджет на обсяг телеметрії.
+
+</A>
+
+<Ex>
+
+```csharp
+using System.Diagnostics;
+
+var builder = WebApplication.CreateBuilder(args);
+builder.Logging.AddJsonConsole(o => o.IncludeScopes = true); // scopes і TraceId у кожному записі
+
+var app = builder.Build();
+var source = new ActivitySource("Orders");
+
+app.MapPost("/orders/{id:int}", (int id, ILogger<Program> logger) =>
+{
+    using var activity = source.StartActivity("ProcessOrder"); // спан; null, якщо ніхто не слухає
+    activity?.SetTag("order.id", id);
+
+    using (logger.BeginScope(new Dictionary<string, object> { ["OrderId"] = id }))
+    {
+        OrderLog.Processing(logger, id, "card"); // рівень перевіряється до будь-якої роботи
+    }
+    return Results.Accepted();
+});
+
+app.Run();
+
+static partial class OrderLog
+{
+    [LoggerMessage(EventId = 1001, Level = LogLevel.Information, Message = "Processing order {OrderId} via {Method}")]
+    public static partial void Processing(ILogger logger, int orderId, string method);
+}
+```
+
+</Ex>
+
+<Ex title="OpenTelemetry: зовнішні пакети OpenTelemetry.*">
+
+```csharp
+// NuGet: OpenTelemetry.Extensions.Hosting, OpenTelemetry.Instrumentation.AspNetCore, OpenTelemetry.Instrumentation.Http, OpenTelemetry.Exporter.OpenTelemetryProtocol
+using OpenTelemetry;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddOpenTelemetry()
+    .ConfigureResource(r => r.AddService("orders-api"))
+    .WithTracing(t => t
+        .AddSource("Orders")                      // наш ActivitySource
+        .AddAspNetCoreInstrumentation()
+        .AddHttpClientInstrumentation())
+    .WithMetrics(m => m
+        .AddMeter("Microsoft.AspNetCore.Hosting") // вбудовані метрики ASP.NET Core (.NET 8+)
+        .AddMeter("System.Runtime"))              // GC і пул потоків (.NET 9+)
+    .WithLogging()                                // ILogger → OTLP разом із TraceId і SpanId
+    .UseOtlpExporter();                           // адреса з OTEL_EXPORTER_OTLP_ENDPOINT
+
+var app = builder.Build();
+app.MapGet("/", () => "Hello");
+app.Run();
+```
+
+Змінити бекенд (Elastic, Jaeger, Grafana) — означає змінити адресу OTLP, код лишається тим самим.
+
+</Ex>
+
+<Next>
+
+- Чому `[LoggerMessage]` швидший за `LogInformation`? — Рівень перевіряється до роботи, немає масиву `params` і упакування, шаблон розібрано під час компіляції.
+- Звідки в логах `TraceId`, якщо ви його не писали? — Логер додає `TraceId`, `SpanId` і `ParentId` поточної `Activity` (`ActivityTrackingOptions`).
+- Чому `StartActivity` повернув `null`? — Джерело ніхто не слухає: OpenTelemetry не підписаний на нього через `AddSource`.
+- Чим head-based семплювання відрізняється від tail-based? — Head вирішує на початку трейсу в застосунку, tail — після його завершення в колекторі й може зберегти всі трейси з помилками.
+- Як пов'язати логи Serilog із трейсами? — Serilog сам зберігає `TraceId` і `SpanId` активної `Activity`, їх лишається вивести в sink.
+
+</Next>
+
+<Src>
+
+- [Compile-time logging source generation](https://learn.microsoft.com/dotnet/core/extensions/logging/source-generation)
+- [.NET observability with OpenTelemetry](https://learn.microsoft.com/dotnet/core/diagnostics/observability-with-otel)
+- [Log buffering](https://learn.microsoft.com/dotnet/core/extensions/logging/log-buffering)
+
+</Src>
+
+</Q>

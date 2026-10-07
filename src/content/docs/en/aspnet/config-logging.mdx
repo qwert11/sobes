@@ -1,0 +1,951 @@
+---
+title: Configuration and logging
+description: Configuration sources and their order, environments and secrets, Options and validation, ILogger and Serilog, LoggerMessage, correlation and OpenTelemetry.
+sidebar:
+  order: 3
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+Where an ASP.NET Core app gets its settings, where to keep secrets and how to validate configuration at startup, how to write structured logs and tie them to traces and metrics. Interviewers use this topic to check not only the API but also operational experience: what you do when "nothing is visible" in production.
+
+**Before this topic:** [Dependency injection](/sobes/en/aspnet/di/).
+
+<Q id="aspnet.config.sources" level="j">
+
+## How does configuration work: sources, their order and `Section:Key` keys?
+
+<A short l="j">
+
+Configuration is a flat set of key-value pairs that <T k="iconfiguration">`IConfiguration`</T> assembles from several <T k="configuration-provider">sources</T>: `appsettings.json`, `appsettings.{Environment}.json`, environment variables and the command line. If a key exists in several sources, the one added later wins, so an environment variable overrides a value from JSON.
+
+</A>
+
+<A short l="m">
+
+`WebApplication.CreateBuilder` adds sources in order: `appsettings.json`, `appsettings.{Environment}.json`, User Secrets in Development, environment variables, the command line — the last one wins. Nesting is flattened into colon-separated keys (`Payments:TimeoutSeconds`), and environment variables use `__` instead because not every shell accepts `:`. Values are stored as strings and only get a type when read, so a typo in a key silently gives you `null` or a default value.
+
+</A>
+
+<A short l="s">
+
+`ConfigurationManager` (.NET 6+) is a list of providers, each with its own dictionary: a lookup goes from the end of the list to the first match, and `reloadOnChange` rereads the file and signals through a <T k="change-token">change token</T>. That leads to non-obvious effects: a source added after `CreateBuilder` overrides even the command line, and arrays from different files are merged by index. In .NET 10 a JSON `null` binds as `null` rather than an empty string. So the source order is part of the deployment contract, and you check where a value came from with `GetDebugView()`.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+Configuration is a dictionary of string key-value pairs. The app reads it through `IConfiguration`, and providers fill it, one per source.
+
+**Default sources**
+
+`WebApplication.CreateBuilder` adds them in this order, and each next one overrides the previous ones:
+
+1. `appsettings.json` — shared settings.
+2. `appsettings.{Environment}.json` — per-environment differences.
+3. User Secrets — Development only.
+4. Environment variables.
+5. Command-line arguments.
+
+**How to use**
+
+- JSON nesting becomes a colon-separated key: `config["Payments:TimeoutSeconds"]`.
+- In an environment variable, the colon is replaced with `__`: `Payments__TimeoutSeconds=60`.
+- `GetValue<int>(...)` converts the string to a type, and `GetConnectionString("Default")` reads the `ConnectionStrings:Default` key.
+
+**Common mistake**
+
+A typo in a key: `config["Payment:Timeout"]` returns `null` without an exception.
+
+**Takeaway:** settings are a flat dictionary built from several sources, and the last source wins.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+1. `builder.Configuration` is a `ConfigurationManager` (.NET 6+): both a builder and the finished configuration, so you can read it right in `Program.cs`.
+2. Each provider loads its own dictionary. A key lookup goes from the last provider to the first until it finds a match.
+3. Keys are case-insensitive. Array elements are keys with indexes: `Payments:Currencies:0`.
+4. The command line accepts `--Key=value`, `--Key value`, `/Key value` and `Key=value`.
+
+**When to choose what**
+
+| What you configure | Where to keep it |
+|---|---|
+| Non-secret defaults | `appsettings.json` in the repository |
+| Per-environment differences | `appsettings.{Environment}.json` or environment variables |
+| Deployment-specific values, secrets | environment variables, a secret store |
+| One-off runs, debugging | command-line arguments |
+
+**Pitfalls**
+
+- **Your own source after `CreateBuilder`.** `builder.Configuration.AddJsonFile(...)` goes to the end of the list and overrides environment variables and the command line.
+- **Arrays are merged by index.** If the base file has three elements and the environment file has two, the third one stays from the base file.
+
+**Rule of thumb**
+
+After your own source, call `AddEnvironmentVariables()` and `AddCommandLine(args)` again so the deployment can still override everything.
+
+**Takeaway:** the last provider wins, so the source order is part of the deployment contract.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- `ConfigurationManager` builds a provider as soon as a source is added. That is why values are available before `Build()`.
+- A provider is a case-insensitive dictionary of strings. Types appear only during <T k="configuration-binding">binding</T>: `ConfigurationBinder` parses strings via `TypeConverter` and reflection.
+- File providers with `reloadOnChange: true` watch the file, reread it and signal through `IChangeToken`. The default template enables this for `appsettings*.json`.
+
+**Cost**
+
+- A key lookup walks the providers from the end. In hot code, values are bound to an object once through Options instead of reading `config["..."]` on every request.
+- In containers and on network drives, file system events are unreliable. There you set `DOTNET_USE_POLLING_FILE_WATCHER=true`: polling every four seconds.
+
+**Trade-offs**
+
+- In .NET 10 a JSON `null` binds as `null`, and an empty array `[]` binds as an empty array. Previously `null` became an empty string, so behavior changes when you migrate.
+- Reflection-based binding produces trimming warnings and is not compatible with <T k="native-aot">Native AOT</T>. The binding source generator (.NET 8+) is enabled with the `EnableConfigurationBindingGenerator` property.
+
+**How to check in production**
+
+`((IConfigurationRoot)config).GetDebugView()` shows each key's value and the provider it came from. The overload with `processValue` masks secrets; without it, never expose the output.
+
+**Takeaway:** configuration is a stack of string dictionaries, and the provider order together with the moment of binding determines what your code sees.
+
+</A>
+
+<Ex>
+
+```json
+{
+  "Payments": {
+    "TimeoutSeconds": 30,
+    "Currencies": [ "UAH", "EUR" ]
+  },
+  "ConnectionStrings": {
+    "Default": "Host=localhost;Database=shop"
+  }
+}
+```
+
+```csharp
+var builder = WebApplication.CreateBuilder(args);
+
+// Values are already merged from all sources, so you can read them before Build()
+int timeout = builder.Configuration.GetValue<int>("Payments:TimeoutSeconds");
+
+var app = builder.Build();
+
+app.MapGet("/config", (IConfiguration config) => new
+{
+    Timeout = timeout,                                     // 30, or 60 with Payments__TimeoutSeconds=60
+    FirstCurrency = config["Payments:Currencies:0"],       // "UAH"
+    HasDb = config.GetConnectionString("Default") is not null, // key ConnectionStrings:Default
+    Typo = config["Payment:Timeout"]                       // null: a typo, no exception
+});
+
+app.Run();
+```
+
+Running `dotnet run --Payments:TimeoutSeconds=90` gives 90 even when the environment variable is set: the command line is added last.
+
+</Ex>
+
+<Next>
+
+- Which wins: `appsettings.Production.json` or an environment variable? — The environment variable: its provider is added later.
+- Why do environment variables use `__` instead of `:`? — Bash and some platforms don't accept `:` in names; `__` is turned into `:` when read.
+- What happens if you add your own JSON file after `CreateBuilder`? — It ends up last and overrides even the command line.
+- How do you override the second array element from the environment? — With an indexed key: `Payments__Currencies__1=USD`.
+- How do you find out where a value came from? — `GetDebugView()` on `IConfigurationRoot` shows the provider of every key.
+
+</Next>
+
+<Src>
+
+- [Configuration in ASP.NET Core](https://learn.microsoft.com/aspnet/core/fundamentals/configuration/)
+- [Configuration providers in .NET](https://learn.microsoft.com/dotnet/core/extensions/configuration-providers)
+- [Breaking change: Null values preserved in configuration](https://learn.microsoft.com/dotnet/core/compatibility/extensions/10.0/configuration-null-values-preserved)
+
+</Src>
+
+</Q>
+
+<Q id="aspnet.config.environments-secrets" level="j">
+
+## How do environments work, and where should you keep secrets?
+
+<A short l="j">
+
+The <T k="hosting-environment">environment</T> is a name such as `Development`, `Staging` or `Production`, set by the `ASPNETCORE_ENVIRONMENT` or `DOTNET_ENVIRONMENT` variable; it decides which `appsettings.{Environment}.json` is loaded and which debugging features are on. Secrets are never committed: locally they live in <T k="user-secrets">User Secrets</T>, and on a server in environment variables or a store like Azure Key Vault.
+
+</A>
+
+<A short l="m">
+
+The environment is chosen once at host startup, and if it isn't set it is `Production`, so debugging features turn on only through an explicit `IsDevelopment()` check. User Secrets is an unencrypted JSON file in the user profile that `CreateBuilder` loads only in Development. In production, secrets come from the environment, mounted files or a <T k="secret-store">secret store</T> that the app accesses with a <T k="managed-identity">managed identity</T>, so no passwords remain in the configuration.
+
+</A>
+
+<A short l="s">
+
+An environment is a branch in behavior and sources, so the fewer `if (IsDevelopment())` checks in code, the smaller the gap between what was tested and what was deployed. A secret in an environment variable shows up in process dumps and in `docker inspect`, while a store gives identity-based access, auditing and rotation. The cost of a store is a network call at startup and a dependency on its availability. A secret that reached git counts as compromised: you revoke it rather than scrub it from history.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+The environment is a string the app reads at startup. The standard values are `Development`, `Staging` and `Production`; if nothing is set, it is `Production`.
+
+**How to use**
+
+- Locally the environment comes from <T k="launch-settings">`launchSettings.json`</T>, on a server from the `ASPNETCORE_ENVIRONMENT` variable.
+- In code you check `builder.Environment.IsDevelopment()` or `app.Environment.IsProduction()`.
+- Per-environment settings go into `appsettings.{Environment}.json`.
+
+**Where to keep secrets**
+
+| Where | With what |
+|---|---|
+| Developer machine | User Secrets: `dotnet user-secrets set` |
+| Server, container | environment variables, orchestrator secrets |
+| Cloud | Azure Key Vault, AWS Secrets Manager, HashiCorp Vault |
+
+**Common mistake**
+
+Putting a password into `appsettings.Development.json` and committing it. Treat everything in the repository as public.
+
+**Takeaway:** the environment picks the behavior and the settings file, and secrets live outside the repository.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+1. The environment name comes from `DOTNET_ENVIRONMENT` or `ASPNETCORE_ENVIRONMENT`, the `--environment` argument or `WebApplicationOptions.EnvironmentName`. With `WebApplication` in .NET 7+, `DOTNET_ENVIRONMENT` wins when both variables are set.
+2. The environment is fixed when the host is built and doesn't change at runtime.
+3. In Development, `CreateBuilder` loads User Secrets, and `WebApplication` shows the developer exception page on its own.
+4. User Secrets live in `secrets.json` in the user profile: `%APPDATA%\Microsoft\UserSecrets\<id>` on Windows, `~/.microsoft/usersecrets/<id>` on Linux and macOS. `<id>` is the `UserSecretsId` from the `.csproj`, added by `dotnet user-secrets init`.
+
+**When to choose what**
+
+| Option | When |
+|---|---|
+| User Secrets | local development only, the file isn't encrypted |
+| Environment variables | simple deployments, containers |
+| Secret files (`AddKeyPerFile`) | Docker and Kubernetes secrets mounted into a directory |
+| Key Vault and similar | cloud: managed identity, auditing, rotation |
+
+**Pitfalls**
+
+- **File name casing.** The Linux file system is case-sensitive: with the `Production` environment, a file named `appsettings.production.json` is not picked up.
+- **`launchSettings.json` isn't published.** On a server without the variable, the environment silently becomes `Production`.
+
+**Rule of thumb**
+
+The repository holds only non-secret defaults. Everything that differs between environments or is secret comes from outside.
+
+**Takeaway:** the environment sets the behavior and the set of files, and at every stage secrets come from their own source, but never from git.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- The environment name is the `environment` host configuration key. It is set by the `DOTNET_` and `ASPNETCORE_` variables or `--environment`, but not by `appsettings.json`: files are read after the environment is chosen.
+- The Key Vault provider (`Azure.Extensions.AspNetCore.Configuration.Secrets`) loads secrets at startup and turns `--` in a name into `:`: the secret `Payments--ApiKey` becomes the key `Payments:ApiKey`. It reloads them only if `ReloadInterval` is set.
+- `AddKeyPerFile` turns each file in a directory into a key, and `__` in the file name into `:`.
+
+**Cost**
+
+- Environment variables are visible to anyone who can see the process: they end up in dumps, in `/proc` on Linux and in `docker inspect`.
+- A store is a network call at startup and an external dependency: an unavailable Key Vault means the app doesn't start.
+
+**Trade-offs**
+
+- Every `if (env.IsProduction())` is code that runs for the first time in production. Differences belong in configuration, not in branches.
+- `DefaultAzureCredential` is convenient: locally it uses the developer's account, in Azure a managed identity. For production the docs recommend a specific `ManagedIdentityCredential`: fewer attempts and a more predictable failure.
+- The best secret is no secret: a managed identity for the database and cloud services removes the password from configuration entirely.
+
+**How to check in production**
+
+- At startup the host logs `Hosting environment: Production` — the first thing to check when settings look "strange".
+- A secret scanner in CI, such as gitleaks or GitHub secret scanning, catches passwords before merge.
+
+**Takeaway:** a reliable secret is one that isn't in the configuration: an identity instead of a password, a store instead of a file.
+
+</A>
+
+<Ex>
+
+```csharp
+var builder = WebApplication.CreateBuilder(args);
+
+// Docker/Kubernetes secrets: the file /run/secrets/Payments__ApiKey becomes the key Payments:ApiKey.
+// The source is added last, so it overrides environment variables too.
+builder.Configuration.AddKeyPerFile("/run/secrets", optional: true);
+
+var app = builder.Build();
+
+if (!app.Environment.IsDevelopment())
+{
+    app.UseExceptionHandler("/error"); // in Development the exception page is used instead
+    app.UseHsts();
+}
+
+app.MapGet("/env", (IHostEnvironment env, IConfiguration config) => new
+{
+    env.EnvironmentName,                                          // "Development"
+    HasApiKey = !string.IsNullOrEmpty(config["Payments:ApiKey"])  // never return the secret itself
+});
+
+app.Run();
+```
+
+```bash
+# Locally: the secret is stored outside the repository
+dotnet user-secrets init
+dotnet user-secrets set "Payments:ApiKey" "dev-key"
+
+# Server or container: the colon is replaced with __
+export ASPNETCORE_ENVIRONMENT=Staging
+export Payments__ApiKey="..."
+```
+
+</Ex>
+
+<Next>
+
+- What is the environment if nothing is set? — `Production`.
+- Are User Secrets encrypted? — No, it's a plain JSON file in the user profile, for development only.
+- What's wrong with a secret in an environment variable? — It's visible in dumps and container metadata, with no auditing or rotation.
+- How does Key Vault store hierarchical keys? — With `--`: `Payments--ApiKey` becomes `Payments:ApiKey`.
+- What do you do with a secret that ended up in git? — Revoke and reissue it: rewriting history doesn't help.
+
+</Next>
+
+<Src>
+
+- [ASP.NET Core runtime environments](https://learn.microsoft.com/aspnet/core/fundamentals/environments)
+- [Safe storage of app secrets in development](https://learn.microsoft.com/aspnet/core/security/app-secrets)
+- [Azure Key Vault configuration provider](https://learn.microsoft.com/aspnet/core/security/key-vault-configuration)
+
+</Src>
+
+</Q>
+
+<Q id="aspnet.config.options" level="m">
+
+## How do `IOptions`, `IOptionsSnapshot` and `IOptionsMonitor` differ, and how do you validate settings?
+
+<A short l="j">
+
+The <T k="options-pattern">options pattern</T> binds a configuration section to a class that services receive through DI as `IOptions<T>`. `IOptions<T>` reads the values once, `IOptionsSnapshot<T>` rereads them on every request, and `IOptionsMonitor<T>` always returns the current ones and notifies you about changes.
+
+</A>
+
+<A short l="m">
+
+All three interfaces build the object with the same factory and differ in lifetime and caching: `IOptions<T>` is a singleton computed once; <T k="ioptions-snapshot">`IOptionsSnapshot<T>`</T> is scoped and recomputed per request; <T k="ioptions-monitor">`IOptionsMonitor<T>`</T> is a singleton with `CurrentValue` and `OnChange`. Validation through `ValidateDataAnnotations`, `Validate` or `IValidateOptions<T>` runs on first access by default, which is why you add <T k="validate-on-start">`ValidateOnStart`</T>. A snapshot costs a new object per request, and with a monitor the value can change in the middle of an operation.
+
+</A>
+
+<A short l="s">
+
+`OptionsFactory` applies all `Configure` actions, then `PostConfigure`, then validators, and `OptionsMonitor` caches the result by name and clears the cache on the configuration change token. `ValidateOnStart` only protects startup: if an invalid file lands on disk, `CurrentValue` doesn't roll back to the old value but starts throwing `OptionsValidationException`. For Native AOT, the <T k="source-generator">source generator</T> `[OptionsValidator]` (.NET 8+) writes a reflection-free validator. Make reloadable only the settings that are safe to change on the fly: log levels, flags, limits.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+The options pattern reads settings through a typed class instead of strings by key. The `Payments` section of `appsettings.json` binds to a `PaymentsOptions` class, and a service receives it through DI.
+
+**How to use**
+
+1. Declare a class with `{ get; set; }` properties.
+2. Register it: `builder.Services.Configure<PaymentsOptions>(builder.Configuration.GetSection("Payments"))`.
+3. Inject `IOptions<PaymentsOptions>` and read `.Value`.
+
+**Which interface to use**
+
+| Interface | When it sees new values |
+|---|---|
+| `IOptions<T>` | never, read once |
+| `IOptionsSnapshot<T>` | on the next request |
+| `IOptionsMonitor<T>` | right after the file changes |
+
+**Common mistake**
+
+Expecting `IOptions<T>` to pick up an `appsettings.json` edit without a restart. That takes a snapshot or a monitor.
+
+**Takeaway:** read settings through a typed class, and choose the interface by whether you need changes on the fly.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+1. `Configure<T>` and `AddOptions<T>().BindConfiguration("Payments")` register not the object itself but a way to configure it.
+2. On first access, `IOptionsFactory<T>` creates an instance and applies all `Configure` actions, then `PostConfigure`, then validators.
+3. The result is cached: forever for `IOptions<T>`, for the request scope for `IOptionsSnapshot<T>`, and until the configuration changes for `IOptionsMonitor<T>`.
+
+**When to choose what**
+
+| Interface | Lifetime | Who it suits |
+|---|---|---|
+| `IOptions<T>` | singleton | everyone, if values don't change without a restart |
+| `IOptionsSnapshot<T>` | scoped | request handlers; supports <T k="named-options">named options</T> |
+| `IOptionsMonitor<T>` | singleton | singleton services and reacting via `OnChange` |
+
+**Validation**
+
+- `ValidateDataAnnotations()` — `[Required]`, `[Range]`, `[Url]` attributes.
+- `Validate(o => ..., "message")` — a rule as a lambda, for example a relation between two fields.
+- `IValidateOptions<T>` — a separate class when the rule needs services.
+- `ValidateOnStart()` (.NET 6+) — validation at startup instead of on the first request.
+
+**Pitfalls**
+
+- `IOptionsSnapshot<T>` is a scoped service, so it can't be injected into a singleton.
+- Nested objects aren't validated by attributes without `[ValidateObjectMembers]` and `[ValidateEnumeratedItems]` (.NET 8+).
+- A typo in the section name isn't an error: an object with default values gets bound. Only `[Required]` catches it.
+
+**Rule of thumb**
+
+For every section: `AddOptions<T>().BindConfiguration(...).ValidateDataAnnotations().ValidateOnStart()`.
+
+**Takeaway:** choose the interface by the consumer's lifetime, and run validation at startup.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- `OptionsMonitor<T>` subscribes to the configuration change token. On reload it removes the instance from the cache, creates a new one through the factory and calls the `OnChange` listeners.
+- If the new instance is invalid, the old value isn't kept: `CurrentValue` throws `OptionsValidationException` on every access until the file is fixed.
+- `IOptionsSnapshot<T>` creates a new instance in every scope: reflection-based binding and validation run on every request.
+
+**Cost**
+
+- A snapshot means extra allocations and CPU per request. On a hot path it's replaced with a monitor reading `CurrentValue`.
+- `ValidateDataAnnotations` and binding use reflection: they are slower and produce warnings under trimming and Native AOT.
+
+**Trade-offs**
+
+- `[OptionsValidator]` on an empty `partial` class generates an `IValidateOptions<T>` at compile time. You register it as a singleton, and `ValidateDataAnnotations` is no longer needed.
+- Reloading on the fly is handy for log levels and flags. For a connection string or a pool size it's dangerous: an object created at startup won't forget the old value.
+- Validating at startup makes a deployment fail "loudly": the process won't start, but it also won't return 500 on every request.
+
+**How to check in production**
+
+With `ValidateOnStart`, an invalid configuration crashes the host at startup with `OptionsValidationException` and the full list of errors. You see it in the deployment logs and in a failed readiness probe.
+
+**Takeaway:** a monitor for reloadable settings, the generator for reflection-free validation, `ValidateOnStart` so errors surface at deployment.
+
+</A>
+
+<Ex>
+
+```csharp
+using System.ComponentModel.DataAnnotations;
+using Microsoft.Extensions.Options;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddOptions<PaymentsOptions>()
+    .BindConfiguration("Payments")
+    .ValidateDataAnnotations()
+    .Validate(o => o.TimeoutSeconds < 120, "TimeoutSeconds must be less than 120")
+    .ValidateOnStart(); // the error surfaces at startup, not on the first request
+
+var app = builder.Build();
+
+app.MapGet("/snapshot", (IOptionsSnapshot<PaymentsOptions> o) => o.Value.BaseUrl);          // recomputed for this request
+app.MapGet("/monitor", (IOptionsMonitor<PaymentsOptions> o) => o.CurrentValue.TimeoutSeconds); // the current value
+
+app.Run();
+
+public sealed class PaymentsOptions
+{
+    [Required, Url]
+    public string BaseUrl { get; set; } = "";
+
+    [Range(1, 300)]
+    public int TimeoutSeconds { get; set; } = 30;
+}
+```
+
+</Ex>
+
+<Ex title="Validator from a source generator (.NET 8+)">
+
+```csharp
+using System.ComponentModel.DataAnnotations;
+using Microsoft.Extensions.Options;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddOptions<PaymentsOptions>().BindConfiguration("Payments").ValidateOnStart();
+// Instead of ValidateDataAnnotations(): the validator is generated at compile time, no reflection
+builder.Services.AddSingleton<IValidateOptions<PaymentsOptions>, PaymentsOptionsValidator>();
+
+var app = builder.Build();
+app.Run();
+
+[OptionsValidator]
+public partial class PaymentsOptionsValidator : IValidateOptions<PaymentsOptions> { }
+
+public sealed class PaymentsOptions
+{
+    [Required, Url]
+    public string BaseUrl { get; set; } = "";
+}
+```
+
+</Ex>
+
+<Next>
+
+- Can you inject `IOptionsSnapshot<T>` into a singleton? — No, it's scoped; a singleton takes `IOptionsMonitor<T>`.
+- When does validation run without `ValidateOnStart`? — On the first access to `.Value` or `CurrentValue`.
+- What are named options? — Several instances of one type under different names: `Get("Primary")` on a snapshot or monitor.
+- Are nested objects validated by attributes? — No, you need `[ValidateObjectMembers]` and `[ValidateEnumeratedItems]`.
+- What happens to `IOptionsMonitor<T>` after an invalid file is written? — The old value isn't kept, and `CurrentValue` starts throwing `OptionsValidationException`.
+
+</Next>
+
+<Src>
+
+- [Options pattern in .NET](https://learn.microsoft.com/dotnet/core/extensions/options)
+- [Options pattern in ASP.NET Core](https://learn.microsoft.com/aspnet/core/fundamentals/configuration/options)
+- [Compile-time options validation source generation](https://learn.microsoft.com/dotnet/core/extensions/options-validation-generator)
+
+</Src>
+
+</Q>
+
+<Q id="aspnet.config.logging" level="m">
+
+## How does logging work in ASP.NET Core, and why are messages written as templates rather than interpolated strings?
+
+<A short l="j">
+
+`ILogger<T>` writes messages with a level from `Trace` to `Critical` and a <T k="log-category">category</T> — the full class name, while <T k="logging-provider">providers</T> decide where they go: the console, a file, Elastic. Messages are written as a template like `"Order {OrderId} created"` with arguments, not interpolation, so that `OrderId` becomes a separate field you can search by.
+
+</A>
+
+<A short l="m">
+
+`ILoggerFactory` creates a logger per category that hands each entry to all providers, and filters from the `Logging` section cut off levels by the longest matching category prefix. A <T k="message-template">message template</T> with named placeholders produces a <T k="structured-logging">structured log</T> — text plus properties to search by in Elastic or Seq, while interpolation loses the properties and formats the string even when the level is off. Serilog adds <T k="serilog-sink">sinks</T>, <T k="serilog-enricher">enrichers</T> and object destructuring, at the cost of a second level configuration.
+
+</A>
+
+<A short l="s">
+
+`Microsoft.Extensions.Logging` is an abstraction: the API, filters and scopes, while the provider decides on format and delivery. A template is also a grouping key: all `Order {OrderId} created` events are one event type with different properties, while interpolated strings are unique and break grouping. The cost of `LogInformation(template, args)` is a `params` array and boxing of value-type arguments even when the level is off, so hot code uses `[LoggerMessage]`. With Serilog, levels from `Logging:LogLevel` stop working and filters move to `Serilog:MinimumLevel` — a common reason for "missing" logs.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **`ILogger<T>`** — the interface for writing logs, received through DI.
+- **Category** — the logger's name, usually the full name of class `T`. Filtering is done by it.
+- **Level** — severity: `Trace`, `Debug`, `Information`, `Warning`, `Error`, `Critical`.
+- **Provider** — where an entry goes. `CreateBuilder` adds Console, Debug, EventSource and EventLog on Windows.
+
+**How to use**
+
+1. Write templates: `logger.LogInformation("Order {OrderId} created", id)`.
+2. Pass the exception as the first argument: `logger.LogError(ex, "Payment {PaymentId} failed", paymentId)`.
+3. Set levels in the `Logging:LogLevel` section of `appsettings.json`.
+
+**Common mistake**
+
+Interpolation like `$"Order {id} created"`. The log gets a finished string with no `OrderId` field, and finding all entries for an order becomes hard.
+
+**Takeaway:** a logger with a category, levels in configuration, messages as templates with named parameters.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+1. `ILoggerFactory` creates a logger for a category, and it hands each entry to every provider.
+2. One rule is chosen per provider-category pair: rules for that provider beat general ones, among them the longest matching category prefix wins, and without a match `Default` applies.
+3. Arguments fill the template by position, not by name. Placeholder names become property names.
+4. A structured provider (JSON console, Serilog, OpenTelemetry) keeps the properties separately, along with the original template.
+
+**When to choose what**
+
+| Task | Solution |
+|---|---|
+| Container, an agent collects logs | JSON console: `AddJsonConsole()` |
+| Files, Seq, Elastic, many sinks | Serilog: `Serilog.AspNetCore` |
+| Logs together with traces and metrics | export through OpenTelemetry |
+
+**Serilog**
+
+- **Sink** — where to write: Console, File, Seq, Elasticsearch (`Elastic.Serilog.Sinks`), OpenTelemetry.
+- **Enricher** — what to add to every event: `FromLogContext`, `WithMachineName`, `WithThreadId`.
+- `{@Order}` destructures an object into fields, `{$Order}` writes its `ToString()`.
+- `UseSerilogRequestLogging()` writes one event per request instead of several from ASP.NET Core.
+
+**Pitfalls**
+
+- With Serilog, levels come from `Serilog:MinimumLevel`, and `Logging:LogLevel` no longer applies.
+- The CA2254 analyzer warns when a template isn't a constant.
+
+**Takeaway:** filters work by category and provider, and a log only has structure when it uses a template with named parameters.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- `LogInformation(string message, params object?[] args)` allocates an array and boxes value-type arguments before the level check. Even with `Debug` off, a `LogDebug` call allocates.
+- A template is parsed once and cached. An interpolated string is formatted at the call site, even if the entry is filtered out later.
+- `LoggerExtensions` has no interpolated string handler overloads, so `$"..."` is always formatted up front.
+
+**Cost**
+
+- Every event costs CPU for formatting, allocations, network traffic and storage. Storing and indexing in Elastic often costs more than the computation.
+- High-cardinality properties bloat the index. Destructure only DTOs, not EF entities with navigation properties.
+
+**Trade-offs**
+
+- `Microsoft.Extensions.Logging` with export to OpenTelemetry means fewer dependencies, and logs and traces share one protocol.
+- Serilog has richer sinks and formatting, but it's a second pipeline with its own level configuration. It can write to OTLP too: `Serilog.Sinks.OpenTelemetry`.
+- A sink that writes to the network synchronously slows requests down. Slow sinks are wrapped in `Serilog.Sinks.Async`, and you watch for buffer overflow.
+
+**How to check in production**
+
+- Aggregating in the log store by message template and category shows the "noisiest" lines of code.
+- Logging allocations show up in an allocation profiler (dotnet-trace) and in BenchmarkDotNet with `[MemoryDiagnoser]`.
+
+**Takeaway:** a template is both structure and a grouping key, while interpolation pays for formatting even when the log isn't needed.
+
+</A>
+
+<Ex>
+
+```json
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning",
+      "Orders": "Debug"
+    },
+    "Console": {
+      "FormatterName": "json"
+    }
+  }
+}
+```
+
+```csharp
+var builder = WebApplication.CreateBuilder(args);
+var app = builder.Build();
+
+app.MapPost("/orders/{id:int}", (int id, ILoggerFactory factory) =>
+{
+    ILogger log = factory.CreateLogger("Orders.Api"); // prefix "Orders" → Debug level
+
+    // Good: OrderId and Total are separate fields, one template for all orders
+    log.LogInformation("Order {OrderId} created, total {Total}", id, 99.5m);
+
+    // Bad: a finished string without fields, formatted even when the level is off
+    log.LogInformation($"Order {id} created, total {99.5m}");
+
+    log.LogDebug("Reserved stock for {OrderId}", id); // logged: Debug is on for "Orders"
+    return Results.Created($"/orders/{id}", null);
+});
+
+app.Run();
+```
+
+</Ex>
+
+<Ex title="Serilog: the external Serilog.AspNetCore package">
+
+```csharp
+// NuGet: Serilog.AspNetCore
+using Serilog;
+
+Log.Logger = new LoggerConfiguration()
+    .WriteTo.Console()
+    .CreateBootstrapLogger(); // catches startup errors before the host is built
+
+try
+{
+    var builder = WebApplication.CreateBuilder(args);
+
+    builder.Services.AddSerilog((services, lc) => lc
+        .ReadFrom.Configuration(builder.Configuration) // levels and sinks from the "Serilog" section
+        .ReadFrom.Services(services)
+        .Enrich.FromLogContext());                     // properties from scopes and LogContext
+
+    var app = builder.Build();
+    app.UseSerilogRequestLogging(); // one event per request
+    app.MapGet("/", () => "Hello");
+    app.Run();
+}
+catch (Exception ex)
+{
+    Log.Fatal(ex, "Host terminated unexpectedly");
+}
+finally
+{
+    Log.CloseAndFlush(); // flush sink buffers before exit
+}
+```
+
+```json
+{
+  "Serilog": {
+    "MinimumLevel": {
+      "Default": "Information",
+      "Override": { "Microsoft.AspNetCore": "Warning" }
+    },
+    "WriteTo": [
+      { "Name": "Console" },
+      { "Name": "File", "Args": { "path": "logs/app-.log", "rollingInterval": "Day" } }
+    ]
+  }
+}
+```
+
+</Ex>
+
+<Next>
+
+- How is the level chosen for the `Microsoft.AspNetCore.Routing` category? — A provider rule beats a general one, then the longest matching category prefix wins.
+- Why are arguments matched by position, not by name? — The template is parsed positionally; names only become property names.
+- How does `{@Order}` differ from `{Order}` in Serilog? — `@` destructures the object into fields; without it, `ToString()` is written.
+- Why did the levels from `Logging` stop working after adding Serilog? — Serilog does the filtering itself; levels are set in `Serilog:MinimumLevel`.
+- How do you log an exception properly? — Pass it as the first argument, `LogError(ex, ...)`, instead of putting `ex.Message` into the text.
+
+</Next>
+
+<Src>
+
+- [Logging in .NET and ASP.NET Core](https://learn.microsoft.com/aspnet/core/fundamentals/logging/)
+- [Serilog.AspNetCore](https://github.com/serilog/serilog-aspnetcore)
+- [Message Templates](https://messagetemplates.org)
+
+</Src>
+
+</Q>
+
+<Q id="aspnet.config.observability" level="s">
+
+## How do you make logging fast and observable: `LoggerMessage`, scopes, correlation and OpenTelemetry?
+
+<A short l="j">
+
+Frequent messages are written through the `[LoggerMessage]` attribute: a generator creates a method that checks the level first and wastes no memory if the entry isn't needed. Observability means one `TraceId` finds all the logs, traces and metrics of a request across services, and the standard way to get it is <T k="opentelemetry">OpenTelemetry</T>.
+
+</A>
+
+<A short l="m">
+
+`[LoggerMessage]` (.NET 6+) generates a strongly typed method: an `IsEnabled` check, no `params` array or boxing, and a template validated at compile time. A <T k="log-scope">scope</T> adds properties to every entry inside a block, and ASP.NET Core adds `TraceId`, `SpanId` and `RequestId` by itself, so a log links to its trace. OpenTelemetry collects logs, metrics and traces built on <T k="activity">`Activity`</T> and ships them over <T k="otlp">OTLP</T> to any backend, at the cost of another pipeline and more data.
+
+</A>
+
+<A short l="s">
+
+A fast log does no work before the level check (`[LoggerMessage]`), is shipped in the background, and its volume is capped with sampling and buffering. Correlation rests on `Activity`: ASP.NET Core continues the incoming <T k="w3c-trace-context">W3C Trace Context</T> (`traceparent`), `HttpClient` passes it on, and the logger adds `TraceId` to every entry. OpenTelemetry separates instrumentation from the backend: code writes to `ILogger`, `Meter` and `ActivitySource`, and Elastic, Jaeger or an <T k="apm">APM</T> system receive the data over OTLP. The main cost is telemetry volume, so you budget for it like any other infrastructure.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **`[LoggerMessage]`** — an attribute on a `partial` method. The generator writes the method body: a level check and an entry without extra allocations.
+- **Scope** — a `using (logger.BeginScope(...))` block whose properties are added to every entry inside it.
+- **Correlation** — a shared `TraceId` on all entries of one request, even when the request passes through several services.
+- **OpenTelemetry** — a standard and libraries for three signals: logs, metrics and traces.
+
+**How to use**
+
+1. Declare frequent messages as methods with `[LoggerMessage]`.
+2. Put the order or user ID into a scope once instead of into every message.
+3. Add OpenTelemetry and OTLP export to your backend.
+
+**Common mistake**
+
+Inventing your own `CorrelationId` when a `TraceId` already exists. You end up with two unrelated identifiers.
+
+**Takeaway:** `[LoggerMessage]` for speed, scopes and `TraceId` for connected logs.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+1. The generator creates a state struct for the method and calls `logger.Log` only after `IsEnabled`. Value-type arguments aren't boxed.
+2. `BeginScope` pushes state onto a stack held in an `AsyncLocal`, so a scope survives `await`. The console provider prints scopes with `IncludeScopes`.
+3. ASP.NET Core starts an `Activity` and a scope with `RequestId` and `RequestPath` for each request. The logger adds `TraceId`, `SpanId` and `ParentId` of the current `Activity`.
+4. `HttpClient` sends the `traceparent` header, and the next service continues the same trace.
+
+**When to choose what**
+
+| Signal | The question it answers |
+|---|---|
+| Metrics (`Meter`) | how many and how fast: RPS, latency, error rate |
+| Traces (`Activity`) | where a specific request spends its time |
+| Logs (`ILogger`) | what exactly happened and with which data |
+
+**Pitfalls**
+
+- A `[LoggerMessage]` method must be `partial` and return `void`. The exception is passed as a parameter and not mentioned in the template.
+- `ActivitySource.StartActivity` returns `null` when nobody listens to the source, so you access it through `activity?.`.
+- A scope with a dictionary allocates on every call, so you don't open one in a hot loop.
+
+**Rule of thumb**
+
+Metrics for alerts, traces for finding the bottleneck, logs for details; `TraceId` ties them together.
+
+**Takeaway:** the generator removes the cost of disabled logs, and `Activity` gives logs and traces a shared `TraceId`.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- The generated method passes a strongly typed state struct to `ILogger.Log`. If the level is off, neither an array nor a string is created.
+- `Activity.Current` lives in an `AsyncLocal` and flows through `await` with `ExecutionContext`. The `traceparent` header carries the `trace-id`, the `parent-id` and the sampled flag.
+- In .NET 10 the default propagator is W3C: baggage goes in the `baggage` header instead of the non-standard `Correlation-Context`.
+
+**Cost**
+
+- Telemetry costs CPU for serialization, memory for exporter buffers and network traffic. The OpenTelemetry exporter batches in the background and drops data when its queue is full rather than blocking requests.
+- Storage is paid by the gigabyte. Traces are sampled (`ParentBasedSampler` and `TraceIdRatioBasedSampler`), `Debug` is off in production, and detailed logs are buffered and emitted only on error (`AddPerIncomingRequestBuffer`, .NET 9+).
+
+**Trade-offs**
+
+- The Elastic APM agent instruments everything itself but ties you to the vendor. OpenTelemetry is a standard: the backend changes with the export address, and Elastic accepts OTLP and ships its own EDOT .NET distribution.
+- Since 1.23, the Elastic APM .NET agent picks up `ActivitySource` spans itself, so manual `Activity` instrumentation doesn't tie you to the agent.
+- High-cardinality metric tags (user ID, URLs with parameters) blow up the number of time series. Such values belong in traces and logs.
+
+**How to check in production**
+
+- `dotnet-counters monitor --counters Microsoft.AspNetCore.Hosting,System.Runtime` shows metrics of a running process without an SDK or a restart.
+- `dotnet-trace` with the `Microsoft-Extensions-Logging` provider captures a process's logs even when the log store is unavailable.
+
+**Takeaway:** a fast log does no work before the level check, and observability is a shared `TraceId` plus a budget for telemetry volume.
+
+</A>
+
+<Ex>
+
+```csharp
+using System.Diagnostics;
+
+var builder = WebApplication.CreateBuilder(args);
+builder.Logging.AddJsonConsole(o => o.IncludeScopes = true); // scopes and TraceId in every entry
+
+var app = builder.Build();
+var source = new ActivitySource("Orders");
+
+app.MapPost("/orders/{id:int}", (int id, ILogger<Program> logger) =>
+{
+    using var activity = source.StartActivity("ProcessOrder"); // a span; null if nobody listens
+    activity?.SetTag("order.id", id);
+
+    using (logger.BeginScope(new Dictionary<string, object> { ["OrderId"] = id }))
+    {
+        OrderLog.Processing(logger, id, "card"); // the level is checked before any work
+    }
+    return Results.Accepted();
+});
+
+app.Run();
+
+static partial class OrderLog
+{
+    [LoggerMessage(EventId = 1001, Level = LogLevel.Information, Message = "Processing order {OrderId} via {Method}")]
+    public static partial void Processing(ILogger logger, int orderId, string method);
+}
+```
+
+</Ex>
+
+<Ex title="OpenTelemetry: the external OpenTelemetry.* packages">
+
+```csharp
+// NuGet: OpenTelemetry.Extensions.Hosting, OpenTelemetry.Instrumentation.AspNetCore, OpenTelemetry.Instrumentation.Http, OpenTelemetry.Exporter.OpenTelemetryProtocol
+using OpenTelemetry;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddOpenTelemetry()
+    .ConfigureResource(r => r.AddService("orders-api"))
+    .WithTracing(t => t
+        .AddSource("Orders")                      // our ActivitySource
+        .AddAspNetCoreInstrumentation()
+        .AddHttpClientInstrumentation())
+    .WithMetrics(m => m
+        .AddMeter("Microsoft.AspNetCore.Hosting") // built-in ASP.NET Core metrics (.NET 8+)
+        .AddMeter("System.Runtime"))              // GC and thread pool (.NET 9+)
+    .WithLogging()                                // ILogger → OTLP together with TraceId and SpanId
+    .UseOtlpExporter();                           // address from OTEL_EXPORTER_OTLP_ENDPOINT
+
+var app = builder.Build();
+app.MapGet("/", () => "Hello");
+app.Run();
+```
+
+Switching the backend (Elastic, Jaeger, Grafana) means changing the OTLP address; the code stays the same.
+
+</Ex>
+
+<Next>
+
+- Why is `[LoggerMessage]` faster than `LogInformation`? — The level is checked before any work, there's no `params` array or boxing, and the template is parsed at compile time.
+- Where does `TraceId` in your logs come from if you never wrote it? — The logger adds `TraceId`, `SpanId` and `ParentId` of the current `Activity` (`ActivityTrackingOptions`).
+- Why did `StartActivity` return `null`? — Nobody listens to the source: OpenTelemetry isn't subscribed to it through `AddSource`.
+- How does head-based sampling differ from tail-based? — Head decides at the start of a trace in the app; tail decides after it completes, in the collector, and can keep every trace with errors.
+- How do you link Serilog logs to traces? — Serilog stores `TraceId` and `SpanId` of the active `Activity` by itself; you just need to output them in the sink.
+
+</Next>
+
+<Src>
+
+- [Compile-time logging source generation](https://learn.microsoft.com/dotnet/core/extensions/logging/source-generation)
+- [.NET observability with OpenTelemetry](https://learn.microsoft.com/dotnet/core/diagnostics/observability-with-otel)
+- [Log buffering](https://learn.microsoft.com/dotnet/core/extensions/logging/log-buffering)
+
+</Src>
+
+</Q>

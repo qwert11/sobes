@@ -1,0 +1,193 @@
+kestrel:
+  term: Kestrel
+  def: >-
+    The cross-platform web server built into ASP.NET Core. It runs inside the app process, speaks
+    HTTP/1.1, HTTP/2 and HTTP/3, and feeds requests into the middleware pipeline.
+  q: Kestrel ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/servers/kestrel
+reverse-proxy:
+  term: Reverse proxy
+  def: >-
+    A server in front of the app that accepts requests from the network and forwards them to the app.
+    It usually terminates TLS, balances load and lets several apps share ports 80 and 443.
+  q: reverse proxy ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/servers/kestrel/when-to-use-a-reverse-proxy
+forwarded-headers:
+  term: Forwarded headers (X-Forwarded-*)
+  def: >-
+    The `X-Forwarded-For`, `X-Forwarded-Proto` and `X-Forwarded-Host` headers in which a proxy passes
+    the original client IP, scheme and host. In ASP.NET Core they are applied by `UseForwardedHeaders`,
+    which trusts only known proxies.
+  q: ASP.NET Core forwarded headers middleware
+  docs: https://learn.microsoft.com/aspnet/core/host-and-deploy/proxy-load-balancer
+tls-termination:
+  term: TLS termination
+  def: >-
+    Decrypting HTTPS at a proxy or load balancer, after which the request travels to the app over plain
+    HTTP. Only the termination point needs a certificate.
+  q: TLS termination proxy
+http-sys:
+  term: HTTP.sys
+  def: >-
+    A Windows kernel-mode driver that accepts HTTP requests for IIS and other servers. ASP.NET Core has
+    a server of the same name — a Windows-only alternative to Kestrel with port sharing and Windows
+    authentication.
+  q: HTTP.sys ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/servers/httpsys
+middleware:
+  term: Middleware
+  def: >-
+    A component of the ASP.NET Core request pipeline. It receives an `HttpContext`, does its work and
+    either passes the request to the next component or produces the response itself.
+  q: ASP.NET Core middleware
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/middleware/
+request-pipeline:
+  term: Request pipeline
+  def: >-
+    The chain of middleware every HTTP request passes through: in registration order on the way in and
+    in reverse on the way out. It is built once when the app starts.
+  q: ASP.NET Core request pipeline
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/middleware/
+request-delegate:
+  term: RequestDelegate
+  def: >-
+    The `Task RequestDelegate(HttpContext context)` delegate — the signature of a pipeline step and of
+    an endpoint. The whole built pipeline is a single `RequestDelegate` too.
+  q: RequestDelegate ASP.NET Core
+  docs: https://learn.microsoft.com/dotnet/api/microsoft.aspnetcore.http.requestdelegate
+terminal-middleware:
+  term: Terminal middleware
+  def: >-
+    Middleware that produces the response itself and never calls the next component, such as
+    `app.Run`. Nothing registered after it in the same branch runs.
+  q: ASP.NET Core terminal middleware
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/middleware/
+short-circuit:
+  term: Short-circuiting the pipeline
+  def: >-
+    When middleware responds itself without calling `next`, so the rest of the pipeline doesn't run.
+    Serving static files works this way, for example.
+  q: ASP.NET Core short-circuit middleware pipeline
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/middleware/
+host-application-lifetime:
+  term: IHostApplicationLifetime
+  def: >-
+    A service exposing the app's lifecycle events — `ApplicationStarted`, `ApplicationStopping`,
+    `ApplicationStopped` — and a `StopApplication()` method for stopping from code.
+  q: IHostApplicationLifetime
+  docs: https://learn.microsoft.com/dotnet/api/microsoft.extensions.hosting.ihostapplicationlifetime
+host-lifetime:
+  term: IHostLifetime
+  def: >-
+    The component that decides when the host starts and when it begins shutting down. `ConsoleLifetime`
+    reacts to Ctrl+C and SIGTERM, `WindowsServiceLifetime` to Windows service commands.
+  q: IHostLifetime ConsoleLifetime
+  docs: https://learn.microsoft.com/dotnet/core/extensions/generic-host
+imiddleware:
+  term: IMiddleware
+  def: >-
+    A middleware interface with an `InvokeAsync(HttpContext, RequestDelegate)` method. Such middleware is
+    registered in DI and created per request, so it can take scoped dependencies in its constructor.
+  q: IMiddleware factory-based middleware
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/middleware/extensibility
+convention-based-middleware:
+  term: Convention-based middleware
+  def: >-
+    A class with no interface, a constructor taking `RequestDelegate` and an `Invoke` or `InvokeAsync`
+    method. It is created once when the pipeline is built and lives for the whole app lifetime.
+  q: ASP.NET Core convention-based middleware
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/middleware/write
+middleware-factory:
+  term: IMiddlewareFactory
+  def: >-
+    The factory `UseMiddleware` uses to get `IMiddleware` instances per request. The default
+    implementation resolves them from the request's DI scope; a custom one plugs in a third-party
+    container.
+  q: IMiddlewareFactory
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/middleware/extensibility
+endpoint-routing:
+  term: Endpoint routing
+  def: >-
+    ASP.NET Core's main routing system since 3.0: `UseRouting` selects an endpoint by URL and method,
+    and `UseEndpoints` executes it. Middleware between them sees the selected endpoint and its metadata.
+  q: ASP.NET Core endpoint routing
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/routing
+endpoint:
+  term: Endpoint
+  def: >-
+    The unit of request handling in ASP.NET Core: a `RequestDelegate` plus a metadata collection.
+    `MapGet` handlers, controller actions, Razor Pages and SignalR hubs are all endpoints.
+  q: ASP.NET Core endpoint
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/routing
+route-template:
+  term: Route template
+  def: >-
+    A string like `/orders/{id:int}` describing which URLs match an endpoint. It contains literals,
+    parameters in curly braces, constraints, default values and catch-alls.
+  q: ASP.NET Core route template
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/routing#route-templates
+route-constraint:
+  term: Route constraint
+  def: >-
+    A condition on a route parameter: `{id:int}`, `{name:alpha}`, `{slug:regex(...)}`. If the value
+    doesn't fit, the route doesn't match. It exists to tell routes apart, not to validate input.
+  q: ASP.NET Core route constraints
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/routing#route-constraints
+endpoint-metadata:
+  term: Endpoint metadata
+  def: >-
+    Arbitrary objects attached to an endpoint: `[Authorize]` attributes, CORS policies, your own markers
+    via `WithMetadata`. Middleware after `UseRouting` reads them through `context.GetEndpoint()`.
+  q: ASP.NET Core endpoint metadata
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/routing#endpoint-metadata
+route-precedence:
+  term: Route template precedence
+  def: >-
+    The rule for choosing among several matching routes: the more specific template wins. A literal
+    beats a parameter, a constrained parameter beats an unconstrained one, and a catch-all is weakest.
+  q: ASP.NET Core route template precedence
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/routing#route-template-precedence-and-endpoint-selection-order
+ancm:
+  term: ASP.NET Core Module (ANCM)
+  def: >-
+    A native IIS module that runs an ASP.NET Core app inside the `w3wp.exe` worker process
+    (in-process) or as a separate process with Kestrel (out-of-process). It is installed with the .NET
+    Hosting Bundle.
+  q: ASP.NET Core Module ANCM IIS
+  docs: https://learn.microsoft.com/aspnet/core/host-and-deploy/aspnet-core-module
+in-process-hosting:
+  term: In-process hosting
+  def: >-
+    An IIS hosting model in which the app runs inside `w3wp.exe` and requests are accepted by
+    `IISHttpServer` instead of Kestrel. The default model since ASP.NET Core 3.0.
+  q: ASP.NET Core in-process hosting IIS
+  docs: https://learn.microsoft.com/aspnet/core/host-and-deploy/iis/in-process-hosting
+out-of-process-hosting:
+  term: Out-of-process hosting
+  def: >-
+    An IIS hosting model in which ANCM starts the app as a separate process with Kestrel and forwards
+    requests to it over HTTP via loopback.
+  q: ASP.NET Core out-of-process hosting IIS
+  docs: https://learn.microsoft.com/aspnet/core/host-and-deploy/iis/out-of-process-hosting
+app-pool:
+  term: IIS application pool
+  def: >-
+    A group of IIS sites served by `w3wp.exe` worker processes with shared settings: identity, bitness,
+    recycling. In-process ASP.NET Core needs a separate pool for each app.
+  q: IIS application pool
+  docs: https://learn.microsoft.com/iis/configuration/system.applicationhost/applicationpools/
+app-pool-recycling:
+  term: App pool recycling
+  def: >-
+    A scheduled or forced restart of an IIS worker process: on a schedule, on a memory limit, or on a
+    configuration change. By default the new process starts before the old one stops (overlapped
+    recycle).
+  q: IIS application pool recycling overlapped
+  docs: https://learn.microsoft.com/iis/configuration/system.applicationhost/applicationpools/add/recycling/
+hosting-bundle:
+  term: .NET Hosting Bundle
+  def: >-
+    An installer for Windows servers with IIS: it installs the .NET runtime, ASP.NET Core and the
+    ASP.NET Core Module. Without it IIS can't run ASP.NET Core apps.
+  q: .NET Hosting Bundle IIS
+  docs: https://learn.microsoft.com/aspnet/core/host-and-deploy/iis/hosting-bundle

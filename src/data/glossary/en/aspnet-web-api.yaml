@@ -1,0 +1,209 @@
+controller:
+  term: Controller (API controller)
+  def: >-
+    A class deriving from `ControllerBase` whose public methods (actions) handle HTTP requests. Routes
+    come from attributes, and a request goes through the MVC pipeline: filters, model binding,
+    validation and response formatting.
+  q: ASP.NET Core API controller ControllerBase
+  docs: https://learn.microsoft.com/aspnet/core/web-api/
+minimal-api:
+  term: Minimal API
+  def: >-
+    A way to define HTTP endpoints as delegates directly in `Program.cs` with `MapGet`, `MapPost` and
+    similar methods, without controller classes. Introduced in .NET 6, supports Native AOT.
+  q: ASP.NET Core Minimal APIs
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/minimal-apis
+mvc-filter:
+  term: MVC filter
+  def: >-
+    Code that MVC runs around an action at a specific stage: authorization, resource, action,
+    exception or result. Unlike middleware, it sees the action context — arguments, `ModelState` and
+    the result.
+  q: ASP.NET Core MVC filters
+  docs: https://learn.microsoft.com/aspnet/core/mvc/controllers/filters
+model-binding:
+  term: Model binding
+  def: >-
+    Filling action or handler parameters with values from the request: route, query string, headers,
+    form or body. The source is set by `[From...]` attributes or inference rules.
+  q: ASP.NET Core model binding
+  docs: https://learn.microsoft.com/aspnet/core/mvc/models/model-binding
+route-group:
+  term: Route group
+  def: >-
+    A set of Minimal API endpoints sharing a prefix, created with `MapGroup` (.NET 7+). Filters,
+    authorization and metadata applied to the group apply to all its endpoints.
+  q: ASP.NET Core MapGroup route groups
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/minimal-apis/route-handlers
+endpoint-filter:
+  term: Endpoint filter
+  def: >-
+    The Minimal API counterpart of an MVC filter (.NET 7+): code before and after the handler with
+    access to its arguments through `EndpointFilterInvocationContext`. Added with `AddEndpointFilter`.
+  q: ASP.NET Core endpoint filters IEndpointFilter
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/minimal-apis/min-api-filters
+typed-results:
+  term: TypedResults
+  def: >-
+    A Minimal API result factory (.NET 7+) that returns concrete types such as `Ok<T>` and `NotFound`.
+    The response type is visible in the signature and flows automatically into endpoint metadata and
+    OpenAPI.
+  q: ASP.NET Core TypedResults
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/minimal-apis/responses
+data-annotations:
+  term: DataAnnotations
+  def: >-
+    Attributes from `System.ComponentModel.DataAnnotations` for declarative validation rules:
+    `[Required]`, `[Range]`, `[StringLength]`, `[EmailAddress]` and others.
+  q: DataAnnotations validation attributes
+  docs: https://learn.microsoft.com/dotnet/api/system.componentmodel.dataannotations
+api-controller-attribute:
+  term: The [ApiController] attribute
+  def: >-
+    A controller attribute that turns on API-specific behavior: required attribute routing, an
+    automatic 400 response on validation errors, binding source inference and ProblemDetails for
+    error status codes.
+  q: ASP.NET Core ApiController attribute
+  docs: https://learn.microsoft.com/aspnet/core/web-api/#apicontroller-attribute
+model-state:
+  term: ModelState
+  def: >-
+    The `ModelStateDictionary` with binding and validation results in MVC. `ModelState.IsValid` tells
+    whether there are errors, and the errors themselves are grouped by field.
+  q: ASP.NET Core ModelState
+  docs: https://learn.microsoft.com/aspnet/core/mvc/models/validation
+problem-details:
+  term: ProblemDetails
+  def: >-
+    A standard JSON error format for HTTP APIs defined by RFC 9457 (formerly RFC 7807), with `type`,
+    `title`, `status`, `detail` and `instance` fields. ASP.NET Core enables it with
+    `AddProblemDetails()`.
+  q: ProblemDetails RFC 9457
+  docs: https://www.rfc-editor.org/rfc/rfc9457
+dto:
+  term: DTO (Data Transfer Object)
+  def: >-
+    A plain data-only object for passing data between layers or over the network, with no business
+    logic. In an API these are request and response models kept separate from database entities.
+  q: DTO data transfer object
+  wiki: Data transfer object
+rest:
+  term: REST
+  def: >-
+    An architectural API style where a URL names a resource and a standard HTTP method expresses the
+    action on it. The status code reports the outcome, and the server keeps no client state between
+    requests.
+  q: REST API design
+  wiki: REST
+safe-method:
+  term: Safe HTTP method
+  def: >-
+    A method that by its semantics does not change server state: GET, HEAD, OPTIONS, TRACE. Such
+    requests can be cached and retried without side effects.
+  q: HTTP safe methods RFC 9110
+  docs: https://www.rfc-editor.org/rfc/rfc9110#name-safe-methods
+etag:
+  term: ETag
+  def: >-
+    A response header carrying the version of a resource representation. The client sends it back in
+    `If-None-Match` for caching or in `If-Match` for optimistic concurrency, getting 412 if the
+    resource has changed.
+  q: HTTP ETag If-Match optimistic concurrency
+  docs: https://developer.mozilla.org/docs/Web/HTTP/Headers/ETag
+keyset-pagination:
+  term: Keyset pagination (cursor pagination)
+  def: >-
+    Paging by the last key of the previous page: `WHERE id > @after ORDER BY id`. It uses an index and
+    takes the same time on any page, but cannot jump to a page by number.
+  q: keyset pagination vs offset
+  docs: https://learn.microsoft.com/ef/core/querying/pagination
+hateoas:
+  term: HATEOAS
+  def: >-
+    A REST principle where a response contains links to related resources and available actions, and
+    the client follows them instead of building URLs itself.
+  q: HATEOAS REST
+  wiki: HATEOAS
+iexception-handler:
+  term: IExceptionHandler
+  def: >-
+    An interface (.NET 8+) for handling known exceptions in one place. Implementations are registered
+    with `AddExceptionHandler<T>()` and called in order by the `UseExceptionHandler` middleware until
+    one returns `true`.
+  q: ASP.NET Core IExceptionHandler
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/error-handling
+trace-id:
+  term: Trace ID
+  def: >-
+    A W3C Trace Context identifier shared by all operations of one request across a distributed
+    system. ASP.NET Core takes it from `Activity.Current` and adds it to ProblemDetails as `traceId`.
+  q: W3C trace context trace id
+  docs: https://www.w3.org/TR/trace-context/
+developer-exception-page:
+  term: Developer Exception Page
+  def: >-
+    A page with details of an unhandled exception: stack trace, headers, query, cookies. It is enabled
+    automatically in the Development environment and must never run in production.
+  q: ASP.NET Core developer exception page
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/error-handling
+cross-cutting-concern:
+  term: Cross-cutting concern
+  def: >-
+    Logic that many parts of an application need regardless of the business task: logging,
+    authorization, caching, error handling. It is moved into middleware, filters or decorators.
+  q: cross-cutting concerns
+  wiki: Cross-cutting concern
+api-versioning:
+  term: API versioning
+  def: >-
+    Supporting several versions of a contract at once so breaking changes do not affect existing
+    clients. The version is passed in the path, a query parameter, a header or the media type.
+  q: ASP.NET Core API versioning Asp.Versioning
+  docs: https://github.com/dotnet/aspnet-api-versioning
+openapi:
+  term: OpenAPI
+  def: >-
+    A standard for machine-readable HTTP API descriptions in JSON or YAML: paths, parameters, bodies,
+    responses and schemas. Formerly called Swagger; documentation, clients and tests are built from it.
+  q: OpenAPI specification
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/openapi/overview
+breaking-change:
+  term: Breaking change
+  def: >-
+    A contract change after which an existing client stops working: removing or renaming a field,
+    changing a type, a new required parameter, a different meaning of a status code.
+  q: API breaking change
+rate-limiting:
+  term: Rate limiting
+  def: >-
+    Protection that rejects requests above a limit, usually with status 429. Since .NET 7 ASP.NET Core
+    has middleware with fixed window, sliding window, token bucket and concurrency algorithms.
+  q: ASP.NET Core rate limiting middleware
+  docs: https://learn.microsoft.com/aspnet/core/performance/rate-limit
+projection:
+  term: Projection
+  def: >-
+    Selecting only the needed fields from a source, such as `Select` into a DTO in a LINQ query. EF Core
+    then reads only those columns and does not track entities.
+  q: EF Core projection Select
+  docs: https://learn.microsoft.com/ef/core/performance/efficient-querying
+request-timeout:
+  term: Request timeout
+  def: >-
+    ASP.NET Core middleware (.NET 8+) that cancels the `HttpContext.RequestAborted` token after a set
+    time. If the app does not handle the cancellation, the client gets a 504.
+  q: ASP.NET Core request timeouts middleware
+  docs: https://learn.microsoft.com/aspnet/core/performance/timeouts
+tail-latency:
+  term: Tail latency
+  def: >-
+    The response time of the slowest requests, usually the p95, p99 and p99.9 percentiles. Under load
+    these grow first, and the average hides it.
+  q: tail latency p99
+load-testing:
+  term: Load testing
+  def: >-
+    Testing a service under a fixed or growing request rate to find its throughput limit, latency
+    growth and the point of degradation. Tools include k6, NBomber, JMeter and bombardier.
+  q: load testing ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/test/load-tests

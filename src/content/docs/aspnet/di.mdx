@@ -1,0 +1,1012 @@
+---
+title: Внедрение зависимостей
+description: Контейнер и инверсия зависимостей, Singleton, Scoped и Transient, captive dependency, scope в фоновых задачах, keyed services, декораторы и освобождение сервисов.
+sidebar:
+  order: 2
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+Как ASP.NET Core создаёт объекты и передаёт им зависимости: зачем нужен контейнер, чем отличаются времена жизни сервисов, откуда берутся captive dependency и утечки и когда встроенного контейнера мало. Ошибки со временем жизни часто проявляются только под нагрузкой, поэтому их любят спрашивать на собеседованиях.
+
+**Перед этой темой:** [Язык C#](/sobes/dotnet/language/).
+
+<Q id="aspnet.di.what-is-di" level="j">
+
+## Что такое внедрение зависимостей и зачем нужен контейнер?
+
+<A short l="j">
+
+<T k="dependency-injection">Внедрение зависимостей</T> (DI) — приём, при котором класс получает нужные ему объекты снаружи, обычно через конструктор, а не создаёт их сам через `new`. Поэтому реализацию легко подменить, например заглушкой в тесте, а создаёт и связывает объекты <T k="di-container">контейнер</T>.
+
+</A>
+
+<A short l="m">
+
+DI — способ реализовать <T k="dependency-inversion">принцип инверсии зависимостей</T> (DIP): класс зависит от абстракции, а конкретную реализацию выбирает код запуска приложения. Контейнер ASP.NET Core по регистрациям в `builder.Services` сам строит граф объектов через <T k="constructor-injection">внедрение через конструктор</T> и управляет их временем жизни. Цена — связи проверяются только во время выполнения: забытая регистрация проявится исключением при запуске или запросе, а не ошибкой компиляции.
+
+</A>
+
+<A short l="s">
+
+DI — частный случай <T k="inversion-of-control">инверсии управления</T> (IoC): объекты не создают и не ищут свои зависимости, их собирают в одном месте — в `Program.cs`. Конструктор честно перечисляет всё, что нужно классу, поэтому граф легко проверить, а класс — протестировать без контейнера. Противоположность — <T k="service-locator">Service Locator</T>: вызовы `GetService` внутри методов прячут зависимости и переносят ошибки в рантайм. Цена DI — косвенность, а слишком длинный конструктор сигналит, что класс делает слишком много.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+Внедрение зависимостей — класс не создаёт свои зависимости сам, а получает их параметрами конструктора. Зависимость — любой объект, которым класс пользуется: репозиторий, HTTP-клиент, логгер.
+
+**Зачем**
+
+- Реализацию можно заменить, не трогая класс: `SmtpEmailSender` на `FakeEmailSender` в тесте.
+- Код создания объектов собран в одном месте, а не размазан по приложению.
+
+**Как пользоваться**
+
+1. Объявите зависимость параметром конструктора: `public OrderService(IEmailSender sender)`.
+2. Зарегистрируйте реализацию в `builder.Services`: `AddScoped<IEmailSender, SmtpEmailSender>()`.
+3. Контейнер ASP.NET Core сам создаст `OrderService` и передаст в него `SmtpEmailSender`.
+
+**Частая ошибка**
+
+Создавать зависимость через `new` внутри класса. Тогда её не подменить в тесте, а контейнер не освободит её вовремя.
+
+**Итог:** класс просит зависимости через конструктор, а создаёт и связывает их контейнер.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+- **DIP.** Высокоуровневый `OrderService` и низкоуровневый `SmtpEmailSender` зависят от абстракции `IEmailSender`. Абстракцию определяет тот, кто ею пользуется.
+- **Регистрация.** `IServiceCollection` — список регистраций: тип сервиса, реализация, время жизни. `builder.Build()` превращает его в `IServiceProvider`.
+- **Разрешение.** Контейнер выбирает публичный конструктор с наибольшим числом параметров, которые умеет создать, и рекурсивно создаёт каждый параметр. Если таких конструкторов несколько и выбор неоднозначен — исключение.
+
+**Когда что выбирать**
+
+| Способ получить зависимость | Когда |
+|---|---|
+| Параметр конструктора | почти всегда |
+| Параметр обработчика Minimal API, `[FromServices]` в action | зависимость нужна одному эндпоинту |
+| `IServiceProvider.GetService` | инфраструктурный код: фабрики, обёртки |
+
+**Ловушки**
+
+- **Service Locator.** Внедрённый `IServiceProvider` и `GetRequiredService` в методах прячут зависимости. По конструктору не понять, что нужно классу, а забытая регистрация упадёт только при вызове метода.
+- **Статический доступ.** `app.Services` в статическом поле — тот же локатор, только глобальный.
+
+**Правило**
+
+Зависимость — параметром конструктора, реализация — регистрацией в `Program.cs`. `GetService` в бизнес-коде — повод для рефакторинга.
+
+**Итог:** контейнер строит граф объектов по регистрациям, а класс лишь перечисляет нужное в конструкторе.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- После `builder.Build()` коллекция регистраций становится только для чтения: граф фиксируется при старте.
+- При первом запросе сервиса контейнер строит план его создания (call site) и кэширует его. Часто используемые планы он компилирует в делегаты, поэтому повторное разрешение дешёвое.
+- Цикл A → B → A обнаруживается при построении плана: `InvalidOperationException: A circular dependency was detected`.
+
+**Компромиссы**
+
+- **Конструктор против локатора.** Внедрение через конструктор делает зависимости явными и проверяемыми. Локатор гибче, но превращает ошибку старта в ошибку посреди запроса.
+- **Абстракции не бесплатны.** Интерфейс для каждого класса с одной реализацией — шум. Интерфейс нужен там, где есть шов: внешняя система, подмена в тесте, несколько реализаций.
+- **Длинный конструктор.** Десяток параметров — признак нарушения SRP. DI проблему не создаёт, а делает видимой.
+- **Не всё — сервис.** Сущности, DTO и данные запроса создают через `new`. В контейнере живут объекты с поведением.
+
+**Как проверить в проде**
+
+- Ошибка конфигурации видна в логе как `Unable to resolve service for type 'X' while attempting to activate 'Y'`.
+- На ревью ищут `IServiceProvider` в конструкторах бизнес-классов и статические ссылки на провайдер.
+
+**Итог:** DI делает зависимости явными и собирает граф в одном месте; всё, что их прячет, возвращает проблемы, которые DI решал.
+
+</A>
+
+<Ex>
+
+```csharp
+var builder = WebApplication.CreateBuilder(args);
+
+// Регистрация: абстракция → реализация
+builder.Services.AddScoped<IEmailSender, ConsoleEmailSender>();
+builder.Services.AddScoped<OrderService>();
+
+var app = builder.Build();
+
+// Контейнер создаёт OrderService и передаёт в него ConsoleEmailSender
+app.MapPost("/orders/{id:int}", (int id, OrderService orders) => orders.Place(id));
+
+app.Run();
+
+public interface IEmailSender { void Send(string text); }
+
+public class ConsoleEmailSender : IEmailSender
+{
+    public void Send(string text) => Console.WriteLine(text);
+}
+
+// Зависимость приходит через конструктор: класс не знает реализацию
+public class OrderService(IEmailSender sender)
+{
+    public void Place(int id) => sender.Send($"Order {id} placed"); // Order 42 placed
+}
+
+// Антипаттерн Service Locator: по конструктору не видно, что нужно классу
+public class BadOrderService(IServiceProvider services)
+{
+    public void Place(int id) => services.GetRequiredService<IEmailSender>().Send($"Order {id}");
+}
+```
+
+</Ex>
+
+<Next>
+
+- Чем DI отличается от IoC? — IoC — общий принцип «управление у фреймворка», DI — один из способов его реализовать.
+- Почему Service Locator считают антипаттерном? — Он прячет зависимости, переносит ошибки в рантайм и усложняет тесты.
+- Какой конструктор выберет контейнер, если их несколько? — Публичный с наибольшим числом разрешимых параметров; при неоднозначности — исключение.
+- Обязательны ли интерфейсы? — Нет, контейнер внедряет и конкретные классы; интерфейс нужен там, где нужна подмена.
+- Есть ли во встроенном контейнере внедрение через свойства? — Нет, только через конструктор; `[Inject]` в компонентах Blazor и параметры обработчиков Minimal API, action и `InvokeAsync` обрабатывает сам фреймворк.
+
+</Next>
+
+<Src>
+
+- [Dependency injection in ASP.NET Core](https://learn.microsoft.com/aspnet/core/fundamentals/dependency-injection)
+- [Dependency injection in .NET](https://learn.microsoft.com/dotnet/core/extensions/dependency-injection/overview)
+- [Dependency injection guidelines](https://learn.microsoft.com/dotnet/core/extensions/dependency-injection/guidelines)
+
+</Src>
+
+</Q>
+
+<Q id="aspnet.di.lifetimes" level="j">
+
+## Чем отличаются Singleton, Scoped и Transient?
+
+<A short l="j">
+
+<T k="service-lifetime">Время жизни сервиса</T> определяет, как часто контейнер создаёт новый объект: Transient — при каждом внедрении, Scoped — один на <T k="di-scope">scope</T>, то есть на HTTP-запрос, Singleton — один на всё приложение. Поэтому `DbContext` делают scoped, а общий кеш в памяти — singleton.
+
+</A>
+
+<A short l="m">
+
+Время жизни — правило, когда контейнер создаёт экземпляр и когда освобождает его. Scope — область, внутри которой scoped-сервисы общие: ASP.NET Core открывает scope на каждый запрос и в конце освобождает его вместе с созданными в нём scoped- и transient-объектами. Singleton живёт в <T k="root-provider">корневом провайдере</T> до остановки приложения, поэтому обязан быть потокобезопасным и не должен держать сервисы с более коротким временем жизни.
+
+</A>
+
+<A short l="s">
+
+Выбор времени жизни — выбор между общим состоянием и изоляцией. Singleton экономит создание объектов, но делит состояние между всеми запросами и держит свой граф в памяти до остановки; Scoped даёт единицу работы на запрос, как у `DbContext`; Transient дёшев для лёгких объектов без состояния, но добавляет аллокации на каждое разрешение. Что считать scope, решает хост, а не контейнер: в Web API это запрос, в Blazor Server — подключение пользователя, в фоновой задаче — scope, созданный вручную.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+| Время жизни | Когда создаётся новый объект |
+|---|---|
+| `AddTransient` | при каждом внедрении |
+| `AddScoped` | один раз на scope — в веб-приложении на HTTP-запрос |
+| `AddSingleton` | один раз на всё приложение |
+
+**Что такое scope**
+
+Scope — область, внутри которой scoped-сервис существует в одном экземпляре. ASP.NET Core открывает scope в начале запроса и закрывает в конце. Контроллер, сервис и репозиторий в одном запросе получают один и тот же `DbContext`.
+
+**Как пользоваться**
+
+- Лёгкий объект без состояния — Transient.
+- Состояние на запрос: `DbContext`, текущий пользователь — Scoped.
+- Дорогой в создании и общий: кеш в памяти — Singleton.
+
+**Частая ошибка**
+
+Хранить данные запроса в singleton, например в поле `CurrentUser`. Его увидят все параллельные запросы.
+
+**Итог:** Transient — каждый раз новый, Scoped — один на запрос, Singleton — один на приложение.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+1. `builder.Build()` создаёт корневой провайдер. Singleton-сервисы хранятся в нём до остановки приложения.
+2. На каждый запрос ASP.NET Core создаёт scope и кладёт его провайдер в `HttpContext.RequestServices`. Из него создаются контроллеры, обработчики и их зависимости.
+3. Scoped-сервис создаётся при первом обращении в этом scope и дальше переиспользуется. Transient создаётся при каждом разрешении.
+4. В конце запроса scope освобождается: контейнер вызывает `Dispose` у созданных в нём <T k="idisposable">`IDisposable`</T>-объектов.
+
+**Кто от кого может зависеть**
+
+| Сервис | Безопасные зависимости |
+|---|---|
+| Singleton | Singleton; Transient без состояния и ресурсов |
+| Scoped | любые |
+| Transient | любые |
+
+**Ловушки**
+
+- **Scoped из корня.** `app.Services.GetRequiredService<ScopedService>()` вне scope фактически делает сервис singleton: он живёт до остановки. В Development это исключение.
+- **Состояние в singleton.** Его поля одновременно читают и пишут параллельные запросы — нужна синхронизация или неизменяемость.
+
+**Правило**
+
+Сервисы с доступом к данным — Scoped. Singleton — только для дорогого в создании или глобального состояния, и тогда он потокобезопасен. Transient — для лёгких объектов без состояния.
+
+**Итог:** время жизни решает, кто делит экземпляр: запрос, приложение или никто.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- Scope хранит созданные в нём scoped-экземпляры и список объектов, которые надо освободить. Scopes не иерархичны: новый scope ничего не наследует от текущего, общие у них только singleton из корня.
+- Singleton создаётся лениво, при первом запросе. Его фабрику контейнер вызывает ровно один раз и одним потоком, даже при параллельных запросах.
+- Границу scope задаёт хост: HTTP-запрос в MVC и Minimal API, circuit (подключение пользователя) в Blazor Server, ручной scope в фоновой задаче.
+
+**Цена**
+
+- Transient — аллокация и вызов конструктора на каждое разрешение, вместе со всеми transient-зависимостями. На горячем пути тяжёлый граф заметен.
+- Singleton держит свой граф до остановки: всё, что он накопил, GC не вернёт.
+- Тяжёлый конструктор scoped-сервиса оплачивается в каждом запросе.
+
+**Компромиссы**
+
+- Microsoft советует singleton только для сервисов с собственным дорогим или глобальным состоянием. Всё, что держит singleton, становится общим, включая случайно захваченные зависимости.
+- Состояние «на пользователя» не хранят ни в одном времени жизни: для него есть сессия, кеш или база.
+- Scoped в Blazor Server живёт на порядки дольше HTTP-запроса, поэтому `DbContext` там берут через `IDbContextFactory<T>`.
+
+**Как проверить в проде**
+
+- Число экземпляров ваших сервисов в `dotnet-gcdump` растёт при постоянном трафике — кто-то держит их в singleton или в корневом провайдере.
+- Скорость аллокаций в `dotnet-counters` до и после смены времени жизни показывает цену transient-графов.
+
+**Итог:** время жизни — компромисс между общим состоянием, потокобезопасностью и аллокациями, а границу scope определяет хост.
+
+</A>
+
+<Ex>
+
+```csharp
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddSingleton<SingletonDep>();
+builder.Services.AddScoped<ScopedDep>();
+builder.Services.AddTransient<TransientDep>();
+builder.Services.AddTransient<Consumer>();
+
+var app = builder.Build();
+
+// Два потребителя в одном запросе
+app.MapGet("/", (Consumer a, Consumer b) => new
+{
+    singleton = a.Singleton.Id == b.Singleton.Id, // true: один на приложение
+    scoped = a.Scoped.Id == b.Scoped.Id,          // true: один на запрос
+    transient = a.Transient.Id == b.Transient.Id  // false: новый при каждом внедрении
+});
+
+app.Run();
+
+public class Dep { public Guid Id { get; } = Guid.NewGuid(); }
+public class SingletonDep : Dep { }
+public class ScopedDep : Dep { }
+public class TransientDep : Dep { }
+
+public record Consumer(SingletonDep Singleton, ScopedDep Scoped, TransientDep Transient);
+```
+
+При следующем запросе `Scoped.Id` будет другим, а `Singleton.Id` — тем же.
+
+</Ex>
+
+<Next>
+
+- Что будет, если запросить scoped-сервис из `app.Services`? — В Development исключение, иначе он проживёт до остановки приложения, как singleton.
+- Где хранится провайдер текущего запроса? — В `HttpContext.RequestServices`.
+- Чем scope в Blazor Server отличается от scope в Web API? — Он живёт всё подключение пользователя (circuit), а не один запрос.
+- Должен ли singleton быть потокобезопасным? — Да, его одновременно используют все запросы; контейнер гарантирует только однократное создание.
+- Какое время жизни у `DbContext` из `AddDbContext`? — Scoped.
+
+</Next>
+
+<Src>
+
+- [Service lifetimes](https://learn.microsoft.com/dotnet/core/extensions/dependency-injection/service-lifetimes)
+- [Dependency injection in ASP.NET Core](https://learn.microsoft.com/aspnet/core/fundamentals/dependency-injection)
+
+</Src>
+
+</Q>
+
+<Q id="aspnet.di.captive-dependency" level="m">
+
+## Что такое captive dependency и как её поймать?
+
+<A short l="j">
+
+<T k="captive-dependency">Captive dependency</T> («захваченная зависимость») — ситуация, когда долгоживущий сервис, например singleton, получает в конструктор сервис с более коротким временем жизни и держит его вечно. Так один `DbContext` начинает обслуживать все запросы, и в Development ASP.NET Core ловит это исключением при старте.
+
+</A>
+
+<A short l="m">
+
+Captive dependency — ошибка конфигурации: сервис захватывает зависимость с более коротким временем жизни, и та живёт столько же, сколько он. Встроенный контейнер ловит только scoped внутри singleton: <T k="scope-validation">`ValidateScopes`</T> проверяет это при разрешении, а <T k="validate-on-build">`ValidateOnBuild`</T> — заранее, при `Build()`. Обе проверки включены по умолчанию только в Development, поэтому для остальных окружений их включают явно или проверяют конфигурацию тестом.
+
+</A>
+
+<A short l="s">
+
+Captive dependency — нарушение правила «зависимость живёт не меньше потребителя». Контейнер видит только scoped в singleton, а transient в singleton для него законен — так захватываются typed `HttpClient`, которые перестают видеть смену DNS. `ValidateOnBuild` не проверяет открытые generic-регистрации и не видит зависимостей, которые <T k="implementation-factory">фабрика</T> достаёт из провайдера сама. Поэтому проверку включают в интеграционном тесте для всех окружений, а остальное закрывают ревью и правилом «singleton зависит только от singleton».
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+Captive dependency — сервис с длинным временем жизни держит в поле сервис с коротким. Классический случай: singleton получает в конструктор scoped-репозиторий с `DbContext`.
+
+**Почему это плохо**
+
+Конструктор singleton вызывается один раз, значит, и репозиторий внутри него один на всё приложение:
+
+- `DbContext` не потокобезопасен, и параллельные запросы ломают его состояние;
+- отслеживаемые им сущности копятся всё время работы приложения.
+
+**Как поймать**
+
+В Development ASP.NET Core сам проверяет регистрации при запуске и падает с ошибкой `Cannot consume scoped service ... from singleton ...`. Эту проверку не отключают.
+
+**Частая ошибка**
+
+«Починить» исключение, сделав репозиторий singleton. Ошибка пропадёт из лога, а проблема останется.
+
+**Итог:** сервис не должен зависеть от сервисов, которые живут меньше него.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+| Опция | Что проверяет | Когда |
+|---|---|---|
+| `ValidateScopes` | scoped не разрешается из корня и не внедряется в singleton | при разрешении |
+| `ValidateOnBuild` | каждую регистрацию можно создать | при `builder.Build()` |
+
+Вместе они ловят scoped в singleton уже при старте. `WebApplication.CreateBuilder` включает обе в окружении Development, в остальных — через `builder.Host.UseDefaultServiceProvider`.
+
+**Ловушки**
+
+- **Transient в singleton.** Контейнер это не проверяет. Typed `HttpClient` — transient: захваченный singleton, он перестаёт видеть смену DNS.
+- **Фабрики.** В `AddSingleton(sp => new X(sp.GetRequiredService<Repo>()))` зависимость спрятана в лямбде, и `ValidateOnBuild` её не видит. `ValidateScopes` поймает её только при первом создании `X`.
+- **Middleware.** Обычный middleware создаётся один раз. Scoped-сервис берут параметром `InvokeAsync`, а не конструктора.
+- **Открытые generic.** `AddScoped(typeof(IRepository<>), typeof(Repository<>))` при `Build()` не проверяется.
+
+**Правило**
+
+Зависимость живёт не меньше потребителя: singleton принимает только singleton. Scoped из singleton берут через свой scope.
+
+**Итог:** контейнер ловит scoped в singleton, а transient-захваты, фабрики и открытые generic остаются на вас.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- Для каждой регистрации контейнер строит дерево call site — план создания. С `ValidateScopes` валидатор ищет scoped-узлы в дереве singleton и запрещает разрешать scoped из корня.
+- `ValidateOnBuild` строит план для каждой закрытой регистрации при `Build()` и собирает ошибки в `AggregateException`. Правило scoped/singleton он проверяет, только если включён и `ValidateScopes`.
+- Фабрика в плане — непрозрачный узел: что она разрешит внутри, неизвестно до вызова.
+
+**Цена**
+
+- Захваченный `DbContext` даёт `InvalidOperationException: A second operation started on this context before a previous operation completed`, устаревшие данные и рост памяти.
+- Захваченный typed `HttpClient` держит один `HttpMessageHandler` и не замечает смену DNS.
+- Ошибки плавают: они проявляются под параллельной нагрузкой, а не в тестах с одним запросом.
+
+**Компромиссы**
+
+- `ValidateOnBuild` в Production удлиняет старт пропорционально числу регистраций. Дешевле интеграционный тест, который собирает хост с обеими проверками и падает в CI.
+- То, что контейнер не видит, закрывают соглашением: singleton принимает только singleton, `IServiceScopeFactory` или фабрики вроде `IHttpClientFactory` и `IDbContextFactory<T>`.
+
+**Как проверить в проде**
+
+- Симптомы: ошибки параллельного доступа к `DbContext` под нагрузкой, данные одного пользователя в ответе другому, рост памяти.
+- В дампе (`dotnet-dump`, команда `gcroot`) видно, что `DbContext` удерживает singleton-сервис из корневого провайдера.
+
+**Итог:** валидация ловит только scoped в singleton и только в том, что видит; остальное закрывают тест с проверками и правило «singleton зависит от singleton».
+
+</A>
+
+<Ex>
+
+```csharp
+var builder = WebApplication.CreateBuilder(args);
+
+// Вне Development проверки выключены: включаем их во всех окружениях
+builder.Host.UseDefaultServiceProvider(options =>
+{
+    options.ValidateScopes = true;
+    options.ValidateOnBuild = true;
+});
+
+builder.Services.AddScoped<CartRepository>();
+builder.Services.AddSingleton<PriceService>();
+
+// AggregateException: ... Cannot consume scoped service 'CartRepository'
+// from singleton 'PriceService'.
+var app = builder.Build();
+app.Run();
+
+public class CartRepository
+{
+    public decimal GetTotal() => 100m;
+}
+
+// Captive dependency: singleton держит scoped-репозиторий вечно.
+// Исправление: сделать PriceService scoped или брать репозиторий из своего scope.
+public class PriceService(CartRepository repository)
+{
+    public decimal Total() => repository.GetTotal();
+}
+```
+
+</Ex>
+
+<Next>
+
+- Поймает ли контейнер transient внутри singleton? — Нет, для него это законно; следить приходится самим.
+- Почему в Development приложение падает, а в Production работает? — `ValidateScopes` и `ValidateOnBuild` по умолчанию включены только в Development.
+- Как получить scoped-сервис в middleware? — Параметром `InvokeAsync`: конструктор обычного middleware вызывается один раз.
+- Можно ли внедрить `IOptionsSnapshot<T>` в singleton? — Нет, он scoped; в singleton используют `IOptionsMonitor<T>`.
+- Что не проверяет `ValidateOnBuild`? — Открытые generic-регистрации и зависимости, которые фабрика разрешает внутри себя.
+
+</Next>
+
+<Src>
+
+- [Dependency injection guidelines: captive dependency](https://learn.microsoft.com/dotnet/core/extensions/dependency-injection/guidelines#captive-dependency)
+- [Scope validation](https://learn.microsoft.com/dotnet/core/extensions/dependency-injection/overview#scope-validation)
+- [ServiceProviderOptions.ValidateOnBuild](https://learn.microsoft.com/dotnet/api/microsoft.extensions.dependencyinjection.serviceprovideroptions.validateonbuild)
+
+</Src>
+
+</Q>
+
+<Q id="aspnet.di.scopes-background" level="m">
+
+## Как использовать scoped-сервис из singleton или фоновой задачи?
+
+<A short l="j">
+
+Нужно создать свой scope через <T k="service-scope-factory">`IServiceScopeFactory`</T>, взять сервис из `scope.ServiceProvider` и освободить scope после работы. Так `DbContext` в <T k="background-service">фоновой задаче</T> живёт одну итерацию, а не всё время работы приложения.
+
+</A>
+
+<A short l="m">
+
+Singleton и `BackgroundService` создаются в корневом провайдере, где scope запроса нет, поэтому scoped-сервисы в них внедряют не напрямую, а через `IServiceScopeFactory`. На каждую <T k="unit-of-work">единицу работы</T> — сообщение, итерацию, задание — создают `await using var scope = factory.CreateAsyncScope()` и разрешают сервисы из него. Цена — сервисы создаются заново на каждую единицу работы, зато `DbContext` не копит отслеживаемые сущности и освобождается вовремя.
+
+</A>
+
+<A short l="s">
+
+Scope — граница единицы работы: всё, что разрешено из него, освобождается вместе с ним, а `CreateAsyncScope` (.NET 6+) корректно вызывает `DisposeAsync` у <T k="iasyncdisposable">`IAsyncDisposable`</T>-сервисов. Ключевое решение — гранулярность: scope на сообщение изолирует ошибки и не даёт `DbContext` разрастись, а scope на весь цикл превращает scoped в скрытый singleton. Scope не делает сервисы потокобезопасными, поэтому параллельные задачи получают каждая свой. Если нужен только `DbContext`, проще `IDbContextFactory<T>`, но созданный им контекст освобождают сами.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+Фоновая задача и singleton создаются один раз, вне HTTP-запроса. Scope запроса им недоступен, а внедрить scoped-сервис в конструктор нельзя: в Development это исключение.
+
+**Как пользоваться**
+
+1. Внедрите в конструктор `IServiceScopeFactory` — это singleton, его можно.
+2. На каждую единицу работы создайте scope: `await using var scope = scopeFactory.CreateAsyncScope();`.
+3. Возьмите сервис из него: `scope.ServiceProvider.GetRequiredService<AppDbContext>()`.
+4. В конце блока scope освободится вместе с `DbContext`.
+
+**Частая ошибка**
+
+Создать один scope перед бесконечным циклом. Тогда `DbContext` живёт всё время работы приложения, как singleton.
+
+**Итог:** вне запроса scope создают вручную — на каждую единицу работы.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+- `IServiceScopeFactory` зарегистрирован как singleton и создаёт scopes от корневого провайдера.
+- `scope.ServiceProvider` — провайдер этого scope: scoped-сервисы в нём общие, transient создаются заново, singleton берутся из корня.
+- `Dispose` или `DisposeAsync` у scope освобождает всё, что в нём создано.
+
+**Когда что выбирать**
+
+| Способ | Когда |
+|---|---|
+| `CreateAsyncScope()` и `await using` (.NET 6+) | по умолчанию |
+| `CreateScope()` и `using` | синхронный код, все сервисы реализуют `IDisposable` |
+| `IDbContextFactory<T>` | нужен только `DbContext`; контекст освобождаете сами |
+
+**Ловушки**
+
+- **Синхронное освобождение.** Если сервис реализует только `IAsyncDisposable`, `scope.Dispose()` выбросит `InvalidOperationException`.
+- **Scope на весь цикл.** Отслеживаемые сущности копятся, а ошибка одной итерации портит контекст для следующих.
+- **Сервисы запроса в фоне.** Задача, которая захватила сервисы из `HttpContext.RequestServices`, переживёт запрос и получит `ObjectDisposedException`. В фон передают данные, а сервисы берут из нового scope.
+- **Параллельные задачи.** Один scope на несколько потоков — один `DbContext` на всех. Каждой задаче — свой scope.
+
+**Правило**
+
+Один scope — одна единица работы: сообщение из очереди, итерация таймера, задание.
+
+**Итог:** `IServiceScopeFactory` и `CreateAsyncScope` на каждую единицу работы — стандартный способ получить scoped-сервис вне запроса.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- `AddHostedService` регистрирует фоновую службу как singleton, поэтому её конструктор вызывается в корневом провайдере один раз.
+- Scope хранит созданные в нём объекты и при `DisposeAsync` освобождает их в порядке, обратном созданию: `DisposeAsync`, если он есть, иначе `Dispose`.
+- Scopes не иерархичны: scope фоновой задачи не видит scoped-сервисов запроса, даже если создан во время этого запроса.
+
+**Цена**
+
+Сам scope дёшев, платят за сервисы внутри него. Для `DbContext` цену создания снижает пул (`AddDbContextPool`).
+
+**Компромиссы**
+
+| Гранулярность scope | Плюс | Минус |
+|---|---|---|
+| На сообщение | изоляция ошибок, свежий контекст | сервисы создаются на каждое сообщение |
+| На пачку | меньше накладных расходов, одна транзакция | ошибка откатывает всю пачку |
+| На весь цикл | минимум кода | скрытый singleton, рост памяти |
+
+`IDbContextFactory<T>` удобен в singleton и Blazor Server, но обходит scope: другие scoped-сервисы этот контекст не увидят.
+
+**Как проверить в проде**
+
+- `dotnet-counters monitor --counters Microsoft.EntityFrameworkCore` показывает число активных `DbContext`. Если оно постоянно растёт, контексты не освобождаются.
+- Рост памяти фонового процесса при ровной нагрузке — повод проверить, где создаётся scope.
+
+**Итог:** scope — граница единицы работы; его гранулярность определяет изоляцию ошибок, память и цену создания сервисов.
+
+</A>
+
+<Ex>
+
+```csharp
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddScoped<OrderStore>();          // как DbContext из AddDbContext
+builder.Services.AddHostedService<OutboxWorker>(); // hosted service — singleton
+
+var app = builder.Build();
+app.Run();
+
+public class OutboxWorker(IServiceScopeFactory scopeFactory) : BackgroundService
+{
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            // Новый scope на каждую итерацию: свежий OrderStore
+            await using (var scope = scopeFactory.CreateAsyncScope())
+            {
+                var store = scope.ServiceProvider.GetRequiredService<OrderStore>();
+                await store.SendPendingAsync(stoppingToken);
+            } // здесь вызывается OrderStore.DisposeAsync()
+
+            await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken);
+        }
+    }
+}
+
+public sealed class OrderStore : IAsyncDisposable
+{
+    public Task SendPendingAsync(CancellationToken ct) => Task.CompletedTask;
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+}
+```
+
+</Ex>
+
+<Next>
+
+- Почему нельзя внедрить `DbContext` в конструктор `BackgroundService`? — Фоновая служба — singleton, это captive dependency; в Development будет исключение.
+- Чем `CreateAsyncScope` лучше `CreateScope`? — Освобождает `IAsyncDisposable`-сервисы через `DisposeAsync`; синхронный `Dispose` на них выбрасывает исключение.
+- Как передать данные запроса в фоновую задачу? — Копией данных (id, DTO), а не сервисами из `RequestServices`: они освободятся вместе с запросом.
+- Когда `IDbContextFactory<T>` удобнее scope? — Когда нужен только `DbContext` или несколько единиц работы внутри одного scope, как в Blazor Server.
+- Наследует ли новый scope сервисы текущего запроса? — Нет, scopes не иерархичны.
+
+</Next>
+
+<Src>
+
+- [Use scoped services within a BackgroundService](https://learn.microsoft.com/dotnet/core/extensions/scoped-service)
+- [Dependency injection in .NET: scope scenarios](https://learn.microsoft.com/dotnet/core/extensions/dependency-injection/overview#scope-scenarios)
+- [ServiceProviderServiceExtensions.CreateAsyncScope](https://learn.microsoft.com/dotnet/api/microsoft.extensions.dependencyinjection.serviceproviderserviceextensions.createasyncscope)
+
+</Src>
+
+</Q>
+
+<Q id="aspnet.di.multiple-implementations" level="m">
+
+## Как зарегистрировать несколько реализаций одного интерфейса и выбрать нужную?
+
+<A short l="j">
+
+Каждый вызов `Add...` для одного интерфейса добавляет ещё одну регистрацию: при внедрении `IEnumerable<T>` придут все реализации в порядке регистрации, а при внедрении `T` — последняя. Чтобы выбрать конкретную реализацию по имени, в .NET 8 появились <T k="keyed-services">keyed services</T> и атрибут `[FromKeyedServices]`.
+
+</A>
+
+<A short l="m">
+
+`IServiceCollection` — список регистраций, поэтому повторная регистрация не заменяет прежнюю, а добавляется к ней: `T` разрешается в последнюю, `IEnumerable<T>` — во все. <T k="try-add">`TryAdd`</T> регистрирует, только если сервиса ещё нет, а `TryAddEnumerable` — если нет такой же пары «сервис и реализация»; так библиотеки задают умолчания и не задваивают обработчики. Keyed services (.NET 8+) выбирают реализацию по ключу, а <T k="decorator-pattern">декораторы</T> встроенный контейнер не поддерживает — их пишут фабрикой или через <T k="scrutor">Scrutor</T>.
+
+</A>
+
+<A short l="s">
+
+Порядок регистраций — часть контракта: правило «последняя побеждает» позволяет переопределять реализации, а `TryAdd` — задавать умолчания, которые приложение может заменить. Keyed services закрывают сценарий «стратегия по ключу» без самописной фабрики, но ключ не проверяется компилятором, а выбор реализации переезжает к потребителю. Декоратор во встроенном контейнере — это ручная фабрика или Scrutor, который переписывает уже добавленную регистрацию. Все регистрации собирают в <T k="composition-root">composition root</T> через методы расширения `Add{Feature}`, иначе порядок и переопределения перестают быть управляемыми.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+У интерфейса бывает несколько реализаций: `EmailNotifier` и `SmsNotifier` для `INotifier`. Обе регистрируются обычным `AddScoped` или `AddSingleton`.
+
+**Как пользоваться**
+
+- **Все сразу.** Внедрите `IEnumerable<INotifier>` — придут все реализации в порядке регистрации. Так делают рассылку по всем каналам.
+- **Последняя.** Внедрите `INotifier` — придёт последняя зарегистрированная.
+- **По ключу (.NET 8+).** Зарегистрируйте `AddKeyedScoped<INotifier, SmsNotifier>("sms")` и внедрите `[FromKeyedServices("sms")] INotifier sms`.
+
+**Частая ошибка**
+
+Ожидать, что вторая регистрация заменит первую. Она добавится к списку, и в `IEnumerable<T>` окажутся обе.
+
+**Итог:** `IEnumerable<T>` — все реализации, `T` — последняя, ключ — конкретная.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+`IServiceCollection` — список `ServiceDescriptor`: тип сервиса, реализация или фабрика, время жизни и, с .NET 8, ключ.
+
+| Метод | Что делает |
+|---|---|
+| `Add{Lifetime}` | всегда добавляет регистрацию |
+| `TryAdd{Lifetime}` | добавляет, если для сервиса ещё нет регистраций |
+| `TryAddEnumerable` | добавляет, если нет такой же пары «сервис и реализация» |
+| `Replace`, `RemoveAll` | заменяет или удаляет регистрации сервиса |
+
+**Когда что выбирать**
+
+- Обработчики, валидаторы, плагины — `IEnumerable<T>` и регистрация через `TryAddEnumerable`, чтобы повторный вызов `AddFeature()` не задвоил их.
+- Умолчание в библиотеке — `TryAdd`: если приложение уже зарегистрировало свою реализацию, библиотека её не перекроет.
+- Стратегия по значению: провайдер оплаты, хранилище по региону — keyed services, `[FromKeyedServices(key)]` или `GetRequiredKeyedService<T>(key)`.
+- Обёртка над реализацией: кеш, логирование, повторы — декоратор.
+
+**Ловушки**
+
+- Keyed-регистрации не попадают в обычный `IEnumerable<T>` и не разрешаются без ключа.
+- Декоратор `AddScoped<IRepo>(sp => new CachedRepo(sp.GetRequiredService<IRepo>()))` зациклится: фабрика разрешает сама себя. Внутреннюю реализацию регистрируют под конкретным типом.
+- `TryAdd` после `Add` того же сервиса ничего не делает: порядок вызовов важен.
+
+**Правило**
+
+Равноправные реализации — `IEnumerable<T>`, выбор по значению — ключ или фабрика-стратегия, обёртка — декоратор.
+
+**Итог:** регистрации — упорядоченный список: `Add` дописывает, `TryAdd` уважает существующее, ключ выбирает конкретную реализацию.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- Для `T` контейнер берёт последнюю регистрацию, для `IEnumerable<T>` — все в порядке добавления. Время жизни у каждого элемента своё: в одном `IEnumerable<T>` бывают singleton и transient.
+- Ключ — любой объект с корректным `Equals`. `KeyedService.AnyKey` задаёт запасную реализацию для любого ключа, а атрибут `[ServiceKey]` передаёт ключ в конструктор реализации.
+- С .NET 10 `GetKeyedService` с `KeyedService.AnyKey` выбрасывает `InvalidOperationException`: `AnyKey` не годится для выбора одного сервиса.
+
+**Компромиссы**
+
+| Способ выбрать реализацию | Плюс | Минус |
+|---|---|---|
+| Keyed services | встроено, без своего кода | ключ не проверяется компилятором, выбор у потребителя |
+| Фабрика-стратегия | выбор в одном месте, легко тестировать | свой код и регистрация |
+| `IEnumerable<T>` и свойство `Name` | новая реализация без правки фабрики | перебор при каждом выборе |
+
+Декоратор фабрикой явен, но конструкторы приходится вызывать руками. Scrutor (`Decorate<TService, TDecorator>()`) заменяет уже добавленную регистрацию, поэтому вызов должен идти после неё.
+
+**Как проверить в проде**
+
+- Какая реализация реально внедряется, фиксирует интеграционный тест: собрать хост и проверить тип `GetRequiredService<T>()`.
+- Событие обработано дважды — признак `Add` вместо `TryAddEnumerable` в методе расширения, который вызвали два раза.
+
+**Итог:** выбор реализации — решение дизайна: перечисление, ключ или фабрика; декораторы во встроенном контейнере — только руками или через Scrutor.
+
+</A>
+
+<Ex>
+
+```csharp
+using Microsoft.Extensions.DependencyInjection.Extensions;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddSingleton<INotifier, EmailNotifier>();
+builder.Services.AddSingleton<INotifier, SmsNotifier>();
+// Ничего не добавит: пара INotifier + EmailNotifier уже есть
+builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<INotifier, EmailNotifier>());
+// Keyed services (.NET 8+): реализация по ключу
+builder.Services.AddKeyedSingleton<INotifier, SmsNotifier>("sms");
+builder.Services.AddSingleton<Dispatcher>();
+
+var app = builder.Build();
+app.MapGet("/", (Dispatcher d) => d.Describe()); // "email,sms | sms | sms"
+app.Run();
+
+public interface INotifier { string Name { get; } }
+public class EmailNotifier : INotifier { public string Name => "email"; }
+public class SmsNotifier : INotifier { public string Name => "sms"; }
+
+public class Dispatcher(
+    IEnumerable<INotifier> all,                 // email, sms — в порядке регистрации
+    INotifier last,                             // sms — последняя регистрация
+    [FromKeyedServices("sms")] INotifier byKey) // sms — по ключу
+{
+    public string Describe() =>
+        $"{string.Join(",", all.Select(n => n.Name))} | {last.Name} | {byKey.Name}";
+}
+```
+
+</Ex>
+
+<Ex title="Декоратор без библиотек">
+
+```csharp
+var builder = WebApplication.CreateBuilder(args);
+
+// Внутренняя реализация — под конкретным типом, интерфейс отдаём декоратору
+builder.Services.AddScoped<SqlOrderRepository>();
+builder.Services.AddScoped<IOrderRepository>(sp => new LoggingOrderRepository(
+    sp.GetRequiredService<SqlOrderRepository>(),
+    sp.GetRequiredService<ILogger<LoggingOrderRepository>>()));
+// Со Scrutor: AddScoped<IOrderRepository, SqlOrderRepository>(),
+// затем Decorate<IOrderRepository, LoggingOrderRepository>()
+
+var app = builder.Build();
+app.MapGet("/orders/{id:int}", (int id, IOrderRepository repo) => repo.Find(id));
+app.Run();
+
+public interface IOrderRepository { string Find(int id); }
+
+public class SqlOrderRepository : IOrderRepository
+{
+    public string Find(int id) => $"order-{id}";
+}
+
+public class LoggingOrderRepository(IOrderRepository inner, ILogger<LoggingOrderRepository> logger)
+    : IOrderRepository
+{
+    public string Find(int id)
+    {
+        logger.LogInformation("Find {Id}", id);
+        return inner.Find(id);
+    }
+}
+```
+
+</Ex>
+
+<Next>
+
+- Что придёт в конструктор `INotifier`, если зарегистрировано две реализации? — Последняя зарегистрированная.
+- Чем `TryAdd` отличается от `TryAddEnumerable`? — Первый проверяет только тип сервиса, второй — пару «сервис и реализация».
+- Попадают ли keyed-регистрации в `IEnumerable<T>`? — Нет, только обычные; keyed запрашивают с ключом.
+- Как получить ключ внутри keyed-реализации? — Параметр конструктора с атрибутом `[ServiceKey]`.
+- Как сделать декоратор без Scrutor? — Зарегистрировать внутреннюю реализацию под конкретным типом и собрать декоратор фабрикой.
+
+</Next>
+
+<Src>
+
+- [Service registration](https://learn.microsoft.com/dotnet/core/extensions/dependency-injection/service-registration)
+- [Keyed services](https://learn.microsoft.com/dotnet/core/extensions/dependency-injection/overview#keyed-services)
+- [GetKeyedService() and GetKeyedServices() with AnyKey (.NET 10)](https://learn.microsoft.com/dotnet/core/compatibility/extensions/10.0/getkeyedservice-anykey)
+
+</Src>
+
+</Q>
+
+<Q id="aspnet.di.disposal-third-party" level="s">
+
+## Кто освобождает сервисы, чем опасны фабрики и когда нужен сторонний контейнер?
+
+<A short l="j">
+
+Контейнер сам вызывает `Dispose` у объектов, которые создал: scoped и transient — в конце scope, singleton — при остановке приложения, а объект, переданный готовым через `AddSingleton(instance)`, не освобождает. Поэтому вызывать `Dispose` у внедрённого сервиса нельзя, а сторонний контейнер вроде <T k="autofac">Autofac</T> нужен, только когда не хватает возможностей встроенного.
+
+</A>
+
+<A short l="m">
+
+Контейнер освобождает всё, что создал сам, включая результаты фабрик, в порядке, обратном созданию, а готовые экземпляры остаются на разработчике. Опасны <T k="disposable-transient">disposable transient</T>: контейнер держит ссылку на каждый до конца scope, а разрешённые из корня живут до остановки приложения. Autofac берут ради модулей, декораторов, <T k="property-injection">внедрения через свойства</T> и вложенных scope с тегами, а для сканирования сборок и декораторов часто хватает Scrutor поверх встроенного контейнера.
+
+</A>
+
+<A short l="s">
+
+Владелец объекта — тот, кто его создал: контейнер освобождает созданное им при закрытии scope или корня и не трогает переданные ему экземпляры. Фабрики непрозрачны: прячут зависимости от валидации, а возвращённый объект контейнер освободит, даже если им владеет кто-то ещё. Disposable transient, разрешённый из корня, — классическая <T k="memory-leak">утечка памяти</T>, поэтому такие объекты создают через <T k="activator-utilities">`ActivatorUtilities`</T> и освобождают сами. Сторонний контейнер оправдан ради модулей, перехватчиков или scope с тегами, но с ним пропадают `ValidateScopes` и `ValidateOnBuild`.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+Сервис часто держит ресурс: соединение, файл, сокет. Освобождать его — работа контейнера, а не вашего кода.
+
+**Как устроено**
+
+| Регистрация | Когда контейнер вызывает `Dispose` |
+|---|---|
+| Transient, Scoped | в конце scope, в вебе — в конце запроса |
+| Singleton | при остановке приложения |
+| `AddSingleton(new X())` | никогда: экземпляр создали вы |
+
+**Как пользоваться**
+
+- Не вызывайте `Dispose` и не пишите `using` для внедрённых сервисов.
+- Если ваш сервис держит ресурс, реализуйте `IDisposable` — контейнер сам вызовет `Dispose`.
+
+**Частая ошибка**
+
+Обернуть внедрённый `DbContext` в `using`. После выхода из блока другие сервисы этого запроса получат освобождённый контекст и `ObjectDisposedException`.
+
+**Итог:** освобождает тот, кто создал: созданное контейнером освобождает контейнер.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+- Контейнер запоминает каждый созданный объект с `IDisposable` или `IAsyncDisposable` в списке своего scope. Остальные объекты не запоминаются.
+- При закрытии scope он освобождает их в порядке, обратном созданию: потребитель раньше своих зависимостей.
+- Результат фабрики `sp => new X()` тоже считается созданным контейнером и освобождается.
+
+**Ловушки**
+
+- **Disposable transient из корня.** `app.Services.GetRequiredService<Connection>()` в цикле: каждый экземпляр остаётся в списке корня до остановки.
+- **Фабрика возвращает чужой объект.** `AddTransient<IFoo>(_ => sharedFoo)` — контейнер освободит `sharedFoo` в конце первого же scope.
+- **Асинхронность в фабрике.** Фабрики синхронны, и `GetAsync().Result` внутри — это <T k="sync-over-async">sync-over-async</T> с риском дедлока. Асинхронную инициализацию выносят в отдельный метод или в `IHostedService`.
+
+**Когда что выбирать**
+
+| Нужно | Решение |
+|---|---|
+| Ресурс, который надо освободить раньше конца scope | своя фабрика с методом `Create` и `using` у вызывающего |
+| Общий ресурс на ограниченное время | scoped-сервис и явный scope |
+| Ресурс на всё приложение | singleton, созданный контейнером |
+
+**Правило**
+
+Не регистрируйте `IDisposable` как transient, если его будут разрешать вне короткого scope.
+
+**Итог:** контейнер освобождает всё, что создал, поэтому disposable transient в корне и фабрики с чужими объектами ломают владение.
+
+</A>
+
+<A l="s">
+
+**Чего нет во встроенном контейнере**
+
+Microsoft прямо перечисляет: внедрение через свойства, дочерние контейнеры, свои времена жизни, `Func<T>` для ленивого создания, регистрация по соглашениям. Добавим декораторы и перехватчики. Именованные регистрации закрыли keyed services в .NET 8.
+
+**Когда что выбирать**
+
+| Задача | Решение |
+|---|---|
+| Сканирование сборок, декораторы | Scrutor поверх встроенного контейнера |
+| Модули, `Owned<T>`, `Func<T>`, scope с тегами, перехватчики | Autofac |
+| Всё остальное | встроенный контейнер |
+
+**Компромиссы**
+
+- Autofac подключают через `builder.Host.UseServiceProviderFactory(new AutofacServiceProviderFactory())`. Регистрации из `builder.Services` он забирает, но `ValidateScopes` и `ValidateOnBuild` больше не действуют.
+- Документация Autofac прямо говорит, что он не всегда защищает от captive dependency.
+- Сканирование сборок и перехватчики — рефлексия при старте и регистрации, которые не найти поиском по коду.
+
+**Как проверить в проде**
+
+- Утечку disposable transient видно в `dotnet-gcdump`: число экземпляров сервиса растёт, а путь удержания ведёт к корневому `ServiceProvider`.
+- На ревью ищут `GetService` у `app.Services` вне scope и `.Result` в фабриках регистраций.
+
+**Итог:** освобождает тот, кто создал; сторонний контейнер берут ради конкретной возможности, помня, что проверки встроенного провайдера пропадут.
+
+</A>
+
+<Ex>
+
+```csharp
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddTransient<Connection>();
+builder.Services.AddSingleton(new Cache());      // создан не контейнером: Dispose не вызовет
+builder.Services.AddSingleton(sp => new Pool()); // создан фабрикой: освободит при остановке
+
+var app = builder.Build();
+
+// Утечка: transient IDisposable из корня живёт до остановки приложения
+for (int i = 0; i < 1_000; i++)
+    app.Services.GetRequiredService<Connection>();
+
+// Правильно: scope освобождает всё, что в нём создано
+await using (var scope = app.Services.CreateAsyncScope())
+{
+    scope.ServiceProvider.GetRequiredService<Connection>();
+} // Connection.Dispose()
+
+app.Run();
+
+public sealed class Connection : IDisposable
+{
+    public void Dispose() => Console.WriteLine("Connection.Dispose()");
+}
+public sealed class Cache : IDisposable { public void Dispose() { } }
+public sealed class Pool : IDisposable { public void Dispose() { } }
+```
+
+</Ex>
+
+<Next>
+
+- Освободит ли контейнер объект из `AddSingleton(new X())`? — Нет, его создали вы; объект из фабрики `AddSingleton(sp => new X())` освободит.
+- В каком порядке освобождаются сервисы scope? — В обратном порядке создания.
+- Почему disposable transient из корня — утечка? — Контейнер держит ссылку на каждый экземпляр до остановки приложения.
+- Как создать объект с зависимостями из контейнера, но владеть им самому? — `ActivatorUtilities.CreateInstance<T>(provider)` и `using` у вызывающего.
+- Что теряется при переходе на Autofac? — `ValidateScopes` и `ValidateOnBuild` встроенного провайдера.
+
+</Next>
+
+<Src>
+
+- [Dependency injection guidelines: disposal of services](https://learn.microsoft.com/dotnet/core/extensions/dependency-injection/guidelines#disposal-of-services)
+- [Default service container replacement](https://learn.microsoft.com/dotnet/core/extensions/dependency-injection/guidelines#default-service-container-replacement)
+- [Autofac: ASP.NET Core integration](https://autofac.readthedocs.io/en/latest/integration/aspnetcore.html)
+
+</Src>
+
+</Q>

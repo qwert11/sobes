@@ -1058,6 +1058,8 @@ static long Sum(int[] data, CancellationToken ct)
 <Ex>
 
 ```csharp
+using System.Collections.Concurrent;
+
 // Не больше 8 запросов одновременно
 var options = new ParallelOptions { MaxDegreeOfParallelism = 8, CancellationToken = ct };
 var lengths = new ConcurrentDictionary<string, int>();
@@ -1222,6 +1224,8 @@ await foreach (Task<int> done in Task.WhenEach(tasks))
 <Ex>
 
 ```csharp
+using System.Collections.Concurrent;
+
 private readonly ConcurrentDictionary<int, Product> _cache = new();
 
 // Почти всегда результат уже в кэше

@@ -1,0 +1,239 @@
+mvc-pattern:
+  term: MVC (Model-View-Controller)
+  def: >-
+    An architectural pattern that splits a UI app into a model (data and logic), a view (display)
+    and a controller (request handling). In ASP.NET Core MVC the controller picks a view and passes
+    it a model.
+  q: ASP.NET Core MVC pattern
+  docs: https://learn.microsoft.com/aspnet/core/mvc/overview
+  wiki: Model–view–controller
+action-method:
+  term: Action (action method)
+  def: >-
+    A public controller method that handles a request for a route. It returns an `IActionResult`,
+    such as a view, a redirect or JSON.
+  q: ASP.NET Core MVC action method
+  docs: https://learn.microsoft.com/aspnet/core/mvc/controllers/actions
+view-model:
+  term: ViewModel
+  def: >-
+    A class shaped for one specific page: only the fields it shows or accepts. It decouples the view
+    from database entities and protects against overposting.
+  q: ASP.NET Core MVC ViewModel
+  docs: https://learn.microsoft.com/aspnet/core/mvc/views/overview
+action-result:
+  term: IActionResult (action result)
+  def: >-
+    The object an action returns instead of a finished response. The framework executes it after the
+    action: `ViewResult` renders a view, `RedirectResult` sends a redirect.
+  q: IActionResult ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/mvc/controllers/actions
+view-discovery:
+  term: View discovery
+  def: >-
+    The process MVC uses to find a view file by name. By default it checks
+    `Views/{Controller}/{View}.cshtml` first, then `Views/Shared/{View}.cshtml`.
+  q: ASP.NET Core MVC view discovery
+  docs: https://learn.microsoft.com/aspnet/core/mvc/views/overview
+razor:
+  term: Razor
+  def: >-
+    A template syntax that embeds C# in HTML with the `@` symbol. `.cshtml` files are compiled into C#
+    classes at build time, and values written out are encoded automatically.
+  q: Razor syntax ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/mvc/views/razor
+xss:
+  term: XSS (cross-site scripting)
+  def: >-
+    An attack where someone else's JavaScript gets into a page, for example through user data. The
+    script runs in the victim's browser with your site's privileges.
+  q: cross-site scripting XSS prevention ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/security/cross-site-scripting
+  wiki: Cross-site scripting
+layout:
+  term: Layout
+  def: >-
+    The common page shell: header, menu, footer, styles and scripts. A view is inserted into it with
+    `@RenderBody()`, and named fragments through sections.
+  q: ASP.NET Core Razor layout
+  docs: https://learn.microsoft.com/aspnet/core/mvc/views/layout
+partial-view:
+  term: Partial view
+  def: >-
+    A `.cshtml` file with a repeated chunk of markup that other views include via `<partial>`. It has
+    no logic of its own and gets its data from the parent.
+  q: ASP.NET Core partial view
+  docs: https://learn.microsoft.com/aspnet/core/mvc/views/partial
+razor-pages:
+  term: Razor Pages
+  def: >-
+    A server-rendered UI model where a `.cshtml` page with the `@page` directive answers a route
+    itself, and `OnGet` and `OnPost` handlers live next to it in a `PageModel` class. Built on the MVC
+    infrastructure.
+  q: ASP.NET Core Razor Pages
+  docs: https://learn.microsoft.com/aspnet/core/razor-pages/
+view-component:
+  term: View component
+  def: >-
+    A class deriving from `ViewComponent`, with its own view, that loads its own data and renders a
+    block of a page: a cart, a menu. It is invoked from a view, not over HTTP.
+  q: ASP.NET Core view components
+  docs: https://learn.microsoft.com/aspnet/core/mvc/views/view-components
+tag-helper:
+  term: Tag helper
+  def: >-
+    A class that processes an HTML element in Razor markup on the server, such as
+    `<a asp-action="...">` or `<input asp-for="...">`. Enabled with the `@addTagHelper` directive.
+  q: ASP.NET Core tag helpers
+  docs: https://learn.microsoft.com/aspnet/core/mvc/views/tag-helpers/intro
+signalr:
+  term: SignalR
+  def: >-
+    An ASP.NET Core library for real-time messaging. It keeps a persistent connection and lets the
+    server and the client call each other's methods.
+  q: ASP.NET Core SignalR
+  docs: https://learn.microsoft.com/aspnet/core/signalr/introduction
+signalr-hub:
+  term: SignalR hub
+  def: >-
+    A class deriving from `Hub` through which clients call server methods and the server calls
+    client methods. An instance is created for every method call.
+  q: SignalR hub ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/signalr/hubs
+websocket:
+  term: WebSocket
+  def: >-
+    A protocol for a persistent two-way connection over a single TCP connection. It starts with an
+    HTTP Upgrade request and a `101 Switching Protocols` response.
+  q: WebSocket protocol
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/websockets
+  wiki: WebSocket
+server-sent-events:
+  term: Server-Sent Events (SSE)
+  def: >-
+    A browser standard for a stream of text events from server to client over plain HTTP
+    (`EventSource`). In the other direction SignalR sends data as separate POSTs.
+  q: Server-Sent Events EventSource
+  docs: https://developer.mozilla.org/docs/Web/API/Server-sent_events
+  wiki: Server-sent events
+long-polling:
+  term: Long Polling
+  def: >-
+    Receiving messages through an HTTP request that the server holds open until data appears. After
+    the response the client immediately sends the next request.
+  q: long polling HTTP
+signalr-negotiation:
+  term: Negotiate (SignalR)
+  def: >-
+    The client's first request, `POST {hub}/negotiate`. The server returns the connection id and
+    token plus the available transports; Azure SignalR Service returns a redirect to its own URL.
+  q: SignalR negotiate request
+  docs: https://learn.microsoft.com/aspnet/core/signalr/configuration
+csrf:
+  term: CSRF (cross-site request forgery)
+  def: >-
+    An attack where another site makes the browser send a request to your site on behalf of a
+    signed-in user. It works because the browser attaches cookies by itself.
+  q: CSRF cross-site request forgery
+  docs: https://learn.microsoft.com/aspnet/core/security/anti-request-forgery
+  wiki: Cross-site request forgery
+antiforgery-token:
+  term: Antiforgery token
+  def: >-
+    A pair of linked tokens: one in a cookie, the other in a hidden form field or a header. The
+    server compares them, and a request from another site that doesn't know the field value is
+    rejected.
+  q: ASP.NET Core antiforgery token
+  docs: https://learn.microsoft.com/aspnet/core/security/anti-request-forgery
+synchronizer-token-pattern:
+  term: Synchronizer token pattern
+  def: >-
+    A CSRF defense where the server gives the client an unpredictable token tied to the user and
+    accepts a state-changing request only if the token comes back with it.
+  q: synchronizer token pattern CSRF
+  docs: https://learn.microsoft.com/aspnet/core/security/anti-request-forgery
+samesite-cookie:
+  term: SameSite (cookie attribute)
+  def: >-
+    A cookie attribute that limits sending the cookie on cross-site requests: `Strict` — never,
+    `Lax` — only on top-level navigation, `None` — always (only with `Secure`).
+  q: SameSite cookie attribute
+  docs: https://learn.microsoft.com/aspnet/core/security/samesite
+data-protection:
+  term: Data Protection (ASP.NET Core)
+  def: >-
+    The encryption and signing subsystem behind authentication cookies and antiforgery tokens. In a
+    server farm it needs a shared key store.
+  q: ASP.NET Core Data Protection key ring
+  docs: https://learn.microsoft.com/aspnet/core/security/data-protection/introduction
+signalr-group:
+  term: SignalR group
+  def: >-
+    A named set of connections that can be sent a message with a single `Clients.Group(name)` call.
+    It lives in memory and isn't restored after a reconnect.
+  q: SignalR groups
+  docs: https://learn.microsoft.com/aspnet/core/signalr/groups
+hub-context:
+  term: IHubContext
+  def: >-
+    A service for sending messages to a hub's clients from outside the hub: a controller, an endpoint
+    or a background job. It provides `Clients` and `Groups` but has no notion of a caller.
+  q: SignalR IHubContext
+  docs: https://learn.microsoft.com/aspnet/core/signalr/hubcontext
+user-id-provider:
+  term: IUserIdProvider
+  def: >-
+    An interface that determines a connection's user id for `Clients.User`. By default it reads the
+    `ClaimTypes.NameIdentifier` claim.
+  q: SignalR IUserIdProvider
+  docs: https://learn.microsoft.com/aspnet/core/signalr/authn-and-authz
+bearer-token:
+  term: Bearer token
+  def: >-
+    An access token, usually a JWT, that the client sends in the `Authorization: Bearer ...` header.
+    The browser doesn't attach it by itself, so CSRF doesn't apply to it.
+  q: bearer token authentication
+  docs: https://learn.microsoft.com/aspnet/core/security/authentication/
+strongly-typed-hub:
+  term: Strongly typed hub (Hub<T>)
+  def: >-
+    A hub whose client methods are described by an interface. Instead of `SendAsync("Name", ...)`
+    you call an interface method, and the compiler catches a misspelled name.
+  q: SignalR strongly typed hub
+  docs: https://learn.microsoft.com/aspnet/core/signalr/hubs
+signalr-backplane:
+  term: SignalR backplane
+  def: >-
+    A channel through which SignalR servers relay messages for clients connected to other servers.
+    The standard implementation is Redis pub/sub.
+  q: SignalR Redis backplane
+  docs: https://learn.microsoft.com/aspnet/core/signalr/redis-backplane
+azure-signalr-service:
+  term: Azure SignalR Service
+  def: >-
+    A managed Azure service that accepts SignalR client connections instead of your server and relays
+    messages. It removes the need for sticky sessions and a backplane.
+  q: Azure SignalR Service
+  docs: https://learn.microsoft.com/azure/azure-signalr/signalr-overview
+sticky-session:
+  term: Sticky sessions
+  def: >-
+    A load balancer setting that sends all of a client's requests to the same server, usually based
+    on a cookie or IP. Also called session affinity.
+  q: sticky sessions load balancer
+  docs: https://learn.microsoft.com/aspnet/core/signalr/scale
+pub-sub:
+  term: Pub/sub (publish-subscribe)
+  def: >-
+    A messaging scheme: a sender publishes a message to a channel, and every current subscriber of
+    the channel receives it. Messages aren't stored: whoever isn't subscribed right now won't get
+    them.
+  q: Redis pub/sub
+  wiki: Publish–subscribe pattern
+stateful-reconnect:
+  term: Stateful reconnect
+  def: >-
+    A SignalR mode (.NET 8+) in which the server and client buffer unacknowledged messages and, after
+    a brief drop, resume the same connection without losses.
+  q: SignalR stateful reconnect
+  docs: https://learn.microsoft.com/aspnet/core/signalr/configuration

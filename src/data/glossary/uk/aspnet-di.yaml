@@ -1,0 +1,183 @@
+dependency-injection:
+  term: Впровадження залежностей (dependency injection, DI)
+  def: >-
+    Прийом, за якого об'єкт отримує свої залежності ззовні, зазвичай через конструктор, а не
+    створює їх сам. В ASP.NET Core залежності створює й передає вбудований контейнер.
+  q: dependency injection ASP.NET Core
+  docs: https://learn.microsoft.com/dotnet/core/extensions/dependency-injection/overview
+  wiki: Впровадження залежностей
+di-container:
+  term: DI-контейнер (контейнер служб)
+  def: >-
+    Об'єкт, який за зареєстрованими правилами створює сервіси, передає їм залежності й керує їхнім
+    часом життя. У .NET реєстрації збирають в `IServiceCollection`, а контейнер — це
+    `IServiceProvider`.
+  q: .NET IServiceProvider service container
+  docs: https://learn.microsoft.com/dotnet/api/system.iserviceprovider
+dependency-inversion:
+  term: Принцип інверсії залежностей (DIP)
+  def: >-
+    Літера D у SOLID: модулі верхнього рівня не залежать від модулів нижнього рівня, обидва
+    залежать від абстракцій. Впровадження залежностей — практичний спосіб його дотримуватися.
+  q: dependency inversion principle
+  docs: https://learn.microsoft.com/dotnet/architecture/modern-web-apps-azure/architectural-principles#dependency-inversion
+constructor-injection:
+  term: Впровадження через конструктор (constructor injection)
+  def: >-
+    Спосіб DI, за якого залежності приходять параметрами конструктора. Усі залежності класу видно в
+    його сигнатурі, а об'єкт не може існувати без них.
+  q: constructor injection C#
+  docs: https://learn.microsoft.com/dotnet/core/extensions/dependency-injection/overview#constructor-injection-behavior
+inversion-of-control:
+  term: Інверсія керування (inversion of control, IoC)
+  def: >-
+    Принцип, за яким керування потоком програми або створенням об'єктів передається фреймворку: не
+    ваш код викликає бібліотеку, а фреймворк викликає ваш код. DI — окремий випадок IoC.
+  q: inversion of control
+service-locator:
+  term: Service Locator (локатор служб)
+  def: >-
+    Патерн, за якого клас сам запитує залежності в глобального реєстру, наприклад через
+    `IServiceProvider.GetService`. За DI його вважають антипатерном: залежностей не видно в
+    конструкторі, а помилки переїжджають у рантайм.
+  q: service locator anti-pattern
+  docs: https://learn.microsoft.com/dotnet/core/extensions/dependency-injection/guidelines#recommendations
+service-lifetime:
+  term: Час життя сервісу (service lifetime)
+  def: >-
+    Правило, за яким контейнер вирішує, коли створити новий екземпляр сервісу і коли його
+    звільнити. У .NET три варіанти — Transient, Scoped і Singleton.
+  q: .NET service lifetimes transient scoped singleton
+  docs: https://learn.microsoft.com/dotnet/core/extensions/dependency-injection/service-lifetimes
+di-scope:
+  term: Scope (область DI)
+  def: >-
+    Область, усередині якої scoped-сервіси існують в одному екземплярі й наприкінці якої контейнер
+    звільняє створені в ній об'єкти. В ASP.NET Core scope створюється на кожен HTTP-запит.
+  q: IServiceScope .NET
+  docs: https://learn.microsoft.com/dotnet/api/microsoft.extensions.dependencyinjection.iservicescope
+root-provider:
+  term: Кореневий провайдер (root service provider)
+  def: >-
+    `IServiceProvider`, який створює `builder.Build()`. Живе весь час роботи застосунку, зберігає
+    singleton-сервіси й звільняє їх під час зупинки.
+  q: root service provider scope validation
+  docs: https://learn.microsoft.com/dotnet/core/extensions/dependency-injection/overview#scope-validation
+captive-dependency:
+  term: Captive dependency (захоплена залежність)
+  def: >-
+    Помилка конфігурації, за якої довгоживучий сервіс тримає залежність з коротшим часом життя,
+    наприклад singleton тримає scoped-сервіс. Залежність починає жити стільки ж, скільки її
+    власник.
+  q: captive dependency
+  docs: https://learn.microsoft.com/dotnet/core/extensions/dependency-injection/guidelines#captive-dependency
+scope-validation:
+  term: Перевірка scope (ValidateScopes)
+  def: >-
+    Опція `ServiceProviderOptions`, за якої контейнер забороняє розв'язувати scoped-сервіси з
+    кореневого провайдера й впроваджувати їх у singleton. За замовчуванням увімкнена в середовищі
+    Development.
+  q: ValidateScopes ASP.NET Core
+  docs: https://learn.microsoft.com/dotnet/api/microsoft.extensions.dependencyinjection.serviceprovideroptions.validatescopes
+validate-on-build:
+  term: ValidateOnBuild
+  def: >-
+    Опція `ServiceProviderOptions`, за якої контейнер ще під час `Build()` перевіряє, що кожен
+    зареєстрований сервіс можна створити. Відкритих generic-реєстрацій не перевіряє; за
+    замовчуванням увімкнена в Development.
+  q: ValidateOnBuild .NET
+  docs: https://learn.microsoft.com/dotnet/api/microsoft.extensions.dependencyinjection.serviceprovideroptions.validateonbuild
+implementation-factory:
+  term: Фабрика реєстрації (implementation factory)
+  def: >-
+    Делегат `Func<IServiceProvider, T>`, який передають в `AddSingleton`, `AddScoped` або
+    `AddTransient` замість типу реалізації. Контейнер викликає його, щоб створити сервіс, і
+    звільняє повернутий об'єкт як створений ним самим.
+  q: AddSingleton implementation factory
+  docs: https://learn.microsoft.com/dotnet/core/extensions/dependency-injection/service-registration
+service-scope-factory:
+  term: IServiceScopeFactory
+  def: >-
+    Singleton-сервіс, який створює нові scopes. Через нього singleton і фонові задачі отримують
+    scoped-сервіси: `CreateScope()` або, з .NET 6, `CreateAsyncScope()`.
+  q: IServiceScopeFactory CreateAsyncScope
+  docs: https://learn.microsoft.com/dotnet/api/microsoft.extensions.dependencyinjection.iservicescopefactory
+background-service:
+  term: BackgroundService
+  def: >-
+    Базовий клас для довготривалої фонової роботи в хості .NET: логіку пишуть у `ExecuteAsync`, а
+    реєструють через `AddHostedService`, тобто як singleton.
+  q: BackgroundService .NET
+  docs: https://learn.microsoft.com/dotnet/api/microsoft.extensions.hosting.backgroundservice
+unit-of-work:
+  term: Одиниця роботи (unit of work)
+  def: >-
+    Набір операцій, які виконуються й зберігаються разом, як одна бізнес-транзакція. В EF Core
+    одиницю роботи представляє екземпляр `DbContext`.
+  q: unit of work pattern
+  docs: https://martinfowler.com/eaaCatalog/unitOfWork.html
+keyed-services:
+  term: Keyed services (сервіси з ключем)
+  def: >-
+    Реєстрації з ключем, що з'явилися в .NET 8: `AddKeyedSingleton`, `AddKeyedScoped`,
+    `AddKeyedTransient`. Потрібну реалізацію отримують атрибутом `[FromKeyedServices(key)]` або
+    методом `GetRequiredKeyedService`.
+  q: .NET 8 keyed services
+  docs: https://learn.microsoft.com/dotnet/core/extensions/dependency-injection/overview#keyed-services
+try-add:
+  term: TryAdd і TryAddEnumerable
+  def: >-
+    Методи реєстрації з `Microsoft.Extensions.DependencyInjection.Extensions`. `TryAdd*` додає
+    сервіс, лише якщо він ще не зареєстрований, `TryAddEnumerable` — якщо немає такої самої пари
+    «сервіс і реалізація».
+  q: TryAddEnumerable vs TryAdd
+  docs: https://learn.microsoft.com/dotnet/api/microsoft.extensions.dependencyinjection.extensions.servicecollectiondescriptorextensions.tryaddenumerable
+decorator-pattern:
+  term: Декоратор (decorator)
+  def: >-
+    Патерн, за якого об'єкт обгортає інший об'єкт з тим самим інтерфейсом і додає поведінку до або
+    після виклику: кеш, логування, повтори. Вбудований контейнер .NET декоратори не підтримує.
+  q: decorator pattern dependency injection .NET
+scrutor:
+  term: Scrutor
+  def: >-
+    Бібліотека розширень для вбудованого контейнера .NET: сканування збірок з реєстрацією за
+    домовленостями (`Scan`) і декоратори (`Decorate`).
+  q: Scrutor Decorate Scan
+  docs: https://github.com/khellang/Scrutor
+composition-root:
+  term: Composition root (корінь композиції)
+  def: >-
+    Єдине місце застосунку, де збирається граф об'єктів: реєстрації сервісів і вибір реалізацій. В
+    ASP.NET Core це `Program.cs` і методи розширення `Add...`, які він викликає.
+  q: composition root dependency injection
+  docs: https://blog.ploeh.dk/2011/07/28/CompositionRoot/
+disposable-transient:
+  term: Disposable transient
+  def: >-
+    Transient-сервіс, що реалізує `IDisposable` або `IAsyncDisposable`. Контейнер зберігає
+    посилання на кожен такий екземпляр до кінця scope, тому під час розв'язання з кореня вони
+    накопичуються до зупинки застосунку.
+  q: disposable transient services captured by container
+  docs: https://learn.microsoft.com/dotnet/core/extensions/dependency-injection/guidelines#disposable-transient-services-captured-by-container
+autofac:
+  term: Autofac
+  def: >-
+    Популярний сторонній DI-контейнер для .NET. Підключається до ASP.NET Core через
+    `UseServiceProviderFactory` і додає модулі, декоратори, впровадження через властивості та scope
+    з тегами.
+  q: Autofac ASP.NET Core
+  docs: https://autofac.readthedocs.io/en/latest/integration/aspnetcore.html
+property-injection:
+  term: Впровадження через властивості (property injection)
+  def: >-
+    Спосіб DI, за якого контейнер присвоює залежності публічним властивостям уже створеного
+    об'єкта. Вбудований контейнер .NET його не підтримує, Autofac — підтримує.
+  q: property injection C#
+activator-utilities:
+  term: ActivatorUtilities
+  def: >-
+    Допоміжний клас, який створює об'єкт незареєстрованого типу, беручи параметри конструктора з
+    `IServiceProvider`. Створеним об'єктом володіє код, що викликає, а не контейнер.
+  q: ActivatorUtilities.CreateInstance
+  docs: https://learn.microsoft.com/dotnet/api/microsoft.extensions.dependencyinjection.activatorutilities

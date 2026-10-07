@@ -1,0 +1,204 @@
+controller:
+  term: Контролер (API controller)
+  def: >-
+    Клас-нащадок `ControllerBase`, публічні методи якого (action) обробляють HTTP-запити. Маршрути
+    задаються атрибутами, а запит проходить конвеєр MVC: фільтри, прив'язку моделі, валідацію й
+    форматування відповіді.
+  q: ASP.NET Core API controller ControllerBase
+  docs: https://learn.microsoft.com/aspnet/core/web-api/
+minimal-api:
+  term: Minimal API
+  def: >-
+    Спосіб описати HTTP-ендпоінти делегатами просто в `Program.cs` через `MapGet`, `MapPost` та інші
+    методи, без класів-контролерів. З'явився в .NET 6, підтримує Native AOT.
+  q: ASP.NET Core Minimal APIs
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/minimal-apis
+mvc-filter:
+  term: Фільтр MVC
+  def: >-
+    Код, який MVC викликає навколо action на певному етапі: authorization, resource, action,
+    exception або result. На відміну від middleware, бачить контекст action — аргументи, `ModelState`
+    і результат.
+  q: ASP.NET Core MVC filters
+  docs: https://learn.microsoft.com/aspnet/core/mvc/controllers/filters
+model-binding:
+  term: Прив'язка моделі (model binding)
+  def: >-
+    Заповнення параметрів action або обробника значеннями із запиту: маршруту, рядка запиту,
+    заголовків, форми чи тіла. Джерело задають атрибути `[From...]` або правила виведення.
+  q: ASP.NET Core model binding
+  docs: https://learn.microsoft.com/aspnet/core/mvc/models/model-binding
+route-group:
+  term: Група маршрутів (route group)
+  def: >-
+    Набір ендпоінтів Minimal API зі спільним префіксом, створений через `MapGroup` (.NET 7+). Фільтри,
+    авторизація й метадані, задані групі, застосовуються до всіх її ендпоінтів.
+  q: ASP.NET Core MapGroup route groups
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/minimal-apis/route-handlers
+endpoint-filter:
+  term: Фільтр ендпоінта (endpoint filter)
+  def: >-
+    Аналог фільтра MVC для Minimal API (.NET 7+): код до й після обробника з доступом до його
+    аргументів через `EndpointFilterInvocationContext`. Підключається через `AddEndpointFilter`.
+  q: ASP.NET Core endpoint filters IEndpointFilter
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/minimal-apis/min-api-filters
+typed-results:
+  term: TypedResults
+  def: >-
+    Фабрика результатів Minimal API (.NET 7+), яка повертає конкретні типи на кшталт `Ok<T>` і
+    `NotFound`. Тип відповіді видно в сигнатурі, і він автоматично потрапляє в метадані ендпоінта та
+    OpenAPI.
+  q: ASP.NET Core TypedResults
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/minimal-apis/responses
+data-annotations:
+  term: DataAnnotations
+  def: >-
+    Атрибути з `System.ComponentModel.DataAnnotations` для декларативних правил перевірки:
+    `[Required]`, `[Range]`, `[StringLength]`, `[EmailAddress]` та інші.
+  q: DataAnnotations validation attributes
+  docs: https://learn.microsoft.com/dotnet/api/system.componentmodel.dataannotations
+api-controller-attribute:
+  term: Атрибут [ApiController]
+  def: >-
+    Атрибут контролера, який вмикає поведінку для API: обов'язкову маршрутизацію атрибутами,
+    автоматичну відповідь 400 у разі помилок валідації, виведення джерел параметрів і ProblemDetails
+    для кодів помилок.
+  q: ASP.NET Core ApiController attribute
+  docs: https://learn.microsoft.com/aspnet/core/web-api/#apicontroller-attribute
+model-state:
+  term: ModelState
+  def: >-
+    Словник `ModelStateDictionary` з результатами прив'язки й валідації в MVC. `ModelState.IsValid`
+    показує, чи є помилки, а самі помилки згруповано за полями.
+  q: ASP.NET Core ModelState
+  docs: https://learn.microsoft.com/aspnet/core/mvc/models/validation
+problem-details:
+  term: ProblemDetails
+  def: >-
+    Стандартний JSON-формат помилки HTTP API за RFC 9457 (раніше RFC 7807) з полями `type`, `title`,
+    `status`, `detail` та `instance`. В ASP.NET Core вмикається через `AddProblemDetails()`.
+  q: ProblemDetails RFC 9457
+  docs: https://www.rfc-editor.org/rfc/rfc9457
+dto:
+  term: DTO (Data Transfer Object)
+  def: >-
+    Простий об'єкт лише з даними для передачі між шарами або мережею, без бізнес-логіки. В API це
+    моделі запитів і відповідей, відокремлені від сутностей бази даних.
+  q: DTO data transfer object
+rest:
+  term: REST
+  def: >-
+    Архітектурний стиль API, де URL позначає ресурс, а дію над ним виражає стандартний HTTP-метод.
+    Результат повідомляє статус-код, а стан клієнта між запитами сервер не зберігає.
+  q: REST API design
+  wiki: REST
+safe-method:
+  term: Безпечний метод HTTP
+  def: >-
+    Метод, який за семантикою не змінює стан сервера: GET, HEAD, OPTIONS, TRACE. Такі запити можна
+    кешувати й повторювати без наслідків.
+  q: HTTP safe methods RFC 9110
+  docs: https://www.rfc-editor.org/rfc/rfc9110#name-safe-methods
+etag:
+  term: ETag
+  def: >-
+    Заголовок відповіді з версією представлення ресурсу. Клієнт передає його в `If-None-Match` для
+    кешування або в `If-Match` для оптимістичного блокування й отримує 412, якщо ресурс змінився.
+  q: HTTP ETag If-Match optimistic concurrency
+  docs: https://developer.mozilla.org/docs/Web/HTTP/Headers/ETag
+keyset-pagination:
+  term: Keyset-пагінація (cursor pagination)
+  def: >-
+    Посторінкова вибірка за останнім ключем попередньої сторінки: `WHERE id > @after ORDER BY id`.
+    Працює за індексом за однаковий час на будь-якій сторінці, але не дозволяє перейти на сторінку
+    за номером.
+  q: keyset pagination vs offset
+  docs: https://learn.microsoft.com/ef/core/querying/pagination
+hateoas:
+  term: HATEOAS
+  def: >-
+    Принцип REST, за яким відповідь містить посилання на пов'язані ресурси й доступні дії, і клієнт
+    переходить ними, а не збирає URL сам.
+  q: HATEOAS REST
+iexception-handler:
+  term: IExceptionHandler
+  def: >-
+    Інтерфейс (.NET 8+) для обробки відомих винятків в одному місці. Реалізації реєструються через
+    `AddExceptionHandler<T>()` і викликаються middleware `UseExceptionHandler` по черзі, доки одна не
+    поверне `true`.
+  q: ASP.NET Core IExceptionHandler
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/error-handling
+trace-id:
+  term: Trace ID (ідентифікатор трасування)
+  def: >-
+    Ідентифікатор W3C Trace Context, спільний для всіх операцій одного запиту в розподіленій системі.
+    ASP.NET Core бере його з `Activity.Current` і додає в ProblemDetails як `traceId`.
+  q: W3C trace context trace id
+  docs: https://www.w3.org/TR/trace-context/
+developer-exception-page:
+  term: Developer Exception Page
+  def: >-
+    Сторінка з подробицями необробленого винятку: стек, заголовки, query, cookies. Вмикається
+    автоматично в середовищі Development і не повинна працювати в продакшені.
+  q: ASP.NET Core developer exception page
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/error-handling
+cross-cutting-concern:
+  term: Наскрізна функціональність (cross-cutting concern)
+  def: >-
+    Логіка, потрібна багатьом частинам застосунку незалежно від бізнес-задачі: логування, авторизація,
+    кешування, обробка помилок. Її виносять у middleware, фільтри або декоратори.
+  q: cross-cutting concerns
+api-versioning:
+  term: Версіонування API
+  def: >-
+    Підтримка кількох версій контракту одночасно, щоб несумісні зміни не зачіпали старих клієнтів.
+    Версію передають у шляху, query-параметрі, заголовку або media type.
+  q: ASP.NET Core API versioning Asp.Versioning
+  docs: https://github.com/dotnet/aspnet-api-versioning
+openapi:
+  term: OpenAPI
+  def: >-
+    Стандарт машинозчитуваного опису HTTP API в JSON або YAML: шляхи, параметри, тіла, відповіді й
+    схеми. Раніше називався Swagger; за документом будують документацію, клієнтів і тести.
+  q: OpenAPI specification
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/openapi/overview
+breaking-change:
+  term: Несумісна зміна (breaking change)
+  def: >-
+    Зміна контракту, після якої наявний клієнт перестає працювати: видалення чи перейменування поля,
+    зміна типу, новий обов'язковий параметр, інший зміст коду відповіді.
+  q: API breaking change
+rate-limiting:
+  term: Обмеження частоти запитів (rate limiting)
+  def: >-
+    Захист сервісу, який відхиляє запити понад ліміт, зазвичай з кодом 429. В ASP.NET Core із .NET 7
+    є middleware з алгоритмами fixed window, sliding window, token bucket і concurrency.
+  q: ASP.NET Core rate limiting middleware
+  docs: https://learn.microsoft.com/aspnet/core/performance/rate-limit
+projection:
+  term: Проєкція (projection)
+  def: >-
+    Вибір із джерела лише потрібних полів, наприклад `Select` у DTO в LINQ-запиті. EF Core тоді читає
+    з бази лише ці стовпці й не відстежує сутності.
+  q: EF Core projection Select
+  docs: https://learn.microsoft.com/ef/core/performance/efficient-querying
+request-timeout:
+  term: Тайм-аут запиту (request timeout)
+  def: >-
+    Middleware ASP.NET Core (.NET 8+), яке після заданого часу скасовує токен
+    `HttpContext.RequestAborted`. Якщо застосунок не обробив скасування, клієнт отримує 504.
+  q: ASP.NET Core request timeouts middleware
+  docs: https://learn.microsoft.com/aspnet/core/performance/timeouts
+tail-latency:
+  term: Хвостова затримка (tail latency)
+  def: >-
+    Час відповіді найповільніших запитів, зазвичай перцентилі p95, p99 і p99.9. Під навантаженням
+    першими зростають саме вони, а середнє значення це приховує.
+  q: tail latency p99
+load-testing:
+  term: Навантажувальне тестування
+  def: >-
+    Перевірка сервісу під заданим або зростаючим потоком запитів, щоб знайти межу пропускної
+    здатності, зростання затримок і точку деградації. Інструменти — k6, NBomber, JMeter, bombardier.
+  q: load testing ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/test/load-tests

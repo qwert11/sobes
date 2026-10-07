@@ -1,0 +1,192 @@
+hosted-service:
+  term: Hosted service (IHostedService)
+  def: >-
+    Служба, життям якої керує хост .NET: `StartAsync` викликається під час запуску застосунку,
+    `StopAsync` — під час зупинки. Реєструється через `AddHostedService` як singleton; на цьому ж
+    механізмі працює вебсервер.
+  q: IHostedService ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/host/hosted-services
+generic-host:
+  term: Generic Host (універсальний хост)
+  def: >-
+    Об'єкт `IHost`, який володіє конфігурацією, логуванням, DI-контейнером і hosted services та
+    керує запуском і зупинкою застосунку. На ньому побудовані ASP.NET Core і Worker Service.
+  q: .NET Generic Host
+  docs: https://learn.microsoft.com/dotnet/core/extensions/generic-host
+worker-service:
+  term: Worker Service
+  def: >-
+    Шаблон .NET (`dotnet new worker`) для довгоживучого фонового процесу без HTTP: Generic Host і
+    клас-нащадок `BackgroundService`. Запускається як консоль, контейнер, служба Windows або
+    systemd.
+  q: .NET Worker Service template
+  docs: https://learn.microsoft.com/dotnet/core/extensions/workers
+in-memory-cache:
+  term: Кеш у пам'яті (IMemoryCache)
+  def: >-
+    Кеш усередині процесу застосунку: зберігає об'єкти за посиланням, без серіалізації. У кожного
+    екземпляра застосунку він свій і зникає під час перезапуску.
+  q: IMemoryCache ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/performance/caching/memory
+distributed-cache:
+  term: Розподілений кеш (IDistributedCache)
+  def: >-
+    Кеш у зовнішньому сховищі (Redis, SQL Server, Postgres), спільний для всіх екземплярів
+    застосунку. Зберігає масиви байтів, тому серіалізація лежить на застосунку.
+  q: IDistributedCache ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/performance/caching/distributed
+absolute-expiration:
+  term: Абсолютне закінчення терміну (absolute expiration)
+  def: >-
+    Запис видаляється з кешу в заданий момент або через заданий час після додавання, скільки б його
+    не читали.
+  q: absolute expiration MemoryCacheEntryOptions
+  docs: https://learn.microsoft.com/dotnet/api/microsoft.extensions.caching.memory.memorycacheentryoptions.absoluteexpirationrelativetonow
+sliding-expiration:
+  term: Ковзне закінчення терміну (sliding expiration)
+  def: >-
+    Запис видаляється, якщо до нього не зверталися заданий інтервал; кожне читання подовжує
+    термін. Без абсолютного закінчення терміну запис, який часто читають, не застаріє ніколи.
+  q: sliding expiration MemoryCacheEntryOptions
+  docs: https://learn.microsoft.com/dotnet/api/microsoft.extensions.caching.memory.memorycacheentryoptions.slidingexpiration
+hangfire:
+  term: Hangfire
+  def: >-
+    Бібліотека фонових задач для .NET: серіалізує виклики методів у сховище (SQL Server, Redis),
+    виконує їх на серверах Hangfire, повторює в разі помилок і показує у вебдашборді.
+  q: Hangfire .NET background jobs
+  docs: https://docs.hangfire.io/
+quartz-net:
+  term: Quartz.NET
+  def: >-
+    Планувальник завдань для .NET: завдання (`IJob`) запускається за тригерами — інтервалом, cron
+    або календарем. З `AdoJobStore` зберігає розклад у базі й працює кластером.
+  q: Quartz.NET scheduler
+  docs: https://www.quartz-scheduler.net/
+cron-expression:
+  term: Cron-вираз
+  def: >-
+    Рядок розкладу з полів «хвилини, години, день місяця, місяць, день тижня»: `0 2 * * *` —
+    щодня о 02:00. У Quartz першим полем ідуть секунди.
+  q: cron expression syntax
+  wiki: Cron
+at-least-once:
+  term: Щонайменше один раз (at-least-once)
+  def: >-
+    Гарантія доставки або виконання, за якої робота не губиться, але після збою може виконатися
+    повторно. Обробник має бути ідемпотентним.
+  q: at-least-once delivery semantics
+idempotency:
+  term: Ідемпотентність
+  def: >-
+    Властивість операції, за якої повторне виконання дає той самий результат, що й одноразове.
+    Потрібна всюди, де можливі повтори: фонові задачі, повідомлення, ретраї HTTP.
+  q: idempotent operation
+  wiki: Ідемпотентність
+misfire:
+  term: Misfire (пропущений запуск)
+  def: >-
+    Спрацювання тригера Quartz, яке не відбулося вчасно, наприклад поки планувальник був
+    вимкнений. Misfire-політика вирішує, виконати його одразу, один раз чи пропустити.
+  q: Quartz.NET misfire instructions
+response-caching:
+  term: Response caching (кешування відповідей за HTTP)
+  def: >-
+    Кешування HTTP-відповідей за стандартними заголовками: браузер, проксі та CDN зберігають
+    відповідь за `Cache-Control`. В ASP.NET Core є атрибут `[ResponseCache]` і однойменний
+    middleware.
+  q: response caching ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/performance/caching/response
+cache-control:
+  term: Cache-Control
+  def: >-
+    HTTP-заголовок із директивами кешування: `public`, `private`, `max-age`, `no-cache`,
+    `no-store`. У запиті його задає клієнт, у відповіді — сервер.
+  q: Cache-Control header
+  docs: https://developer.mozilla.org/docs/Web/HTTP/Headers/Cache-Control
+output-caching:
+  term: Output caching
+  def: >-
+    Middleware ASP.NET Core (.NET 7+), яке зберігає готові відповіді на сервері за політиками
+    сервера, ігноруючи заголовки клієнта. Підтримує теги, блокування на промаху й Redis.
+  q: output caching ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/performance/caching/output
+hybrid-cache:
+  term: HybridCache
+  def: >-
+    API кешування з .NET 9: L1 у пам'яті процесу плюс L2 в `IDistributedCache`, захист від
+    stampede, серіалізація та інвалідація за тегами. Реалізація — пакет
+    `Microsoft.Extensions.Caching.Hybrid`.
+  q: HybridCache .NET
+  docs: https://learn.microsoft.com/aspnet/core/performance/caching/hybrid
+cache-tags:
+  term: Теги кешу
+  def: >-
+    Мітки, якими позначають записи кешу, щоб скинути всю групу одним викликом: `EvictByTagAsync` в
+    output cache, `RemoveByTagAsync` у `HybridCache`.
+  q: cache tag invalidation ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/performance/caching/hybrid#remove-cache-entries-by-tag
+cache-stampede:
+  term: Cache stampede (лавина промахів)
+  def: >-
+    Ситуація, коли популярний запис зник із кешу і безліч запитів одночасно перераховують його з
+    джерела. Джерело отримує пікове навантаження й може не витримати.
+  q: cache stampede
+graceful-shutdown:
+  term: Коректна зупинка (graceful shutdown)
+  def: >-
+    Зупинка, за якої застосунок перестає приймати нову роботу, доробляє розпочату й звільняє
+    ресурси, а не обривається посеред операції. Час на неї обмежено `HostOptions.ShutdownTimeout`.
+  q: graceful shutdown .NET Generic Host
+  docs: https://learn.microsoft.com/dotnet/core/extensions/generic-host#host-shutdown
+sigterm:
+  term: SIGTERM
+  def: >-
+    Сигнал Unix із проханням завершити процес. Його надсилають `docker stop`, Kubernetes і systemd;
+    якщо процес не завершився за відведений час, надходить SIGKILL.
+  q: SIGTERM signal
+shutdown-timeout:
+  term: ShutdownTimeout
+  def: >-
+    Час, який Generic Host чекає на зупинку служб і сервера (`HostOptions.ShutdownTimeout`). Із
+    .NET 6 за замовчуванням 30 секунд, раніше було 5.
+  q: HostOptions.ShutdownTimeout
+  docs: https://learn.microsoft.com/dotnet/api/microsoft.extensions.hosting.hostoptions.shutdowntimeout
+hosted-lifecycle-service:
+  term: IHostedLifecycleService
+  def: >-
+    Розширення `IHostedService` з .NET 8 з методами `StartingAsync`, `StartedAsync`,
+    `StoppingAsync` і `StoppedAsync`, які виконуються до й після запуску та зупинки служб.
+  q: IHostedLifecycleService .NET 8
+  docs: https://learn.microsoft.com/dotnet/api/microsoft.extensions.hosting.ihostedlifecycleservice
+ttl-jitter:
+  term: Розкид терміну життя (TTL jitter)
+  def: >-
+    Випадкова добавка до терміну життя запису кешу, щоб ключі, завантажені одночасно, не
+    закінчували термін в один момент і не спричиняли лавину промахів.
+  q: cache TTL jitter
+cache-aside:
+  term: Cache-aside (ліниве завантаження)
+  def: >-
+    Патерн, за якого застосунок сам читає кеш, на промаху завантажує дані з джерела й кладе їх у
+    кеш, а під час зміни даних видаляє ключ.
+  q: cache-aside pattern
+  docs: https://learn.microsoft.com/azure/architecture/patterns/cache-aside
+distributed-lock:
+  term: Розподілене блокування
+  def: >-
+    Блокування, спільне для кількох процесів або вузлів, зазвичай у Redis чи базі даних. Потребує
+    таймауту, бо власник може впасти, не знявши його.
+  q: distributed lock Redis
+cache-invalidation:
+  term: Інвалідація кешу
+  def: >-
+    Видалення або позначення застарілими записів кешу, коли вихідні дані змінилися: за терміном
+    життя, за ключем, за тегом або за подією.
+  q: cache invalidation strategies
+write-through:
+  term: Write-through (наскрізний запис)
+  def: >-
+    Патерн, за якого запис іде одночасно в кеш і в джерело, і кеш завжди містить останню записану
+    версію. Ціна — повільніший запис.
+  q: write-through cache

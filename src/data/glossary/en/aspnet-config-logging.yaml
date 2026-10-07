@@ -1,0 +1,197 @@
+iconfiguration:
+  term: IConfiguration
+  def: >-
+    The interface for reading app configuration: a flat set of string key-value pairs with
+    colon-separated hierarchical keys such as `Payments:TimeoutSeconds`.
+  q: IConfiguration ASP.NET Core
+  docs: https://learn.microsoft.com/dotnet/api/microsoft.extensions.configuration.iconfiguration
+configuration-provider:
+  term: Configuration provider
+  def: >-
+    A component that loads key-value pairs from one source: a JSON file, environment variables, the
+    command line, a secret store. When keys collide, the provider added last wins.
+  q: configuration providers .NET
+  docs: https://learn.microsoft.com/dotnet/core/extensions/configuration-providers
+change-token:
+  term: Change token (IChangeToken)
+  def: >-
+    A signal object meaning "the data has changed". File configuration providers fire it when a
+    file is reloaded, and `IOptionsMonitor<T>` uses it to clear its options cache.
+  q: IChangeToken ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/change-tokens
+configuration-binding:
+  term: Configuration binding
+  def: >-
+    Filling an object's properties with values from a configuration section, converting strings to
+    the property types. It uses reflection by default; since .NET 8 there is a binding source
+    generator for AOT.
+  q: configuration binding .NET Bind Get
+  docs: https://learn.microsoft.com/dotnet/core/extensions/configuration
+hosting-environment:
+  term: Hosting environment
+  def: >-
+    The name of the runtime environment — `Development`, `Staging`, `Production` or a custom one.
+    Set by `ASPNETCORE_ENVIRONMENT` or `DOTNET_ENVIRONMENT`, `Production` by default; it selects
+    `appsettings.{Environment}.json` and the app's behavior.
+  q: ASP.NET Core environments
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/environments
+launch-settings:
+  term: launchSettings.json
+  def: >-
+    A file with launch profiles for local development: environment, URLs, variables. Used by Visual
+    Studio and `dotnet run`, and not deployed when the app is published.
+  q: launchSettings.json ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/environments
+user-secrets:
+  term: User Secrets (Secret Manager)
+  def: >-
+    Development-time secret storage: an unencrypted `secrets.json` in the user profile, outside the
+    project directory. `WebApplication.CreateBuilder` loads it only in the `Development`
+    environment.
+  q: dotnet user-secrets
+  docs: https://learn.microsoft.com/aspnet/core/security/app-secrets
+secret-store:
+  term: Secret store
+  def: >-
+    An external service for passwords, keys and certificates with access control, auditing and
+    rotation: Azure Key Vault, AWS Secrets Manager, HashiCorp Vault. The app reads secrets at
+    startup through a configuration provider.
+  q: Azure Key Vault configuration provider
+  docs: https://learn.microsoft.com/aspnet/core/security/key-vault-configuration
+managed-identity:
+  term: Managed identity
+  def: >-
+    An identity that the cloud platform issues to the app itself. With it, the app accesses the
+    secret store and other services without a password in its configuration.
+  q: Azure managed identity
+  docs: https://learn.microsoft.com/entra/identity/managed-identities-azure-resources/overview
+options-pattern:
+  term: Options pattern
+  def: >-
+    Binding a configuration section to a typed settings class that services receive through DI as
+    `IOptions<T>`, `IOptionsSnapshot<T>` or `IOptionsMonitor<T>`. Supports validation.
+  q: options pattern .NET
+  docs: https://learn.microsoft.com/dotnet/core/extensions/options
+ioptions-snapshot:
+  term: IOptionsSnapshot<T>
+  def: >-
+    Scoped access to settings: the object is recreated in every scope, that is, on every request,
+    and sees reloaded configuration. Supports named options.
+  q: IOptionsSnapshot
+  docs: https://learn.microsoft.com/dotnet/api/microsoft.extensions.options.ioptionssnapshot-1
+ioptions-monitor:
+  term: IOptionsMonitor<T>
+  def: >-
+    Singleton access to up-to-date settings: `CurrentValue` returns the current value, and
+    `OnChange` subscribes to configuration changes. Suitable for singleton services.
+  q: IOptionsMonitor
+  docs: https://learn.microsoft.com/dotnet/api/microsoft.extensions.options.ioptionsmonitor-1
+validate-on-start:
+  term: ValidateOnStart
+  def: >-
+    An `OptionsBuilder<T>` method (.NET 6+) that runs settings validation when the host starts.
+    Without it, an error surfaces only on the first access to the settings.
+  q: ValidateOnStart options validation
+  docs: https://learn.microsoft.com/dotnet/api/microsoft.extensions.dependencyinjection.optionsbuilderextensions.validateonstart
+named-options:
+  term: Named options
+  def: >-
+    Several instances of one settings class under different names, for example for two payment
+    gateways. Read through `Get(name)` on `IOptionsSnapshot<T>` or `IOptionsMonitor<T>`.
+  q: named options .NET
+  docs: https://learn.microsoft.com/dotnet/core/extensions/options
+source-generator:
+  term: Source generator
+  def: >-
+    A Roslyn compiler extension that adds generated code to the project during the build. It
+    replaces runtime reflection: this is how `[LoggerMessage]`, `[OptionsValidator]` and
+    `[GeneratedRegex]` work.
+  q: C# source generators
+  docs: https://learn.microsoft.com/dotnet/csharp/roslyn-sdk/source-generators-overview
+log-category:
+  term: Log category
+  def: >-
+    The string a logger is created with; for `ILogger<T>` it is the full name of type `T`. Log
+    levels in configuration are set by category prefix.
+  q: ILogger log category
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/logging/
+logging-provider:
+  term: Logging provider
+  def: >-
+    An `ILoggerProvider` implementation that delivers entries to a specific destination: the
+    console, Debug, EventSource, a file or an external system. One logger writes to all registered
+    providers.
+  q: .NET logging providers
+  docs: https://learn.microsoft.com/dotnet/core/extensions/logging/providers
+message-template:
+  term: Message template
+  def: >-
+    Log text with named placeholders, such as `Order {OrderId} created`. Values are stored as
+    separate properties, and the template itself serves as the key for grouping identical events.
+  q: message templates structured logging
+  docs: https://messagetemplates.org
+structured-logging:
+  term: Structured logging
+  def: >-
+    Writing logs as events with properties instead of finished strings. You can search, filter and
+    aggregate by those properties in Elastic, Seq or another store.
+  q: structured logging .NET
+  docs: https://learn.microsoft.com/dotnet/core/extensions/logging/overview
+serilog-sink:
+  term: Serilog sink
+  def: >-
+    A destination Serilog writes events to: the console, a file, Seq, Elasticsearch, OTLP. Each sink
+    is a separate NuGet package.
+  q: Serilog sinks
+  docs: https://github.com/serilog/serilog/wiki/Provided-Sinks
+serilog-enricher:
+  term: Serilog enricher
+  def: >-
+    A component that adds properties to every event: machine name, thread ID, data from
+    `LogContext`. Added with `Enrich.With...` or `Enrich.FromLogContext()`.
+  q: Serilog enrichers
+  docs: https://github.com/serilog/serilog/wiki/Enrichment
+log-scope:
+  term: Log scope
+  def: >-
+    A block opened with `ILogger.BeginScope` whose properties are added to every entry inside it.
+    It is stored in an `AsyncLocal`, so it survives `await`.
+  q: ILogger BeginScope
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/logging/#log-scopes
+opentelemetry:
+  term: OpenTelemetry
+  def: >-
+    An open standard and set of SDKs for collecting three telemetry signals — traces, metrics and
+    logs — and sending them to any compatible backend. In .NET it builds on `Activity`, `Meter` and
+    `ILogger`.
+  q: OpenTelemetry .NET
+  docs: https://learn.microsoft.com/dotnet/core/diagnostics/observability-with-otel
+activity:
+  term: Activity
+  def: >-
+    The .NET type for one step (span) of a distributed trace: name, timing, tags, `TraceId` and
+    `SpanId`. The current span is available as `Activity.Current`; spans are created through
+    `ActivitySource`.
+  q: System.Diagnostics.Activity distributed tracing
+  docs: https://learn.microsoft.com/dotnet/core/diagnostics/distributed-tracing
+otlp:
+  term: OTLP (OpenTelemetry Protocol)
+  def: >-
+    The OpenTelemetry protocol for sending traces, metrics and logs over gRPC or HTTP. The
+    OpenTelemetry Collector and most observability systems, including Elastic, accept it.
+  q: OTLP OpenTelemetry protocol
+  docs: https://opentelemetry.io/docs/specs/otlp/
+w3c-trace-context:
+  term: W3C Trace Context
+  def: >-
+    A standard for the `traceparent` and `tracestate` headers that carry trace context between
+    services. In .NET it is the default ID format of `Activity`.
+  q: W3C Trace Context traceparent
+  docs: https://www.w3.org/TR/trace-context/
+apm:
+  term: APM (application performance monitoring)
+  def: >-
+    Monitoring application performance by collecting traces, metrics and errors tied to requests.
+    Examples are Elastic APM, Application Insights and Datadog.
+  q: application performance monitoring
+  wiki: Application performance management

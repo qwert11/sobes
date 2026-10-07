@@ -1,0 +1,193 @@
+iconfiguration:
+  term: IConfiguration
+  def: >-
+    Интерфейс доступа к конфигурации приложения: плоский набор строковых пар «ключ — значение» с
+    иерархическими ключами через двоеточие, например `Payments:TimeoutSeconds`.
+  q: IConfiguration ASP.NET Core
+  docs: https://learn.microsoft.com/dotnet/api/microsoft.extensions.configuration.iconfiguration
+configuration-provider:
+  term: Провайдер конфигурации (configuration provider)
+  def: >-
+    Компонент, который загружает пары «ключ — значение» из одного источника: JSON-файла, переменных
+    окружения, командной строки, хранилища секретов. При совпадении ключей побеждает провайдер,
+    добавленный последним.
+  q: configuration providers .NET
+  docs: https://learn.microsoft.com/dotnet/core/extensions/configuration-providers
+change-token:
+  term: Change token (IChangeToken)
+  def: >-
+    Объект-сигнал «данные изменились». Файловые провайдеры конфигурации срабатывают через него при
+    перезагрузке файла, а `IOptionsMonitor<T>` по нему сбрасывает кеш настроек.
+  q: IChangeToken ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/change-tokens
+configuration-binding:
+  term: Привязка конфигурации (configuration binding)
+  def: >-
+    Заполнение свойств объекта значениями из секции конфигурации: строки приводятся к типам свойств.
+    По умолчанию работает через рефлексию, с .NET 8 есть генератор привязки для AOT.
+  q: configuration binding .NET Bind Get
+  docs: https://learn.microsoft.com/dotnet/core/extensions/configuration
+hosting-environment:
+  term: Окружение (hosting environment)
+  def: >-
+    Имя среды выполнения — `Development`, `Staging`, `Production` или своё. Задаётся переменной
+    `ASPNETCORE_ENVIRONMENT` или `DOTNET_ENVIRONMENT`, по умолчанию `Production`, и определяет файл
+    `appsettings.{Environment}.json` и поведение приложения.
+  q: ASP.NET Core environments
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/environments
+launch-settings:
+  term: launchSettings.json
+  def: >-
+    Файл профилей запуска для локальной разработки: окружение, адреса, переменные. Используется
+    Visual Studio и `dotnet run`, при публикации не разворачивается.
+  q: launchSettings.json ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/environments
+user-secrets:
+  term: User Secrets (Secret Manager)
+  def: >-
+    Хранилище секретов для разработки: нешифрованный `secrets.json` в профиле пользователя, вне
+    каталога проекта. `WebApplication.CreateBuilder` подключает его только в окружении
+    `Development`.
+  q: dotnet user-secrets
+  docs: https://learn.microsoft.com/aspnet/core/security/app-secrets
+secret-store:
+  term: Хранилище секретов (secret store)
+  def: >-
+    Внешний сервис для паролей, ключей и сертификатов с контролем доступа, аудитом и ротацией:
+    Azure Key Vault, AWS Secrets Manager, HashiCorp Vault. Приложение читает секреты при старте
+    через провайдер конфигурации.
+  q: Azure Key Vault configuration provider
+  docs: https://learn.microsoft.com/aspnet/core/security/key-vault-configuration
+managed-identity:
+  term: Управляемая идентичность (managed identity)
+  def: >-
+    Учётная запись, которую облачная платформа выдаёт самому приложению. С ней приложение
+    обращается к хранилищу секретов и другим сервисам без пароля в конфигурации.
+  q: Azure managed identity
+  docs: https://learn.microsoft.com/entra/identity/managed-identities-azure-resources/overview
+options-pattern:
+  term: Options pattern
+  def: >-
+    Привязка секции конфигурации к типизированному классу настроек, который сервисы получают через
+    DI как `IOptions<T>`, `IOptionsSnapshot<T>` или `IOptionsMonitor<T>`. Поддерживает валидацию.
+  q: options pattern .NET
+  docs: https://learn.microsoft.com/dotnet/core/extensions/options
+ioptions-snapshot:
+  term: IOptionsSnapshot<T>
+  def: >-
+    Scoped-доступ к настройкам: объект создаётся заново в каждом scope, то есть на каждый запрос, и
+    видит перезагруженную конфигурацию. Поддерживает именованные опции.
+  q: IOptionsSnapshot
+  docs: https://learn.microsoft.com/dotnet/api/microsoft.extensions.options.ioptionssnapshot-1
+ioptions-monitor:
+  term: IOptionsMonitor<T>
+  def: >-
+    Singleton-доступ к актуальным настройкам: `CurrentValue` отдаёт текущее значение, `OnChange`
+    подписывает на изменения конфигурации. Подходит для singleton-сервисов.
+  q: IOptionsMonitor
+  docs: https://learn.microsoft.com/dotnet/api/microsoft.extensions.options.ioptionsmonitor-1
+validate-on-start:
+  term: ValidateOnStart
+  def: >-
+    Метод `OptionsBuilder<T>` (.NET 6+), который запускает валидацию настроек при старте хоста.
+    Без него ошибка проявится только при первом обращении к настройкам.
+  q: ValidateOnStart options validation
+  docs: https://learn.microsoft.com/dotnet/api/microsoft.extensions.dependencyinjection.optionsbuilderextensions.validateonstart
+named-options:
+  term: Именованные опции (named options)
+  def: >-
+    Несколько экземпляров одного класса настроек под разными именами, например для двух
+    платёжных шлюзов. Читаются через `Get(name)` у `IOptionsSnapshot<T>` или `IOptionsMonitor<T>`.
+  q: named options .NET
+  docs: https://learn.microsoft.com/dotnet/core/extensions/options
+source-generator:
+  term: Генератор исходного кода (source generator)
+  def: >-
+    Расширение компилятора Roslyn, которое во время сборки добавляет в проект сгенерированный код.
+    Заменяет рефлексию в рантайме: так работают `[LoggerMessage]`, `[OptionsValidator]` и
+    `[GeneratedRegex]`.
+  q: C# source generators
+  docs: https://learn.microsoft.com/dotnet/csharp/roslyn-sdk/source-generators-overview
+log-category:
+  term: Категория лога (log category)
+  def: >-
+    Строка, с которой создан логгер; у `ILogger<T>` это полное имя типа `T`. По префиксу категории
+    в конфигурации задают уровни логирования.
+  q: ILogger log category
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/logging/
+logging-provider:
+  term: Провайдер логирования (logging provider)
+  def: >-
+    Реализация `ILoggerProvider`, которая доставляет записи в конкретное место: консоль, Debug,
+    EventSource, файл или внешнюю систему. Один логгер пишет во все подключённые провайдеры.
+  q: .NET logging providers
+  docs: https://learn.microsoft.com/dotnet/core/extensions/logging/providers
+message-template:
+  term: Шаблон сообщения (message template)
+  def: >-
+    Текст лога с именованными плейсхолдерами, например `Order {OrderId} created`. Значения
+    сохраняются как отдельные свойства, а сам шаблон служит ключом группировки одинаковых событий.
+  q: message templates structured logging
+  docs: https://messagetemplates.org
+structured-logging:
+  term: Структурное логирование (structured logging)
+  def: >-
+    Запись логов как событий со свойствами, а не как готовых строк. По свойствам можно искать,
+    фильтровать и строить агрегаты в Elastic, Seq или другом хранилище.
+  q: structured logging .NET
+  docs: https://learn.microsoft.com/dotnet/core/extensions/logging/overview
+serilog-sink:
+  term: Sink в Serilog
+  def: >-
+    Приёмник событий Serilog — место, куда они записываются: консоль, файл, Seq, Elasticsearch,
+    OTLP. Каждый sink — отдельный NuGet-пакет.
+  q: Serilog sinks
+  docs: https://github.com/serilog/serilog/wiki/Provided-Sinks
+serilog-enricher:
+  term: Enricher в Serilog
+  def: >-
+    Компонент, который добавляет свойства к каждому событию: имя машины, id потока, данные из
+    `LogContext`. Подключается через `Enrich.With...` или `Enrich.FromLogContext()`.
+  q: Serilog enrichers
+  docs: https://github.com/serilog/serilog/wiki/Enrichment
+log-scope:
+  term: Scope логирования (log scope)
+  def: >-
+    Блок, открытый через `ILogger.BeginScope`, свойства которого добавляются ко всем записям
+    внутри него. Хранится в `AsyncLocal`, поэтому переживает `await`.
+  q: ILogger BeginScope
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/logging/#log-scopes
+opentelemetry:
+  term: OpenTelemetry
+  def: >-
+    Открытый стандарт и набор SDK для сбора трёх сигналов телеметрии — трейсов, метрик и логов — и
+    их отправки в любой совместимый бэкенд. В .NET опирается на `Activity`, `Meter` и `ILogger`.
+  q: OpenTelemetry .NET
+  docs: https://learn.microsoft.com/dotnet/core/diagnostics/observability-with-otel
+activity:
+  term: Activity
+  def: >-
+    Тип .NET для одного шага распределённого трейса (спана): имя, время, теги, `TraceId` и
+    `SpanId`. Текущий спан доступен через `Activity.Current`, создаются спаны через `ActivitySource`.
+  q: System.Diagnostics.Activity distributed tracing
+  docs: https://learn.microsoft.com/dotnet/core/diagnostics/distributed-tracing
+otlp:
+  term: OTLP (OpenTelemetry Protocol)
+  def: >-
+    Протокол передачи трейсов, метрик и логов OpenTelemetry по gRPC или HTTP. Его принимают
+    коллектор OpenTelemetry и большинство систем наблюдаемости, включая Elastic.
+  q: OTLP OpenTelemetry protocol
+  docs: https://opentelemetry.io/docs/specs/otlp/
+w3c-trace-context:
+  term: W3C Trace Context
+  def: >-
+    Стандарт заголовков `traceparent` и `tracestate` для передачи контекста трейса между
+    сервисами. В .NET это формат идентификаторов `Activity` по умолчанию.
+  q: W3C Trace Context traceparent
+  docs: https://www.w3.org/TR/trace-context/
+apm:
+  term: APM (application performance monitoring)
+  def: >-
+    Мониторинг производительности приложений: сбор трейсов, метрик и ошибок с привязкой к
+    запросам. Примеры — Elastic APM, Application Insights, Datadog.
+  q: application performance monitoring
