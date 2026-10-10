@@ -1,0 +1,883 @@
+---
+title: JavaScript and TypeScript
+description: Types and equality, scope, closures and this, the event loop and promises, TypeScript from strict mode to discriminated unions, mapped and conditional types.
+sidebar:
+  order: 1
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+The front-end language from the inside: types and equality, scope and `this`, the execution model with the event loop and promises, and TypeScript from the basics to advanced types. This is where a back-end developer gets tested in a fullstack interview: the places where JavaScript behaves differently from C#.
+
+<Q id="front.js.types-equality" level="j">
+
+## What types does JavaScript have, and how is `==` different from `===`?
+
+<A short l="j">
+
+JavaScript has seven <T k="js-primitive">primitive types</T> (`string`, `number`, `bigint`, `boolean`, `undefined`, `null`, `symbol`) plus objects: primitives are compared by value, objects by reference. <T k="strict-equality">`===`</T> compares without converting types, while `==` first converts the operands to a common type, so `0 == ''` is `true` — which is why code almost always uses `===`.
+
+</A>
+
+<A short l="m">
+
+In JavaScript a value has a type, a variable does not: primitives are immutable and compared by value, and everything else — including arrays and functions — is an object compared by reference. `==` triggers <T k="type-coercion">type coercion</T> with non-obvious rules (`[] == false` is `true`); `===` does not, though it still treats `NaN` as unequal to itself. For defaults use <T k="nullish-coalescing">`??`</T> rather than `||`: `||` replaces any <T k="truthy-falsy">falsy</T> value, including `0` and the empty string.
+
+</A>
+
+<A short l="s">
+
+Equality in JavaScript is four algorithms: `==` with coercion via `ToPrimitive`, `===`, `Object.is`, where `NaN` equals itself and `+0` does not equal `-0`, and SameValueZero in `includes`, `Map` and `Set`. Hence the `eqeqeq` rule with a single exception, `x == null`, which checks for `null` and `undefined` at once. At the boundary with .NET the bigger issue is `number`: it is a double, integers are exact only up to 2^53 − 1, so C# `long` IDs silently lose precision in `JSON.parse` and are sent as strings.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **Primitives** — `string`, `number`, `bigint`, `boolean`, `undefined`, `null`, `symbol`. Immutable, compared by value.
+- **Objects** — everything else: `{}`, arrays, functions, `Date`. A variable holds a reference, like a class-typed variable in C#.
+
+**How to use**
+
+- Check the type with `typeof`: `typeof 'a'` is `'string'`. Two oddities: `typeof null` is `'object'`, and for a function it is `'function'`. Check for arrays with `Array.isArray`.
+- Compare with `===`: both type and value must match. `==` converts types before comparing, so `0 == ''` is `true`.
+- Falsy values: `false`, `0`, `''`, `null`, `undefined`, `NaN`. Everything else counts as true in an `if`, including `[]` and `'0'`.
+
+**Common mistake**
+
+Writing `count || 10` for a default. With `count = 0` you get `10`; you need `count ?? 10`.
+
+**Takeaway:** primitives are compared by value, objects by reference, and you compare with `===`.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+1. `===` is strict equality: different types give `false` immediately, and objects are equal only if they are the same reference.
+2. `==` is loose equality: `null` and `undefined` equal only each other, a string or a `boolean` is converted to a number, and an object to a primitive via `valueOf` or `toString`.
+3. `NaN` equals nothing, not even itself. Check it with `Number.isNaN(x)`.
+
+**When to choose what**
+
+| Task | What to write |
+|---|---|
+| Compare values | `===` |
+| Check for `null` and `undefined` at once | `x == null` |
+| Default only for `null` and `undefined` | `x ?? def` |
+| Default for any falsy value | `x \|\| def` |
+| Find `NaN` in an array | `includes`, not `indexOf` |
+
+**Pitfalls**
+
+- **`typeof null === 'object'`.** The "is it an object" check is `typeof x === 'object' && x !== null`.
+- **Global `isNaN`.** It converts its argument to a number first: `isNaN('abc')` is `true`. Use `Number.isNaN`.
+- **Comparing objects.** `{ id: 1 } === { id: 1 }` is `false`. There is no `Equals` and no operator overloading as in C#: deep comparison is hand-written or taken from a library.
+- **Fractions.** `number` is a 64-bit double, like `double` in C#: `0.1 + 0.2 !== 0.3`. Money is counted in cents or sent as a string.
+
+**Rule of thumb**
+
+Always `===`, except `x == null`; for defaults, `??`. The ESLint `eqeqeq` rule enforces this in code.
+
+**Takeaway:** `==` hides type coercion, so compare with `===` and set defaults with `??`.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- Per the spec, `==` is the IsLooselyEqual algorithm: when types differ, the operands are converted step by step to a number or a primitive. An object becomes a primitive via `Symbol.toPrimitive`, `valueOf` or `toString`, hence `[] == false`: `[]` → `''` → `0`.
+- `typeof null === 'object'` is a bug from the first implementation of the language: the "object" type tag was zero, and so was the `null` pointer. It was kept for compatibility.
+- There are four kinds of equality: `==`, `===`, `Object.is` (SameValue) and SameValueZero. The last one is used by `includes`, `Map` and `Set`, which is why they find `NaN`.
+
+**Cost**
+
+- `number` is an IEEE 754 double. Integers are exact up to `Number.MAX_SAFE_INTEGER` (2^53 − 1). `JSON.parse` silently rounds a C# `long` ID above that limit: `9007199254740993` becomes `9007199254740992`.
+- `bigint` is exact, but it does not mix with `number` (`1n + 1` is a `TypeError`), and `JSON.stringify` cannot serialize it.
+
+**Trade-offs**
+
+- The back end sends large `long` and `decimal` values as strings: in System.Text.Json via `JsonNumberHandling.WriteAsString` or a converter on specific fields. The alternative is agreeing that IDs never exceed 2^53.
+- `Map` and `Set` compare keys by reference. Look an object key up by the same instance, or switch to a string key.
+
+**How to check in production**
+
+- ESLint: `eqeqeq`, and for TypeScript `@typescript-eslint/prefer-nullish-coalescing` and `strict-boolean-expressions`.
+- Lost ID precision is caught by an integration test with an ID above 2^53: it must come back unchanged in the response.
+
+**Takeaway:** equality in JavaScript is several algorithms with different semantics, and the most expensive trap at the .NET boundary is `number` precision.
+
+</A>
+
+<Ex>
+
+```js
+console.log(typeof null);         // object — a historical bug
+console.log(typeof undefined);    // undefined
+console.log(typeof (() => {}));   // function
+
+console.log(0 == '');             // true: '' is converted to 0
+console.log(0 === '');            // false: different types
+console.log(null == undefined);   // true
+console.log(null == 0);           // false
+console.log([] == false);         // true: [] → '' → 0, false → 0
+console.log(Boolean([]));         // true: every object is truthy
+
+console.log(NaN === NaN);         // false
+console.log(Number.isNaN(NaN));   // true
+console.log([NaN].includes(NaN)); // true
+console.log([NaN].indexOf(NaN));  // -1
+
+const qty = 0;
+console.log(qty || 10);           // 10: 0 is falsy
+console.log(qty ?? 10);           // 0: 0 is neither null nor undefined
+
+const a = { id: 1 };
+const b = a;
+console.log(a === b);             // true: same reference
+console.log(a === { id: 1 });     // false: a different object
+```
+
+</Ex>
+
+<Next>
+
+- How is `undefined` different from `null`? — `undefined` means "no value set": an uninitialized variable, a missing property; `null` is an explicit "empty".
+- When is `==` acceptable? — `x == null`: one check for both `null` and `undefined`.
+- How is `Object.is` different from `===`? — `Object.is(NaN, NaN)` is `true`, `Object.is(0, -0)` is `false`.
+- Why is `typeof null` `'object'`? — A bug in the first implementation, kept for compatibility.
+- How do you pass a C# `long` without losing precision? — As a string; `number` is exact only up to 2^53 − 1.
+
+</Next>
+
+<Src>
+
+- [Equality comparisons and sameness — MDN](https://developer.mozilla.org/docs/Web/JavaScript/Equality_comparisons_and_sameness)
+- [JavaScript data types and data structures — MDN](https://developer.mozilla.org/docs/Web/JavaScript/Data_structures)
+- [Nullish coalescing operator (??) — MDN](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Operators/Nullish_coalescing)
+
+</Src>
+
+</Q>
+
+<Q id="front.js.closures-this" level="m">
+
+## How do scope, closures and `this` work?
+
+<A short l="j">
+
+<T k="lexical-scope">Scope</T> is the part of the code where a variable is visible: `let` and `const` are visible inside a block, `var` across the whole function. A <T k="js-closure">closure</T> is a function that remembers the variables of the place where it was created, and `this` is the object the function was called on: in `user.hello()` it is `user`.
+
+</A>
+
+<A short l="m">
+
+`var` is hoisted (<T k="hoisting">hoisting</T>) and visible across the whole function with the value `undefined`, while `let` and `const` live in a block and sit in the <T k="temporal-dead-zone">temporal dead zone</T> (TDZ) until declared. A closure captures the variable, not its value, just like a C# lambda, so callbacks in a `var` loop all see the last value. <T k="this-binding">`this`</T> is determined at call time, not at declaration: a method passed as a callback loses its object, and the fix is an <T k="arrow-function">arrow function</T> or `bind`.
+
+</A>
+
+<A short l="s">
+
+Scope is lexical: a function keeps a reference to the environment where it was created, and the engine keeps captured variables on the heap for as long as the function lives. `this`, by contrast, is dynamic: the call form sets it — `new`, `call`/`apply`/`bind`, a call through an object, or a plain call, where in strict mode it is `undefined`. An arrow function has no `this` of its own and takes it from the surrounding scope, which is why it is used for callbacks. The cost of closures is memory: a forgotten event handler keeps its whole environment alive.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **Scope** is the part of the code where a variable is available. `let` and `const` are visible in a `{ }` block, `var` across the whole function.
+- **A closure** is a function together with the variables available when it was created. It still sees them after the outer function returns.
+- **`this`** is the object "before the dot" in a call: in `user.hello()` it is `user`.
+
+**How to use**
+
+- Declare variables with `const`, and with `let` when the value changes. New code does not need `var`.
+- A closure holds private state: `makeCounter()` returns a function with its own `count`.
+- Write callbacks as arrow functions: they have no `this` of their own and take it from outside.
+
+**Common mistake**
+
+Passing a method as a callback: `setTimeout(user.hello, 100)`. The function is not called through `user`, so `this` no longer points to it. The fix is `setTimeout(() => user.hello(), 100)`.
+
+**Takeaway:** scope decides where a variable is visible, a closure decides how long it lives, and `this` is the object the function was called on.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+| Property | `var` | `let`, `const` |
+|---|---|---|
+| Scope | function | block |
+| Before declaration | `undefined` | `ReferenceError` (TDZ) |
+| Redeclaration | allowed | error |
+
+Rules for `this`, by priority:
+
+1. `new F()` — the new object.
+2. `f.call(obj)`, `f.apply(obj, args)`, `f.bind(obj)` — the object passed explicitly. `bind` returns a new function with `this` fixed.
+3. `obj.f()` — the object before the dot.
+4. `f()` — `undefined` in strict mode (modules and classes are always strict), otherwise the global object.
+
+Arrow functions are outside these rules: they take `this` from the surrounding scope at creation, and `call` or `bind` do not change it.
+
+**Pitfalls**
+
+- **A `var` loop.** All callbacks share one variable and see its last value. `let` in a `for` creates a new variable per iteration. In C#, `for` behaves the same way, while `foreach` has created a new variable per iteration since C# 5.
+- **Detaching a method.** `const f = obj.method` loses `obj`. In C#, a delegate `Action a = obj.Method` remembers the object; in JavaScript it does not.
+- **An arrow as an object method.** An arrow function in an object literal takes `this` from outside, not the object itself.
+
+**Rule of thumb**
+
+`const` by default, `let` when you need to reassign. Callbacks as arrow functions; a method you hand out is an arrow field or bound with `bind`.
+
+**Takeaway:** scope and closures are lexical — the place in the code decides — while `this` is dynamic — the call site decides.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- Per the spec, a function keeps a reference to the lexical environment (Environment Record) where it was created. Variable lookup walks the chain of environments outward.
+- The engine puts captured variables into a context object on the heap. In V8, closures created in the same function share one context: a long-lived callback also keeps variables that only a sibling closure needs.
+- `this` is not an environment variable but a call parameter. Arrow functions take `this`, `arguments` and `super` from the enclosing function, which is why they cannot be called with `new`.
+
+**Cost**
+
+- A class method is one function on the prototype. An arrow field `handle = () => {}` is a separate function in every instance: memory per object, and a subclass cannot call it via `super.handle()`.
+- A closure retains everything it captured. An event handler or timer that is never removed keeps a component and its data alive — a common leak in SPAs.
+
+**Trade-offs**
+
+- `bind` or an arrow field: memory per instance versus a reliable `this` when a method is handed out.
+- A closure gives real privacy without classes. Private fields `#x` give it to a class too, without a separate function per instance.
+
+**How to check in production**
+
+- Chrome DevTools → Memory → Heap snapshot: compare two snapshots and follow the Retainers chain. `(closure)` and `system / Context` entries show which closure holds the memory.
+- ESLint `no-var`, `prefer-const` and `no-loop-func` remove the `var` and loop traps.
+
+**Takeaway:** a closure is an environment on the heap that lives as long as the function, and `this` is set by the call; both are common sources of leaks and callback bugs.
+
+</A>
+
+<Ex>
+
+```js
+console.log(v);                  // undefined: var is hoisted and set to undefined
+var v = 1;
+try {
+  console.log(l);
+} catch (e) {
+  console.log(e.name);           // ReferenceError: l is in the TDZ
+}
+let l = 2;
+
+const withVar = [];
+for (var i = 0; i < 3; i++) withVar.push(() => i);
+console.log(withVar.map(f => f())); // [ 3, 3, 3 ]: one i for the whole function
+
+const withLet = [];
+for (let j = 0; j < 3; j++) withLet.push(() => j);
+console.log(withLet.map(f => f())); // [ 0, 1, 2 ]: a new j per iteration
+
+function makeCounter() {
+  let count = 0;                 // lives as long as the returned function
+  return () => ++count;
+}
+const next = makeCounter();
+next();
+console.log(next());             // 2
+```
+
+</Ex>
+
+<Ex title="Losing this">
+
+```js
+class Counter {
+  count = 0;
+  inc() { return ++this.count; }       // method on the prototype
+  incArrow = () => ++this.count;       // field: a separate function per object
+}
+
+const c = new Counter();
+const inc = c.inc;                     // method detached from the object
+const incArrow = c.incArrow;
+
+try {
+  inc();                               // this === undefined: classes are strict
+} catch (e) {
+  console.log(e.name);                 // TypeError
+}
+console.log(incArrow());               // 1: this taken from the constructor
+console.log(inc.call(c));              // 2: this set explicitly
+console.log(inc.bind(c)());            // 3: bind returns a new function
+console.log(inc.apply(c, []));         // 4: like call, arguments as an array
+```
+
+</Ex>
+
+<Next>
+
+- What does a loop with `var` and `setTimeout` print, and how do you fix it? — Three identical values; replace `var` with `let` or pass the value as a parameter.
+- Can you change an arrow function's `this` with `bind`? — No, `bind`, `call` and `apply` ignore it.
+- How is `call` different from `apply`? — Only in how arguments are passed: as a list or as an array.
+- What is the TDZ? — The region from the start of a block to a `let` or `const` declaration where access throws `ReferenceError`.
+- Why does a handler passed to `addEventListener` lose the object's `this`? — The browser calls it, and `this` becomes the element the event fired on.
+
+</Next>
+
+<Src>
+
+- [Closures — MDN](https://developer.mozilla.org/docs/Web/JavaScript/Guide/Closures)
+- [this — MDN](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Operators/this)
+- [let: temporal dead zone — MDN](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Statements/let#temporal_dead_zone_tdz)
+
+</Src>
+
+</Q>
+
+<Q id="front.js.event-loop" level="m">
+
+## How do the event loop, promises and async/await work in JavaScript?
+
+<A short l="j">
+
+JavaScript runs code on a single thread: the <T k="event-loop">event loop</T> takes tasks from a queue and runs them one at a time, while long operations such as timers and network calls are waited on by the environment — the browser or Node.js. A <T k="js-promise">promise</T> is an object holding a future result, and `async`/`await` lets you wait for it without callbacks and without blocking the thread.
+
+</A>
+
+<A short l="m">
+
+Synchronous code runs on the <T k="js-call-stack">call stack</T> to completion; when the stack is empty, the event loop runs all <T k="microtask">microtasks</T> — promise callbacks and continuations after `await` — and then takes the next task from the <T k="task-queue">task queue</T>: a timer, an event, a network response. That is why `Promise.then` fires before `setTimeout(fn, 0)`. Unlike C#, continuations do not go to a thread pool: all JavaScript code runs on one thread, so no locks are needed, but a heavy computation freezes the page.
+
+</A>
+
+<A short l="s">
+
+The model is run-to-completion: a task runs in full, then the microtask queue is drained completely, and only then can the browser render a frame, so an endless chain of microtasks hangs the page just like `while (true)`. Unlike a C# `Task`, `await` always yields, even for an already fulfilled promise, and promises have no cancellation — it is passed via `AbortController`. A rejected promise without a handler is an <T k="unhandled-rejection">unhandled rejection</T>: since Node.js 15 it terminates the process by default.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **One thread.** While a function runs, nothing else happens.
+- **The event loop** is a loop that takes the next task from the queue once the current code has finished: a click, a timer, a server response.
+- **A promise** is an object that will later be fulfilled with a result or rejected with an error.
+
+**How to use**
+
+1. An `async` function always returns a promise.
+2. `await` inside it waits for a promise and gives you its result; the thread is free meanwhile.
+3. Errors are caught with a regular `try`/`catch` around `await`.
+4. Independent requests run in parallel: `await Promise.all([loadUser(), loadOrders()])`.
+
+**Common mistake**
+
+Calling an `async` function without `await` and without `.catch`. An error inside it will not reach your `try`/`catch` and becomes unhandled.
+
+**Takeaway:** one thread plus a task queue, and promises with `await` let you wait without blocking that thread.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+1. Synchronous code runs on the call stack to completion.
+2. When the stack is empty, all microtasks run: `then`, `catch` and `finally` callbacks, continuations after `await`, `queueMicrotask`. Microtasks added along the way run in the same pass.
+3. The browser may render a frame.
+4. The event loop takes one task from the queue: `setTimeout`, an event, a network message. The loop repeats.
+
+The code of an `async` function up to the first `await` runs synchronously; the rest becomes a microtask.
+
+**When to choose what**
+
+| Method | Result |
+|---|---|
+| `Promise.all` | array of results; rejects on the first error |
+| `Promise.allSettled` | the status of every promise, never rejects |
+| `Promise.race` | the first to settle — success or error |
+| `Promise.any` | the first success; if all fail — `AggregateError` |
+
+**Pitfalls**
+
+- **`Promise.all` does not cancel the rest.** When one promise rejects, the other requests keep running; their results are simply lost.
+- **`forEach` with an `async` callback.** `forEach` does not wait for promises. Sequentially — `for...of` with `await`; in parallel — `Promise.all` with `map`.
+- **Needless sequencing.** Two independent `await`s in a row wait for the sum of the times, not the maximum.
+
+**Rule of thumb**
+
+Every promise is either awaited, returned, or explicitly handled with `.catch`. Independent operations go through `Promise.all`.
+
+**Takeaway:** microtasks run before the next task, and the promise combinators differ in how they react to errors.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- The ECMAScript spec describes promise reactions as jobs, and the browser and Node.js put them into the microtask queue. Node.js also has the `process.nextTick` queue, which runs before promises, and the libuv loop phases: timers, I/O, `setImmediate`.
+- An `async` function is a state machine, as in C#. But the continuation after `await` always goes through the microtask queue, even if the promise is already fulfilled; in C#, `await` on a completed `Task` continues synchronously.
+- I/O is done by the browser and libuv on their own threads; only the callbacks come back into JavaScript.
+
+**Cost**
+
+- Everything is on one thread. A 200 ms computation freezes the UI or, on Node.js, every server request. CPU work goes to a Web Worker or `worker_threads`.
+- There are no locks, but there are races between `await`s: the responses to two search requests arrive out of order, and the old one overwrites the new one.
+
+**Trade-offs**
+
+- Promises cannot be cancelled. Cancellation is passed via `AbortController` and `AbortSignal` — the counterpart of `CancellationToken`: `fetch(url, { signal })`, `AbortSignal.timeout(5000)`.
+- `Promise.all` is fail-fast, which is usually what you want. `allSettled` is for when a partial result beats none.
+
+**How to check in production**
+
+- Unhandled rejections: in the browser, send the `unhandledrejection` event to error monitoring; Node.js 15+ crashes by default.
+- Long tasks show up in DevTools → Performance. Event loop delay in Node.js is measured with `perf_hooks.monitorEventLoopDelay()`.
+- The `@typescript-eslint/no-floating-promises` rule finds unhandled promises.
+
+**Takeaway:** one thread and the order "task → all microtasks → frame" give a simple model without locks, but any long synchronous work stops everything.
+
+</A>
+
+<Ex>
+
+```js
+console.log('A');                                   // 1
+setTimeout(() => console.log('timeout'), 0);        // 7: task
+Promise.resolve().then(() => console.log('then'));  // 4: microtask
+queueMicrotask(() => console.log('microtask'));     // 5: microtask
+
+async function run() {
+  console.log('run start');                         // 2: before await — synchronous
+  await null;
+  console.log('after await');                       // 6: continuation — microtask
+}
+run();
+console.log('B');                                   // 3
+```
+
+The numbers in the comments are the output order.
+
+</Ex>
+
+<Ex title="Promise combinators">
+
+```js
+// ES module: top-level await
+const ok = (value, ms) =>
+  new Promise(resolve => setTimeout(() => resolve(value), ms));
+const fail = (message, ms) =>
+  new Promise((_, reject) => setTimeout(() => reject(new Error(message)), ms));
+
+try {
+  await Promise.all([ok(1, 50), fail('boom', 10)]);
+} catch (e) {
+  console.log(e.message);       // boom: after 10 ms, not waiting for ok(1)
+}
+
+const settled = await Promise.allSettled([ok(1, 10), fail('boom', 10)]);
+console.log(settled.map(r => r.status)); // [ 'fulfilled', 'rejected' ]
+
+console.log(await Promise.any([fail('a', 5), ok(2, 20)]));     // 2: first success
+await Promise.race([fail('a', 5), ok(2, 20)])
+  .catch(e => console.log(e.message));                          // a: first to settle
+
+try {
+  await Promise.any([fail('a', 5), fail('b', 5)]);
+} catch (e) {
+  console.log(e.constructor.name, e.errors.length);             // AggregateError 2
+}
+```
+
+</Ex>
+
+<Next>
+
+- Which runs first: `setTimeout(fn, 0)` or `Promise.resolve().then(fn)`? — `then`: microtasks run before the next task.
+- How is `Promise.all` different from `Task.WhenAll`? — `Promise.all` rejects as soon as the first error occurs; `WhenAll` waits for all tasks.
+- How do you cancel a `fetch`? — Pass the `signal` of an `AbortController` and call `abort()`.
+- Why does an endless chain of microtasks hang the page? — The microtask queue is drained completely before rendering and the next task.
+- Does JavaScript need locks? — No, but races between `await`s are possible; they are handled by cancelling stale requests.
+
+</Next>
+
+<Src>
+
+- [JavaScript execution model — MDN](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Execution_model)
+- [Using microtasks in JavaScript with queueMicrotask() — MDN](https://developer.mozilla.org/docs/Web/API/HTML_DOM_API/Microtask_guide)
+- [Using promises — MDN](https://developer.mozilla.org/docs/Web/JavaScript/Guide/Using_promises)
+
+</Src>
+
+</Q>
+
+<Q id="front.js.typescript" level="m">
+
+## What does TypeScript give you, and how do you use it properly?
+
+<A short l="j">
+
+TypeScript is JavaScript with types: the compiler checks them at build time and <T k="type-erasure">erases</T> them, so the browser gets plain JavaScript. That is why a typo in a property name or `undefined` instead of an object is caught before the code runs, and the IDE suggests fields and methods.
+
+</A>
+
+<A short l="m">
+
+Unlike C#, typing is <T k="structural-typing">structural</T>: a type fits if it has the required members, regardless of its name or inheritance. Inside a function the type is refined by <T k="type-narrowing">narrowing</T> — `typeof`, `in`, `instanceof`, a `null` check — and external data is typed as `unknown` rather than `any`, which switches checking off. The basis of proper use is <T k="ts-strict">`strict`</T>; since TypeScript 6.0 it is on by default.
+
+</A>
+
+<A short l="s">
+
+TypeScript checks code at build time, not data at runtime: the JavaScript that runs has no types, so `as User` on a server response is a promise, not a check. Data at the boundary — HTTP, `localStorage`, messages — is validated with a schema, for example <T k="zod">Zod</T>, and the type is inferred from that same schema. Structural typing is convenient but cannot tell apart IDs of the same shape, so branded types are used for them. The cost is type-checking time on large projects: it runs as a separate CI step, and TypeScript 7, rewritten in Go, made it roughly 10 times faster.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+TypeScript is a layer on top of JavaScript: the same language plus type annotations. The `tsc` compiler checks the types and emits JavaScript without them.
+
+**Why**
+
+- Errors are found at build time: a property typo, a missing argument, a possible `undefined`.
+- The IDE knows the types: autocompletion and safe renaming.
+
+**How to use**
+
+- Describe the shape of data with `interface` or `type`: `interface User { id: number; name: string }`.
+- Annotate function parameters; the compiler often infers variable types itself: `const n = 5` is a `number`.
+- Keep `"strict": true` in `tsconfig.json`; since TypeScript 6.0 this is the default.
+
+**Common mistake**
+
+Reaching for `any` when the compiler complains. `any` switches checking off, and the error moves to runtime. For a value of unknown type there is `unknown`.
+
+**Takeaway:** TypeScript catches errors before the code runs, but at runtime the types are gone.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- **Structural typing.** An object fits `interface Point` if it has `x` and `y`. C# typing is nominal: two classes with the same fields are incompatible.
+- **Narrowing.** The compiler tracks checks: after `typeof x === 'string'`, `x` has type `string`. This works with `typeof`, `instanceof`, `in`, `===` and a <T k="type-guard">type guard</T> — a function returning `x is User`.
+- **Generics** look like C#: `function first<T>(items: T[])`, constraints via `extends`. But `T` does not exist at runtime: `new T()` and `typeof T` are impossible.
+
+**When to choose what**
+
+| Task | Choice |
+|---|---|
+| Object shape, class contract | `interface`, extended via `extends` |
+| Union, tuple, computed type | `type` |
+| Value of unknown type | `unknown` plus narrowing |
+| Migrating from JavaScript, no other way | `any`, sparingly |
+
+**Pitfalls**
+
+- **Excess property checks** apply only to object literals. The same object passed through a variable gets through.
+- **`as` is not a cast.** `data as User` checks nothing at runtime.
+- **`strict` is not everything.** Index access `arr[0]` gives `T`, not `T | undefined`, until `noUncheckedIndexedAccess` is on.
+
+**Rule of thumb**
+
+`strict` always, `unknown` instead of `any`, and `as` only where you know more than the compiler — with a comment saying why.
+
+**Takeaway:** TypeScript compares types by shape and refines them from checks in the code, while `strict` and `unknown` keep those checks from being bypassed.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- `tsc` is type checking plus JavaScript emit. The esbuild and SWC bundlers, as well as Node.js 22.18+, only strip types without checking them, so `tsc --noEmit` is a separate CI step.
+- Not everything can be stripped: `enum`, `namespace` with code and parameter properties produce JavaScript. The `erasableSyntaxOnly` flag (TypeScript 5.8) forbids such syntax.
+- Types do not exist at runtime, so DI in Angular and NestJS relies on classes as values. An interface cannot be a token: you create an `InjectionToken` or a string token for it.
+
+**Cost**
+
+- An API response is typed only as far as you choose to trust it: `res.json()` returns `Promise<any>`. A format error surfaces far from where the data arrived.
+- Runtime schema validation costs CPU and bundle size, but the error fails at the boundary with a clear path to the field.
+
+**Trade-offs**
+
+- Zod (or Valibot, ArkType): the schema is the single source of truth, and the type is inferred with `z.infer`. Generating types from OpenAPI gives a contract without runtime validation.
+- Structural typing confuses `UserId` and `OrderId` if both are `string`. A branded type `string & { readonly __brand: 'UserId' }` brings nominal typing back.
+- TypeScript 7 (July 2026) is the compiler rewritten in Go: type checking is roughly 10 times faster.
+
+**How to check in production**
+
+- In CI: `tsc --noEmit` and ESLint with `@typescript-eslint/no-explicit-any` and the `no-unsafe-*` rules.
+- Schema validation errors are logged with the field path: they are the first sign that the back end changed the contract.
+
+**Takeaway:** TypeScript checks code, not data, so the boundary with the outside world needs runtime validation.
+
+</A>
+
+<Ex>
+
+```ts
+interface Point { x: number; y: number }
+class Vector { x = 3; y = 4; }          // knows nothing about Point
+
+function length(p: Point): number {
+  return Math.hypot(p.x, p.y);
+}
+console.log(length(new Vector()));      // 5: fits by shape
+console.log(length({ x: 6, y: 8 }));    // 10
+
+function describe(value: unknown): string {
+  if (typeof value === 'string') return value.toUpperCase(); // value: string
+  if (Array.isArray(value)) return `array of ${value.length}`; // value: any[]
+  return 'other';
+}
+console.log(describe('ts'));            // TS
+console.log(describe([1, 2]));          // array of 2
+
+function first<T>(items: T[]): T | undefined {
+  return items[0];
+}
+const n = first([1, 2, 3]);             // n: number | undefined
+console.log(n?.toFixed(1));             // 1.0
+```
+
+</Ex>
+
+<Ex title="Validating a server response">
+
+```ts
+// npm i zod
+import { z } from 'zod';
+
+const User = z.object({ id: z.number(), name: z.string() });
+type User = z.infer<typeof User>;          // { id: number; name: string }
+
+const raw: unknown = JSON.parse('{"id":"42","name":"Ann"}');
+
+const trusted = raw as User;               // compiles: as checks nothing
+console.log(typeof trusted.id);            // string
+
+const result = User.safeParse(raw);
+if (result.success) {
+  console.log(result.data.id);
+} else {
+  console.log(result.error.issues[0].path); // [ 'id' ]
+}
+```
+
+</Ex>
+
+<Next>
+
+- How is `type` different from `interface`? — `interface` can be extended and merges when declared twice; `type` describes unions, tuples and computed types.
+- How is `unknown` different from `any`? — You can do nothing with `unknown` without narrowing, while `any` switches checking off and spreads through the code.
+- What does `strict` include? — `strictNullChecks`, `noImplicitAny`, `strictFunctionTypes`, `strictPropertyInitialization`, `useUnknownInCatchVariables` and more.
+- Why can't you write `new T()`? — Types are erased; pass the constructor as a parameter `ctor: new () => T`.
+- How do you make a nominal type for an ID? — A branded type: an intersection of `string` with a unique marker field.
+
+</Next>
+
+<Src>
+
+- [Type Compatibility — TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/type-compatibility.html)
+- [Narrowing — TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/2/narrowing.html)
+- [strict — TSConfig Reference](https://www.typescriptlang.org/tsconfig/#strict)
+
+</Src>
+
+</Q>
+
+<Q id="front.js.ts-advanced" level="s">
+
+## Advanced TypeScript types: discriminated unions, utility, mapped and conditional types — when do you need them?
+
+<A short l="j">
+
+A <T k="discriminated-union">discriminated union</T> is a set of variants with a shared tag field, such as `status`, from which the compiler knows which variant it is looking at. <T k="utility-types">Utility types</T> like `Partial<User>` and `Pick<User, 'id'>` derive a new type from `User` — "all fields optional" or "only `id`" — without copying its definition.
+
+</A>
+
+<A short l="m">
+
+A discriminated union models states such as "draft, paid, shipped": a `switch` on the tag narrows the type, and assigning to <T k="never-type">`never`</T> in the `default` branch catches an unhandled variant at compile time. Utility types are ready-made <T k="mapped-type">mapped types</T> that iterate over keys via `keyof`, while <T k="conditional-type">conditional types</T> (`T extends U ? X : Y`) with `infer` select and extract types by condition. `satisfies` checks a value against a type without losing its precise inferred type.
+
+</A>
+
+<A short l="s">
+
+These types pay off at boundaries — states, API contracts, library code — and in application code their goal is to make invalid states unrepresentable. API types are not written by hand but generated from the back end's <T k="openapi">OpenAPI</T> document, and CI fails if the contract drifts. The cost of type-level programming is compile time and unreadable errors: deep recursive types produce TS2589 and slow down the IDE. So complex types are kept to a few places and covered with type tests.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **A union** `A | B` is a value of one of the types. A discriminated union is a union of objects with a shared field that holds its own literal value in each variant: `status: 'draft'`, `status: 'paid'`.
+- **Utility types** are built-in "functions on types": they take a type and return a new one.
+
+**How to use**
+
+- Check the tag field in an `if` or `switch` — inside the branch TypeScript knows the exact variant: in the `'paid'` branch, `paidAt` is available.
+- `Partial<T>` — all fields optional: the body of a PATCH request.
+- `Pick<T, 'a' | 'b'>` and `Omit<T, 'id'>` — keep or drop fields: a create form without `id`.
+- `Record<K, V>` — a dictionary: `Record<string, number>`.
+
+**Common mistake**
+
+Describing state with optional fields: `{ status: string; paidAt?: string }`. The compiler does not know when `paidAt` is set, and checks spread across the code.
+
+**Takeaway:** a discriminated union describes the variants, and utility types derive new types from existing ones without copying.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- **`keyof T`** is a union of property names, **`T[K]`** is the type of a property by key, **`typeof value`** is the type of a value.
+- **A mapped type** `{ [K in keyof T]: ... }` iterates over keys and builds a new object type. The modifiers `?`, `readonly` and `-?` add or remove flags, and `as` renames keys. This is how `Partial`, `Readonly` and `Record` are built.
+- **A conditional type** `T extends U ? X : Y` picks a type by condition. `infer R` extracts part of a type: `T extends Promise<infer R> ? R : T`. `ReturnType`, `Awaited` and `Exclude` are built on this.
+- **The `never` check.** In the `default` branch after all the `case`s, the type is narrowed to `never`. The line `const x: never = order` stops compiling as soon as a new variant appears.
+- **`satisfies`** (TypeScript 4.9) checks that a value fits a type but keeps the inferred type: `keyof typeof routes` is `'home' | 'user'`, not `string`. Angular 13 projects (TypeScript 4.4–4.6) did not have it yet.
+
+**Pitfalls**
+
+- `Omit<User, 'idd'>` with a typo compiles: `Omit` does not check its keys, while `Pick` does.
+- `Partial` is shallow: nested objects stay required.
+- A conditional type over a union distributes across its members: `ToArray<string | number>` gives `string[] | number[]`. To prevent this, wrap both sides in a tuple: `[T] extends [U]`.
+
+**Rule of thumb**
+
+States — a discriminated union with a `never` check; derived shapes — utility types from one source type; your own mapped and conditional types — only when the built-in ones fall short.
+
+**Takeaway:** `keyof`, mapped and conditional types are the parts utility types are built from, and `never` turns a forgotten variant into a compile error.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- These types exist only for the compiler and emit no code. Every application of a generic type is an instantiation that the compiler computes and caches.
+- Recursion has a limit: instantiation that is too deep fails with TS2589, "Type instantiation is excessively deep and possibly infinite".
+
+**Cost**
+
+Complex generic types slow down type checking and IDE hints, and error messages unfold over several screens.
+
+**Trade-offs**
+
+- **Generating from OpenAPI.** ASP.NET Core (`Microsoft.AspNetCore.OpenApi`, .NET 9+) produces the document, `openapi-typescript` generates types from it, and NSwag or Orval generate a full client. The types never drift from the back end, but they are only as accurate as the API description: without `[ProducesResponseType]` or `TypedResults` the response schema is incomplete.
+- **Generated versus your own.** Generated DTOs are transport. Domain states on the client are better described as a discriminated union, with the response mapped into them.
+- **Expressiveness versus readability.** A 20-line type built from conditional and mapped types is clear only to its author. Keep the public contracts of modules simple.
+
+**How to check in production**
+
+- `tsc --extendedDiagnostics` shows the instantiation count and check time, and `--generateTrace` shows which types are expensive.
+- Type tests: `@ts-expect-error` or `expectTypeOf` in Vitest pin down how your own utilities behave.
+- CI regenerates types from OpenAPI and fails on `git diff --exit-code` if the contract changed without the front end.
+
+**Takeaway:** advanced types pay off at boundaries — states and API contracts — and you pay for them in compile time and readability.
+
+</A>
+
+<Ex>
+
+```ts
+type Order =
+  | { status: 'draft' }
+  | { status: 'paid'; paidAt: string }
+  | { status: 'shipped'; trackingNo: string };
+
+function label(order: Order): string {
+  switch (order.status) {
+    case 'draft':
+      return 'Draft';
+    case 'paid':
+      return `Paid at ${order.paidAt}`;      // order narrowed to the 'paid' variant
+    case 'shipped':
+      return `Track ${order.trackingNo}`;
+    default: {
+      const unreachable: never = order;      // a new status — compile error here
+      return unreachable;
+    }
+  }
+}
+
+console.log(label({ status: 'paid', paidAt: '2026-10-10' })); // Paid at 2026-10-10
+console.log(label({ status: 'shipped', trackingNo: 'UA1' }));  // Track UA1
+```
+
+</Ex>
+
+<Ex title="Utility, mapped and conditional types">
+
+```ts
+interface User { id: number; name: string; email: string }
+
+type UserPatch = Partial<Omit<User, 'id'>>;   // { name?: string; email?: string }
+type UserById = Record<number, User>;          // dictionary id → User
+
+type Getters<T> = {
+  [K in keyof T & string as `get${Capitalize<K>}`]: () => T[K];
+};
+type NameGetter = Getters<Pick<User, 'name'>>; // { getName: () => string }
+
+type Unwrap<T> = T extends Promise<infer R> ? R : T;
+type Loaded = Unwrap<Promise<User[]>>;         // User[]
+
+const routes = {
+  home: '/',
+  user: '/users/:id',
+} satisfies Record<string, string>;
+type RouteName = keyof typeof routes;          // 'home' | 'user'
+
+const patch: UserPatch = { name: 'Ann' };
+console.log(Object.keys(patch));               // [ 'name' ]
+console.log(routes.user);                      // /users/:id
+```
+
+With the annotation `const routes: Record<string, string>`, `RouteName` would be just `string`.
+
+</Ex>
+
+<Next>
+
+- How is a union of strings different from an `enum`? — A union is erased without a trace, an `enum` emits an object in JavaScript; new code usually prefers the union.
+- Why `satisfies` if you can annotate the type? — An annotation widens the type to the declared one; `satisfies` checks and keeps the precise inference.
+- What does `infer` do? — It declares a type variable inside the condition of a conditional type and extracts part of the type into it.
+- How do you guarantee a `switch` handles every variant? — Assign the value to a variable of type `never` in the `default` branch.
+- Where should back-end DTO types come from? — Generate them from OpenAPI in CI instead of writing them by hand.
+
+</Next>
+
+<Src>
+
+- [Utility Types — TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/utility-types.html)
+- [Mapped Types — TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/2/mapped-types.html)
+- [Conditional Types — TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/2/conditional-types.html)
+
+</Src>
+
+</Q>

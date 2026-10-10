@@ -1,0 +1,221 @@
+jsx:
+  term: JSX
+  def: >-
+    Розширення синтаксису JavaScript для опису розмітки всередині коду: `<h1>{title}</h1>`.
+    Компілятор перетворює його на виклики, що створюють React-елементи.
+  q: React JSX
+  docs: https://react.dev/learn/writing-markup-with-jsx
+props:
+  term: Props (властивості компонента)
+  def: >-
+    Вхідні параметри React-компонента, які передає батько. Компонент їх лише читає; щоб щось
+    змінити вгорі, він викликає колбек із props.
+  q: React props
+  docs: https://react.dev/learn/passing-props-to-a-component
+react-state:
+  term: Стан компонента (state)
+  def: >-
+    Дані, які React зберігає для екземпляра компонента між рендерами. Змінюються лише через
+    функцію з `useState`, і кожна зміна запускає новий рендер.
+  q: React useState state
+  docs: https://react.dev/learn/state-a-components-memory
+react-hooks:
+  term: Хуки React (hooks)
+  def: >-
+    Функції з іменем на `use` (`useState`, `useEffect`, `useContext`), які підключають до
+    компонента стан і можливості React. Викликаються лише на верхньому рівні компонента або
+    свого хука.
+  q: React hooks rules
+  docs: https://react.dev/reference/rules/rules-of-hooks
+controlled-component:
+  term: Контрольований компонент (controlled component)
+  def: >-
+    Поле форми, значення якого задає state: `value` береться зі state, а `onChange` його оновлює.
+    Джерело правди — React, а не DOM.
+  q: React controlled input
+  docs: https://react.dev/reference/react-dom/components/input
+react-reconciliation:
+  term: Узгодження (reconciliation) у React
+  def: >-
+    Алгоритм, яким React порівнює нове дерево елементів із попереднім і вирішує, які вузли DOM
+    оновити, створити або видалити. Елементи списку зіставляються за `key`.
+  q: React reconciliation key
+  docs: https://react.dev/learn/preserving-and-resetting-state
+react-effect:
+  term: Ефект (useEffect)
+  def: >-
+    Код, який React виконує після відмальовування, щоб синхронізувати компонент із зовнішньою
+    системою: підпискою, таймером, з'єднанням, стороннім віджетом.
+  q: React useEffect
+  docs: https://react.dev/learn/synchronizing-with-effects
+dependency-array:
+  term: Масив залежностей (dependency array)
+  def: >-
+    Другий аргумент `useEffect`, `useMemo` і `useCallback`. React порівнює його елементи через
+    `Object.is` і перезапускає ефект або переобчислює значення, лише якщо щось змінилося.
+  q: React useEffect dependencies
+  docs: https://react.dev/learn/lifecycle-of-reactive-effects
+stale-closure:
+  term: Застаріле замикання (stale closure)
+  def: >-
+    Функція, яка захопила props або state старого рендера й далі працює з ними. Типово для
+    ефектів і таймерів із неповним масивом залежностей.
+  q: React stale closure useEffect
+  docs: https://react.dev/learn/lifecycle-of-reactive-effects
+effect-cleanup:
+  term: Очищення ефекту (cleanup)
+  def: >-
+    Функція, яку повертає setup ефекту. React викликає її перед повторним запуском ефекту й під
+    час демонтування, щоб відписатися, зупинити таймер або закрити з'єднання.
+  q: React useEffect cleanup function
+  docs: https://react.dev/reference/react/useEffect
+strict-mode:
+  term: StrictMode
+  def: >-
+    Режим перевірок React у розробці: компоненти рендеряться двічі, а ефекти проходять зайвий
+    цикл setup → cleanup → setup. Так знаходяться нечистий рендер і ефекти без очищення.
+  q: React StrictMode double render
+  docs: https://react.dev/reference/react/StrictMode
+use-effect-event:
+  term: useEffectEvent
+  def: >-
+    Хук React 19.2 для логіки, яка читає свіжі props і state, але не має перезапускати ефект.
+    Функцію з нього викликають лише всередині ефектів і не вказують у залежностях.
+  q: React useEffectEvent
+  docs: https://react.dev/reference/react/useEffectEvent
+lifting-state-up:
+  term: Підняття стану (lifting state up)
+  def: >-
+    Перенесення state у найближчого спільного батька компонентів, яким він потрібен. Батько
+    передає дітям значення й функцію зміни через props.
+  q: React lifting state up
+  docs: https://react.dev/learn/sharing-state-between-components
+prop-drilling:
+  term: Prop drilling
+  def: >-
+    Передавання props через кілька рівнів компонентів, яким вони не потрібні, лише щоб довести
+    значення до глибокого нащадка. Лікується Context або композицією через `children`.
+  q: React prop drilling
+  docs: https://react.dev/learn/passing-data-deeply-with-context
+react-context:
+  term: Context (контекст React)
+  def: >-
+    Механізм передавання значення всьому піддереву без props. Під час зміни значення
+    перемальовуються всі компоненти, які його читають.
+  q: React context
+  docs: https://react.dev/reference/react/createContext
+zustand:
+  term: Zustand
+  def: >-
+    Невелика бібліотека глобального стану для React: стор створюється функцією `create` і
+    використовується як хук без провайдера. Компонент підписується селектором і перемальовується
+    лише під час зміни вибраної частини.
+  q: Zustand React state management
+  docs: https://zustand.docs.pmnd.rs/learn/getting-started/introduction
+server-state:
+  term: Серверний стан (server state)
+  def: >-
+    Копія даних, власник яких — сервер. Вона застаріває без відома клієнта, тому її кешують,
+    перезапитують та інвалідують, а не зберігають як звичайний state.
+  q: server state vs client state React
+  docs: https://tanstack.com/query/latest/docs/framework/react/overview
+tanstack-query:
+  term: TanStack Query (React Query)
+  def: >-
+    Бібліотека для серверного стану: завантажує дані, кешує їх за ключем запиту, перезапитує
+    застарілі й інвалідує після мутацій.
+  q: TanStack Query React
+  docs: https://tanstack.com/query/latest/docs/framework/react/overview
+app-router:
+  term: App Router
+  def: >-
+    Маршрутизатор Next.js на основі папки `app/`: папки задають сегменти URL, `page.tsx` —
+    сторінку, `layout.tsx` — спільний каркас. Побудований на React Server Components.
+  q: Next.js App Router
+  docs: https://nextjs.org/docs/app/getting-started/layouts-and-pages
+react-server-components:
+  term: Серверні компоненти (React Server Components, RSC)
+  def: >-
+    Компоненти, які виконуються лише на сервері або під час збирання. Можуть бути `async` і читати
+    дані напряму, їхній код не потрапляє в браузер, але state й обробників подій у них немає.
+  q: React Server Components
+  docs: https://react.dev/reference/rsc/server-components
+client-component:
+  term: Клієнтський компонент (Client Component)
+  def: >-
+    Компонент із модуля з директивою `'use client'`. Рендериться на сервері в HTML і в браузері,
+    його JS потрапляє в бандл, тому йому доступні state, ефекти й події.
+  q: React use client directive
+  docs: https://react.dev/reference/rsc/use-client
+ssr:
+  term: Серверний рендеринг (SSR)
+  def: >-
+    Формування HTML сторінки на сервері на кожен запит. Користувач одразу бачить вміст, а JS потім
+    робить сторінку інтерактивною.
+  q: server-side rendering Next.js
+  docs: https://nextjs.org/docs/app/glossary
+use-cache:
+  term: Директива 'use cache'
+  def: >-
+    Директива Next.js (Cache Components), яка кешує результат асинхронної функції, компонента або
+    всіх експортів файлу. Ключ кешу — аргументи й захоплені значення, строк задає `cacheLife`,
+    мітки для скидання — `cacheTag`.
+  q: Next.js use cache directive
+  docs: https://nextjs.org/docs/app/api-reference/directives/use-cache
+partial-prerendering:
+  term: Partial Prerendering (PPR)
+  def: >-
+    Режим рендерингу Next.js: статична й закешована частина сторінки збирається заздалегідь у
+    статичну оболонку, а динамічні частини під `Suspense` стрімляться в тій самій відповіді.
+  q: Next.js Partial Prerendering
+  docs: https://nextjs.org/docs/app/getting-started/caching
+server-action:
+  term: Server Action (серверна дія)
+  def: >-
+    Асинхронна функція з директивою `'use server'`, яку клієнт викликає POST-запитом для зміни
+    даних, наприклад через `<form action>`. Це публічний ендпоінт, авторизацію перевіряють
+    усередині.
+  q: Next.js Server Actions
+  docs: https://nextjs.org/docs/app/getting-started/mutating-data
+react-action:
+  term: Action (дія) у React 19
+  def: >-
+    Асинхронна функція, запущена всередині переходу, наприклад передана в `<form action>`. React
+    відстежує її очікування й помилки та підтримує оптимістичні оновлення.
+  q: React 19 Actions
+  docs: https://react.dev/reference/react/useActionState
+transition:
+  term: Перехід (transition)
+  def: >-
+    Оновлення, позначене нетерміновим через `startTransition` або `useTransition`. React може
+    перервати його заради введення й поки що показує попередній UI.
+  q: React useTransition
+  docs: https://react.dev/reference/react/useTransition
+react-compiler:
+  term: React Compiler
+  def: >-
+    Інструмент збирання, який аналізує компоненти й автоматично мемоізує значення, JSX і колбеки.
+    Стабільна версія 1.0 вийшла в жовтні 2025.
+  q: React Compiler
+  docs: https://react.dev/learn/react-compiler/introduction
+suspense:
+  term: Suspense
+  def: >-
+    Компонент React, який показує fallback, поки дочірні компоненти чекають дані або код. На
+    сервері його межі задають частини, які стрімляться окремо.
+  q: React Suspense
+  docs: https://react.dev/reference/react/Suspense
+streaming-ssr:
+  term: Стрімінг HTML (streaming SSR)
+  def: >-
+    Серверний рендеринг, за якого HTML надсилається частинами: спершу оболонка з fallback, потім
+    готові фрагменти в тій самій відповіді. Повільні дані не затримують усю сторінку.
+  q: React streaming SSR Suspense
+  docs: https://nextjs.org/docs/app/guides/streaming
+hydration:
+  term: Гідратація (hydration)
+  def: >-
+    Прив'язування React до HTML, що прийшов із сервера: React будує дерево компонентів і підключає
+    обробники подій до готової розмітки. Перший клієнтський рендер має збігтися з HTML сервера.
+  q: React hydration mismatch
+  docs: https://react.dev/reference/react-dom/client/hydrateRoot

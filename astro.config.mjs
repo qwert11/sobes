@@ -59,6 +59,11 @@ export default defineConfig({
           items: [{ autogenerate: { directory: 'quality' } }],
         },
         {
+          label: 'Фронтенд',
+          translations: { uk: 'Фронтенд', en: 'Front end' },
+          items: [{ autogenerate: { directory: 'front' } }],
+        },
+        {
           label: 'Основа',
           translations: { uk: 'Основа', en: 'Fundamentals' },
           items: [{ autogenerate: { directory: 'basics' } }],

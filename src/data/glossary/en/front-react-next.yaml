@@ -1,0 +1,221 @@
+jsx:
+  term: JSX
+  def: >-
+    A JavaScript syntax extension for writing markup inside code: `<h1>{title}</h1>`. The compiler
+    turns it into calls that create React elements.
+  q: React JSX
+  docs: https://react.dev/learn/writing-markup-with-jsx
+props:
+  term: Props
+  def: >-
+    The inputs a parent passes to a React component. The component only reads them; to change
+    something above, it calls a callback from props.
+  q: React props
+  docs: https://react.dev/learn/passing-props-to-a-component
+react-state:
+  term: Component state
+  def: >-
+    Data React keeps for a component instance between renders. It changes only through the setter
+    from `useState`, and every change triggers a new render.
+  q: React useState state
+  docs: https://react.dev/learn/state-a-components-memory
+react-hooks:
+  term: React hooks
+  def: >-
+    Functions whose names start with `use` (`useState`, `useEffect`, `useContext`) that give a
+    component state and other React features. They are called only at the top level of a component
+    or custom hook.
+  q: React hooks rules
+  docs: https://react.dev/reference/rules/rules-of-hooks
+controlled-component:
+  term: Controlled component
+  def: >-
+    A form field whose value is driven by state: `value` comes from state and `onChange` updates
+    it. React, not the DOM, is the source of truth.
+  q: React controlled input
+  docs: https://react.dev/reference/react-dom/components/input
+react-reconciliation:
+  term: Reconciliation (React)
+  def: >-
+    The algorithm React uses to compare a new element tree with the previous one and decide which
+    DOM nodes to update, create or remove. List items are matched by `key`.
+  q: React reconciliation key
+  docs: https://react.dev/learn/preserving-and-resetting-state
+react-effect:
+  term: Effect (useEffect)
+  def: >-
+    Code React runs after painting to synchronize a component with an external system: a
+    subscription, a timer, a connection, a third-party widget.
+  q: React useEffect
+  docs: https://react.dev/learn/synchronizing-with-effects
+dependency-array:
+  term: Dependency array
+  def: >-
+    The second argument of `useEffect`, `useMemo` and `useCallback`. React compares its items with
+    `Object.is` and re-runs the effect or recomputes the value only if something changed.
+  q: React useEffect dependencies
+  docs: https://react.dev/learn/lifecycle-of-reactive-effects
+stale-closure:
+  term: Stale closure
+  def: >-
+    A function that captured props or state from an old render and keeps using them. Typical for
+    effects and timers with an incomplete dependency array.
+  q: React stale closure useEffect
+  docs: https://react.dev/learn/lifecycle-of-reactive-effects
+effect-cleanup:
+  term: Effect cleanup
+  def: >-
+    The function an effect's setup returns. React calls it before re-running the effect and on
+    unmount to unsubscribe, stop a timer or close a connection.
+  q: React useEffect cleanup function
+  docs: https://react.dev/reference/react/useEffect
+strict-mode:
+  term: StrictMode
+  def: >-
+    React's development checks: components render twice, and effects go through an extra setup →
+    cleanup → setup cycle. This surfaces impure renders and effects without cleanup.
+  q: React StrictMode double render
+  docs: https://react.dev/reference/react/StrictMode
+use-effect-event:
+  term: useEffectEvent
+  def: >-
+    A React 19.2 hook for logic that reads the latest props and state but must not re-run the
+    effect. Its function is called only from inside effects and is left out of dependencies.
+  q: React useEffectEvent
+  docs: https://react.dev/reference/react/useEffectEvent
+lifting-state-up:
+  term: Lifting state up
+  def: >-
+    Moving state into the closest common parent of the components that need it. The parent passes
+    the value and a setter down via props.
+  q: React lifting state up
+  docs: https://react.dev/learn/sharing-state-between-components
+prop-drilling:
+  term: Prop drilling
+  def: >-
+    Passing props through several layers of components that don't need them just to reach a deep
+    descendant. Context or composition via `children` fixes it.
+  q: React prop drilling
+  docs: https://react.dev/learn/passing-data-deeply-with-context
+react-context:
+  term: Context (React)
+  def: >-
+    A way to pass a value to a whole subtree without props. When the value changes, every
+    component that reads it re-renders.
+  q: React context
+  docs: https://react.dev/reference/react/createContext
+zustand:
+  term: Zustand
+  def: >-
+    A small global state library for React: a store is created with `create` and used as a hook
+    without a provider. A component subscribes with a selector and re-renders only when the
+    selected slice changes.
+  q: Zustand React state management
+  docs: https://zustand.docs.pmnd.rs/learn/getting-started/introduction
+server-state:
+  term: Server state
+  def: >-
+    A copy of data owned by the server. It goes stale without the client knowing, so it is cached,
+    refetched and invalidated rather than kept as ordinary state.
+  q: server state vs client state React
+  docs: https://tanstack.com/query/latest/docs/framework/react/overview
+tanstack-query:
+  term: TanStack Query (React Query)
+  def: >-
+    A library for server state: it fetches data, caches it by query key, refetches stale data and
+    invalidates it after mutations.
+  q: TanStack Query React
+  docs: https://tanstack.com/query/latest/docs/framework/react/overview
+app-router:
+  term: App Router
+  def: >-
+    The Next.js router based on the `app/` folder: folders define URL segments, `page.tsx` a page,
+    `layout.tsx` a shared shell. It is built on React Server Components.
+  q: Next.js App Router
+  docs: https://nextjs.org/docs/app/getting-started/layouts-and-pages
+react-server-components:
+  term: React Server Components (RSC)
+  def: >-
+    Components that run only on the server or at build time. They can be `async` and read data
+    directly, and their code never reaches the browser, but they have no state or event handlers.
+  q: React Server Components
+  docs: https://react.dev/reference/rsc/server-components
+client-component:
+  term: Client Component
+  def: >-
+    A component from a module marked with `'use client'`. It renders to HTML on the server and in
+    the browser, its JS goes into the bundle, so it can use state, effects and events.
+  q: React use client directive
+  docs: https://react.dev/reference/rsc/use-client
+ssr:
+  term: Server-side rendering (SSR)
+  def: >-
+    Producing a page's HTML on the server for every request. The user sees content right away,
+    and JS then makes the page interactive.
+  q: server-side rendering Next.js
+  docs: https://nextjs.org/docs/app/glossary
+use-cache:
+  term: The 'use cache' directive
+  def: >-
+    A Next.js directive (Cache Components) that caches the result of an async function, a
+    component or all exports of a file. The cache key is the arguments and captured values,
+    `cacheLife` sets the lifetime and `cacheTag` adds tags for invalidation.
+  q: Next.js use cache directive
+  docs: https://nextjs.org/docs/app/api-reference/directives/use-cache
+partial-prerendering:
+  term: Partial Prerendering (PPR)
+  def: >-
+    A Next.js rendering mode: the static and cached part of a page is prebuilt into a static shell,
+    and dynamic parts behind `Suspense` stream in the same response.
+  q: Next.js Partial Prerendering
+  docs: https://nextjs.org/docs/app/getting-started/caching
+server-action:
+  term: Server Action
+  def: >-
+    An async function marked with `'use server'` that the client calls with a POST request to
+    change data, for example via `<form action>`. It is a public endpoint, so authorization is
+    checked inside it.
+  q: Next.js Server Actions
+  docs: https://nextjs.org/docs/app/getting-started/mutating-data
+react-action:
+  term: Action (React 19)
+  def: >-
+    An async function run inside a transition, for example one passed to `<form action>`. React
+    tracks its pending state and errors and supports optimistic updates.
+  q: React 19 Actions
+  docs: https://react.dev/reference/react/useActionState
+transition:
+  term: Transition
+  def: >-
+    An update marked as non-urgent with `startTransition` or `useTransition`. React can interrupt
+    it for user input and keeps showing the previous UI meanwhile.
+  q: React useTransition
+  docs: https://react.dev/reference/react/useTransition
+react-compiler:
+  term: React Compiler
+  def: >-
+    A build-time tool that analyzes components and automatically memoizes values, JSX and
+    callbacks. The stable 1.0 release shipped in October 2025.
+  q: React Compiler
+  docs: https://react.dev/learn/react-compiler/introduction
+suspense:
+  term: Suspense
+  def: >-
+    A React component that shows a fallback while its children wait for data or code. On the
+    server its boundaries define the parts that stream separately.
+  q: React Suspense
+  docs: https://react.dev/reference/react/Suspense
+streaming-ssr:
+  term: Streaming SSR
+  def: >-
+    Server rendering where HTML is sent in chunks: first a shell with fallbacks, then finished
+    fragments in the same response. Slow data does not hold up the whole page.
+  q: React streaming SSR Suspense
+  docs: https://nextjs.org/docs/app/guides/streaming
+hydration:
+  term: Hydration
+  def: >-
+    Attaching React to HTML that came from the server: React builds the component tree and wires
+    event handlers to the existing markup. The first client render must match the server HTML.
+  q: React hydration mismatch
+  docs: https://react.dev/reference/react-dom/client/hydrateRoot

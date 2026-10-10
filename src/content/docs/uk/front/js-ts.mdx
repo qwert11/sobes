@@ -1,0 +1,883 @@
+---
+title: JavaScript і TypeScript
+description: Типи й порівняння, область видимості, замикання та this, event loop і проміси, TypeScript від strict-режиму до discriminated unions, mapped і conditional types.
+sidebar:
+  order: 1
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+Мова фронтенду зсередини: типи й порівняння, область видимості та `this`, модель виконання з event loop і промісами, TypeScript від основ до просунутих типів. Бекенд-розробника на fullstack-співбесіді перевіряють саме тут: там, де JavaScript поводиться не так, як C#.
+
+<Q id="front.js.types-equality" level="j">
+
+## Які типи є в JavaScript і чим `==` відрізняється від `===`?
+
+<A short l="j">
+
+У JavaScript сім <T k="js-primitive">примітивних типів</T> (`string`, `number`, `bigint`, `boolean`, `undefined`, `null`, `symbol`) і об'єкти: примітиви порівнюються за значенням, об'єкти — за посиланням. <T k="strict-equality">`===`</T> порівнює без приведення типів, а `==` спершу приводить операнди до спільного типу, тому `0 == ''` дає `true`, і в коді майже завжди пишуть `===`.
+
+</A>
+
+<A short l="m">
+
+Тип у JavaScript має значення, а не змінна: примітиви незмінні й порівнюються за значенням, усе інше — об'єкти, зокрема масиви та функції, і порівнюється за посиланням. `==` запускає <T k="type-coercion">приведення типів</T> за неочевидними правилами (`[] == false` — `true`), `===` його не робить, але й він вважає `NaN` не рівним самому собі. Для значень за замовчуванням беруть <T k="nullish-coalescing">`??`</T>, а не `||`: `||` замінює будь-яке <T k="truthy-falsy">falsy</T>-значення, зокрема `0` і порожній рядок.
+
+</A>
+
+<A short l="s">
+
+Рівність у JavaScript — чотири алгоритми: `==` з приведенням через `ToPrimitive`, `===`, `Object.is`, де `NaN` дорівнює собі, а `+0` не дорівнює `-0`, і SameValueZero в `includes`, `Map` і `Set`. Звідси правило `eqeqeq` з єдиним винятком `x == null`, яке перевіряє одразу `null` і `undefined`. На стику з .NET важливіший `number`: це double, цілі в ньому точні лише до 2^53 − 1, тому `long`-ідентифікатори з C# мовчки втрачають точність у `JSON.parse`, і їх передають рядком.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+- **Примітиви** — `string`, `number`, `bigint`, `boolean`, `undefined`, `null`, `symbol`. Незмінні, порівнюються за значенням.
+- **Об'єкти** — усе інше: `{}`, масиви, функції, `Date`. Змінна зберігає посилання, як змінна класу в C#.
+
+**Як користуватися**
+
+- Тип перевіряють через `typeof`: `typeof 'a'` — `'string'`. Дві дивини: `typeof null` — `'object'`, а для функції — `'function'`. Масив перевіряють через `Array.isArray`.
+- Порівнюють через `===`: мають збігтися і тип, і значення. `==` перед порівнянням приводить типи, тому `0 == ''` — `true`.
+- Falsy-значення: `false`, `0`, `''`, `null`, `undefined`, `NaN`. Усе інше в `if` вважається істиною, зокрема `[]` і `'0'`.
+
+**Типова помилка**
+
+Писати `count || 10` для значення за замовчуванням. При `count = 0` вийде `10`; потрібно `count ?? 10`.
+
+**Підсумок:** примітиви порівнюються за значенням, об'єкти — за посиланням, а порівнюють через `===`.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+1. `===` — строга рівність: різні типи одразу дають `false`, об'єкти рівні, лише якщо це одне посилання.
+2. `==` — нестрога: `null` і `undefined` рівні лише одне одному, рядок і `boolean` приводяться до числа, об'єкт — до примітиву через `valueOf` або `toString`.
+3. `NaN` не дорівнює нічому, навіть собі. Перевірка — `Number.isNaN(x)`.
+
+**Коли що обирати**
+
+| Задача | Що писати |
+|---|---|
+| Порівняти значення | `===` |
+| Перевірити на `null` і `undefined` разом | `x == null` |
+| Замовчування лише для `null` і `undefined` | `x ?? def` |
+| Замовчування для будь-якого falsy | `x \|\| def` |
+| Знайти `NaN` у масиві | `includes`, а не `indexOf` |
+
+**Пастки**
+
+- **`typeof null === 'object'`.** Перевірка «це об'єкт» — `typeof x === 'object' && x !== null`.
+- **Глобальний `isNaN`.** Він спершу приводить аргумент до числа: `isNaN('abc')` — `true`. Потрібен `Number.isNaN`.
+- **Порівняння об'єктів.** `{ id: 1 } === { id: 1 }` — `false`. Ні `Equals`, ні перевантаження операторів, як у C#, немає: глибоке порівняння пишуть самі або беруть із бібліотеки.
+- **Дробові числа.** `number` — 64-бітний double, як `double` у C#: `0.1 + 0.2 !== 0.3`. Гроші рахують у копійках або передають рядком.
+
+**Правило**
+
+Завжди `===`, крім `x == null`; для замовчувань — `??`. Правило ESLint `eqeqeq` закріплює це в коді.
+
+**Підсумок:** `==` ховає приведення типів, тому порівнюють через `===`, а замовчування задають через `??`.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- `==` за специфікацією — алгоритм IsLooselyEqual: за різних типів операнди крок за кроком приводяться до числа або примітиву. Об'єкт стає примітивом через `Symbol.toPrimitive`, `valueOf` або `toString`, тому `[] == false`: `[]` → `''` → `0`.
+- `typeof null === 'object'` — помилка першої реалізації мови: тег типу «об'єкт» був нулем, як і вказівник `null`. Її залишили заради сумісності.
+- Видів рівності чотири: `==`, `===`, `Object.is` (SameValue) і SameValueZero. Останнім користуються `includes`, `Map` і `Set`, тому `NaN` у них знаходиться.
+
+**Ціна**
+
+- `number` — IEEE 754 double. Цілі точні до `Number.MAX_SAFE_INTEGER` (2^53 − 1). `long`-ідентифікатор із C#, більший за поріг, `JSON.parse` мовчки округлить: `9007199254740993` стане `9007199254740992`.
+- `bigint` точний, але не змішується з `number` (`1n + 1` — `TypeError`), а `JSON.stringify` його не серіалізує.
+
+**Компроміси**
+
+- Великі `long` і `decimal` бекенд віддає рядком: у System.Text.Json — `JsonNumberHandling.WriteAsString` або конвертер для конкретних полів. Альтернатива — домовитися, що ID не перевищують 2^53.
+- Ключі `Map` і `Set` порівнюються за посиланням. Об'єкт-ключ шукають за тим самим екземпляром або переходять на рядковий ключ.
+
+**Як перевірити в продакшені**
+
+- ESLint: `eqeqeq`, а для TypeScript — `@typescript-eslint/prefer-nullish-coalescing` і `strict-boolean-expressions`.
+- Втрату точності ID ловить інтеграційний тест з ідентифікатором, більшим за 2^53: у відповіді він має повернутися без змін.
+
+**Підсумок:** рівність у JavaScript — кілька алгоритмів із різною семантикою, а найдорожча пастка на стику з .NET — точність `number`.
+
+</A>
+
+<Ex>
+
+```js
+console.log(typeof null);         // object — історична помилка
+console.log(typeof undefined);    // undefined
+console.log(typeof (() => {}));   // function
+
+console.log(0 == '');             // true: '' приводиться до 0
+console.log(0 === '');            // false: різні типи
+console.log(null == undefined);   // true
+console.log(null == 0);           // false
+console.log([] == false);         // true: [] → '' → 0, false → 0
+console.log(Boolean([]));         // true: будь-який об'єкт truthy
+
+console.log(NaN === NaN);         // false
+console.log(Number.isNaN(NaN));   // true
+console.log([NaN].includes(NaN)); // true
+console.log([NaN].indexOf(NaN));  // -1
+
+const qty = 0;
+console.log(qty || 10);           // 10: 0 — falsy
+console.log(qty ?? 10);           // 0: 0 — не null і не undefined
+
+const a = { id: 1 };
+const b = a;
+console.log(a === b);             // true: одне посилання
+console.log(a === { id: 1 });     // false: інший об'єкт
+```
+
+</Ex>
+
+<Next>
+
+- Чим `undefined` відрізняється від `null`? — `undefined` — «значення не задано»: неініціалізована змінна, відсутня властивість; `null` — явне «порожньо».
+- Коли `==` допустимий? — `x == null`: одна перевірка на `null` і `undefined`.
+- Чим `Object.is` відрізняється від `===`? — `Object.is(NaN, NaN)` — `true`, `Object.is(0, -0)` — `false`.
+- Чому `typeof null` — `'object'`? — Помилка першої реалізації, залишена заради сумісності.
+- Як передати `long` із C# без втрати точності? — Рядком; `number` точний лише до 2^53 − 1.
+
+</Next>
+
+<Src>
+
+- [Equality comparisons and sameness — MDN](https://developer.mozilla.org/docs/Web/JavaScript/Equality_comparisons_and_sameness)
+- [JavaScript data types and data structures — MDN](https://developer.mozilla.org/docs/Web/JavaScript/Data_structures)
+- [Nullish coalescing operator (??) — MDN](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Operators/Nullish_coalescing)
+
+</Src>
+
+</Q>
+
+<Q id="front.js.closures-this" level="m">
+
+## Як працюють область видимості, замикання та `this`?
+
+<A short l="j">
+
+<T k="lexical-scope">Область видимості</T> — частина коду, де доступна змінна: `let` і `const` видно всередині блоку, а `var` — у всій функції. <T k="js-closure">Замикання</T> — функція, яка пам'ятає змінні місця, де її створили, а `this` — об'єкт, на якому функцію викликали: у `user.hello()` це `user`.
+
+</A>
+
+<A short l="m">
+
+`var` піднімається (<T k="hoisting">hoisting</T>) і видима в усій функції зі значенням `undefined`, а `let` і `const` живуть у блоці й до оголошення перебувають у <T k="temporal-dead-zone">тимчасовій мертвій зоні</T> (TDZ). Замикання захоплює змінну, а не її значення, як лямбда в C#, тому колбеки в циклі з `var` бачать останнє значення. <T k="this-binding">`this`</T> визначається в момент виклику, а не оголошення: метод, переданий як колбек, втрачає об'єкт, і це виправляють <T k="arrow-function">стрілковою функцією</T> або `bind`.
+
+</A>
+
+<A short l="s">
+
+Область видимості лексична: функція зберігає посилання на оточення, де її створили, і рушій тримає захоплені змінні в купі, доки жива функція. `this`, навпаки, динамічний: його задає форма виклику — `new`, `call`/`apply`/`bind`, виклик через об'єкт або звичайний виклик, де в strict mode це `undefined`. Стрілкова функція власного `this` не має й бере його з оточення, тому її використовують для колбеків. Ціна замикань — пам'ять: забутий обробник події тримає все своє оточення.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+- **Область видимості** — частина коду, де змінна доступна. `let` і `const` видно в блоці `{ }`, `var` — у всій функції.
+- **Замикання** — функція разом зі змінними, доступними під час її створення. Вона бачить їх і після виходу із зовнішньої функції.
+- **`this`** — об'єкт «перед крапкою» під час виклику: у `user.hello()` це `user`.
+
+**Як користуватися**
+
+- Змінні — через `const`, через `let` — якщо значення змінюється. `var` у новому коді не потрібен.
+- Замикання зберігає приватний стан: `makeCounter()` повертає функцію з власним `count`.
+- Колбеки — стрілковими функціями: власного `this` у них немає, вони беруть його ззовні.
+
+**Типова помилка**
+
+Передати метод як колбек: `setTimeout(user.hello, 100)`. Функцію викличуть не через `user`, і `this` вказуватиме не на нього. Правильно — `setTimeout(() => user.hello(), 100)`.
+
+**Підсумок:** область видимості вирішує, де видно змінну, замикання — скільки вона живе, а `this` — на якому об'єкті викликано функцію.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+| Властивість | `var` | `let`, `const` |
+|---|---|---|
+| Область | функція | блок |
+| До оголошення | `undefined` | `ReferenceError` (TDZ) |
+| Повторне оголошення | можна | помилка |
+
+Правила `this` за пріоритетом:
+
+1. `new F()` — новий об'єкт.
+2. `f.call(obj)`, `f.apply(obj, args)`, `f.bind(obj)` — явно заданий об'єкт. `bind` повертає нову функцію із закріпленим `this`.
+3. `obj.f()` — об'єкт перед крапкою.
+4. `f()` — `undefined` у strict mode (модулі та класи завжди strict), інакше глобальний об'єкт.
+
+Стрілкова функція в цих правилах не бере участі: `this` вона бере з оточення під час створення, і `call` чи `bind` його не змінюють.
+
+**Пастки**
+
+- **Цикл із `var`.** Усі колбеки ділять одну змінну й бачать її останнє значення. `let` у `for` створює нову змінну на кожну ітерацію. У C# так само поводиться `for`, а `foreach` із C# 5 створює нову змінну на ітерацію.
+- **Відрив методу.** `const f = obj.method` втрачає `obj`. У C# делегат `Action a = obj.Method` запам'ятовує об'єкт, у JavaScript — ні.
+- **Стрілка як метод об'єкта.** Стрілкова функція в літералі об'єкта бере `this` ззовні, а не сам об'єкт.
+
+**Правило**
+
+`const` за замовчуванням, `let` — якщо потрібне перевизначення. Колбеки — стрілковими функціями; метод, який віддають назовні, — полем-стрілкою або через `bind`.
+
+**Підсумок:** область видимості й замикання лексичні — вирішує місце в коді, а `this` динамічний — вирішує місце виклику.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- За специфікацією функція зберігає посилання на лексичне оточення (Environment Record) місця створення. Пошук змінної йде ланцюжком оточень назовні.
+- Рушій кладе захоплені змінні в об'єкт контексту в купі. У V8 замикання однієї функції ділять один контекст: довгоживучий колбек тримає й змінні, потрібні лише сусідньому замиканню.
+- `this` — не змінна оточення, а параметр виклику. Стрілкові функції беруть `this`, `arguments` і `super` із зовнішньої функції, тому їх не можна викликати через `new`.
+
+**Ціна**
+
+- Метод класу — одна функція на прототипі. Поле-стрілка `handle = () => {}` — окрема функція в кожному екземплярі: пам'ять на кожен об'єкт, і нащадок не викличе її через `super.handle()`.
+- Замикання утримує все, що захопило. Невідписаний обробник події або таймер тримає компонент і його дані — частий витік пам'яті в SPA.
+
+**Компроміси**
+
+- `bind` або поле-стрілка: пам'ять на екземпляр проти надійного `this`, коли метод віддають назовні.
+- Замикання дає справжню приватність без класів. Приватні поля `#x` дають її й класу, без окремої функції на екземпляр.
+
+**Як перевірити в продакшені**
+
+- Chrome DevTools → Memory → Heap snapshot: порівняти два знімки й пройти ланцюжком Retainers. Записи `(closure)` і `system / Context` показують, яке замикання тримає пам'ять.
+- ESLint `no-var`, `prefer-const` і `no-loop-func` прибирають пастки з `var` і циклами.
+
+**Підсумок:** замикання — оточення в купі, яке живе, доки жива функція, а `this` задає виклик; обидва — часті джерела витоків і помилок у колбеках.
+
+</A>
+
+<Ex>
+
+```js
+console.log(v);                  // undefined: var піднято, він дорівнює undefined
+var v = 1;
+try {
+  console.log(l);
+} catch (e) {
+  console.log(e.name);           // ReferenceError: l у TDZ
+}
+let l = 2;
+
+const withVar = [];
+for (var i = 0; i < 3; i++) withVar.push(() => i);
+console.log(withVar.map(f => f())); // [ 3, 3, 3 ]: одна i на всю функцію
+
+const withLet = [];
+for (let j = 0; j < 3; j++) withLet.push(() => j);
+console.log(withLet.map(f => f())); // [ 0, 1, 2 ]: нова j на кожну ітерацію
+
+function makeCounter() {
+  let count = 0;                 // живе, доки жива повернена функція
+  return () => ++count;
+}
+const next = makeCounter();
+next();
+console.log(next());             // 2
+```
+
+</Ex>
+
+<Ex title="Втрата this">
+
+```js
+class Counter {
+  count = 0;
+  inc() { return ++this.count; }       // метод на прототипі
+  incArrow = () => ++this.count;       // поле: власна функція в кожного об'єкта
+}
+
+const c = new Counter();
+const inc = c.inc;                     // метод відірвано від об'єкта
+const incArrow = c.incArrow;
+
+try {
+  inc();                               // this === undefined: класи в strict mode
+} catch (e) {
+  console.log(e.name);                 // TypeError
+}
+console.log(incArrow());               // 1: this узято з конструктора
+console.log(inc.call(c));              // 2: this задано явно
+console.log(inc.bind(c)());            // 3: bind повертає нову функцію
+console.log(inc.apply(c, []));         // 4: як call, аргументи масивом
+```
+
+</Ex>
+
+<Next>
+
+- Що виведе цикл із `var` і `setTimeout`, і як це виправити? — Три однакові значення; замінити `var` на `let` або передати значення параметром.
+- Чи можна змінити `this` стрілкової функції через `bind`? — Ні, `bind`, `call` і `apply` його ігнорують.
+- Чим `call` відрізняється від `apply`? — Лише передачею аргументів: списком або масивом.
+- Що таке TDZ? — Ділянка від початку блоку до оголошення `let` або `const`, де звертання дає `ReferenceError`.
+- Чому обробник з `addEventListener` втрачає `this` об'єкта? — Його викликає браузер, і `this` буде елементом, на якому спрацювала подія.
+
+</Next>
+
+<Src>
+
+- [Closures — MDN](https://developer.mozilla.org/docs/Web/JavaScript/Guide/Closures)
+- [this — MDN](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Operators/this)
+- [let: temporal dead zone — MDN](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Statements/let#temporal_dead_zone_tdz)
+
+</Src>
+
+</Q>
+
+<Q id="front.js.event-loop" level="m">
+
+## Як влаштовані event loop, проміси та async/await у JavaScript?
+
+<A short l="j">
+
+JavaScript виконує код в одному потоці: <T k="event-loop">event loop</T> бере задачі з черги й виконує їх по одній, а довгі операції на кшталт таймерів і мережі чекає середовище — браузер або Node.js. <T k="js-promise">Проміс</T> — об'єкт із майбутнім результатом, а `async`/`await` дає змогу чекати на нього без колбеків і не блокувати потік.
+
+</A>
+
+<A short l="m">
+
+Синхронний код виконується на <T k="js-call-stack">стеку викликів</T> до кінця; коли стек порожній, event loop виконує всі <T k="microtask">мікрозадачі</T> — колбеки промісів і продовження після `await`, — а потім бере наступну задачу з <T k="task-queue">черги задач</T>: таймер, подію, відповідь мережі. Тому `Promise.then` спрацьовує раніше за `setTimeout(fn, 0)`. На відміну від C#, продовження не йдуть у пул потоків: увесь код JavaScript виконується в одному потоці, блокування не потрібні, але важке обчислення заморожує сторінку.
+
+</A>
+
+<A short l="s">
+
+Модель — run-to-completion: задача виконується повністю, потім черга мікрозадач вигрібається вся, і лише після цього браузер може відмалювати кадр, тому нескінченний ланцюжок мікрозадач вішає сторінку не гірше за `while (true)`. На відміну від `Task` у C#, `await` завжди поступається керуванням, навіть уже виконаному промісу, а скасування в промісів немає — його передають через `AbortController`. Відхилений проміс без обробника — <T k="unhandled-rejection">unhandled rejection</T>: у Node.js з версії 15 він за замовчуванням завершує процес.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+- **Один потік.** Поки працює функція, нічого іншого не відбувається.
+- **Event loop** — цикл, який бере наступну задачу з черги, коли поточний код завершився: клік, таймер, відповідь сервера.
+- **Проміс** — об'єкт, який пізніше стане виконаним (fulfilled) з результатом або відхиленим (rejected) з помилкою.
+
+**Як користуватися**
+
+1. Функція з `async` завжди повертає проміс.
+2. `await` усередині неї чекає на проміс і віддає його результат; потік тим часом вільний.
+3. Помилки ловлять звичайним `try`/`catch` навколо `await`.
+4. Незалежні запити запускають паралельно: `await Promise.all([loadUser(), loadOrders()])`.
+
+**Типова помилка**
+
+Викликати `async`-функцію без `await` і без `.catch`. Помилка всередині неї не потрапить у ваш `try`/`catch` і стане необробленою.
+
+**Підсумок:** один потік і черга задач, а проміси та `await` дають змогу чекати, не блокуючи цей потік.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+1. Синхронний код виконується на стеку викликів до кінця.
+2. Коли стек порожній, виконуються всі мікрозадачі: колбеки `then`, `catch` і `finally`, продовження після `await`, `queueMicrotask`. Мікрозадачі, додані дорогою, виконуються в цьому ж проході.
+3. Браузер може відмалювати кадр.
+4. Event loop бере одну задачу з черги: `setTimeout`, подію, повідомлення мережі. Цикл повторюється.
+
+Код `async`-функції до першого `await` виконується синхронно, решта стає мікрозадачею.
+
+**Коли що обирати**
+
+| Метод | Результат |
+|---|---|
+| `Promise.all` | масив результатів; відхиляється за першої помилки |
+| `Promise.allSettled` | статуси всіх промісів, ніколи не відхиляється |
+| `Promise.race` | перший завершений — успіх або помилка |
+| `Promise.any` | перший успішний; якщо впали всі — `AggregateError` |
+
+**Пастки**
+
+- **`Promise.all` не скасовує решту.** Один проміс відхилився — інші запити й далі працюють, їхній результат просто губиться.
+- **`forEach` з `async`-колбеком.** `forEach` не чекає на проміси. Послідовно — `for...of` з `await`, паралельно — `Promise.all` з `map`.
+- **Зайва послідовність.** Два незалежні `await` поспіль чекають суму часу, а не максимум.
+
+**Правило**
+
+Кожен проміс або чекають через `await`, або повертають, або явно обробляють через `.catch`. Незалежні операції — через `Promise.all`.
+
+**Підсумок:** мікрозадачі виконуються раніше за наступну задачу, а комбінатори промісів відрізняються реакцією на помилки.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- Специфікація ECMAScript описує реакції промісів як завдання (jobs), а браузер і Node.js кладуть їх у чергу мікрозадач. У Node.js є ще черга `process.nextTick`, вона виконується раніше за проміси, і фази циклу libuv: таймери, введення-виведення, `setImmediate`.
+- `async`-функція — машина станів, як у C#. Але продовження після `await` завжди йде через чергу мікрозадач, навіть якщо проміс уже виконано; у C# `await` завершеної `Task` продовжує синхронно.
+- Введення-виведення виконують браузер і libuv у своїх потоках, у JavaScript повертаються лише колбеки.
+
+**Ціна**
+
+- Усе — в одному потоці. Обчислення на 200 мс заморожує інтерфейс або, на Node.js, усі запити сервера. CPU-роботу виносять у Web Worker або `worker_threads`.
+- Блокувань немає, але гонки між `await` є: відповіді двох запитів пошуку приходять в іншому порядку, і стара перезаписує нову.
+
+**Компроміси**
+
+- Скасування в промісу немає. Його передають через `AbortController` і `AbortSignal` — аналог `CancellationToken`: `fetch(url, { signal })`, `AbortSignal.timeout(5000)`.
+- `Promise.all` — fail-fast, зазвичай це те, що потрібно. `allSettled` — коли частковий результат кращий за жодний.
+
+**Як перевірити в продакшені**
+
+- Unhandled rejection: у браузері подію `unhandledrejection` надсилають у моніторинг помилок, Node.js з версії 15 за замовчуванням падає.
+- Довгі задачі видно в DevTools → Performance. Затримку event loop у Node.js вимірює `perf_hooks.monitorEventLoopDelay()`.
+- Правило `@typescript-eslint/no-floating-promises` знаходить проміси без обробки.
+
+**Підсумок:** один потік і порядок «задача → усі мікрозадачі → кадр» дають просту модель без блокувань, але будь-яка довга синхронна робота зупиняє все.
+
+</A>
+
+<Ex>
+
+```js
+console.log('A');                                   // 1
+setTimeout(() => console.log('timeout'), 0);        // 7: задача
+Promise.resolve().then(() => console.log('then'));  // 4: мікрозадача
+queueMicrotask(() => console.log('microtask'));     // 5: мікрозадача
+
+async function run() {
+  console.log('run start');                         // 2: до await — синхронно
+  await null;
+  console.log('after await');                       // 6: продовження — мікрозадача
+}
+run();
+console.log('B');                                   // 3
+```
+
+Числа в коментарях — порядок виведення.
+
+</Ex>
+
+<Ex title="Комбінатори промісів">
+
+```js
+// ES-модуль: await на верхньому рівні
+const ok = (value, ms) =>
+  new Promise(resolve => setTimeout(() => resolve(value), ms));
+const fail = (message, ms) =>
+  new Promise((_, reject) => setTimeout(() => reject(new Error(message)), ms));
+
+try {
+  await Promise.all([ok(1, 50), fail('boom', 10)]);
+} catch (e) {
+  console.log(e.message);       // boom: через 10 мс, на ok(1) не чекаємо
+}
+
+const settled = await Promise.allSettled([ok(1, 10), fail('boom', 10)]);
+console.log(settled.map(r => r.status)); // [ 'fulfilled', 'rejected' ]
+
+console.log(await Promise.any([fail('a', 5), ok(2, 20)]));     // 2: перший успішний
+await Promise.race([fail('a', 5), ok(2, 20)])
+  .catch(e => console.log(e.message));                          // a: перший завершений
+
+try {
+  await Promise.any([fail('a', 5), fail('b', 5)]);
+} catch (e) {
+  console.log(e.constructor.name, e.errors.length);             // AggregateError 2
+}
+```
+
+</Ex>
+
+<Next>
+
+- Що виконається раніше: `setTimeout(fn, 0)` чи `Promise.resolve().then(fn)`? — `then`: мікрозадачі виконуються до наступної задачі.
+- Чим `Promise.all` відрізняється від `Task.WhenAll`? — `Promise.all` відхиляється одразу за першої помилки, `WhenAll` дочікується всіх задач.
+- Як скасувати `fetch`? — Передати `signal` від `AbortController` і викликати `abort()`.
+- Чому нескінченний ланцюжок мікрозадач вішає сторінку? — Черга мікрозадач вигрібається повністю, до відмальовування й наступної задачі.
+- Чи потрібні в JavaScript блокування? — Ні, але гонки між `await` можливі; їх закривають скасуванням застарілих запитів.
+
+</Next>
+
+<Src>
+
+- [JavaScript execution model — MDN](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Execution_model)
+- [Using microtasks in JavaScript with queueMicrotask() — MDN](https://developer.mozilla.org/docs/Web/API/HTML_DOM_API/Microtask_guide)
+- [Using promises — MDN](https://developer.mozilla.org/docs/Web/JavaScript/Guide/Using_promises)
+
+</Src>
+
+</Q>
+
+<Q id="front.js.typescript" level="m">
+
+## Що дає TypeScript і як ним правильно користуватися?
+
+<A short l="j">
+
+TypeScript — JavaScript із типами: компілятор перевіряє їх під час збирання й <T k="type-erasure">стирає</T>, у браузер іде звичайний JavaScript. Тому одрук в імені властивості або `undefined` замість об'єкта знаходяться до запуску, а IDE підказує поля й методи.
+
+</A>
+
+<A short l="m">
+
+На відміну від C#, типізація <T k="structural-typing">структурна</T>: тип підходить, якщо в нього є потрібні поля, а ім'я та успадкування не важливі. Усередині функції тип уточнюють <T k="type-narrowing">звуженням</T> — `typeof`, `in`, `instanceof`, перевіркою на `null`, а для зовнішніх даних беруть `unknown` замість `any`, який вимикає перевірку. Основа правильного використання — <T k="ts-strict">`strict`</T>; із TypeScript 6.0 він увімкнений за замовчуванням.
+
+</A>
+
+<A short l="s">
+
+TypeScript перевіряє код під час збирання, а не дані в рантаймі: у виконуваному JavaScript типів немає, тому `as User` над відповіддю сервера — обіцянка, а не перевірка. Дані на межі — HTTP, `localStorage`, повідомлення — перевіряють схемою, наприклад <T k="zod">Zod</T>, і з неї ж виводять тип. Структурна типізація зручна, але не розрізняє однакові за формою ID, тому для них роблять branded-типи. Ціна — час перевірки на великих проєктах: її виносять в окремий крок CI, а TypeScript 7 на Go пришвидшив її приблизно в 10 разів.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+TypeScript — надбудова над JavaScript: та сама мова плюс анотації типів. Компілятор `tsc` перевіряє типи й видає JavaScript без них.
+
+**Навіщо**
+
+- Помилки знаходяться під час збирання: одрук у властивості, забутий аргумент, можливий `undefined`.
+- IDE знає типи: автодоповнення й безпечне перейменування.
+
+**Як користуватися**
+
+- Описуйте форму даних через `interface` або `type`: `interface User { id: number; name: string }`.
+- Параметри функцій анотуйте, а тип змінної компілятор часто виводить сам: `const n = 5` — `number`.
+- Тримайте `"strict": true` у `tsconfig.json`; із TypeScript 6.0 це поведінка за замовчуванням.
+
+**Типова помилка**
+
+Ставити `any`, коли компілятор свариться. `any` вимикає перевірку, і помилка переїжджає в рантайм. Для значення невідомого типу є `unknown`.
+
+**Підсумок:** TypeScript ловить помилки до запуску, але в рантаймі типів уже немає.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+- **Структурна типізація.** Об'єкт підходить під `interface Point`, якщо в нього є `x` і `y`. У C# типізація номінальна: два класи з однаковими полями несумісні.
+- **Звуження.** Компілятор стежить за перевірками: після `typeof x === 'string'` змінна `x` має тип `string`. Працюють `typeof`, `instanceof`, `in`, `===` і <T k="type-guard">type guard</T> — функція з результатом `x is User`.
+- **Generics** схожі на C#: `function first<T>(items: T[])`, обмеження через `extends`. Але в рантаймі `T` немає: `new T()` і `typeof T` неможливі.
+
+**Коли що обирати**
+
+| Задача | Вибір |
+|---|---|
+| Форма об'єкта, контракт класу | `interface`, розширюється через `extends` |
+| Union, кортеж, обчислюваний тип | `type` |
+| Значення невідомого типу | `unknown` і звуження |
+| Міграція з JavaScript, іншого виходу немає | `any`, точково |
+
+**Пастки**
+
+- **Перевірка зайвих властивостей** працює лише для об'єктного літерала. Той самий об'єкт, переданий через змінну, пройде.
+- **`as` — не приведення.** `data as User` у рантаймі нічого не перевіряє.
+- **`strict` — ще не все.** Доступ за індексом `arr[0]` дає `T`, а не `T | undefined`, доки не ввімкнено `noUncheckedIndexedAccess`.
+
+**Правило**
+
+`strict` завжди, `unknown` замість `any`, `as` — лише там, де ви знаєте більше за компілятор, і з коментарем чому.
+
+**Підсумок:** TypeScript порівнює типи за формою й уточнює їх за перевірками в коді, а `strict` і `unknown` не дають ці перевірки обійти.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- `tsc` — перевірка типів плюс виведення JavaScript. Збирачі esbuild і SWC, а також Node.js 22.18+ лише вирізають типи, не перевіряючи їх, тому `tsc --noEmit` — окремий крок CI.
+- Вирізати можна не все: `enum`, `namespace` з кодом і parameter properties породжують JavaScript. Прапорець `erasableSyntaxOnly` (TypeScript 5.8) забороняє такий синтаксис.
+- Типів у рантаймі немає, тому DI в Angular і NestJS спирається на класи як значення. Інтерфейс не може бути токеном: для нього заводять `InjectionToken` або рядковий токен.
+
+**Ціна**
+
+- Відповідь API типізована рівно настільки, наскільки їй повірили: `res.json()` повертає `Promise<any>`. Помилка формату проявиться далеко від місця отримання.
+- Перевірка схемою в рантаймі коштує CPU і розміру бандла, зате помилка падає на межі зі зрозумілим шляхом до поля.
+
+**Компроміси**
+
+- Zod (або Valibot, ArkType): схема — єдине джерело правди, тип виводиться через `z.infer`. Генерація типів з OpenAPI дає контракт без перевірки в рантаймі.
+- Структурна типізація плутає `UserId` і `OrderId`, якщо обидва — `string`. Branded-тип `string & { readonly __brand: 'UserId' }` повертає номінальність.
+- TypeScript 7 (липень 2026) — компілятор, переписаний на Go: перевірка приблизно в 10 разів швидша.
+
+**Як перевірити в продакшені**
+
+- У CI: `tsc --noEmit` і ESLint з `@typescript-eslint/no-explicit-any` та правилами `no-unsafe-*`.
+- Помилки валідації схеми пишуть у лог зі шляхом до поля: вони першими показують, що бекенд змінив контракт.
+
+**Підсумок:** TypeScript перевіряє код, а не дані, тому на межі із зовнішнім світом потрібна перевірка в рантаймі.
+
+</A>
+
+<Ex>
+
+```ts
+interface Point { x: number; y: number }
+class Vector { x = 3; y = 4; }          // про Point нічого не знає
+
+function length(p: Point): number {
+  return Math.hypot(p.x, p.y);
+}
+console.log(length(new Vector()));      // 5: підходить за формою
+console.log(length({ x: 6, y: 8 }));    // 10
+
+function describe(value: unknown): string {
+  if (typeof value === 'string') return value.toUpperCase(); // value: string
+  if (Array.isArray(value)) return `array of ${value.length}`; // value: any[]
+  return 'other';
+}
+console.log(describe('ts'));            // TS
+console.log(describe([1, 2]));          // array of 2
+
+function first<T>(items: T[]): T | undefined {
+  return items[0];
+}
+const n = first([1, 2, 3]);             // n: number | undefined
+console.log(n?.toFixed(1));             // 1.0
+```
+
+</Ex>
+
+<Ex title="Перевірка відповіді сервера">
+
+```ts
+// npm i zod
+import { z } from 'zod';
+
+const User = z.object({ id: z.number(), name: z.string() });
+type User = z.infer<typeof User>;          // { id: number; name: string }
+
+const raw: unknown = JSON.parse('{"id":"42","name":"Ann"}');
+
+const trusted = raw as User;               // компілюється: as нічого не перевіряє
+console.log(typeof trusted.id);            // string
+
+const result = User.safeParse(raw);
+if (result.success) {
+  console.log(result.data.id);
+} else {
+  console.log(result.error.issues[0].path); // [ 'id' ]
+}
+```
+
+</Ex>
+
+<Next>
+
+- Чим `type` відрізняється від `interface`? — `interface` розширюється й зливається за повторного оголошення; `type` описує union, кортежі й обчислювані типи.
+- Чим `unknown` відрізняється від `any`? — З `unknown` нічого не можна зробити без звуження, а `any` вимикає перевірку й розповзається кодом.
+- Що входить до `strict`? — `strictNullChecks`, `noImplicitAny`, `strictFunctionTypes`, `strictPropertyInitialization`, `useUnknownInCatchVariables` та інші.
+- Чому не можна написати `new T()`? — Типи стираються; конструктор передають параметром `ctor: new () => T`.
+- Як зробити номінальний тип для ID? — Branded-тип: перетин `string` з унікальним полем-міткою.
+
+</Next>
+
+<Src>
+
+- [Type Compatibility — TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/type-compatibility.html)
+- [Narrowing — TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/2/narrowing.html)
+- [strict — TSConfig Reference](https://www.typescriptlang.org/tsconfig/#strict)
+
+</Src>
+
+</Q>
+
+<Q id="front.js.ts-advanced" level="s">
+
+## Просунуті типи TypeScript: discriminated unions, utility, mapped і conditional types — коли вони потрібні?
+
+<A short l="j">
+
+<T k="discriminated-union">Discriminated union</T> — набір варіантів зі спільним полем-міткою, наприклад `status`, за яким компілятор розуміє, який варіант перед ним. <T k="utility-types">Utility types</T> на кшталт `Partial<User>` і `Pick<User, 'id'>` роблять з `User` новий тип — «усі поля необов'язкові» або «лише `id`» — без копіювання опису.
+
+</A>
+
+<A short l="m">
+
+Discriminated union моделює стани на кшталт «чернетка, оплачено, відправлено»: `switch` за полем-міткою звужує тип, а присвоєння в <T k="never-type">`never`</T> у гілці `default` ловить необроблений варіант під час компіляції. Utility types — готові <T k="mapped-type">mapped types</T>, які перебирають ключі через `keyof`, а <T k="conditional-type">conditional types</T> (`T extends U ? X : Y`) з `infer` обирають і витягують тип за умовою. `satisfies` перевіряє значення за типом, не втрачаючи його точний виведений тип.
+
+</A>
+
+<A short l="s">
+
+Ці типи окуповуються на межах — стани, контракти API, бібліотечний код, — а їхня мета в прикладному коді — зробити некоректні стани непредставними. Типи API не пишуть руками, а генерують з <T k="openapi">OpenAPI</T>-документа бекенду, і CI падає, якщо контракт розійшовся. Ціна type-level програмування — час компіляції та нечитабельні помилки: глибокі рекурсивні типи дають TS2589 і гальмують IDE. Тому складні типи тримають у небагатьох місцях і покривають тестами типів.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+- **Union** `A | B` — значення одного з типів. Discriminated union — union об'єктів зі спільним полем, яке в кожному варіанті має своє літеральне значення: `status: 'draft'`, `status: 'paid'`.
+- **Utility types** — вбудовані «функції над типами»: приймають тип і повертають новий.
+
+**Як користуватися**
+
+- Перевірте поле-мітку в `if` або `switch` — усередині гілки TypeScript знає точний варіант: у гілці `'paid'` доступне `paidAt`.
+- `Partial<T>` — усі поля необов'язкові: тіло PATCH-запиту.
+- `Pick<T, 'a' | 'b'>` і `Omit<T, 'id'>` — вибрати або прибрати поля: форма створення без `id`.
+- `Record<K, V>` — словник: `Record<string, number>`.
+
+**Типова помилка**
+
+Описувати стан необов'язковими полями: `{ status: string; paidAt?: string }`. Компілятор не знає, коли `paidAt` заповнене, і перевірки розповзаються кодом.
+
+**Підсумок:** discriminated union описує варіанти, а utility types виводять нові типи з наявних без копіювання.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+- **`keyof T`** — union імен властивостей, **`T[K]`** — тип властивості за ключем, **`typeof value`** — тип значення.
+- **Mapped type** `{ [K in keyof T]: ... }` перебирає ключі й будує новий об'єктний тип. Модифікатори `?`, `readonly` і `-?` додають або знімають ознаки, `as` перейменовує ключі. Так влаштовані `Partial`, `Readonly`, `Record`.
+- **Conditional type** `T extends U ? X : Y` обирає тип за умовою. `infer R` витягує частину типу: `T extends Promise<infer R> ? R : T`. На цьому побудовані `ReturnType`, `Awaited`, `Exclude`.
+- **Перевірка через `never`.** У гілці `default` після всіх `case` тип звужено до `never`. Рядок `const x: never = order` перестає компілюватися, щойно з'являється новий варіант.
+- **`satisfies`** (TypeScript 4.9) перевіряє, що значення підходить під тип, але залишає виведений тип: `keyof typeof routes` — `'home' | 'user'`, а не `string`. У проєктах на Angular 13 (TypeScript 4.4–4.6) його ще не було.
+
+**Пастки**
+
+- `Omit<User, 'idd'>` з одруком компілюється: ключі `Omit` не перевіряються, а `Pick` їх перевіряє.
+- `Partial` неглибокий: вкладені об'єкти залишаються обов'язковими.
+- Conditional type над union розподіляється за варіантами: `ToArray<string | number>` дає `string[] | number[]`. Щоб цього не було, обидві сторони обгортають у кортеж: `[T] extends [U]`.
+
+**Правило**
+
+Стани — discriminated union з перевіркою через `never`; похідні форми — utility types від одного вихідного типу; власні mapped і conditional types — коли вбудованих не вистачає.
+
+**Підсумок:** `keyof`, mapped і conditional types — деталі, з яких зібрано utility types, а `never` перетворює забутий варіант на помилку компіляції.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- Ці типи існують лише для компілятора й не породжують коду. Кожне застосування generic-типу — інстанціювання, яке компілятор обчислює й кешує.
+- Рекурсія має межу: за надто глибокого інстанціювання — помилка TS2589 «Type instantiation is excessively deep and possibly infinite».
+
+**Ціна**
+
+Складні generic-типи сповільнюють перевірку й підказки IDE, а повідомлення про помилки розгортаються на кілька екранів.
+
+**Компроміси**
+
+- **Генерація з OpenAPI.** ASP.NET Core (`Microsoft.AspNetCore.OpenApi`, .NET 9+) видає документ, `openapi-typescript` генерує з нього типи, а NSwag або Orval — одразу клієнт. Типи не розходяться з бекендом, але точні настільки, наскільки описано API: без `[ProducesResponseType]` або `TypedResults` схема відповіді буде неповною.
+- **Згенеровані проти власних.** Згенеровані DTO — транспорт. Доменні стани на клієнті краще описати discriminated union і відобразити в них відповідь.
+- **Виразність проти читабельності.** Тип на 20 рядків з conditional і mapped types зрозумілий лише авторові. Публічні контракти модулів тримають простими.
+
+**Як перевірити в продакшені**
+
+- `tsc --extendedDiagnostics` показує кількість інстанціювань і час перевірки, `--generateTrace` — які типи дорогі.
+- Тести типів: `@ts-expect-error` або `expectTypeOf` у Vitest фіксують поведінку власних утиліт.
+- CI перегенеровує типи з OpenAPI й падає на `git diff --exit-code`, якщо контракт змінився без фронтенду.
+
+**Підсумок:** просунуті типи окуповуються на межах — у станах і контрактах API, — а платять за них часом компіляції та читабельністю.
+
+</A>
+
+<Ex>
+
+```ts
+type Order =
+  | { status: 'draft' }
+  | { status: 'paid'; paidAt: string }
+  | { status: 'shipped'; trackingNo: string };
+
+function label(order: Order): string {
+  switch (order.status) {
+    case 'draft':
+      return 'Draft';
+    case 'paid':
+      return `Paid at ${order.paidAt}`;      // order звужено до варіанта 'paid'
+    case 'shipped':
+      return `Track ${order.trackingNo}`;
+    default: {
+      const unreachable: never = order;      // новий статус — помилка компіляції тут
+      return unreachable;
+    }
+  }
+}
+
+console.log(label({ status: 'paid', paidAt: '2026-10-10' })); // Paid at 2026-10-10
+console.log(label({ status: 'shipped', trackingNo: 'UA1' }));  // Track UA1
+```
+
+</Ex>
+
+<Ex title="Utility, mapped і conditional types">
+
+```ts
+interface User { id: number; name: string; email: string }
+
+type UserPatch = Partial<Omit<User, 'id'>>;   // { name?: string; email?: string }
+type UserById = Record<number, User>;          // словник id → User
+
+type Getters<T> = {
+  [K in keyof T & string as `get${Capitalize<K>}`]: () => T[K];
+};
+type NameGetter = Getters<Pick<User, 'name'>>; // { getName: () => string }
+
+type Unwrap<T> = T extends Promise<infer R> ? R : T;
+type Loaded = Unwrap<Promise<User[]>>;         // User[]
+
+const routes = {
+  home: '/',
+  user: '/users/:id',
+} satisfies Record<string, string>;
+type RouteName = keyof typeof routes;          // 'home' | 'user'
+
+const patch: UserPatch = { name: 'Ann' };
+console.log(Object.keys(patch));               // [ 'name' ]
+console.log(routes.user);                      // /users/:id
+```
+
+З анотацією `const routes: Record<string, string>` тип `RouteName` був би просто `string`.
+
+</Ex>
+
+<Next>
+
+- Чим union рядків відрізняється від `enum`? — Union стирається без сліду, `enum` породжує об'єкт у JavaScript; у новому коді частіше беруть union.
+- Навіщо `satisfies`, якщо є анотація типу? — Анотація розширює тип до оголошеного, `satisfies` перевіряє й зберігає точне виведення.
+- Що робить `infer`? — Оголошує змінну типу всередині умови conditional type і витягує в неї частину типу.
+- Як гарантувати, що `switch` обробив усі варіанти? — Присвоїти значення змінній типу `never` у гілці `default`.
+- Звідки брати типи DTO бекенду? — Генерувати з OpenAPI в CI, а не писати руками.
+
+</Next>
+
+<Src>
+
+- [Utility Types — TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/utility-types.html)
+- [Mapped Types — TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/2/mapped-types.html)
+- [Conditional Types — TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/2/conditional-types.html)
+
+</Src>
+
+</Q>

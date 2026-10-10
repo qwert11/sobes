@@ -1,0 +1,187 @@
+angular-component:
+  term: Компонент Angular
+  def: >-
+    Клас TypeScript з декоратором `@Component`, HTML-шаблоном і стилями. Основний будівельний блок
+    інтерфейсу: застосунок — дерево компонентів, вкладених один в одного через шаблони.
+  q: Angular component
+  docs: https://angular.dev/guide/components
+data-binding:
+  term: Прив'язка даних (data binding)
+  def: >-
+    Зв'язок шаблону з класом компонента: інтерполяція `{{ }}`, прив'язка властивості `[prop]`, події
+    `(event)` і двостороння `[(prop)]`. Angular сам оновлює DOM, коли значення змінюється.
+  q: Angular template binding
+  docs: https://angular.dev/guide/templates/binding
+angular-directive:
+  term: Директива Angular
+  def: >-
+    Клас із декоратором `@Directive`, який додає поведінку наявному елементу, наприклад змінює класи
+    чи атрибути. Компонент — окремий випадок директиви з власним шаблоном.
+  q: Angular directives
+  docs: https://angular.dev/guide/directives
+standalone-component:
+  term: Standalone-компонент
+  def: >-
+    Компонент, який сам перелічує свої залежності в `imports` і не оголошується в NgModule.
+    З'явився в Angular 14, стабільний із v15, за замовчуванням із v19.
+  q: Angular standalone components
+  docs: https://angular.dev/reference/migrations/standalone
+hierarchical-injector:
+  term: Ієрархічні інжектори
+  def: >-
+    Устрій DI в Angular: інжектори елементів повторюють дерево компонентів, а над ними стоять
+    інжектори маршрутів, кореневий і платформний. Провайдер шукається знизу вгору, і місце його
+    оголошення визначає, хто ділить екземпляр.
+  q: Angular hierarchical dependency injection
+  docs: https://angular.dev/guide/di/hierarchical-dependency-injection
+change-detection:
+  term: Виявлення змін (change detection)
+  def: >-
+    Механізм, який порівнює значення виразів у шаблонах із минулими й оновлює змінені частини DOM.
+    Запускається за сигналом zone.js або за сповіщеннями сигналів і подій.
+  q: Angular change detection
+  docs: https://angular.dev/best-practices/runtime-performance
+zone-js:
+  term: zone.js
+  def: >-
+    Бібліотека, яка підміняє асинхронні API браузера (`setTimeout`, `Promise`, події, XHR) і
+    повідомляє Angular про завершення задач. Так фреймворк дізнавався, коли запускати перевірку
+    змін; із v21 нові застосунки обходяться без неї.
+  q: zone.js Angular NgZone
+  docs: https://angular.dev/api/core/NgZone
+onpush:
+  term: OnPush
+  def: >-
+    Стратегія виявлення змін, за якої компонент перевіряється лише за нового входу за посиланням,
+    події всередині, `markForCheck()` або зміни прочитаного сигналу. З Angular 22 — стратегія за
+    замовчуванням.
+  q: Angular ChangeDetectionStrategy OnPush
+  docs: https://angular.dev/best-practices/skipping-subtrees
+angular-signal:
+  term: Сигнал (signal)
+  def: >-
+    Обгортка над значенням, яка повідомляє споживачів про його зміну: `signal()` для записуваного
+    значення, `computed()` для похідного, `effect()` для побічних дій. Стабільні з Angular 17.
+  q: Angular signals
+  docs: https://angular.dev/guide/signals
+zoneless:
+  term: Zoneless
+  def: >-
+    Режим Angular без zone.js: перевірка змін запускається лише за явними сповіщеннями — сигналами,
+    подіями в шаблоні, `markForCheck()`. Стабільний із v20.2, за замовчуванням у нових застосунках
+    із v21.
+  q: Angular zoneless change detection
+  docs: https://angular.dev/guide/zoneless
+rxjs-observable:
+  term: Observable (RxJS)
+  def: >-
+    Лінивий потік значень у часі: починає роботу під час підписки, може видати багато значень,
+    помилку або завершення й скасовується відпискою. В Angular його повертають `HttpClient`,
+    маршрутизатор і форми.
+  q: RxJS Observable
+  docs: https://rxjs.dev/guide/observable
+higher-order-mapping:
+  term: Оператори вищого порядку (switchMap, mergeMap, concatMap, exhaustMap)
+  def: >-
+    Оператори RxJS, які перетворюють кожне значення на внутрішній потік, наприклад HTTP-запит, і
+    вирішують, що з ним робити, якщо минулий ще не завершено: скасувати, виконати паралельно,
+    поставити в чергу або проігнорувати нове.
+  q: RxJS switchMap mergeMap concatMap exhaustMap
+  docs: https://rxjs.dev/api/operators/switchMap
+async-pipe:
+  term: async pipe
+  def: >-
+    Пайп шаблону, який підписується на Observable або Promise, віддає останнє значення й
+    відписується під час знищення компонента. Заразом викликає `markForCheck()`, тому працює з
+    OnPush.
+  q: Angular AsyncPipe
+  docs: https://angular.dev/api/common/AsyncPipe
+take-until-destroyed:
+  term: takeUntilDestroyed
+  def: >-
+    Оператор з `@angular/core/rxjs-interop`, який завершує підписку під час знищення компонента чи
+    сервісу. В injection context бере `DestroyRef` сам, поза ним — приймає параметром. Стабільний
+    із v19.
+  q: Angular takeUntilDestroyed
+  docs: https://angular.dev/ecosystem/rxjs-interop/take-until-destroyed
+control-flow-blocks:
+  term: Вбудований control flow (@if, @for, @switch)
+  def: >-
+    Синтаксис шаблонів Angular 17+ для умов і циклів замість директив `*ngIf`, `*ngFor` і `ngSwitch`.
+    В `@for` обов'язковий `track`, є блок `@empty`; старі директиви deprecated із v20.
+  q: Angular control flow blocks
+  docs: https://angular.dev/guide/templates/control-flow
+defer-block:
+  term: Блок @defer (deferrable views)
+  def: >-
+    Блок шаблону, код якого завантажується окремим чанком за тригером: поява в області видимості,
+    простій браузера, взаємодія. Блоки `@placeholder` і `@loading` показують заглушку. З'явився в
+    Angular 17.
+  q: Angular defer block deferrable views
+  docs: https://angular.dev/guide/templates/defer
+signal-input:
+  term: Сигнальні входи й виходи (input, output, model)
+  def: >-
+    Функції `input()`, `output()` і `model()`, які замінюють декоратори `@Input()` і `@Output()`.
+    Вхід — сигнал лише для читання, `model()` — двостороння прив'язка. Стабільні з Angular 19.
+  q: Angular signal inputs
+  docs: https://angular.dev/guide/components/inputs
+angular-hydration:
+  term: Гідратація (hydration)
+  def: >-
+    Відновлення застосунку в браузері поверх HTML, відмальованого на сервері (SSR): Angular
+    перевикористовує готовий DOM, а не будує його заново. Стабільна з v17, інкрементальна — з v20.
+  q: Angular hydration SSR
+  docs: https://angular.dev/guide/hydration
+application-builder:
+  term: Application builder
+  def: >-
+    Збирач Angular CLI на esbuild із dev-сервером на Vite, за замовчуванням у нових проєктах із v17.
+    Замінює збирачі на Webpack, які у v22 оголошено deprecated.
+  q: Angular application builder esbuild
+  docs: https://angular.dev/tools/cli/build-system-migration
+ng-update:
+  term: ng update
+  def: >-
+    Команда Angular CLI, яка оновлює пакети до наступної мажорної версії й запускає автоматичні
+    міграції коду. Перестрибувати через версії не можна: оновлюються по одній.
+  q: Angular ng update
+  docs: https://angular.dev/update-guide
+lazy-route:
+  term: Лінивий маршрут (lazy-loaded route)
+  def: >-
+    Маршрут, код якого виноситься в окремий чанк і завантажується під час першого переходу: через
+    `loadComponent` або `loadChildren` з динамічним `import()`. Зменшує початковий бандл.
+  q: Angular lazy loading routes loadChildren
+  docs: https://angular.dev/best-practices/performance/lazy-loaded-routes
+signal-store:
+  term: NgRx SignalStore
+  def: >-
+    Стор із пакета `@ngrx/signals`, побудований на сигналах: стан, обчислювані значення й методи
+    збираються функціями `withState`, `withComputed`, `withMethods`. Легший за класичний NgRx Store
+    за обсягом коду.
+  q: NgRx SignalStore
+  docs: https://ngrx.io/guide/signals/signal-store
+ngrx-store:
+  term: NgRx Store
+  def: >-
+    Реалізація Redux для Angular: глобальний стан змінюється лише через actions і reducers,
+    читається через selectors, побічні ефекти живуть в effects. Дає трасування в Redux DevTools
+    ціною шаблонного коду.
+  q: NgRx Store Redux Angular
+  docs: https://ngrx.io/guide/store
+virtual-scroll:
+  term: Віртуальне прокручування (virtual scrolling)
+  def: >-
+    Прийом, за якого в DOM є лише видимі рядки довгого списку, а решта підставляються під час
+    прокручування. В Angular — `cdk-virtual-scroll-viewport` із CDK або вбудований режим таблиць
+    бібліотек компонентів.
+  q: Angular CDK virtual scroll
+  docs: https://material.angular.dev/cdk/scrolling/overview
+http-interceptor:
+  term: HTTP-інтерцептор
+  def: >-
+    Функція в ланцюжку `HttpClient`, яка бачить кожен запит і відповідь: додає заголовки й токен,
+    логує, обробляє помилки. З Angular 15 — функціональні інтерцептори через `withInterceptors`.
+  q: Angular HTTP interceptors
+  docs: https://angular.dev/guide/http/interceptors

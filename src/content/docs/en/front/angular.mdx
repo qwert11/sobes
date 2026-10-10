@@ -1,0 +1,887 @@
+---
+title: Angular
+description: Components and DI, change detection and signals, RxJS, what changed from Angular 13 to 22, structure and state of large apps.
+sidebar:
+  order: 2
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+How an Angular app is put together, how the framework learns about changes, how to work with RxJS and what changed from Angular 13 to the current version 22. Interviewers use this to check both the fundamentals and whether you can maintain or upgrade an older app.
+
+**Before this topic:** [JavaScript and TypeScript](/sobes/en/front/js-ts/).
+
+<Q id="front.ng.architecture" level="j">
+
+## What is an Angular app made of?
+
+<A short l="j">
+
+An Angular app is a tree of <T k="angular-component">components</T>: each component is a TypeScript class with the `@Component` decorator plus an HTML template, connected by <T k="data-binding">data binding</T>. Shared logic and API calls live in services, which a component receives through <T k="dependency-injection">dependency injection</T>, and the router decides which component to show for a URL.
+
+</A>
+
+<A short l="m">
+
+A component is a class, a template and styles; the template is tied to the class by interpolation, property bindings and event bindings, while <T k="angular-directive">directives</T> change how elements behave. Services with `providedIn: 'root'` are singletons, obtained with `inject()` or a constructor parameter. Since v19 components are <T k="standalone-component">standalone</T> by default: they list their dependencies in `imports`, and no NgModule is needed. As in ASP.NET Core, DI wiring is checked at runtime: a missing provider throws `NullInjectorError` when the component is created.
+
+</A>
+
+<A short l="s">
+
+Templates are compiled ahead of time (AOT), so the compiler catches binding errors. DI in Angular is a <T k="hierarchical-injector">hierarchy of injectors</T>: the root and route injectors give a shared instance, while a component's `providers` give one instance per component and its subtree. ASP.NET Core scopes are not hierarchical, so the latter has no direct equivalent. Standalone made a component's dependencies explicit and made the component the unit of lazy loading; the cost of the hierarchy is how easy it is to get a second instance of a "singleton" by also declaring it in a component.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+An Angular app is a tree of components. The root component is bootstrapped in `main.ts`, and the rest are nested in its template.
+
+- **Component** — a class with the `@Component` decorator plus an HTML template. The class holds data and handlers, the template displays them.
+- **Service** — a class with shared logic: API calls, a cache, the current user.
+- **Router** — shows the component that matches the URL.
+
+**How to use**
+
+1. `ng generate component orders` creates a component.
+2. List the child components and directives the template needs in the decorator's `imports`.
+3. Get a service as a class field: `private orders = inject(OrderService)`.
+
+**Common mistake**
+
+Forgetting to add a child component to `imports`. The build fails with `'app-x' is not a known element`.
+
+**Takeaway:** the component displays data, the service fetches it, and DI wires one to the other.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+| Template syntax | What it does |
+|---|---|
+| `{{ total }}` | interpolation: a class value into text |
+| `[disabled]="busy"` | property binding: class → DOM |
+| `(click)="save()"` | event binding: DOM → class |
+| `[(value)]="name"` | two-way: a property plus a `valueChange` event |
+
+- A **directive** changes how an element behaves: `[class.active]`, `ngModel`. A component is a directive with its own template.
+- The **structural directives** `*ngIf` and `*ngFor` were replaced by the built-in `@if` and `@for` blocks in Angular 17.
+- **NgModule vs standalone.** In Angular 13 a component had to be declared in some NgModule's `declarations`. Since v19 components are standalone by default and list their dependencies in their own `imports`.
+
+**When to choose what**
+
+| How to get a service | When |
+|---|---|
+| `inject(Service)` in a field | by default; the Angular style guide recommends it |
+| constructor parameter | legacy code; works as before |
+
+**Pitfalls**
+
+- `inject()` only works in an injection context: field initializers, the constructor, provider factories, guards. Calling it in an event handler throws NG0203.
+- A service in a component's `providers` is a separate instance for every component instance, not a shared one.
+
+**Rule of thumb**
+
+New components are standalone, services use `providedIn: 'root'`, dependencies come through `inject()`.
+
+**Takeaway:** bindings tie the template to the class, and the component lists its dependencies in `imports` and gets them through `inject()`.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- The AOT compiler turns a template into functions that create and update the DOM. Type errors in bindings show up at build time.
+- Provider lookup goes bottom-up: first the element injectors from the component up to the root of the tree, then the environment injectors — route, root, platform. Nothing found — `NullInjectorError`.
+
+**Compared with ASP.NET Core**
+
+| Angular | Closest ASP.NET Core equivalent |
+|---|---|
+| `providedIn: 'root'`, `@Service()` (v22) | `AddSingleton` |
+| route `providers` | an instance per app section; no direct equivalent |
+| component `providers` | an instance per component and its subtree; .NET scopes are not hierarchical |
+| `inject(X, { optional: true })` | `GetService` instead of `GetRequiredService` |
+
+**Trade-offs**
+
+- Standalone makes a component's dependencies explicit and lets you lazy-load a single component. NgModule is still supported, and the `ng generate @angular/core:standalone` migration converts it.
+- `@Service()` from v22 is shorthand for `@Injectable({ providedIn: 'root' })`. It only works with `inject()`, not with constructor parameters.
+- `inject()` makes inheritance simpler: a base class doesn't need `super(...)` with a long list of dependencies.
+- The hierarchy lets a page own its state through `providers`, but the same mechanism quietly duplicates singletons.
+
+**How to check**
+
+Angular DevTools in a dev build shows the component and injector trees and where each service came from. Duplicate singletons are visible there too.
+
+**Takeaway:** DI in Angular is hierarchical: where you declare a provider is where the shared instance ends.
+
+</A>
+
+<Ex>
+
+```ts
+import { Component, Injectable, inject } from '@angular/core';
+
+@Injectable({ providedIn: 'root' }) // one instance per app, like AddSingleton
+export class GreetingService {
+  greet(name: string) {
+    return `Hello, ${name}!`;
+  }
+}
+
+@Component({
+  selector: 'app-greeting', // standalone by default since v19
+  templateUrl: './greeting.html',
+})
+export class Greeting {
+  private readonly greetings = inject(GreetingService); // instead of a constructor parameter
+  protected message = '';
+
+  protected say(name: string) {
+    this.message = this.greetings.greet(name);
+  }
+}
+```
+
+```html
+<!-- greeting.html -->
+<input #name value="Angular" />
+<button (click)="say(name.value)">Greet</button>
+<p [class.empty]="!message">{{ message }}</p> <!-- after a click: Hello, Angular! -->
+```
+
+</Ex>
+
+<Next>
+
+- How does `providedIn: 'root'` differ from `providers` in a component? — The first gives one instance per app, the second a separate instance for each component instance.
+- Where can you call `inject()`? — In an injection context: field initializers, the constructor, factories, guards and interceptors; otherwise NG0203.
+- Do you need an NgModule in a new app? — No: since v19 components are standalone by default; NgModule stays for legacy code.
+- How is a component different from a directive? — A component is a directive with its own template; a directive changes the behavior of an existing element.
+- What is a tree-shakable provider? — With `providedIn: 'root'`, a service that is never injected doesn't end up in the bundle.
+
+</Next>
+
+<Src>
+
+- [Anatomy of components — angular.dev](https://angular.dev/guide/components)
+- [Dependency injection in Angular](https://angular.dev/guide/di)
+- [Hierarchical injectors](https://angular.dev/guide/di/hierarchical-dependency-injection)
+
+</Src>
+
+</Q>
+
+<Q id="front.ng.change-detection" level="m">
+
+## How does change detection work: zone.js, OnPush, signals and zoneless?
+
+<A short l="j">
+
+<T k="change-detection">Change detection</T> is the check in which Angular compares the values in templates with component data and updates the parts of the DOM that changed. In Angular 13 the check was triggered by <T k="zone-js">zone.js</T> after any click, timer or HTTP response; today state lives in <T k="angular-signal">signals</T>, which report exactly what changed.
+
+</A>
+
+<A short l="m">
+
+zone.js patches the browser's async APIs and after every task runs a check of the whole tree from the top down. The <T k="onpush">OnPush</T> strategy (the default since v22) skips a subtree unless it got a new input by reference, an event happened inside it, `markForCheck()` was called or a signal read in its template changed. <T k="zoneless">Zoneless</T> mode is built on the `signal`, `computed` and `effect` primitives: stable since v20.2 and the default for new apps since v21. The cost is that changes without a notification — mutating an object or setting a field in `setTimeout` — never reach the screen.
+
+</A>
+
+<A short l="s">
+
+zone.js knows that something happened but not what changed, so it checks the whole tree — even on `mousemove` or a third-party library's timer. Signals form a dependency graph: a template subscribes to specific signals, and a change marks only the views that read them for refresh. Zoneless removes the weight of zone.js, redundant cycles and noisy stack traces, but requires every change to go through a notification. For an older app that is work on component code, not flipping a flag: OnPush compatibility, dropping `NgZone.onStable`, checking third-party libraries.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+Change detection is the check of whether what's on screen matches component data. If a value in a binding changed, Angular updates that piece of the DOM.
+
+**What changed since Angular 13**
+
+- Back then zone.js triggered the check after every click, timer or HTTP response — across the whole tree.
+- Today state lives in signals: `signal(0)` creates a value, `count()` reads it, `count.set(1)` changes it. Angular knows which templates read a signal and updates only those.
+- Since v21 new apps run without zone.js, and since v22 components are OnPush by default.
+
+**Common mistake**
+
+Mutating an array inside a signal: `items().push(x)`. The reference is the same, so the signal reports nothing. Use `items.update(list => [...list, x])`.
+
+**Takeaway:** Angular updates the screen when it learns about a change, and signals tell it precisely.
+
+</A>
+
+<A l="m">
+
+**How it works with zone.js**
+
+1. zone.js patches the browser's async APIs: `setTimeout`, `Promise`, `addEventListener`, XHR.
+2. When a task and its microtasks finish, `NgZone` reports it, and Angular calls `ApplicationRef.tick()`.
+3. The component tree is checked from the top down: every template expression is compared with its previous value.
+4. In dev mode a second pass catches values that changed during the check — `ExpressionChangedAfterItHasBeenCheckedError`.
+
+**Strategies**
+
+| Strategy | When the component is checked |
+|---|---|
+| `Eager` (formerly `Default`) | on every cycle |
+| `OnPush` (default since v22) | a new input by reference, an event in the subtree, `markForCheck()`, a change in a signal it reads |
+
+**Signals**
+
+`signal` holds a value, `computed` derives one — lazily and with caching, `effect` runs a side effect: logging, writing to `localStorage`, calling a third-party library.
+
+**Pitfalls**
+
+- Mutating an object passed as an input to an OnPush component: the reference is the same, so no check happens.
+- A field changed in `setTimeout` or a subscription won't render in an OnPush component without a signal or `markForCheck()`.
+- An `effect` that copies one signal into another. Derived values belong in `computed` and `linkedSignal`.
+
+**Rule of thumb**
+
+State in signals, immutable inputs, derived values through `computed`.
+
+**Takeaway:** zone.js says "something happened", signals say "this is what changed".
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- Signals form a graph: templates, `computed` and `effect` are consumers, signals are producers. Reading a signal in a reactive context registers a dependency.
+- `set()` marks the dependent views and schedules a check. OnPush ancestors serve only as a path to them and are not re-checked themselves.
+- Without zone.js a check is triggered only by notifications: `markForCheck()` (which the `async` pipe calls), `ComponentRef.setInput`, a change in a signal read by a template, an event handler bound in a template.
+
+**The cost of zone.js**
+
+- A check after every async event, even when no data changed.
+- Bundle weight, startup time and long stack traces.
+- zone.js can't intercept native `async`/`await`, so the build rewrites it into generators.
+
+**Trade-offs when migrating**
+
+1. `ng update` to v21 adds `provideZoneChangeDetection()`, and to v22 adds `ChangeDetectionStrategy.Eager` to components without an explicit strategy. Behavior is preserved.
+2. Components are made OnPush-compatible: signals, immutable inputs, the `async` pipe.
+3. `NgZone.onStable` and `onMicrotaskEmpty` never fire in zoneless mode — replace them with `afterNextRender`.
+4. Last, remove `provideZoneChangeDetection()` and drop `zone.js` from `polyfills`.
+
+**How to check**
+
+- In a dev build, `provideCheckNoChangesConfig({ exhaustive: true, interval: 1000 })` finds bindings that changed without a notification.
+- The Angular DevTools profiler shows how long each cycle takes and which components it checked.
+
+**Takeaway:** zoneless is a shift from "check everything after any event" to "update what you were told about", and readiness for it depends on component code, not on a flag.
+
+</A>
+
+<Ex>
+
+```ts
+import { ChangeDetectionStrategy, Component, computed, effect, signal } from '@angular/core';
+
+@Component({
+  selector: 'app-cart',
+  templateUrl: './cart.html',
+  // OnPush is the default since v22; in Angular 13 you set it explicitly
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
+export class Cart {
+  protected readonly items = signal<{ name: string; price: number }[]>([]);
+  // Recomputed only when items changes
+  protected readonly total = computed(() => this.items().reduce((sum, i) => sum + i.price, 0));
+
+  constructor() {
+    effect(() => console.log('Items:', this.items().length)); // a side effect, not state
+  }
+
+  protected add() {
+    // A new reference: the signal reports the change.
+    // this.items().push(...) won't work — same reference
+    this.items.update(list => [...list, { name: 'Book', price: 10 }]);
+  }
+}
+```
+
+```html
+<!-- cart.html -->
+<button (click)="add()">Add</button>
+<p>Items: {{ items().length }}, total: {{ total() }}</p> <!-- after a click: Items: 1, total: 10 -->
+```
+
+</Ex>
+
+<Ex title="Mode at bootstrap">
+
+```ts
+import { bootstrapApplication } from '@angular/platform-browser';
+import { provideZoneChangeDetection, provideZonelessChangeDetection } from '@angular/core';
+import { App } from './app/app';
+
+// Angular 20: enable zoneless explicitly; since v21 it is the default
+bootstrapApplication(App, { providers: [provideZonelessChangeDetection()] });
+
+// An older app updated to v21+ with ng update stays on zone.js like this:
+// bootstrapApplication(App, { providers: [provideZoneChangeDetection()] });
+```
+
+</Ex>
+
+<Next>
+
+- Why didn't an OnPush component update after `this.user.name = 'X'`? — The object reference didn't change; you need a new object or a signal.
+- How does `computed` differ from `effect`? — `computed` returns a value and is cached; `effect` only runs a side effect.
+- What does `ExpressionChangedAfterItHasBeenCheckedError` mean? — The dev-mode check found a binding that changed during the change detection cycle.
+- What does an app need to run without zone.js? — Notify Angular through signals, `markForCheck` or the `async` pipe, and don't rely on `NgZone.onStable`.
+- Do you need `NgZone.runOutsideAngular` in zoneless mode? — No, but the call is harmless; in a zone-based app it avoids extra checks on frequent events.
+
+</Next>
+
+<Src>
+
+- [Signals — angular.dev](https://angular.dev/guide/signals)
+- [Angular without ZoneJS (Zoneless)](https://angular.dev/guide/zoneless)
+- [Skipping component subtrees (OnPush)](https://angular.dev/best-practices/skipping-subtrees)
+
+</Src>
+
+</Q>
+
+<Q id="front.ng.rxjs" level="m">
+
+## How do you work with RxJS in Angular?
+
+<A short l="j">
+
+An <T k="rxjs-observable">Observable</T> is a stream of values over time from the RxJS library: you subscribe with `subscribe` and receive values, an error or completion. `HttpClient` returns an Observable, and the request is sent only when you subscribe. Subscriptions that outlive a component must be closed — the easiest way is the `async` pipe or `takeUntilDestroyed()`.
+
+</A>
+
+<A short l="m">
+
+An Observable differs from a Promise in three ways: it is lazy, it can emit many values, and it is cancelled by unsubscribing. <T k="higher-order-mapping">Higher-order mapping operators</T> decide what to do with a new value while the previous request is still running: `switchMap` cancels it, `mergeMap` runs in parallel, `concatMap` queues, `exhaustMap` ignores the new one. Subscriptions to endless streams are closed declaratively — the <T k="async-pipe">`async` pipe</T>, `toSignal` or <T k="take-until-destroyed">`takeUntilDestroyed()`</T> — otherwise you get a <T k="memory-leak">memory leak</T> and extra requests.
+
+</A>
+
+<A short l="s">
+
+Choosing a higher-order operator means choosing a concurrency policy. `mergeMap` in a search box creates a race where a stale response overwrites a fresh one, while `switchMap` on a save cancels the request only on the client — the server may have already processed it. Manual subscriptions are where leaks come from, so you tie them to the component's lifetime with `toSignal` or the `async` pipe. Since v22 the stable `resource` and `httpResource` cover loading data by parameters, and RxJS stays for real streams: events, WebSocket, debounce, retry.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+An Observable is a source that, once subscribed to, emits values — zero, one or many — and then completes or fails with an error.
+
+| Property | Promise | Observable |
+|---|---|---|
+| When work starts | immediately on creation | on subscription |
+| How many values | one | any number |
+| Cancellation | none | unsubscribing (`unsubscribe()`) |
+
+**How to use**
+
+- `http.get<User[]>('/api/users')` returns an Observable; the request goes out on subscription.
+- In a template: `users$ | async` — subscribes and unsubscribes automatically.
+- In code: `.subscribe(users => ...)`.
+
+**Common mistake**
+
+Subscribing to a stream that never completes on its own (`interval`, `router.events`, a `Subject` in a service) and not unsubscribing. The component is destroyed, but the subscription lives on and keeps it in memory.
+
+**Takeaway:** an Observable is lazy, multi-valued and cancellable, and every long-lived subscription has to be closed.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- `HttpClient` emits one value and completes. Every subscription is a new request; unsubscribing before the response cancels it.
+- Operators in `pipe()` build a new stream: `map`, `filter`, `debounceTime`, `catchError`.
+
+**When to choose what**
+
+| Operator | New value while the previous one is running | Example |
+|---|---|---|
+| `switchMap` | cancels the previous one | search as you type |
+| `mergeMap` | runs in parallel | uploading independent files |
+| `concatMap` | queues | saves where order matters |
+| `exhaustMap` | ignores the new one | a Submit button, login |
+
+**How to unsubscribe**
+
+- The `async` pipe — in templates.
+- `toSignal(obs$)` turns a stream into a signal and unsubscribes when the component is destroyed; `toObservable(sig)` goes the other way.
+- `takeUntilDestroyed()` (stable since v19) — for a manual `subscribe`. Outside an injection context pass it a `DestroyRef`.
+
+**Pitfalls**
+
+- Two `async` pipes on one HTTP stream mean two requests. Share the result with `shareReplay` or `toSignal`.
+- `takeUntil(destroy$)` not last in `pipe()`: operators after it can keep the subscription alive.
+- A nested `subscribe` inside `subscribe` instead of `switchMap`: subscriptions aren't cancelled and errors get lost.
+
+**Rule of thumb**
+
+Let the template or `toSignal` create the subscription; a manual `subscribe` only with `takeUntilDestroyed()`.
+
+**Takeaway:** the higher-order operator defines what happens in a race, and the way you subscribe defines how long the subscription lives.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- An Observable is a subscribe function. `pipe()` starts nothing; `subscribe()` builds the chain of subscribers back to the source.
+- Unsubscribing travels up the chain. For `HttpClient` that cancels the request: `AbortController` in the fetch backend (the default since v22) or `abort()` for XHR.
+- `toObservable` emits through an `effect`, so several `set()` calls in a row produce one value — the last one.
+
+**Cost**
+
+- `switchMap` cancels the response on the client but not the work on the server. For POST and PUT that means lost or duplicated changes, so writes go through `concatMap` or `exhaustMap`.
+- `mergeMap` without a concurrency limit (`mergeMap(fn, 4)`) can fire hundreds of requests at once.
+- `shareReplay(1)` without `refCount: true` keeps its source subscription even after every subscriber has left.
+
+**Trade-offs**
+
+| Task | Tool |
+|---|---|
+| state for a template | a signal |
+| loading data by parameters | `httpResource`, `rxResource` (stable since v22) |
+| events over time, WebSocket, debounce, retry | RxJS |
+
+**How to check**
+
+- A leak shows up in Chrome DevTools: a heap snapshot after navigating back and forth a few times reveals detached elements and live component instances.
+- In the Network tab cancelled requests are marked `(canceled)`, and duplicate requests give away an extra subscription.
+
+**Takeaway:** RxJS is a tool for event streams and concurrency, not for holding state; state belongs in signals.
+
+</A>
+
+<Ex>
+
+```ts
+import { Component, inject } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { FormControl, ReactiveFormsModule } from '@angular/forms';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
+import { debounceTime, distinctUntilChanged, interval, switchMap } from 'rxjs';
+
+@Component({ selector: 'app-product-search', imports: [ReactiveFormsModule], templateUrl: './product-search.html' })
+export class ProductSearch {
+  private readonly http = inject(HttpClient);
+  protected readonly query = new FormControl('', { nonNullable: true });
+
+  // switchMap cancels the previous request if the user keeps typing
+  protected readonly products = toSignal(
+    this.query.valueChanges.pipe(
+      debounceTime(300),
+      distinctUntilChanged(),
+      switchMap(q => this.http.get<{ id: number; name: string }[]>('/api/products', { params: { q } })),
+    ),
+    { initialValue: [] }, // unsubscribes automatically when the component is destroyed
+  );
+
+  constructor() {
+    // An endless stream: without takeUntilDestroyed the subscription outlives the component
+    interval(60_000).pipe(takeUntilDestroyed()).subscribe(n => console.log('tick', n));
+  }
+}
+```
+
+```html
+<!-- product-search.html -->
+<input [formControl]="query" placeholder="Search" />
+@for (p of products(); track p.id) {
+  <p>{{ p.name }}</p>
+}
+```
+
+</Ex>
+
+<Next>
+
+- How is an Observable different from a Promise? — Lazy, multi-valued and cancellable; a Promise runs immediately and yields one value.
+- Which operator for a Save button? — `exhaustMap` to ignore repeated clicks, or `concatMap` if every click matters, in order.
+- Do you need to unsubscribe from `HttpClient`? — It completes on its own, but unsubscribing cancels the request and keeps the callback from running on a destroyed component.
+- How does `toSignal` differ from the `async` pipe? — It gives a signal you can read in code and in `computed`; both unsubscribe automatically.
+- Why does `takeUntil` go last? — Operators after it, such as `switchMap`, can keep an inner subscription alive after the stop signal.
+
+</Next>
+
+<Src>
+
+- [RxJS interop with Angular signals](https://angular.dev/ecosystem/rxjs-interop)
+- [Unsubscribing with takeUntilDestroyed](https://angular.dev/ecosystem/rxjs-interop/take-until-destroyed)
+- [RxJS: Observable](https://rxjs.dev/guide/observable)
+
+</Src>
+
+</Q>
+
+<Q id="front.ng.whats-new" level="m">
+
+## What has changed in Angular from version 13 to the current one?
+
+<A short l="j">
+
+From Angular 13 (November 2021) to the current 22 (June 2026) the coding style changed: components without NgModule, new template syntax with `@if` and `@for`, signals instead of part of RxJS and zone.js, builds on esbuild. Old code mostly still works, and `ng update` migrates a lot of it automatically.
+
+</A>
+
+<A short l="m">
+
+Key milestones: standalone components (stable in v15, default in v19), <T k="control-flow-blocks">built-in control flow</T> and <T k="defer-block">`@defer`</T> (v17), signals (v17) and the <T k="signal-input">signal-based</T> `input()`, `output()` and `model()` (stable in v19), zoneless (stable in v20.2, default in v21), OnPush by default (v22). An older app is updated with <T k="ng-update">`ng update`</T> one major version at a time and modernized with separate migrations. The cost is nine upgrade steps, and at each one third-party libraries like Kendo UI must support the new version.
+
+</A>
+
+<A short l="s">
+
+The direction is consistent: from "the framework checks and bundles everything for you" (zone.js, NgModule, Webpack) to explicit reactivity and smaller units of loading (signals, standalone, `@defer`, the esbuild-based <T k="application-builder">application builder</T>). Since v22 a major release ships every 12 months, each supported for 24 months. When migrating, separate the version upgrades, where migrations preserve behavior (`provideZoneChangeDetection`, `ChangeDetectionStrategy.Eager`), from modernization: moving to OnPush and zoneless changes logic and needs tests.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+Angular 13 shipped in November 2021; the current version is 22 (June 2026). In that time the coding style itself changed.
+
+**The main changes**
+
+- Components without NgModule — standalone.
+- New template syntax: `@if`, `@for`, `@switch` instead of `*ngIf` and `*ngFor`.
+- `@defer` — lazy loading part of a template.
+- Signals: state, `input()` inputs and `output()` outputs.
+- `inject()` instead of constructor parameters.
+- Builds on esbuild and Vite — noticeably faster than Webpack.
+- SSR with <T k="angular-hydration">hydration</T> — the `@angular/ssr` package instead of Angular Universal.
+- Running without zone.js and OnPush by default.
+
+**Common mistake**
+
+Thinking old code stopped working. NgModule, `@Input()` and `*ngIf` (deprecated since v20) are still supported, and `ng update` fixes what breaks.
+
+**Takeaway:** modern Angular means standalone components, signals and the new template syntax; the old style works but is on its way out.
+
+</A>
+
+<A l="m">
+
+**What arrived when**
+
+| Version | What changed |
+|---|---|
+| 14–15 (2022) | standalone components, typed forms, `inject()`, functional guards and interceptors |
+| 16 (May 2023) | signals (preview), `takeUntilDestroyed`, hydration (preview), esbuild builds (preview) |
+| 17 (November 2023) | `@if`, `@for`, `@defer`; stable signals; application builder and Vite for new projects |
+| 17.1–19 | `input()`, `output()`, `model()`, signal queries; stable since v19, standalone by default |
+| 20 (May 2025) | stable `effect`, `linkedSignal`, `toSignal`; `*ngIf` and `*ngFor` deprecated; zoneless stable since 20.2 |
+| 21 (November 2025) | zoneless and Vitest by default in new projects; experimental Signal Forms |
+| 22 (June 2026) | OnPush by default; stable Signal Forms, `resource` and `httpResource`; `@Service()`; `HttpClient` on fetch |
+
+**Migration pitfalls**
+
+- `ng update` moves only one major version at a time. From 13 to 22 that's nine steps, each with its own Node.js and TypeScript requirements.
+- Third-party libraries are upgraded together with Angular: Kendo UI for Angular, angular-oauth2-oidc and others must support the target version.
+- Custom Webpack configuration doesn't carry over to the application builder.
+
+**Rule of thumb**
+
+First bring the versions up to date while preserving behavior, then modernize the code with `ng generate @angular/core:...` migrations — one at a time.
+
+**Takeaway:** since v13 Angular has moved from NgModule and zone.js to standalone and signals, and upgrades go one major at a time.
+
+</A>
+
+<A l="s">
+
+**Why it changed**
+
+- Signals and zoneless remove the main cost of old Angular — checking the whole tree on every event.
+- Standalone and `@defer` make the component, not the module, the unit of loading.
+- esbuild and Vite speed up builds; the Webpack builders were deprecated in v22.
+- Since v22 a major release ships every 12 months instead of every six. v23 is expected around June 2027.
+
+**Migration strategy**
+
+1. Upgrade major by major following the update guide, building and running tests after each step.
+2. Automatic migrations preserve behavior: v21 adds `provideZoneChangeDetection()` to the app, v22 adds `ChangeDetectionStrategy.Eager` to components without a strategy.
+3. Switch the builder with `ng update @angular/cli --name use-application-builder`.
+4. Then one at a time: standalone, control flow, `inject()`, `input()` and `output()`, lazy routes.
+5. Last come OnPush and zoneless: they change logic, not syntax.
+
+**Cost**
+
+- Each major raises the minimum TypeScript and Node.js: v22 needs TypeScript 6.0 and Node.js 22.22+ or 24.13+.
+- Old APIs get removed: `ComponentFactoryResolver` in v22. `HttpClient` moved to fetch, and upload progress needs `withXhr()`.
+- As of October 2026, Kendo UI for Angular 25.x supports Angular 20–22, and angular-oauth2-oidc 22.x requires Angular 22.
+
+**Trade-offs**
+
+There's no need to rewrite everything at once: the old and new styles coexist in one app. New code is written in the new style, old code is converted when it's touched.
+
+**Takeaway:** migrating from 13 means a safe version upgrade that preserves behavior first, then a gradual move to signals and zoneless.
+
+</A>
+
+<Ex>
+
+```ts
+import { Component, EventEmitter, Input, Output, inject, input, output } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+
+interface User { id: number; name: string; }
+
+// Angular 13: decorators, constructor, declared in some NgModule's declarations
+@Component({ selector: 'app-user-old', templateUrl: './user-old.component.html' })
+export class UserOldComponent {
+  @Input() user!: User;
+  @Output() selected = new EventEmitter<User>();
+  constructor(private http: HttpClient) {}
+}
+
+// Angular 22: standalone, signal inputs and outputs, inject()
+@Component({ selector: 'app-user', templateUrl: './user.html' })
+export class UserCard {
+  readonly user = input.required<User>(); // read as user()
+  readonly selected = output<User>();
+  private readonly http = inject(HttpClient);
+}
+```
+
+```html
+<!-- Angular 13 -->
+<li *ngFor="let o of orders; trackBy: trackById">{{ o.title }}</li>
+<p *ngIf="!orders.length">No orders</p>
+
+<!-- Angular 22: track is required, @empty instead of a separate *ngIf -->
+@for (o of orders(); track o.id) {
+  <li>{{ o.title }}</li>
+} @empty {
+  <p>No orders</p>
+}
+
+<!-- The chart code loads when the block scrolls into view -->
+@defer (on viewport) {
+  <app-sales-chart />
+} @placeholder {
+  <p>Chart</p>
+}
+```
+
+</Ex>
+
+<Next>
+
+- Can you mix NgModule and standalone? — Yes: a standalone component can be imported into an NgModule, and an NgModule into a component's `imports`.
+- What does `track` do in `@for`? — It sets the key Angular uses to match items to DOM nodes; in `@for` it is required.
+- How is `@defer` different from a lazy route? — It defers loading part of a template on a trigger (viewport, idle, interaction), not a whole page.
+- Why can't you jump from 13 straight to 22? — `ng update` supports only one major version at a time, and migrations are designed per step.
+- What is hydration? — The client reuses the DOM rendered on the server instead of building it again.
+
+</Next>
+
+<Src>
+
+- [Angular versioning and releases](https://angular.dev/reference/releases)
+- [Angular Update Guide](https://angular.dev/update-guide)
+- [Migrations](https://angular.dev/reference/migrations)
+
+</Src>
+
+</Q>
+
+<Q id="front.ng.large-apps" level="s">
+
+## How do you structure a large Angular app and manage state?
+
+<A short l="j">
+
+A large app is split into features — folders with the routes, pages and state of one section — and each is wired in as a <T k="lazy-route">lazy route</T>, so its code loads on first navigation. State lives in services with signals, and NgRx is used for the complex cases.
+
+</A>
+
+<A short l="m">
+
+The structure is `core`, `shared` and a folder per feature with lazy routes and route-level `providers`. State by default is a service with signals; <T k="signal-store">NgRx SignalStore</T> when you want a uniform shape for stores; <T k="ngrx-store">NgRx Store</T> for shared state with complex event flows. Performance comes from OnPush, `track` in `@for`, <T k="virtual-scroll">virtual scrolling</T> and `@defer`. The cost of Store is a lot of boilerplate per operation.
+
+</A>
+
+<A short l="s">
+
+Scale is held together by boundaries: a feature doesn't import another feature's internals, and shared code goes to `shared` or `core`. The key question about state is who owns it: server data is a cache (`httpResource`, a service), page state is a store scoped to the route, and only truly shared state goes into a global store. Bundle size is controlled by build budgets and `@defer` for heavy widgets such as Kendo charts. Auth in an SPA is handled by an <T k="http-interceptor">interceptor</T> and guards, but the API still enforces permissions.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+A large app is split by feature — by business area: orders, customers, reports.
+
+- `core/` — things needed once: auth, interceptors, the page shell.
+- `shared/` — shared UI components and pipes with no business logic.
+- `features/orders/` — the routes, pages and state of one feature.
+
+**How to use**
+
+A feature is wired in as a lazy route: `loadChildren: () => import('./orders/orders.routes')`. Its code goes into a separate file (a chunk) and loads on first navigation.
+
+**Common mistake**
+
+Statically importing a lazy feature's component somewhere else, for example in `app.ts`. It then lands in the main bundle, and lazy loading is gone.
+
+**Takeaway:** a folder per feature and a lazy route per feature are the backbone of a large app.
+
+</A>
+
+<A l="m">
+
+**When to choose what**
+
+| State approach | When |
+|---|---|
+| a service with signals | state of a single feature, simple operations |
+| NgRx SignalStore | many stores, you want a uniform structure and plugins: `withEntities`, events |
+| NgRx Store | state shared by many features, complex event flows, Redux DevTools |
+
+**Performance**
+
+- OnPush and signals — fewer checks.
+- `track` by `id` in `@for` — DOM nodes are reused, not recreated.
+- Long lists — virtual scrolling: `cdk-virtual-scroll-viewport` from the Angular CDK or `scrollable="virtual"` in Kendo Grid.
+- Heavy widgets — charts, the scheduler — go inside `@defer`.
+
+**Pitfalls**
+
+- `providedIn: 'root'` for page state: it survives leaving the page, and stale data shows up when you come back. Declare such a store in route or component `providers`.
+- A global store for everything, including the state of a single form.
+- A Kendo Grid with thousands of rows and no paging or virtual scrolling.
+
+**Rule of thumb**
+
+Start with a signal-based service. SignalStore when there are many stores and you want one shape; NgRx Store when the state is truly shared and complex.
+
+**Takeaway:** feature-based structure, lazy routes and state kept next to the feature that owns it.
+
+</A>
+
+<A l="s">
+
+**Trade-offs in state**
+
+- Most "state" is a cache of server data. `httpResource` or a service covers it; a global store is for what's genuinely shared: the user, permissions, settings.
+- NgRx Store gives tracing and time travel in Redux DevTools at the cost of boilerplate: an action, a reducer, a selector and an effect per operation.
+- Route `providers` give a store the lifetime of the feature — like a scope in ASP.NET Core, but for a section of the app.
+
+**The cost of bundle size**
+
+- `budgets` in `angular.json` fail the build when the initial bundle exceeds the limit.
+- `ng build --stats-json` and the esbuild analyzer show what's in the bundle.
+- Kendo UI and Angular Material add weight: import only the components you use, and put Chart and Scheduler behind `@defer`.
+
+**Component libraries**
+
+- Their `peerDependencies` limit Angular upgrades — check them before `ng update`.
+- Your own wrapper such as `app-data-grid` over Kendo Grid keeps configuration and a future library swap in one place.
+
+**Auth in an SPA**
+
+A functional interceptor attaches the access token, and a `canMatch` guard hides routes the user can't open. A guard is a UX convenience; the API enforces permissions. Where to keep tokens and when you need a BFF is covered in [OAuth 2.0 and OpenID Connect](/sobes/en/security/oauth-oidc/).
+
+**How to check in production**
+
+Core Web Vitals from real users and Lighthouse show the result, and the Coverage tab in Chrome shows how much loaded JavaScript never ran.
+
+**Takeaway:** scale is held by feature boundaries, lazy loading and a deliberate choice of where state lives.
+
+</A>
+
+<Ex>
+
+```ts
+// app.routes.ts
+import { Routes } from '@angular/router';
+import { inject } from '@angular/core';
+import { AuthService } from './core/auth.service';
+import { OrdersStore } from './features/orders/orders.store';
+
+export const routes: Routes = [
+  { path: '', loadComponent: () => import('./features/home/home').then(m => m.Home) },
+  {
+    path: 'orders',
+    canMatch: [() => inject(AuthService).isLoggedIn()], // a convenience; the API checks permissions
+    providers: [OrdersStore], // one store per feature, lives while the section is open
+    // A separate chunk: loads on the first navigation to /orders
+    loadChildren: () => import('./features/orders/orders.routes').then(m => m.ORDERS_ROUTES),
+  },
+];
+```
+
+</Ex>
+
+<Ex title="NgRx SignalStore">
+
+```ts
+import { computed, inject } from '@angular/core';
+import { patchState, signalStore, withComputed, withMethods, withState } from '@ngrx/signals';
+import { Order, OrdersApi } from './orders.api';
+
+export const OrdersStore = signalStore(
+  withState({ orders: [] as Order[], filter: '', loading: false }),
+  withComputed(({ orders, filter }) => ({
+    // Derived state is a plain computed
+    visible: computed(() => orders().filter(o => o.customer.includes(filter()))),
+  })),
+  withMethods((store, api = inject(OrdersApi)) => ({
+    setFilter(filter: string) {
+      patchState(store, { filter });
+    },
+    async load() {
+      patchState(store, { loading: true });
+      patchState(store, { orders: await api.loadAll(), loading: false });
+    },
+  })),
+);
+```
+
+</Ex>
+
+<Next>
+
+- Where do you declare a page's store? — In route or component `providers`, so it goes away with the section.
+- When is NgRx Store justified? — Many features share complex state, and you need a strict one-way data flow and Redux DevTools.
+- Why can an import from a lazy feature break lazy loading? — A static import pulls the module into the main bundle.
+- Does a guard protect data? — No, it's UX: the SPA's code is available to the user, and the API checks permissions.
+- How do you speed up a table with 10,000 rows? — Paging or virtual scrolling, OnPush and `track` by `id`.
+
+</Next>
+
+<Src>
+
+- [Lazy-loaded routes — angular.dev](https://angular.dev/best-practices/performance/lazy-loaded-routes)
+- [NgRx SignalStore](https://ngrx.io/guide/signals/signal-store)
+- [Angular CDK: Scrolling](https://material.angular.dev/cdk/scrolling/overview)
+
+</Src>
+
+</Q>

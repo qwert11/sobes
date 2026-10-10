@@ -1,0 +1,694 @@
+---
+title: Web platform
+description: Box model, flexbox and grid, the cascade and responsive design, accessibility and WCAG 2.2, how the browser turns HTML into pixels, Core Web Vitals and faster loading.
+sidebar:
+  order: 4
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+What the browser does with a page regardless of the framework: how it lays out boxes, how to make the UI accessible, how it turns HTML into pixels and how to make that faster. Angular and React run on top of this layer, so fullstack interviews check it separately.
+
+**Before this topic:** [JavaScript and TypeScript](/sobes/en/front/js-ts/).
+
+<Q id="front.web.css-layout" level="j">
+
+## How does CSS layout work: the box model, flexbox and grid?
+
+<A short l="j">
+
+Every element in CSS is a rectangle made of content, padding, border and margin; that is the <T k="box-model">box model</T>, and the `display` property decides how the element sits among its siblings. For a single line you use <T k="flexbox">flexbox</T>, for rows and columns at once — <T k="css-grid">grid</T>, and you adapt to the screen width with <T k="media-query">media queries</T>.
+
+</A>
+
+<A short l="m">
+
+The box model sets an element's size, and `box-sizing: border-box` includes padding and border in `width`, which is why it is set globally. Flexbox distributes space along one axis starting from the content, grid defines rows and columns starting from the container, and conflicts between styles are settled by the cascade: `!important`, layers, <T k="css-specificity">specificity</T>, source order. Responsive design is built mobile-first with `min-width`, and components that live in columns of different widths adapt via <T k="container-query">container queries</T>.
+
+</A>
+
+<A short l="s">
+
+Layout is a question of who sets the size: in flexbox it comes from the content, in grid from the container, so grid goes to the page skeleton and flex to components. A specificity war with `!important` is the main source of brittle styles; `@layer` and `:where()` make priorities explicit. A media query only knows the viewport width, while a component should respond to its own container, so design systems move to container queries and fluid sizes with `clamp()`. The cost: a container with `container-type` can no longer take its width from its content.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **Box model.** An element is content, padding, border and margin. By default `width` does not include padding and border.
+- **`display`.** `block` takes the whole line, `inline` flows within text, `flex` and `grid` lay out the element's children.
+- **Flexbox** places children in a row or a column, **grid** — in a grid of rows and columns.
+
+**How to use**
+
+1. For all elements — `box-sizing: border-box`.
+2. Page skeleton — grid, items inside a block — flex, spacing — `gap`.
+3. Default styles are for phones, wider screens get `@media (min-width: 768px)`. The `md:` prefix in Tailwind works the same way.
+
+**Common mistake**
+
+Laying out blocks with `float` and `position: absolute` where flex or grid would do. That layout breaks on the first long piece of text.
+
+**Takeaway:** the box model sets an element's size, flex lays out along one axis, grid along two.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- **Cascade.** When several rules match an element, the one higher on this list wins: `!important`, inline style, a rule outside `@layer` or in a later layer, higher specificity, later position in the source.
+- **Specificity** is a triple: ids; classes, attributes and pseudo-classes; type selectors and pseudo-elements. It is compared left to right, so `#nav a` (1,0,1) beats `.menu .item a` (0,2,1).
+- **Positioning.** `relative` shifts an element and keeps its space. `absolute` takes it out of flow and positions it relative to the nearest positioned ancestor. `fixed` — relative to the viewport, `sticky` sticks while scrolling.
+
+**When to choose what**
+
+| | Flexbox | Grid |
+|---|---|---|
+| Axes | one: row or column | two: rows and columns |
+| Size comes from | content | container |
+| Example | menu, row of buttons, card | page skeleton, gallery, form |
+
+**Pitfalls**
+
+- **Margin collapsing.** Vertical margins of adjacent blocks in normal flow do not add up; the larger one wins. Flex and grid do not do this.
+- **`z-index` "doesn't work".** It is compared within one stacking context, and one is created by, for example, `opacity` below 1 or `transform` on an ancestor.
+- **A flex item won't shrink.** A flex item's default minimum width is its content width; a long word stretches the column, and `min-width: 0` fixes it.
+
+**Rule of thumb**
+
+Grid for the skeleton, flex for components, `gap` instead of margins between siblings, media queries mobile-first.
+
+**Takeaway:** you choose the layout by the number of axes, and style conflicts are settled by the cascade, not by shuffling file order.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- The flex algorithm first takes each item's base size (`flex-basis`, otherwise the content), then hands out free space by `flex-grow` or takes it away by `flex-shrink`. That is why columns with different text end up with different widths.
+- Grid first builds tracks from `grid-template-columns`, and `fr` splits the remaining space. `repeat(auto-fit, minmax(12rem, 1fr))` gives a responsive gallery without media queries.
+- `container-type: inline-size` turns on size containment: the container's width does not depend on its content. Otherwise there would be a loop: style depends on size, size depends on style.
+
+**Trade-offs**
+
+- **Media query or container query.** A media query suits the page skeleton. A card that appears both in the sidebar and in the main column should respond to its own container. Container queries are Baseline since 2023, and Tailwind v4 has them built in (`@container`, `@md:`).
+- **Units.** `rem` in font sizes respects the user's font size setting, `px` does not. A `font-size` in `vw` alone does not grow when the page is zoomed, so `clamp()` gets a `rem` term. On mobile `100vh` includes the area under the browser toolbar; `100dvh` is more accurate.
+- **Controlling the cascade.** `@layer reset, library, app` fixes the layer order, and unlayered styles beat any layer. `:where()` zeroes the specificity of base styles so they are easy to override. Utility CSS such as Tailwind and CSS modules end the war because all classes weigh the same.
+
+**How to check in production**
+
+- DevTools → Elements → Computed shows which rule won, and struck-through ones lost. The `flex` and `grid` badges in the element tree toggle a layout overlay.
+- Playwright screenshot tests at several widths catch broken layouts before release.
+
+**Takeaway:** grid sizes from the top down, flex from the bottom up; a component adapts through its container, and style priorities come from layers, not `!important`.
+
+</A>
+
+<Ex>
+
+```css
+*, *::before, *::after { box-sizing: border-box; }
+
+/* Skeleton: mobile-first — one column */
+.page {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+}
+@media (min-width: 768px) {
+  .page { grid-template-columns: 16rem 1fr; } /* sidebar + content */
+}
+
+/* Gallery without media queries: as many columns as fit */
+.gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 1rem;
+}
+
+/* The card adapts to its container, not to the viewport */
+.card-slot { container-type: inline-size; }
+.card { display: flex; flex-direction: column; gap: 0.5rem; }
+@container (min-width: 30rem) {
+  .card { flex-direction: row; } /* image on the left, text on the right */
+}
+
+/* From 24px to 40px with a 16px root font */
+h1 { font-size: clamp(1.5rem, 1rem + 2vw, 2.5rem); }
+```
+
+</Ex>
+
+<Next>
+
+- What is the difference between `display: none` and `visibility: hidden`? — The first removes the element from layout, the second hides it but keeps its space.
+- What does `flex: 1` mean? — `flex-grow: 1`, `flex-shrink: 1`, `flex-basis: 0%`: items share free space equally.
+- How does `auto-fit` differ from `auto-fill` in grid? — `auto-fit` collapses empty tracks and stretches the items, `auto-fill` keeps the empty tracks.
+- What is `position: absolute` positioned against? — The nearest ancestor whose `position` is not `static`, otherwise the initial containing block.
+- What is the specificity of `:is()` and `:where()`? — `:is()` takes its most specific argument, `:where()` is always zero.
+
+</Next>
+
+<Src>
+
+- [MDN: Introduction to the CSS box model](https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Box_model/Introduction)
+- [MDN: Relationship of grid layout to other layout methods](https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Grid_layout/Relationship_with_other_layout_methods)
+- [MDN: CSS container queries](https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Containment/Container_queries)
+
+</Src>
+
+</Q>
+
+<Q id="front.web.accessibility" level="m">
+
+## How do you make a UI accessible?
+
+<A short l="j">
+
+Accessibility (a11y) means people can use the interface without a mouse, with a <T k="screen-reader">screen reader</T> or with low vision. The foundation is <T k="semantic-html">semantic HTML</T>: `<button>`, `<label>` and `<nav>` instead of `div` already work with the keyboard and screen readers, and images get `alt`.
+
+</A>
+
+<A short l="m">
+
+The browser builds an <T k="accessibility-tree">accessibility tree</T> from the DOM — the role, name and state of each element — and that is what the screen reader reads. So native elements come first, and <T k="wai-aria">ARIA</T> only where HTML falls short: the first rule of ARIA says exactly that. Then come keyboard operation and a visible focus, 4.5:1 text contrast, field labels and errors tied to their fields; the target is <T k="wcag">WCAG 2.2</T> level AA.
+
+</A>
+
+<A short l="s">
+
+Accessibility is a non-functional requirement with legal weight: in the EU the <T k="european-accessibility-act">European Accessibility Act</T> has applied since 28 June 2025, and for online shops and banks it is now an obligation. Technically it all comes down to a correct accessibility tree: a native element gives you role, name, state and keyboard support for free, while a custom ARIA widget has to rebuild all of that by hand, and bad ARIA is worse than none. Automated checks catch only part of the problems, so the process also needs manual keyboard and screen reader testing and accessible components in the design system.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+Accessibility means people with visual, hearing and motor impairments can use the interface: with a screen reader, with the keyboard only, with enlarged text.
+
+**How to use**
+
+- An action is a `<button>`, navigation is an `<a href>`, not a `div` with a click handler: they are focusable and work with the keyboard.
+- Every field has a `<label for="...">`. A placeholder is not a label: it disappears as you type.
+- An image has an `alt` that conveys its meaning; a decorative one gets an empty `alt=""`.
+- Headings `h1`–`h6` go in order, regions are marked up with `header`, `nav`, `main`.
+- Normal text contrast against the background is at least 4.5:1.
+
+**Common mistake**
+
+Removing the focus ring with `outline: none` because it "looks ugly". Keyboard users lose track of where they are. Style it with `:focus-visible` instead of removing it.
+
+**Takeaway:** the right HTML element gives you accessibility almost for free.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+1. From the DOM and CSS the browser builds the accessibility tree: role (`button`), accessible name ("Save") and state (`disabled`, `expanded`).
+2. A screen reader — NVDA, JAWS, VoiceOver, TalkBack — gets this tree through the OS accessibility API and reads it out.
+3. ARIA changes only the tree, not behaviour: `role="button"` on a `div` gives it neither focus nor a response to Enter and Space.
+
+**When to choose what**
+
+| Task | Solution |
+|---|---|
+| Field without a visible label | `aria-label` or `aria-labelledby` |
+| Field error | `aria-invalid="true"` and `aria-describedby` pointing to the error text |
+| Message after an action | live region: `role="status"` or `role="alert"` |
+| Modal | `<dialog>` and `showModal()`: background is inert, Esc closes it |
+| Widget state | `aria-expanded`, `aria-selected`, `aria-current` |
+
+**Pitfalls**
+
+- **ARIA on top of native.** First rule of ARIA: if there is an HTML element with the semantics and behaviour you need, use it.
+- **`tabindex` above zero** breaks the natural tab order. Only `0` and `-1` are used.
+- **Route changes in an SPA.** Focus and announcements do not change by themselves; you move focus to the new page's heading manually.
+- **Colour only.** An error shown only by a red border is invisible to a colour-blind user and silent for a screen reader — add text.
+
+**Rule of thumb**
+
+Semantic HTML first, then ARIA for what is missing; walk every flow with the keyboard: Tab, Enter, Space, Esc, arrows.
+
+**Takeaway:** accessibility is a correct accessibility tree plus keyboard operation, and ARIA only fills in what HTML lacks.
+
+</A>
+
+<A l="s">
+
+**Standards and law**
+
+- **WCAG 2.2** (W3C, October 2023) — success criteria at three levels: A is the minimum, AA is the target of laws and contracts, AAA is for special cases.
+- New in 2.2 at level AA: focus not hidden by sticky bars (2.4.11), target size at least 24×24 CSS pixels (2.5.8), an alternative to dragging (2.5.7), login without a cognitive test — for example, pasting a password from a manager (3.3.8). Criterion 4.1.1 Parsing was removed.
+- **The EAA** (Directive 2019/882) applies from 28 June 2025 to products and services on the EU market: online shops, banking, transport, e-books. Microenterprises providing services are exempt. The technical basis is the EN 301 549 standard, which references WCAG 2.1 AA.
+
+**Trade-offs**
+
+- **Custom widget or ready-made.** A combobox, tabs or a tree in ARIA means roles, states and a keyboard model from the ARIA Authoring Practices. It is usually cheaper to take a proven library or the Angular CDK `a11y` package than to write your own.
+- **Automation or manual testing.** axe-core and Lighthouse find low contrast, empty labels and wrong roles. They cannot tell whether the focus order makes sense or whether an `alt` is meaningful.
+
+**How to check in production**
+
+- axe-core in e2e tests (`@axe-core/playwright`) and Lighthouse CI in the pipeline catch regressions.
+- Manually: walk the main flow with the keyboard only and with a screen reader — NVDA on Windows, VoiceOver on macOS.
+- DevTools → Elements → Accessibility shows a node's role, name and state and the full accessibility tree.
+
+**Takeaway:** the target is WCAG 2.2 AA, built into design-system components and automated tests, while manual testing covers what automation cannot see.
+
+</A>
+
+<Ex>
+
+```html
+<form novalidate>
+  <!-- for/id ties the label to the field: clicking the label focuses the field -->
+  <label for="email">Email</label>
+  <input id="email" type="email" autocomplete="email"
+         aria-invalid="true" aria-describedby="email-error">
+  <!-- The screen reader reads the error text together with the field -->
+  <p id="email-error">Enter a valid email</p>
+
+  <!-- Icon button: accessible name via aria-label, the icon is hidden -->
+  <button type="button" aria-label="Close">
+    <svg aria-hidden="true" width="16" height="16"><path d="M2 2l12 12M14 2L2 14"/></svg>
+  </button>
+
+  <img src="chart.png" alt="Sales grew 20% in Q3">
+  <img src="divider.png" alt=""> <!-- decorative: the screen reader skips it -->
+
+  <!-- Live region: text inserted here gets announced -->
+  <div role="status"></div>
+
+  <button type="submit">Save</button>
+</form>
+```
+
+</Ex>
+
+<Ex title="Visible focus">
+
+```css
+/* Focus ring only for keyboard navigation, not for mouse clicks */
+button:focus-visible,
+a:focus-visible {
+  outline: 3px solid #1a73e8;
+  outline-offset: 2px;
+}
+```
+
+</Ex>
+
+<Next>
+
+- What is the first rule of ARIA? — If a native HTML element gives you the semantics and behaviour you need, use it instead of a role on a `div`.
+- How does `aria-label` differ from `aria-labelledby`? — The first sets the name as a string, the second points to the id of visible text.
+- How does `role="alert"` differ from `role="status"`? — `alert` is announced immediately, interrupting speech; `status` politely, after the current phrase.
+- What contrast does WCAG AA require? — 4.5:1 for normal text, 3:1 for large text and for UI components.
+- What did the European Accessibility Act change? — Since 28 June 2025 accessibility is mandatory for many digital services in the EU, with EN 301 549 and WCAG as the reference.
+
+</Next>
+
+<Src>
+
+- [WCAG 2.2 — W3C](https://www.w3.org/TR/WCAG22/)
+- [Using ARIA: rules of ARIA use — W3C](https://www.w3.org/TR/using-aria/)
+- [MDN: Accessibility](https://developer.mozilla.org/en-US/docs/Web/Accessibility)
+
+</Src>
+
+</Q>
+
+<Q id="front.web.rendering" level="m">
+
+## How does the browser turn HTML into pixels?
+
+<A short l="j">
+
+The browser parses HTML into the DOM and CSS into the <T k="cssom">CSSOM</T>, combines them into a render tree, computes element sizes and positions (layout), paints pixels (paint) and assembles layers into a frame (composite). This chain is the <T k="critical-rendering-path">critical rendering path</T>: while CSS is not loaded or a synchronous script is running, the page is not shown.
+
+</A>
+
+<A short l="m">
+
+The critical path is the steps from HTML bytes to the first frame, and <T k="render-blocking-resource">render-blocking resources</T> slow it down: CSS blocks rendering, and a plain `<script>` stops HTML parsing. So scripts are loaded with `defer` or `type="module"`, and critical CSS is kept small. Changes after load go through the same pipeline: geometry triggers a <T k="reflow">reflow</T>, colour only a repaint, and `transform` and `opacity` only composite, which is why you animate them.
+
+</A>
+
+<A short l="s">
+
+Rendering runs on the main thread together with JavaScript, so any long task delays both the frame and the response to input. The costliest mistakes are <T k="layout-thrashing">layout thrashing</T>, where code interleaves style writes with `offsetHeight` reads and forces the browser to recompute layout synchronously, and animating geometry properties. `transform` and `opacity` on a separate layer are handled by the <T k="compositing">compositor</T> on its own thread, so the animation stays smooth while the main thread is busy. The cost is GPU memory per layer, so `will-change` is applied sparingly.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+The path from HTML to pixels:
+
+1. **DOM.** HTML is parsed into a tree of nodes.
+2. **CSSOM.** CSS is parsed into a tree of rules.
+3. **Render tree.** Only visible elements with their computed styles: `display: none` is left out.
+4. **Layout.** Sizes and coordinates of every box are computed.
+5. **Paint.** Pixels are filled in: text, colours, shadows, images.
+6. **Composite.** Layers are assembled into the final frame.
+
+**How to use**
+
+- CSS goes in the `<head>`, scripts get the `defer` attribute.
+- Animate `transform` and `opacity`, not `top`, `left` or `width`.
+
+**Common mistake**
+
+Adding a large script to the `<head>` without `defer`. While it downloads and runs, HTML is not parsed and the screen stays blank.
+
+**Takeaway:** DOM and CSSOM → render tree → layout → paint → composite; anything that delays these steps delays the first frame.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- **CSS blocks rendering.** Without the CSSOM the browser does not paint, otherwise the user would see an unstyled page. A synchronous script also waits for the stylesheets before it, because it may read styles.
+- **JS blocks parsing.** A plain `<script>` stops the parser until it is downloaded and executed. Meanwhile the preload scanner looks ahead in the HTML and starts fetching images and stylesheets early.
+- **JS and rendering share the main thread.** A frame is rendered between tasks, so a long handler delays it. How the event loop works is covered in [JavaScript and TypeScript](/sobes/en/front/js-ts/).
+
+**When to choose what**
+
+| `<script>` attribute | HTML parsing | Execution |
+|---|---|---|
+| none | stops | immediately, in order |
+| `async` | continues | as soon as loaded, no order |
+| `defer` | continues | after parsing, in order, before `DOMContentLoaded` |
+| `type="module"` | continues | like `defer` by default |
+
+**What a change costs**
+
+| Change | Stages |
+|---|---|
+| `width`, `top`, `font-size`, new nodes | layout, paint, composite (reflow) |
+| `color`, `background`, `box-shadow` | paint, composite (repaint) |
+| `transform`, `opacity` | composite only |
+
+**Pitfalls**
+
+- **Layout thrashing.** A style write followed right away by a read of `offsetHeight` or `getBoundingClientRect()` forces layout to be recomputed immediately; in a loop — on every iteration.
+- **`async` for dependent scripts.** Order is not guaranteed: a library may load after the code that uses it.
+
+**Rule of thumb**
+
+Scripts — `defer` or modules, layout reads — batched before writes, animations — on `transform` and `opacity`.
+
+**Takeaway:** CSS blocks display, synchronous JS blocks parsing, and after load the cost of a change depends on which pipeline stage it restarts from.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- In Chromium the paint stage only records drawing commands. Rasterisation and frame assembly are done by the compositor thread and the GPU, not the main thread.
+- A `transform` and `opacity` animation on its own layer runs entirely in the compositor, so it stays smooth even when the main thread is busy. Layers are created by, for example, `will-change: transform`, `<video>` and `<canvas>`.
+- The frame budget at 60 Hz is about 16.7 ms for everything: JS, styles, layout and paint.
+
+**Cost**
+
+- A forced synchronous layout in a loop over N elements means N layout passes instead of one.
+- Every layer is a texture in GPU memory. Hundreds of layers on a low-end phone are worse than an extra repaint.
+- A large DOM makes every style recalculation and layout more expensive.
+
+**Trade-offs**
+
+- Separate DOM reads from writes: first all measurements, then all changes, with visual changes in `requestAnimationFrame`.
+- `content-visibility: auto` skips rendering of off-screen blocks, but they need `contain-intrinsic-size`, otherwise the scrollbar jumps.
+- Critical CSS inlined into the `<head>` speeds up the first frame, but it is not cached separately and makes every HTML response bigger.
+
+**How to check in production**
+
+- DevTools → Performance: purple Layout and Recalculate Style blocks inside long tasks, and the Forced reflow insight points to the line of code.
+- Rendering tab → Paint flashing highlights repainted areas, and the Layers panel shows the layers.
+- In the field — the Long Animation Frames API (Chromium): each script entry has `forcedStyleAndLayoutDuration`.
+
+**Takeaway:** there is one main thread for JS and rendering: don't force it into synchronous layout, and hand animations to the compositor.
+
+</A>
+
+<Ex title="Loading resources">
+
+```html
+<head>
+  <!-- CSS blocks rendering: keep it small and in the head -->
+  <link rel="stylesheet" href="/app.css">
+  <!-- media="print": does not block rendering on screen -->
+  <link rel="stylesheet" href="/print.css" media="print">
+
+  <script src="/legacy.js"></script>             <!-- stops HTML parsing -->
+  <script defer src="/app.js"></script>          <!-- after parsing, in order -->
+  <script async src="/analytics.js"></script>    <!-- as soon as loaded, no order -->
+  <script type="module" src="/main.js"></script> <!-- deferred, like defer -->
+</head>
+```
+
+</Ex>
+
+<Ex title="Layout thrashing and animation">
+
+```js
+const items = document.querySelectorAll('.item');
+
+// Bad: a read after a write on every iteration — layout is recomputed N times
+for (const item of items) {
+  item.style.width = item.parentElement.offsetWidth / 2 + 'px';
+}
+
+// Good: all reads first, then all writes — one recalculation
+const widths = [...items].map((item) => item.parentElement.offsetWidth);
+requestAnimationFrame(() => {
+  items.forEach((item, i) => { item.style.width = widths[i] / 2 + 'px'; });
+});
+```
+
+```css
+/* Compositor-only animation: no layout and no paint */
+.toast { transition: transform 200ms, opacity 200ms; }
+.toast.hidden { transform: translateY(100%); opacity: 0; }
+```
+
+</Ex>
+
+<Next>
+
+- What is the difference between reflow and repaint? — Reflow recomputes geometry and drags paint along, repaint only redraws pixels.
+- Why do `display: none` and `visibility: hidden` affect layout differently? — The first removes the element from the render tree, the second keeps its space.
+- When does `DOMContentLoaded` fire, and when `load`? — `DOMContentLoaded` — after HTML parsing and `defer` scripts, `load` — after all images and stylesheets.
+- Does `<link rel="stylesheet" media="print">` block rendering? — No, it is not needed on screen; the file is still downloaded at low priority.
+- What does the preload scanner do? — While the parser is stuck on a script, it looks ahead in the HTML and starts fetching resources early.
+
+</Next>
+
+<Src>
+
+- [MDN: Critical rendering path](https://developer.mozilla.org/en-US/docs/Web/Performance/Guides/Critical_rendering_path)
+- [MDN: the script element — async and defer](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/script)
+- [web.dev: Avoid large, complex layouts and layout thrashing](https://web.dev/articles/avoid-large-complex-layouts-and-layout-thrashing)
+
+</Src>
+
+</Q>
+
+<Q id="front.web.performance" level="s">
+
+## How do you measure and speed up a web app's loading?
+
+<A short l="j">
+
+Page speed is measured with <T k="core-web-vitals">Core Web Vitals</T>: <T k="lcp">LCP</T> — when the main content appeared, <T k="inp">INP</T> — how quickly the page responds to clicks, <T k="cls">CLS</T> — how much the layout jumps. You speed up loading by sending less code and fewer images, caching static files and loading the rest lazily.
+
+</A>
+
+<A short l="m">
+
+Core Web Vitals are assessed at the 75th percentile of real visits: LCP up to 2.5 s, INP up to 200 ms, CLS up to 0.1. Lighthouse gives lab numbers for debugging, while decisions are made on field data — CrUX or your own <T k="real-user-monitoring">RUM</T>. The main levers are <T k="code-splitting">code splitting</T> by route, images in the right format and size, priority for the LCP resource and long-lived caching of static files; the cost is a more complex build and more small requests.
+
+</A>
+
+<A short l="s">
+
+Performance is a budget and monitoring, not a one-off optimisation: field data at the 75th percentile shows what users on slow phones see, and the lab explains why. Each metric breaks down into parts, and you fix the longest one: for LCP that is server response time, resource load delay and duration, and render delay. SSR speeds up the first paint, but hydration moves the cost of JavaScript onto the main thread and hurts INP, so the main lever is less JS on the client. Bundle size budgets in CI keep gains from eroding within a couple of releases.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+| Metric | What it measures | Good |
+|---|---|---|
+| LCP | when the largest element of the first screen is rendered | up to 2.5 s |
+| INP | delay from a click or key press to the next frame | up to 200 ms |
+| CLS | the sum of unexpected layout shifts | up to 0.1 |
+
+**How to use**
+
+- Measure: Lighthouse in DevTools or PageSpeed Insights.
+- Give images `width` and `height`: the browser reserves space in advance and the layout doesn't jump.
+- Images below the first screen get `loading="lazy"`.
+- Load heavy pages when the user navigates to them: lazy routes in Angular, `React.lazy` and dynamic `import()`.
+
+**Common mistake**
+
+Putting `loading="lazy"` on the main image of the first screen. It starts loading later and LCP gets worse.
+
+**Takeaway:** three metrics — loading speed, responsiveness and stability; you improve them by sending less, and sending what the first screen needs sooner.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+| Metric | Good | Poor |
+|---|---|---|
+| LCP | up to 2.5 s | over 4 s |
+| INP | up to 200 ms | over 500 ms |
+| CLS | up to 0.1 | over 0.25 |
+
+The assessment uses the 75th percentile of visits, separately for mobile and desktop. INP replaced FID in March 2024: FID measured only the delay of the first input, INP counts all clicks, taps and key presses.
+
+**Lab and field**
+
+| | Lab data | Field data |
+|---|---|---|
+| Source | Lighthouse, DevTools Performance | CrUX, the `web-vitals` library, RUM |
+| Conditions | one device, a set network | real devices and networks |
+| Purpose | debugging, regressions in CI | what users actually see |
+
+Lighthouse does not measure INP during a page load: in the lab, Total Blocking Time stands in for it.
+
+**Pitfalls**
+
+- A green Lighthouse score on a powerful laptop while field data from phones is poor.
+- `preload` for everything: resources compete for bandwidth and the important ones load later.
+
+**Rule of thumb**
+
+LCP — the image in the HTML with `fetchpriority="high"`, INP — less JS and shorter tasks, CLS — dimensions for everything that loads later. Find the problem in the field, the cause in the lab.
+
+**Takeaway:** metrics are assessed in the field, debugged in the lab, and each one is fixed with its own lever.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- LCP = time to first byte + resource load delay + resource load duration + element render delay. Almost all of the time should be spent loading the HTML and the resource itself.
+- INP = input delay + processing duration + presentation delay. The worst interaction of the visit is taken, and with many interactions one worst per 50 is discarded.
+- HTTP/2 multiplexes requests over one connection, so bundling everything into one file is no longer necessary. HTTP/3 runs over QUIC and does not block other streams when a packet is lost.
+
+**Cost**
+
+- A kilobyte of JS costs more than a kilobyte of image: it has to be parsed, compiled and executed on the main thread.
+- Fonts: WOFF2 and subsetting. `font-display: swap` shows text right away but shifts it when the font swaps in.
+- Hashed static files are cached for a year (`Cache-Control: max-age=31536000, immutable`), HTML gets `no-cache`. The server side is in [Background jobs and caching](/sobes/en/aspnet/background-caching/), CDN in [System design](/sobes/en/arch/system-design/).
+
+**Trade-offs**
+
+- **SSR and hydration.** The server sends ready HTML, so LCP comes sooner. But the client still downloads the JS and attaches handlers, and until hydration finishes the page is visible but unresponsive. Details are in [React and Next.js](/sobes/en/front/react-next/).
+- **Code splitting.** The initial bundle is smaller, but navigating to a lazy route waits for the chunk. Prefetching when idle or on hover helps.
+- **`preconnect` and `preload`.** The first opens a connection to another origin in advance, the second fetches a late-discovered resource. Extra hints steal bandwidth from what matters.
+
+**How to check in production**
+
+- RUM: the `web-vitals` library sends LCP, INP and CLS with attribution to your analytics; CrUX and Search Console show the 28-day result.
+- Budgets in CI: `budgets` in `angular.json`, Lighthouse CI with thresholds, bundle analysis with `source-map-explorer`.
+
+**Takeaway:** measure in the field, break the metric into parts and fix the longest one; the main long-term lever is less JavaScript on the client.
+
+</A>
+
+<Ex>
+
+```html
+<head>
+  <!-- Open the connection to the image CDN early: DNS, TCP, TLS -->
+  <link rel="preconnect" href="https://img.example.com">
+  <!-- The font is needed right away, but the browser would find it late in CSS -->
+  <link rel="preload" href="/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
+  <style>
+    @font-face {
+      font-family: Inter;
+      src: url(/fonts/inter.woff2) format("woff2");
+      font-display: swap; /* text right away, in the fallback font */
+    }
+  </style>
+</head>
+<body>
+  <!-- LCP image: high priority, no lazy, dimensions against CLS -->
+  <img src="https://img.example.com/hero-800.avif"
+       srcset="https://img.example.com/hero-800.avif 800w,
+               https://img.example.com/hero-1600.avif 1600w"
+       sizes="100vw" width="1600" height="900"
+       fetchpriority="high" alt="Autumn sale">
+
+  <!-- Below the first screen: loads as it approaches the viewport -->
+  <img src="/promo.webp" width="600" height="400" loading="lazy" alt="Gift cards">
+</body>
+```
+
+</Ex>
+
+<Ex title="Field metrics and code splitting">
+
+```js
+import { onLCP, onINP, onCLS } from 'web-vitals';
+
+// RUM: every value goes to your analytics
+function send(metric) {
+  const body = JSON.stringify({ name: metric.name, value: metric.value, rating: metric.rating });
+  navigator.sendBeacon('/rum', body);
+}
+onLCP(send);
+onINP(send);
+onCLS(send);
+
+// Code splitting: the charts module loads only on click
+document.querySelector('#report').addEventListener('click', async () => {
+  const { renderChart } = await import('./chart.js');
+  renderChart();
+});
+```
+
+</Ex>
+
+<Next>
+
+- Why did INP replace FID? — FID measured only the delay before processing the first input, INP the full delay to the next frame for all interactions.
+- How does lab data differ from field data? — The lab is reproducible and good for debugging, the field shows real devices and networks.
+- How does `preload` differ from `prefetch`? — `preload` is for the current page and loads right away; `prefetch` is for the next navigation, when idle.
+- How do you reduce CLS from web fonts? — `font-display: optional` or matching the fallback font's metrics with `size-adjust`.
+- Can you inline critical CSS under a strict CSP? — Yes, with a nonce or hash in `style-src`; see [Web security basics](/sobes/en/security/web-basics/).
+
+</Next>
+
+<Src>
+
+- [web.dev: Web Vitals](https://web.dev/articles/vitals)
+- [web.dev: Optimize Largest Contentful Paint](https://web.dev/articles/optimize-lcp)
+- [web.dev: Interaction to Next Paint (INP)](https://web.dev/articles/inp)
+
+</Src>
+
+</Q>

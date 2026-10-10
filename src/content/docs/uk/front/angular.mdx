@@ -1,0 +1,887 @@
+---
+title: Angular
+description: Компоненти й DI, change detection і сигнали, RxJS, що змінилося з Angular 13 до 22, структура і стан великих застосунків.
+sidebar:
+  order: 2
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+Як влаштований Angular-застосунок, як фреймворк дізнається про зміни, як працювати з RxJS і що змінилося з Angular 13 до актуальної версії 22. На співбесіді це перевіряють і як знання основ, і як готовність підтримувати або оновлювати старий застосунок.
+
+**Перед цією темою:** [JavaScript і TypeScript](/sobes/uk/front/js-ts/).
+
+<Q id="front.ng.architecture" level="j">
+
+## З чого складається Angular-застосунок?
+
+<A short l="j">
+
+Angular-застосунок — дерево <T k="angular-component">компонентів</T>: кожен компонент — клас TypeScript з декоратором `@Component` і HTML-шаблон, пов'язані <T k="data-binding">прив'язками даних</T>. Спільну логіку й виклики API виносять у сервіси, які компонент отримує через <T k="dependency-injection">впровадження залежностей</T>, а маршрутизатор вирішує, який компонент показати за URL.
+
+</A>
+
+<A short l="m">
+
+Компонент — клас, шаблон і стилі; шаблон пов'язаний із класом інтерполяцією, прив'язками властивостей і подій, а <T k="angular-directive">директиви</T> змінюють поведінку елементів. Сервіси з `providedIn: 'root'` — синглтони, їх отримують через `inject()` або параметр конструктора. Із v19 компоненти <T k="standalone-component">standalone</T> за замовчуванням: свої залежності вони перелічують в `imports`, NgModule не потрібен. Зв'язки DI, як і в ASP.NET Core, перевіряються в рантаймі: забутий провайдер дасть `NullInjectorError` під час створення компонента.
+
+</A>
+
+<A short l="s">
+
+Шаблони компілюються заздалегідь (AOT), тому помилки прив'язок ловить компілятор. DI в Angular — <T k="hierarchical-injector">ієрархія інжекторів</T>: кореневий та інжектори маршрутів дають спільний екземпляр, а `providers` компонента — власний екземпляр на компонент і його піддерево. В ASP.NET Core scopes не ієрархічні, тому прямого аналога в другого немає. Standalone зробив залежності компонента явними, а одиницею лінивого завантаження — компонент; ціна ієрархії — легко отримати зайвий екземпляр «синглтона», оголосивши його ще й у компоненті.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+Angular-застосунок — дерево компонентів. Кореневий компонент запускається в `main.ts`, решта вкладені в його шаблон.
+
+- **Компонент** — клас із декоратором `@Component` і HTML-шаблон. Клас зберігає дані й обробники, шаблон їх показує.
+- **Сервіс** — клас зі спільною логікою: виклики API, кеш, поточний користувач.
+- **Маршрутизатор** — показує компонент, який відповідає URL.
+
+**Як користуватися**
+
+1. `ng generate component orders` створює компонент.
+2. Дочірні компоненти й директиви, потрібні шаблону, перелічіть в `imports` декоратора.
+3. Сервіс отримайте полем класу: `private orders = inject(OrderService)`.
+
+**Типова помилка**
+
+Забути додати дочірній компонент в `imports`. Збірка впаде з помилкою `'app-x' is not a known element`.
+
+**Підсумок:** компонент показує дані, сервіс їх добуває, а DI пов'язує одне з іншим.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+| Синтаксис у шаблоні | Що робить |
+|---|---|
+| `{{ total }}` | інтерполяція: значення з класу в текст |
+| `[disabled]="busy"` | прив'язка властивості: клас → DOM |
+| `(click)="save()"` | прив'язка події: DOM → клас |
+| `[(value)]="name"` | двостороння: властивість плюс подія `valueChange` |
+
+- **Директива** змінює поведінку елемента: `[class.active]`, `ngModel`. Компонент — це директива з власним шаблоном.
+- **Структурні директиви** `*ngIf` і `*ngFor` з Angular 17 замінені вбудованими блоками `@if` і `@for`.
+- **NgModule проти standalone.** В Angular 13 компонент оголошували в `declarations` якогось NgModule. Із v19 компоненти standalone за замовчуванням і перелічують залежності у своїх `imports`.
+
+**Коли що обирати**
+
+| Спосіб отримати сервіс | Коли |
+|---|---|
+| `inject(Service)` у полі | за замовчуванням, так радить style guide Angular |
+| параметр конструктора | старий код; працює як раніше |
+
+**Пастки**
+
+- `inject()` працює лише в injection context: ініціалізатори полів, конструктор, фабрики провайдерів, гарди. Виклик в обробнику події дасть помилку NG0203.
+- Сервіс у `providers` компонента — окремий екземпляр на кожен екземпляр компонента, а не спільний.
+
+**Правило**
+
+Нові компоненти — standalone, сервіси — `providedIn: 'root'`, залежності — через `inject()`.
+
+**Підсумок:** шаблон пов'язаний із класом прив'язками, а залежності компонент перелічує в `imports` і отримує через `inject()`.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- AOT-компілятор перетворює шаблон на функції створення й оновлення DOM. Помилки типів у прив'язках видно під час збірки.
+- Пошук провайдера йде знизу вгору: спершу інжектори елементів від компонента до кореня дерева, потім environment-інжектори — маршруту, кореневий, платформний. Не знайшов — `NullInjectorError`.
+
+**Порівняння з ASP.NET Core**
+
+| Angular | Найближчий аналог в ASP.NET Core |
+|---|---|
+| `providedIn: 'root'`, `@Service()` (v22) | `AddSingleton` |
+| `providers` маршруту | екземпляр на розділ застосунку; прямого аналога немає |
+| `providers` компонента | екземпляр на компонент і його піддерево; scopes у .NET не ієрархічні |
+| `inject(X, { optional: true })` | `GetService` замість `GetRequiredService` |
+
+**Компроміси**
+
+- Standalone робить залежності компонента явними й дозволяє ліниво вантажити окремий компонент. NgModule підтримується, а для переведення є міграція `ng generate @angular/core:standalone`.
+- `@Service()` з v22 — короткий запис `@Injectable({ providedIn: 'root' })`. Він працює лише з `inject()`, без параметрів конструктора.
+- `inject()` спрощує успадкування: базовому класу не потрібен `super(...)` з довгим списком залежностей.
+- Ієрархія дозволяє дати сторінці власний стан через `providers`, але той самий механізм непомітно плодить дублікати синглтонів.
+
+**Як перевірити**
+
+Angular DevTools у dev-збірці показує дерево компонентів та інжекторів і звідки прийшов кожен сервіс. Дублікати синглтонів видно там само.
+
+**Підсумок:** DI в Angular ієрархічний: де оголошено провайдер, там і межа спільного екземпляра.
+
+</A>
+
+<Ex>
+
+```ts
+import { Component, Injectable, inject } from '@angular/core';
+
+@Injectable({ providedIn: 'root' }) // один екземпляр на застосунок, як AddSingleton
+export class GreetingService {
+  greet(name: string) {
+    return `Hello, ${name}!`;
+  }
+}
+
+@Component({
+  selector: 'app-greeting', // standalone за замовчуванням із v19
+  templateUrl: './greeting.html',
+})
+export class Greeting {
+  private readonly greetings = inject(GreetingService); // замість параметра конструктора
+  protected message = '';
+
+  protected say(name: string) {
+    this.message = this.greetings.greet(name);
+  }
+}
+```
+
+```html
+<!-- greeting.html -->
+<input #name value="Angular" />
+<button (click)="say(name.value)">Greet</button>
+<p [class.empty]="!message">{{ message }}</p> <!-- після кліку: Hello, Angular! -->
+```
+
+</Ex>
+
+<Next>
+
+- Чим `providedIn: 'root'` відрізняється від `providers` у компоненті? — Перший дає один екземпляр на застосунок, другий — власний екземпляр на кожен екземпляр компонента.
+- Де можна викликати `inject()`? — В injection context: ініціалізатори полів, конструктор, фабрики, гарди й інтерцептори; інакше NG0203.
+- Чи потрібен NgModule в новому застосунку? — Ні: із v19 компоненти standalone за замовчуванням, NgModule лишається для старого коду.
+- Чим компонент відрізняється від директиви? — Компонент — директива з власним шаблоном; директива змінює поведінку наявного елемента.
+- Що означає tree-shakable провайдер? — За `providedIn: 'root'` сервіс, який ніде не впроваджено, не потрапить у бандл.
+
+</Next>
+
+<Src>
+
+- [Anatomy of components — angular.dev](https://angular.dev/guide/components)
+- [Dependency injection in Angular](https://angular.dev/guide/di)
+- [Hierarchical injectors](https://angular.dev/guide/di/hierarchical-dependency-injection)
+
+</Src>
+
+</Q>
+
+<Q id="front.ng.change-detection" level="m">
+
+## Як працює виявлення змін: zone.js, OnPush, signals і zoneless?
+
+<A short l="j">
+
+<T k="change-detection">Виявлення змін</T> (change detection) — перевірка, під час якої Angular порівнює значення в шаблонах із даними компонентів і оновлює змінені частини DOM. В Angular 13 перевірку запускав <T k="zone-js">zone.js</T> після будь-якого кліку, таймера чи HTTP-відповіді, а тепер стан тримають у <T k="angular-signal">сигналах</T>, і вони точно повідомляють, що змінилося.
+
+</A>
+
+<A short l="m">
+
+zone.js підміняє асинхронні API браузера й після кожної задачі запускає перевірку всього дерева згори донизу. Стратегія <T k="onpush">OnPush</T> (за замовчуванням із v22) пропускає піддерево, якщо не прийшов новий input за посиланням, не було події всередині, не викликано `markForCheck()` і не змінився прочитаний у шаблоні сигнал. На сигналах `signal`, `computed` і `effect` побудовано <T k="zoneless">zoneless</T>-режим: стабільний із v20.2 й увімкнений за замовчуванням у нових застосунках із v21. Ціна — зміни без сповіщення, наприклад мутація об'єкта чи поле, змінене в `setTimeout`, на екран не потраплять.
+
+</A>
+
+<A short l="s">
+
+zone.js знає, що щось сталося, але не знає, що змінилося, тому перевіряє все дерево — навіть на `mousemove` чи таймер сторонньої бібліотеки. Сигнали утворюють граф залежностей: шаблон підписаний на конкретні сигнали, і зміна позначає для оновлення лише представлення, які їх читають. Zoneless прибирає вагу zone.js, зайві цикли й важкі стек-трейси, але вимагає, щоб кожна зміна йшла через сповіщення. Для старого застосунку це робота над кодом компонентів, а не перемикання прапорця: OnPush-сумісність, відмова від `NgZone.onStable`, перевірка сторонніх бібліотек.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+Change detection — перевірка, чи збігається те, що на екрані, з даними компонентів. Якщо значення в прив'язці змінилося, Angular оновлює цей шматок DOM.
+
+**Що змінилося з Angular 13**
+
+- Тоді перевірку запускав zone.js після кожного кліку, таймера чи HTTP-відповіді — по всьому дереву.
+- Тепер стан тримають у сигналах: `signal(0)` створює значення, `count()` читає його, `count.set(1)` змінює. Angular знає, які шаблони читають сигнал, і оновлює лише їх.
+- Із v21 нові застосунки працюють без zone.js, із v22 компоненти за замовчуванням OnPush.
+
+**Типова помилка**
+
+Змінювати масив усередині сигналу: `items().push(x)`. Посилання те саме, сигнал не повідомить про зміну. Потрібно `items.update(list => [...list, x])`.
+
+**Підсумок:** Angular оновлює екран, коли дізнається про зміну, а сигнали повідомляють про це точно.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано із zone.js**
+
+1. zone.js підміняє асинхронні API браузера: `setTimeout`, `Promise`, `addEventListener`, XHR.
+2. Коли задача та її мікрозадачі завершилися, `NgZone` повідомляє про це, і Angular викликає `ApplicationRef.tick()`.
+3. Дерево компонентів перевіряється згори донизу: кожен вираз шаблону порівнюється з минулим значенням.
+4. У dev-режимі другий прохід ловить значення, що змінилися під час перевірки, — `ExpressionChangedAfterItHasBeenCheckedError`.
+
+**Стратегії**
+
+| Стратегія | Коли компонент перевіряється |
+|---|---|
+| `Eager` (раніше `Default`) | у кожному циклі |
+| `OnPush` (за замовчуванням із v22) | новий input за посиланням, подія в піддереві, `markForCheck()`, зміна прочитаного сигналу |
+
+**Сигнали**
+
+`signal` зберігає значення, `computed` обчислює похідне — ліниво й з кешем, `effect` виконує побічну дію: лог, запис у `localStorage`, виклик сторонньої бібліотеки.
+
+**Пастки**
+
+- Мутація об'єкта у вході OnPush-компонента: посилання те саме, перевірки не буде.
+- Поле, змінене в `setTimeout` чи в підписці, в OnPush-компоненті не відмалюється без сигналу або `markForCheck()`.
+- `effect`, який копіює один сигнал в інший. Для похідних значень є `computed` і `linkedSignal`.
+
+**Правило**
+
+Стан — у сигналах, входи — незмінні, похідне — через `computed`.
+
+**Підсумок:** zone.js каже «щось сталося», сигнали — «змінилося ось це».
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- Сигнали утворюють граф: шаблони, `computed` і `effect` — споживачі, сигнали — джерела. Читання сигналу в реактивному контексті реєструє залежність.
+- `set()` позначає залежні представлення й планує перевірку. OnPush-предки слугують лише шляхом до них і самі не перевіряються повторно.
+- Без zone.js перевірку запускають лише сповіщення: `markForCheck()` (його викликає `async` pipe), `ComponentRef.setInput`, зміна сигналу з шаблону, обробник події в шаблоні.
+
+**Ціна zone.js**
+
+- Перевірка після будь-якої асинхронної події, навіть якщо дані не змінювалися.
+- Вага бандла, час старту й довгі стек-трейси.
+- Нативний `async`/`await` zone.js перехопити не може, тому збірка переписує його в генератори.
+
+**Компроміси під час міграції**
+
+1. `ng update` до v21 додає `provideZoneChangeDetection()`, до v22 — `ChangeDetectionStrategy.Eager` компонентам без явної стратегії. Поведінка зберігається.
+2. Компоненти переводять на OnPush-сумісний код: сигнали, незмінні входи, `async` pipe.
+3. `NgZone.onStable` і `onMicrotaskEmpty` у zoneless не спрацьовують — їх замінюють на `afterNextRender`.
+4. Останніми прибирають `provideZoneChangeDetection()` і `zone.js` з `polyfills`.
+
+**Як перевірити**
+
+- У dev-збірці `provideCheckNoChangesConfig({ exhaustive: true, interval: 1000 })` знаходить прив'язки, змінені без сповіщення.
+- Профайлер Angular DevTools показує тривалість кожного циклу й перевірені компоненти.
+
+**Підсумок:** zoneless — перехід від «перевіряти все після будь-якої події» до «оновлювати те, про що повідомили», і готовність до нього визначає код компонентів, а не прапорець.
+
+</A>
+
+<Ex>
+
+```ts
+import { ChangeDetectionStrategy, Component, computed, effect, signal } from '@angular/core';
+
+@Component({
+  selector: 'app-cart',
+  templateUrl: './cart.html',
+  // Із v22 OnPush — за замовчуванням; в Angular 13 його вказували явно
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
+export class Cart {
+  protected readonly items = signal<{ name: string; price: number }[]>([]);
+  // Перерахується лише в разі зміни items
+  protected readonly total = computed(() => this.items().reduce((sum, i) => sum + i.price, 0));
+
+  constructor() {
+    effect(() => console.log('Items:', this.items().length)); // побічна дія, не стан
+  }
+
+  protected add() {
+    // Нове посилання: сигнал повідомить про зміну.
+    // this.items().push(...) не спрацює — посилання те саме
+    this.items.update(list => [...list, { name: 'Book', price: 10 }]);
+  }
+}
+```
+
+```html
+<!-- cart.html -->
+<button (click)="add()">Add</button>
+<p>Items: {{ items().length }}, total: {{ total() }}</p> <!-- після кліку: Items: 1, total: 10 -->
+```
+
+</Ex>
+
+<Ex title="Режим під час запуску">
+
+```ts
+import { bootstrapApplication } from '@angular/platform-browser';
+import { provideZoneChangeDetection, provideZonelessChangeDetection } from '@angular/core';
+import { App } from './app/app';
+
+// Angular 20: zoneless вмикають явно; із v21 це поведінка за замовчуванням
+bootstrapApplication(App, { providers: [provideZonelessChangeDetection()] });
+
+// Старий застосунок після ng update до v21+ лишається на zone.js так:
+// bootstrapApplication(App, { providers: [provideZoneChangeDetection()] });
+```
+
+</Ex>
+
+<Next>
+
+- Чому OnPush-компонент не оновився після `this.user.name = 'X'`? — Посилання на об'єкт не змінилося; потрібен новий об'єкт або сигнал.
+- Чим `computed` відрізняється від `effect`? — `computed` повертає значення й кешується, `effect` лише виконує побічну дію.
+- Що означає `ExpressionChangedAfterItHasBeenCheckedError`? — Dev-перевірка знайшла прив'язку, яка змінилася під час циклу перевірки.
+- Що потрібно, щоб застосунок працював без zone.js? — Сповіщати Angular через сигнали, `markForCheck` або `async` pipe і не покладатися на `NgZone.onStable`.
+- Чи потрібен `NgZone.runOutsideAngular` у zoneless? — Ні, але виклик нешкідливий; у zone-застосунку він прибирає зайві перевірки на частих подіях.
+
+</Next>
+
+<Src>
+
+- [Signals — angular.dev](https://angular.dev/guide/signals)
+- [Angular without ZoneJS (Zoneless)](https://angular.dev/guide/zoneless)
+- [Skipping component subtrees (OnPush)](https://angular.dev/best-practices/skipping-subtrees)
+
+</Src>
+
+</Q>
+
+<Q id="front.ng.rxjs" level="m">
+
+## Як працювати з RxJS в Angular?
+
+<A short l="j">
+
+<T k="rxjs-observable">Observable</T> — потік значень у часі з бібліотеки RxJS: на нього підписуються через `subscribe` і отримують значення, помилку або завершення. `HttpClient` повертає Observable, і запит іде лише під час підписки. Підписки, які живуть довше за компонент, закривають — найпростіше через `async` pipe або `takeUntilDestroyed()`.
+
+</A>
+
+<A short l="m">
+
+Observable відрізняється від Promise трьома властивостями: він лінивий, може видати багато значень і скасовується відпискою. <T k="higher-order-mapping">Оператори вищого порядку</T> вирішують, що робити з новим значенням, поки минулий запит не завершено: `switchMap` скасовує його, `mergeMap` виконує паралельно, `concatMap` ставить у чергу, `exhaustMap` ігнорує нове. Підписки на нескінченні потоки закривають декларативно — <T k="async-pipe">`async` pipe</T>, `toSignal` або <T k="take-until-destroyed">`takeUntilDestroyed()`</T>, інакше це <T k="memory-leak">витік пам'яті</T> й зайві запити.
+
+</A>
+
+<A short l="s">
+
+Вибір оператора вищого порядку — це вибір політики конкурентності. `mergeMap` у пошуку дає гонку, де стара відповідь перезаписує нову, а `switchMap` під час збереження скасовує запит лише на клієнті: сервер міг його вже виконати. Ручні підписки — джерело витоків, тому їх прив'язують до життя компонента через `toSignal` або `async` pipe. Із v22 читання даних за параметрами закривають стабільні `resource` і `httpResource`, а RxJS лишається для справжніх потоків: події, WebSocket, debounce, retry.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+Observable — джерело, яке після підписки видає значення: нуль, одне або багато, а потім завершується чи падає з помилкою.
+
+| Ознака | Promise | Observable |
+|---|---|---|
+| Коли починається робота | одразу під час створення | під час підписки |
+| Скільки значень | одне | скільки завгодно |
+| Скасування | немає | відписка (`unsubscribe`) |
+
+**Як користуватися**
+
+- `http.get<User[]>('/api/users')` повертає Observable, запит піде під час підписки.
+- У шаблоні: `users$ | async` — підписка й відписка автоматично.
+- У коді: `.subscribe(users => ...)`.
+
+**Типова помилка**
+
+Підписатися на потік, який сам не завершується (`interval`, `router.events`, `Subject` у сервісі), і не відписатися. Компонент знищено, а підписка живе й тримає його в пам'яті.
+
+**Підсумок:** Observable лінивий, багатозначний і скасовуваний, а кожну довгу підписку треба закрити.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+- `HttpClient` видає одне значення й завершується. Кожна підписка — новий запит, відписка до відповіді скасовує його.
+- Оператори в `pipe()` будують новий потік: `map`, `filter`, `debounceTime`, `catchError`.
+
+**Коли що обирати**
+
+| Оператор | Нове значення, поки минуле не завершено | Приклад |
+|---|---|---|
+| `switchMap` | скасовує минуле | пошук під час введення |
+| `mergeMap` | виконує паралельно | завантаження незалежних файлів |
+| `concatMap` | ставить у чергу | збереження, де важливий порядок |
+| `exhaustMap` | ігнорує нове | кнопка «Надіслати», вхід |
+
+**Як відписуватися**
+
+- `async` pipe — у шаблоні.
+- `toSignal(obs$)` перетворює потік на сигнал і відписується під час знищення компонента; `toObservable(sig)` робить зворотне.
+- `takeUntilDestroyed()` (стабільний із v19) — для ручного `subscribe`. Поза injection context йому передають `DestroyRef`.
+
+**Пастки**
+
+- Два `async` pipe на один HTTP-потік — два запити. Спільний результат — через `shareReplay` або `toSignal`.
+- `takeUntil(destroy$)` не останнім у `pipe()`: оператори після нього можуть лишити підписку живою.
+- Вкладений `subscribe` усередині `subscribe` замість `switchMap`: підписки не скасовуються, помилки губляться.
+
+**Правило**
+
+Підписку створює шаблон або `toSignal`; ручний `subscribe` — лише з `takeUntilDestroyed()`.
+
+**Підсумок:** оператор вищого порядку задає поведінку під час гонки, а спосіб підписки — час її життя.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- Observable — функція підписки. `pipe()` нічого не запускає, а `subscribe()` будує ланцюжок підписників до джерела.
+- Відписка йде ланцюжком угору. Для `HttpClient` це скасування запиту: `AbortController` у fetch-бекенда (за замовчуванням із v22) або `abort()` у XHR.
+- `toObservable` віддає значення через `effect`, тому кілька `set()` поспіль дадуть одне значення — останнє.
+
+**Ціна**
+
+- `switchMap` скасовує відповідь на клієнті, але не роботу на сервері. Для POST і PUT це втрачені чи задвоєні зміни, тому запис — через `concatMap` або `exhaustMap`.
+- `mergeMap` без ліміту конкурентності (`mergeMap(fn, 4)`) здатен надіслати сотні запитів разом.
+- `shareReplay(1)` без `refCount: true` тримає підписку на джерело й після відходу всіх підписників.
+
+**Компроміси**
+
+| Задача | Інструмент |
+|---|---|
+| стан для шаблону | сигнал |
+| завантаження даних за параметрами | `httpResource`, `rxResource` (стабільні із v22) |
+| події в часі, WebSocket, debounce, retry | RxJS |
+
+**Як перевірити**
+
+- Витік видно в Chrome DevTools: знімок купи після кількох переходів туди й назад показує від'єднані (detached) елементи й живі екземпляри компонента.
+- На вкладці Network скасовані запити позначені `(canceled)`, а дублікати запитів видають зайву підписку.
+
+**Підсумок:** RxJS — інструмент для потоків подій і конкурентності, а не для зберігання стану; стан — у сигналах.
+
+</A>
+
+<Ex>
+
+```ts
+import { Component, inject } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { FormControl, ReactiveFormsModule } from '@angular/forms';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
+import { debounceTime, distinctUntilChanged, interval, switchMap } from 'rxjs';
+
+@Component({ selector: 'app-product-search', imports: [ReactiveFormsModule], templateUrl: './product-search.html' })
+export class ProductSearch {
+  private readonly http = inject(HttpClient);
+  protected readonly query = new FormControl('', { nonNullable: true });
+
+  // switchMap скасовує минулий запит, якщо користувач продовжив друкувати
+  protected readonly products = toSignal(
+    this.query.valueChanges.pipe(
+      debounceTime(300),
+      distinctUntilChanged(),
+      switchMap(q => this.http.get<{ id: number; name: string }[]>('/api/products', { params: { q } })),
+    ),
+    { initialValue: [] }, // відписка — автоматично під час знищення компонента
+  );
+
+  constructor() {
+    // Нескінченний потік: без takeUntilDestroyed підписка переживе компонент
+    interval(60_000).pipe(takeUntilDestroyed()).subscribe(n => console.log('tick', n));
+  }
+}
+```
+
+```html
+<!-- product-search.html -->
+<input [formControl]="query" placeholder="Search" />
+@for (p of products(); track p.id) {
+  <p>{{ p.name }}</p>
+}
+```
+
+</Ex>
+
+<Next>
+
+- Чим Observable відрізняється від Promise? — Лінивий, багатозначний і скасовуваний; Promise виконується одразу й дає одне значення.
+- Який оператор узяти для кнопки «Зберегти»? — `exhaustMap`, щоб ігнорувати повторні кліки, або `concatMap`, якщо важливий кожен клік по черзі.
+- Чи треба відписуватися від `HttpClient`? — Він завершується сам, але відписка скасовує запит і не дає колбеку спрацювати на знищеному компоненті.
+- Чим `toSignal` відрізняється від `async` pipe? — Дає сигнал, який можна читати в коді та в `computed`; обидва відписуються автоматично.
+- Чому `takeUntil` ставлять останнім? — Оператори після нього, наприклад `switchMap`, можуть тримати внутрішню підписку після сигналу зупинки.
+
+</Next>
+
+<Src>
+
+- [RxJS interop with Angular signals](https://angular.dev/ecosystem/rxjs-interop)
+- [Unsubscribing with takeUntilDestroyed](https://angular.dev/ecosystem/rxjs-interop/take-until-destroyed)
+- [RxJS: Observable](https://rxjs.dev/guide/observable)
+
+</Src>
+
+</Q>
+
+<Q id="front.ng.whats-new" level="m">
+
+## Що змінилося в Angular з версії 13 до актуальної?
+
+<A short l="j">
+
+З Angular 13 (листопад 2021) до поточної 22 (червень 2026) змінився стиль коду: компоненти без NgModule, новий синтаксис шаблонів `@if` і `@for`, сигнали замість частини RxJS і zone.js, збірка на esbuild. Старий код здебільшого й далі працює, а `ng update` багато що переносить автоматично.
+
+</A>
+
+<A short l="m">
+
+Ключові віхи: standalone-компоненти (стабільні з v15, за замовчуванням із v19), <T k="control-flow-blocks">вбудований control flow</T> і <T k="defer-block">`@defer`</T> (v17), сигнали (v17) і <T k="signal-input">сигнальні входи</T> `input()`, `output()`, `model()` (стабільні з v19), zoneless (стабільний із v20.2, за замовчуванням із v21), OnPush за замовчуванням (v22). Старий застосунок оновлюють через <T k="ng-update">`ng update`</T> по одній мажорній версії, а модернізують окремими міграціями. Ціна — дев'ять кроків оновлення, і на кожному сторонні бібліотеки на кшталт Kendo UI мають підтримувати нову версію.
+
+</A>
+
+<A short l="s">
+
+Напрям один: від «фреймворк сам усе перевірить і збере» (zone.js, NgModule, Webpack) до явної реактивності й дрібних одиниць завантаження (сигнали, standalone, `@defer`, <T k="application-builder">application builder</T> на esbuild). Із v22 мажорні релізи виходять раз на 12 місяців, і кожен підтримується 24 місяці. Під час міграції розділяють оновлення версій, де міграції зберігають поведінку (`provideZoneChangeDetection`, `ChangeDetectionStrategy.Eager`), і модернізацію: перехід на OnPush і zoneless змінює логіку й потребує тестів.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+Angular 13 вийшов у листопаді 2021, поточна версія — 22 (червень 2026). За цей час змінився сам стиль коду.
+
+**Головне**
+
+- Компоненти без NgModule — standalone.
+- Новий синтаксис шаблонів: `@if`, `@for`, `@switch` замість `*ngIf` і `*ngFor`.
+- `@defer` — ліниве завантаження частини шаблону.
+- Сигнали: стан, входи `input()` і виходи `output()`.
+- `inject()` замість параметрів конструктора.
+- Збірка на esbuild і Vite — помітно швидша за Webpack.
+- SSR з <T k="angular-hydration">гідратацією</T> — пакет `@angular/ssr` замість Angular Universal.
+- Робота без zone.js і OnPush за замовчуванням.
+
+**Типова помилка**
+
+Думати, що старий код перестав працювати. NgModule, `@Input()` і `*ngIf` (deprecated із v20) підтримуються, а `ng update` сам виправляє те, що ламається.
+
+**Підсумок:** сучасний Angular — це standalone-компоненти, сигнали й новий синтаксис шаблонів; старий стиль працює, але застаріває.
+
+</A>
+
+<A l="m">
+
+**Коли що з'явилося**
+
+| Версія | Що змінилося |
+|---|---|
+| 14–15 (2022) | standalone-компоненти, типізовані форми, `inject()`, функціональні гарди й інтерцептори |
+| 16 (травень 2023) | сигнали (preview), `takeUntilDestroyed`, гідратація (preview), збірка на esbuild (preview) |
+| 17 (листопад 2023) | `@if`, `@for`, `@defer`; стабільні сигнали; application builder і Vite для нових проєктів |
+| 17.1–19 | `input()`, `output()`, `model()`, сигнальні запити; із v19 стабільні, standalone за замовчуванням |
+| 20 (травень 2025) | стабільні `effect`, `linkedSignal`, `toSignal`; `*ngIf` і `*ngFor` deprecated; zoneless стабільний із 20.2 |
+| 21 (листопад 2025) | zoneless і Vitest за замовчуванням у нових проєктах; експериментальні Signal Forms |
+| 22 (червень 2026) | OnPush за замовчуванням; стабільні Signal Forms, `resource` і `httpResource`; `@Service()`; `HttpClient` на fetch |
+
+**Пастки міграції**
+
+- `ng update` переходить лише на одну мажорну версію за раз. З 13 до 22 — дев'ять кроків, у кожного свої вимоги до Node.js і TypeScript.
+- Сторонні бібліотеки оновлюють разом з Angular: Kendo UI for Angular, angular-oauth2-oidc та інші мають підтримувати цільову версію.
+- Власні налаштування Webpack в application builder не переносяться.
+
+**Правило**
+
+Спершу довести версії до актуальної зі збереженням поведінки, потім модернізувати код міграціями `ng generate @angular/core:...` — по одній за раз.
+
+**Підсумок:** із v13 Angular пройшов шлях від NgModule і zone.js до standalone і сигналів, а оновлення йде мажор за мажором.
+
+</A>
+
+<A l="s">
+
+**Чому так**
+
+- Сигнали й zoneless прибирають головну ціну старого Angular — перевірку всього дерева на будь-яку подію.
+- Standalone і `@defer` роблять одиницею завантаження компонент, а не модуль.
+- esbuild і Vite пришвидшують збірку; Webpack-збирачі у v22 оголошено deprecated.
+- Із v22 мажорний реліз виходить раз на 12 місяців, а не раз на пів року. v23 очікується близько червня 2027.
+
+**Стратегія міграції**
+
+1. Оновлювати мажор за мажором за update guide, після кожного кроку — збірка й тести.
+2. Автоматичні міграції зберігають поведінку: у v21 застосунку додається `provideZoneChangeDetection()`, у v22 компонентам без стратегії — `ChangeDetectionStrategy.Eager`.
+3. Збирач переводять командою `ng update @angular/cli --name use-application-builder`.
+4. Далі по одній: standalone, control flow, `inject()`, `input()` і `output()`, ліниві маршрути.
+5. Останніми — OnPush і zoneless: вони змінюють логіку, а не синтаксис.
+
+**Ціна**
+
+- Кожна мажорна версія піднімає мінімум TypeScript і Node.js: v22 вимагає TypeScript 6.0 і Node.js 22.22+ або 24.13+.
+- Видаляються старі API: у v22 — `ComponentFactoryResolver`. `HttpClient` перейшов на fetch, і для прогресу завантаження файлів потрібен `withXhr()`.
+- Станом на жовтень 2026 Kendo UI for Angular 25.x підтримує Angular 20–22, а angular-oauth2-oidc 22.x вимагає Angular 22.
+
+**Компроміси**
+
+Переписувати все одразу немає потреби: старий і новий стиль співіснують в одному застосунку. Нове пишуть у новому стилі, старе переводять під час змін.
+
+**Підсумок:** міграція з 13 — спершу безпечне оновлення версій зі збереженням поведінки, потім поступовий перехід на сигнали й zoneless.
+
+</A>
+
+<Ex>
+
+```ts
+import { Component, EventEmitter, Input, Output, inject, input, output } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+
+interface User { id: number; name: string; }
+
+// Angular 13: декоратори, конструктор, оголошення в declarations якогось NgModule
+@Component({ selector: 'app-user-old', templateUrl: './user-old.component.html' })
+export class UserOldComponent {
+  @Input() user!: User;
+  @Output() selected = new EventEmitter<User>();
+  constructor(private http: HttpClient) {}
+}
+
+// Angular 22: standalone, сигнальні входи й виходи, inject()
+@Component({ selector: 'app-user', templateUrl: './user.html' })
+export class UserCard {
+  readonly user = input.required<User>(); // читається як user()
+  readonly selected = output<User>();
+  private readonly http = inject(HttpClient);
+}
+```
+
+```html
+<!-- Angular 13 -->
+<li *ngFor="let o of orders; trackBy: trackById">{{ o.title }}</li>
+<p *ngIf="!orders.length">No orders</p>
+
+<!-- Angular 22: track обов'язковий, @empty замість окремого *ngIf -->
+@for (o of orders(); track o.id) {
+  <li>{{ o.title }}</li>
+} @empty {
+  <p>No orders</p>
+}
+
+<!-- Код графіка завантажиться, коли блок з'явиться в області видимості -->
+@defer (on viewport) {
+  <app-sales-chart />
+} @placeholder {
+  <p>Chart</p>
+}
+```
+
+</Ex>
+
+<Next>
+
+- Чи можна змішувати NgModule і standalone? — Так: standalone-компонент імпортують у NgModule, а NgModule — в `imports` компонента.
+- Що робить `track` в `@for`? — Задає ключ, за яким Angular зіставляє елементи з DOM; в `@for` він обов'язковий.
+- Чим `@defer` відрізняється від лінивого маршруту? — Відкладає завантаження частини шаблону за тригером (viewport, idle, interaction), а не цілої сторінки.
+- Чому не можна оновитися з 13 одразу на 22? — `ng update` підтримує перехід лише на одну мажорну версію, міграції розраховані на крок.
+- Що таке гідратація? — Клієнт перевикористовує DOM, відмальований на сервері, а не будує його заново.
+
+</Next>
+
+<Src>
+
+- [Angular versioning and releases](https://angular.dev/reference/releases)
+- [Angular Update Guide](https://angular.dev/update-guide)
+- [Migrations](https://angular.dev/reference/migrations)
+
+</Src>
+
+</Q>
+
+<Q id="front.ng.large-apps" level="s">
+
+## Як будувати великий Angular-застосунок і керувати станом?
+
+<A short l="j">
+
+Великий застосунок ділять на фічі — теки з маршрутами, сторінками й станом одного розділу, — і кожну підключають <T k="lazy-route">лінивим маршрутом</T>, щоб її код завантажувався під час першого переходу. Стан тримають у сервісах із сигналами, а для складних випадків беруть NgRx.
+
+</A>
+
+<A short l="m">
+
+Структура — `core`, `shared` і тека на кожну фічу з лінивими маршрутами та `providers` рівня маршруту. Стан за замовчуванням — сервіс із сигналами; <T k="signal-store">NgRx SignalStore</T> — коли потрібна єдина форма сторів; <T k="ngrx-store">NgRx Store</T> — для спільного стану зі складними потоками подій. Продуктивність дають OnPush, `track` в `@for`, <T k="virtual-scroll">віртуальне прокручування</T> і `@defer`. Ціна Store — багато шаблонного коду на кожну операцію.
+
+</A>
+
+<A short l="s">
+
+Масштаб тримають межі: фіча не імпортує нутрощі іншої фічі, спільне виносять у `shared` або `core`. Головне питання про стан — хто його власник: серверні дані — це кеш (`httpResource`, сервіс), стан сторінки — стор із часом життя маршруту, і лише справді спільне — глобальний стор. Розмір бандла контролюють бюджети збірки й `@defer` для важких віджетів на кшталт графіків Kendo. Авторизацію в SPA беруть на себе <T k="http-interceptor">інтерцептор</T> і гарди, але права все одно перевіряє API.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+Великий застосунок ділять за фічами — бізнес-розділами: замовлення, клієнти, звіти.
+
+- `core/` — те, що потрібне один раз: авторизація, інтерцептори, каркас сторінки.
+- `shared/` — спільні UI-компоненти й пайпи без бізнес-логіки.
+- `features/orders/` — маршрути, сторінки й стан однієї фічі.
+
+**Як користуватися**
+
+Фічу підключають лінивим маршрутом: `loadChildren: () => import('./orders/orders.routes')`. Її код потрапляє в окремий файл (чанк) і завантажується під час першого переходу.
+
+**Типова помилка**
+
+Статично імпортувати компонент лінивої фічі в іншому місці, наприклад в `app.ts`. Тоді він потрапить в основний бандл, і ліниве завантаження зникне.
+
+**Підсумок:** тека на фічу й лінивий маршрут на фічу — основа структури великого застосунку.
+
+</A>
+
+<A l="m">
+
+**Коли що обирати**
+
+| Підхід до стану | Коли |
+|---|---|
+| сервіс із сигналами | стан однієї фічі, прості операції |
+| NgRx SignalStore | багато сторів, потрібна єдина структура й плагіни: `withEntities`, події |
+| NgRx Store | спільний стан багатьох фіч, складні потоки подій, Redux DevTools |
+
+**Продуктивність**
+
+- OnPush і сигнали — менше перевірок.
+- `track` за `id` в `@for` — DOM перевикористовується, а не створюється заново.
+- Довгі списки — віртуальне прокручування: `cdk-virtual-scroll-viewport` з Angular CDK або `scrollable="virtual"` у Kendo Grid.
+- Важкі віджети — графіки, планувальник — в `@defer`.
+
+**Пастки**
+
+- `providedIn: 'root'` для стану сторінки: він переживає відхід зі сторінки, і після повернення видно старі дані. Такий стор оголошують у `providers` маршруту чи компонента.
+- Глобальний стор для всього підряд, включно зі станом однієї форми.
+- Kendo Grid на тисячі рядків без пейджингу чи віртуального прокручування.
+
+**Правило**
+
+Починати із сервісу на сигналах. SignalStore — коли сторів багато й потрібна єдина форма, NgRx Store — коли стан справді спільний і складний.
+
+**Підсумок:** структура за фічами, ліниві маршрути й стан поруч із фічею, якій він належить.
+
+</A>
+
+<A l="s">
+
+**Компроміси в стані**
+
+- Більша частина «стану» — кеш серверних даних. Його закривають `httpResource` або сервіс; глобальний стор потрібен для спільного: користувач, права, налаштування.
+- NgRx Store дає трасування й time travel у Redux DevTools ціною шаблонного коду: action, reducer, selector і effect на операцію.
+- `providers` маршруту дають стору час життя фічі — як scope в ASP.NET Core, лише на розділ застосунку.
+
+**Ціна розміру бандла**
+
+- `budgets` в `angular.json` валять збірку, якщо початковий бандл перевищив ліміт.
+- Склад бандла показують `ng build --stats-json` і аналізатор esbuild.
+- Kendo UI і Angular Material додають ваги: імпортують лише потрібні компоненти, а Chart і Scheduler ховають за `@defer`.
+
+**Бібліотеки компонентів**
+
+- Оновлення Angular обмежене їхніми `peerDependencies` — перевіряють до `ng update`.
+- Власна обгортка на кшталт `app-data-grid` поверх Kendo Grid локалізує налаштування й майбутню заміну бібліотеки.
+
+**Авторизація в SPA**
+
+Функціональний інтерцептор додає access-токен, гард `canMatch` ховає недоступні маршрути. Гард — зручність для користувача, права перевіряє API. Де зберігати токени й коли потрібен BFF — у темі [OAuth 2.0 і OpenID Connect](/sobes/uk/security/oauth-oidc/).
+
+**Як перевірити в продакшені**
+
+Core Web Vitals реальних користувачів і Lighthouse показують підсумок, вкладка Coverage у Chrome — скільки завантаженого JavaScript не виконалося.
+
+**Підсумок:** масштаб тримають межі фіч, ліниве завантаження й усвідомлений вибір, де живе стан.
+
+</A>
+
+<Ex>
+
+```ts
+// app.routes.ts
+import { Routes } from '@angular/router';
+import { inject } from '@angular/core';
+import { AuthService } from './core/auth.service';
+import { OrdersStore } from './features/orders/orders.store';
+
+export const routes: Routes = [
+  { path: '', loadComponent: () => import('./features/home/home').then(m => m.Home) },
+  {
+    path: 'orders',
+    canMatch: [() => inject(AuthService).isLoggedIn()], // зручність; права перевіряє API
+    providers: [OrdersStore], // один стор на фічу, живе, поки відкрито розділ
+    // Окремий чанк: завантажиться під час першого переходу на /orders
+    loadChildren: () => import('./features/orders/orders.routes').then(m => m.ORDERS_ROUTES),
+  },
+];
+```
+
+</Ex>
+
+<Ex title="NgRx SignalStore">
+
+```ts
+import { computed, inject } from '@angular/core';
+import { patchState, signalStore, withComputed, withMethods, withState } from '@ngrx/signals';
+import { Order, OrdersApi } from './orders.api';
+
+export const OrdersStore = signalStore(
+  withState({ orders: [] as Order[], filter: '', loading: false }),
+  withComputed(({ orders, filter }) => ({
+    // Похідний стан — звичайний computed
+    visible: computed(() => orders().filter(o => o.customer.includes(filter()))),
+  })),
+  withMethods((store, api = inject(OrdersApi)) => ({
+    setFilter(filter: string) {
+      patchState(store, { filter });
+    },
+    async load() {
+      patchState(store, { loading: true });
+      patchState(store, { orders: await api.loadAll(), loading: false });
+    },
+  })),
+);
+```
+
+</Ex>
+
+<Next>
+
+- Де оголосити стор сторінки? — У `providers` маршруту чи компонента, щоб він зникав разом із розділом.
+- Коли NgRx Store виправданий? — Багато фіч ділять складний стан, потрібні строгий односпрямований потік і Redux DevTools.
+- Чому імпорт із лінивої фічі може зламати ліниве завантаження? — Статичний імпорт тягне модуль в основний бандл.
+- Чи захищає гард дані? — Ні, це UX: код SPA доступний користувачу, права перевіряє API.
+- Як пришвидшити таблицю на 10 000 рядків? — Пейджинг або віртуальне прокручування, OnPush і `track` за `id`.
+
+</Next>
+
+<Src>
+
+- [Lazy-loaded routes — angular.dev](https://angular.dev/best-practices/performance/lazy-loaded-routes)
+- [NgRx SignalStore](https://ngrx.io/guide/signals/signal-store)
+- [Angular CDK: Scrolling](https://material.angular.dev/cdk/scrolling/overview)
+
+</Src>
+
+</Q>

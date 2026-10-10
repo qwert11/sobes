@@ -1,0 +1,169 @@
+js-primitive:
+  term: Примітив (primitive)
+  def: >-
+    Значення JavaScript, яке не є об'єктом і не має методів: `string`, `number`, `bigint`, `boolean`, `undefined`, `null`, `symbol`. Примітиви незмінні й порівнюються за значенням.
+  q: JavaScript primitive
+  docs: https://developer.mozilla.org/docs/Glossary/Primitive
+strict-equality:
+  term: Строга рівність (===)
+  def: >-
+    Порівняння без приведення типів: значення різних типів не рівні, об'єкти рівні лише за збігу посилання. Єдина дивина — `NaN === NaN` дає `false`.
+  q: JavaScript strict equality
+  docs: https://developer.mozilla.org/docs/Web/JavaScript/Reference/Operators/Strict_equality
+type-coercion:
+  term: Приведення типів (type coercion)
+  def: >-
+    Автоматичне перетворення значення на інший тип, яке JavaScript робить сам: у `==`, арифметиці, `if` і шаблонних рядках. Наприклад, `'5' * 2` дає `10`.
+  q: JavaScript type coercion
+  docs: https://developer.mozilla.org/docs/Glossary/Type_coercion
+nullish-coalescing:
+  term: Оператор ?? (nullish coalescing)
+  def: >-
+    `a ?? b` повертає `b`, лише якщо `a` дорівнює `null` або `undefined`. На відміну від `||` не замінює `0`, `''` і `false`.
+  q: JavaScript nullish coalescing operator
+  docs: https://developer.mozilla.org/docs/Web/JavaScript/Reference/Operators/Nullish_coalescing
+truthy-falsy:
+  term: Truthy і falsy
+  def: >-
+    Як значення поводиться в логічному контексті (`if`, `&&`, `||`). Falsy — `false`, `0`, `-0`, `0n`, `''`, `null`, `undefined` і `NaN`; усе інше, зокрема `[]` і `'0'`, — truthy.
+  q: JavaScript truthy falsy
+  docs: https://developer.mozilla.org/docs/Glossary/Falsy
+lexical-scope:
+  term: Лексична область видимості (lexical scope)
+  def: >-
+    Правило, за яким доступність змінної визначається місцем її оголошення в коді, а не місцем виклику. У JavaScript області бувають глобальні, модульні, функціональні та блокові.
+  q: JavaScript lexical scope
+  docs: https://developer.mozilla.org/docs/Glossary/Scope
+js-closure:
+  term: Замикання в JavaScript (closure)
+  def: >-
+    Функція разом із посиланням на лексичне оточення, у якому її створили. Захоплені змінні живуть, доки жива функція, і видимі їй за посиланням, а не копією значення.
+  q: JavaScript closure
+  docs: https://developer.mozilla.org/docs/Web/JavaScript/Guide/Closures
+  wiki: Замикання (програмування)
+hoisting:
+  term: Підняття (hoisting)
+  def: >-
+    Оголошення обробляються до виконання коду області. Функції-оголошення доступні повністю, `var` — зі значенням `undefined`, а `let`, `const` і `class` до рядка оголошення перебувають у тимчасовій мертвій зоні.
+  q: JavaScript hoisting
+  docs: https://developer.mozilla.org/docs/Glossary/Hoisting
+temporal-dead-zone:
+  term: Тимчасова мертва зона (TDZ)
+  def: >-
+    Ділянка від початку блоку до оголошення `let`, `const` або `class`, де змінна вже існує, але звертання до неї кидає `ReferenceError`.
+  q: JavaScript temporal dead zone
+  docs: https://developer.mozilla.org/docs/Web/JavaScript/Reference/Statements/let#temporal_dead_zone_tdz
+this-binding:
+  term: this у JavaScript
+  def: >-
+    Ключове слово, значення якого задає спосіб виклику функції: `new`, `call`/`apply`/`bind`, виклик через об'єкт або звичайний виклик. У стрілкових функцій власного `this` немає.
+  q: JavaScript this keyword
+  docs: https://developer.mozilla.org/docs/Web/JavaScript/Reference/Operators/this
+arrow-function:
+  term: Стрілкова функція (arrow function)
+  def: >-
+    Короткий запис функції `(x) => x * 2`. Не має власних `this`, `arguments` і `super` — бере їх із зовнішньої області — і не може бути викликана через `new`.
+  q: JavaScript arrow function
+  docs: https://developer.mozilla.org/docs/Web/JavaScript/Reference/Functions/Arrow_functions
+event-loop:
+  term: Цикл подій (event loop)
+  def: >-
+    Механізм середовища виконання JavaScript: коли стек викликів порожній, він виконує всі мікрозадачі, а потім бере наступну задачу з черги. Завдяки йому один потік обслуговує таймери, події та введення-виведення.
+  q: JavaScript event loop
+  docs: https://developer.mozilla.org/docs/Web/JavaScript/Reference/Execution_model
+js-promise:
+  term: Проміс (Promise)
+  def: >-
+    Об'єкт із результатом асинхронної операції, який буде виконано (fulfilled) значенням або відхилено (rejected) помилкою. Колбеки `then`, `catch` і `finally` виконуються як мікрозадачі.
+  q: JavaScript Promise
+  docs: https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Promise
+js-call-stack:
+  term: Стек викликів JavaScript (call stack)
+  def: >-
+    Стек кадрів функцій, що виконуються, в єдиному потоці JavaScript. Доки він не порожній, event loop не бере нових задач; переповнення кидає `RangeError`.
+  q: JavaScript call stack
+  docs: https://developer.mozilla.org/docs/Glossary/Call_stack
+microtask:
+  term: Мікрозадача (microtask)
+  def: >-
+    Короткий колбек, який виконується одразу після поточної задачі, до наступної задачі й відмальовування: реакції промісів, продовження після `await`, `queueMicrotask`. Черга мікрозадач виконується повністю.
+  q: JavaScript microtask queue
+  docs: https://developer.mozilla.org/docs/Web/API/HTML_DOM_API/Microtask_guide
+task-queue:
+  term: Черга задач (task queue, macrotask)
+  def: >-
+    Черга, з якої event loop бере по одній задачі: колбеки `setTimeout`, події користувача, повідомлення мережі. Між задачами виконуються всі мікрозадачі.
+  q: JavaScript task queue macrotask
+  docs: https://developer.mozilla.org/docs/Web/API/HTML_DOM_API/Microtask_guide
+unhandled-rejection:
+  term: Необроблене відхилення (unhandled rejection)
+  def: >-
+    Відхилений проміс, до якого не під'єднали обробник помилки. Браузер генерує подію `unhandledrejection`, а Node.js з версії 15 за замовчуванням завершує процес.
+  q: JavaScript unhandled promise rejection
+  docs: https://developer.mozilla.org/docs/Web/API/Window/unhandledrejection_event
+type-erasure:
+  term: Стирання типів (type erasure)
+  def: >-
+    Компілятор TypeScript видаляє анотації типів під час виведення JavaScript. У рантаймі типів немає: їх не можна перевірити, отримати рефлексією чи використати як значення.
+  q: TypeScript type erasure
+  docs: https://www.typescriptlang.org/docs/handbook/2/basic-types.html#erased-types
+structural-typing:
+  term: Структурна типізація (structural typing)
+  def: >-
+    Сумісність типів визначається набором членів, а не іменем чи оголошеним успадкуванням. Так працює TypeScript; C# і Java використовують номінальну типізацію.
+  q: TypeScript structural typing
+  docs: https://www.typescriptlang.org/docs/handbook/type-compatibility.html
+type-narrowing:
+  term: Звуження типу (narrowing)
+  def: >-
+    Уточнення типу змінної компілятором за перевірками в коді: після `typeof x === 'string'`, `instanceof`, `in` або порівняння з літералом у гілці відомий вужчий тип.
+  q: TypeScript narrowing
+  docs: https://www.typescriptlang.org/docs/handbook/2/narrowing.html
+ts-strict:
+  term: Строгий режим TypeScript (strict)
+  def: >-
+    Прапорець `tsconfig.json`, який вмикає сімейство строгих перевірок: `strictNullChecks`, `noImplicitAny`, `strictFunctionTypes` та інші. Із TypeScript 6.0 увімкнений за замовчуванням.
+  q: TypeScript strict mode tsconfig
+  docs: https://www.typescriptlang.org/tsconfig/#strict
+zod:
+  term: Zod
+  def: >-
+    Бібліотека схем для TypeScript: перевіряє дані в рантаймі й виводить зі схеми статичний тип через `z.infer`. Застосовується на межах — відповіді API, форми, конфігурація.
+  q: Zod TypeScript schema validation
+  docs: https://zod.dev
+type-guard:
+  term: Type guard (захисник типу)
+  def: >-
+    Функція з типом результату `value is T`: якщо вона повернула `true`, компілятор звужує тип аргументу до `T`. За коректність перевірки всередині відповідає автор.
+  q: TypeScript type predicate type guard
+  docs: https://www.typescriptlang.org/docs/handbook/2/narrowing.html#using-type-predicates
+discriminated-union:
+  term: Розмічене об'єднання (discriminated union)
+  def: >-
+    Union об'єктних типів зі спільним полем-міткою літерального типу, наприклад `kind` або `status`. Перевірка мітки звужує значення до одного варіанта.
+  q: TypeScript discriminated union
+  docs: https://www.typescriptlang.org/docs/handbook/2/narrowing.html#discriminated-unions
+utility-types:
+  term: Utility types
+  def: >-
+    Вбудовані generic-типи TypeScript, які будують новий тип з наявного: `Partial`, `Required`, `Readonly`, `Pick`, `Omit`, `Record`, `ReturnType`, `Awaited` та інші.
+  q: TypeScript utility types
+  docs: https://www.typescriptlang.org/docs/handbook/utility-types.html
+never-type:
+  term: Тип never
+  def: >-
+    Тип без значень: результат функції, яка не повертається, і залишок після вичерпного звуження. Присвоєння в `never` у гілці `default` перевіряє, що `switch` обробив усі варіанти.
+  q: TypeScript never exhaustiveness checking
+  docs: https://www.typescriptlang.org/docs/handbook/2/narrowing.html#exhaustiveness-checking
+mapped-type:
+  term: Відображений тип (mapped type)
+  def: >-
+    Тип вигляду `{ [K in keyof T]: ... }`, який перебирає ключі й будує з них новий об'єктний тип. Уміє додавати й знімати `readonly` і `?` та перейменовувати ключі через `as`.
+  q: TypeScript mapped types
+  docs: https://www.typescriptlang.org/docs/handbook/2/mapped-types.html
+conditional-type:
+  term: Умовний тип (conditional type)
+  def: >-
+    Тип вигляду `T extends U ? X : Y`, який обирає результат за сумісністю типів. З `infer` витягує частину типу; над union за замовчуванням розподіляється за варіантами.
+  q: TypeScript conditional types
+  docs: https://www.typescriptlang.org/docs/handbook/2/conditional-types.html

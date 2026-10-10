@@ -1,0 +1,192 @@
+angular-component:
+  term: Angular component
+  def: >-
+    A TypeScript class with the `@Component` decorator, an HTML template and styles. The basic
+    building block of the UI: an app is a tree of components nested through their templates.
+  q: Angular component
+  docs: https://angular.dev/guide/components
+data-binding:
+  term: Data binding
+  def: >-
+    The link between a template and its component class: interpolation `{{ }}`, property binding
+    `[prop]`, event binding `(event)` and two-way binding `[(prop)]`. Angular updates the DOM when a
+    value changes.
+  q: Angular template binding
+  docs: https://angular.dev/guide/templates/binding
+angular-directive:
+  term: Angular directive
+  def: >-
+    A class with the `@Directive` decorator that adds behavior to an existing element, for example by
+    changing its classes or attributes. A component is a directive with its own template.
+  q: Angular directives
+  docs: https://angular.dev/guide/directives
+standalone-component:
+  term: Standalone component
+  def: >-
+    A component that lists its own dependencies in `imports` and isn't declared in an NgModule.
+    Introduced in Angular 14, stable in v15, the default since v19.
+  q: Angular standalone components
+  docs: https://angular.dev/reference/migrations/standalone
+hierarchical-injector:
+  term: Hierarchical injectors
+  def: >-
+    How DI works in Angular: element injectors mirror the component tree, and above them sit the
+    route, root and platform injectors. A provider is looked up bottom-up, and where it is declared
+    decides who shares the instance.
+  q: Angular hierarchical dependency injection
+  docs: https://angular.dev/guide/di/hierarchical-dependency-injection
+change-detection:
+  term: Change detection
+  def: >-
+    The mechanism that compares template expressions with their previous values and updates the
+    parts of the DOM that changed. It is triggered by zone.js or by notifications from signals and
+    events.
+  q: Angular change detection
+  docs: https://angular.dev/best-practices/runtime-performance
+zone-js:
+  term: zone.js
+  def: >-
+    A library that patches the browser's async APIs (`setTimeout`, `Promise`, events, XHR) and tells
+    Angular when tasks finish. That is how the framework knew when to run change detection; since
+    v21 new apps run without it.
+  q: zone.js Angular NgZone
+  docs: https://angular.dev/api/core/NgZone
+onpush:
+  term: OnPush
+  def: >-
+    A change detection strategy where a component is checked only on a new input by reference, an
+    event inside it, `markForCheck()` or a change in a signal it reads. The default strategy since
+    Angular 22.
+  q: Angular ChangeDetectionStrategy OnPush
+  docs: https://angular.dev/best-practices/skipping-subtrees
+angular-signal:
+  term: Signal
+  def: >-
+    A wrapper around a value that notifies consumers when it changes: `signal()` for a writable
+    value, `computed()` for a derived one, `effect()` for side effects. Stable since Angular 17.
+  q: Angular signals
+  docs: https://angular.dev/guide/signals
+zoneless:
+  term: Zoneless
+  def: >-
+    Angular without zone.js: change detection runs only on explicit notifications — signals,
+    template events, `markForCheck()`. Stable since v20.2 and the default for new apps since v21.
+  q: Angular zoneless change detection
+  docs: https://angular.dev/guide/zoneless
+rxjs-observable:
+  term: Observable (RxJS)
+  def: >-
+    A lazy stream of values over time: it starts working on subscription, can emit many values, an
+    error or completion, and is cancelled by unsubscribing. In Angular, `HttpClient`, the router and
+    forms return Observables.
+  q: RxJS Observable
+  docs: https://rxjs.dev/guide/observable
+higher-order-mapping:
+  term: Higher-order mapping operators (switchMap, mergeMap, concatMap, exhaustMap)
+  def: >-
+    RxJS operators that map each value to an inner stream, such as an HTTP request, and decide what
+    to do if the previous one hasn't finished: cancel it, run in parallel, queue, or ignore the new
+    one.
+  q: RxJS switchMap mergeMap concatMap exhaustMap
+  docs: https://rxjs.dev/api/operators/switchMap
+async-pipe:
+  term: async pipe
+  def: >-
+    A template pipe that subscribes to an Observable or Promise, returns the latest value and
+    unsubscribes when the component is destroyed. It also calls `markForCheck()`, so it works with
+    OnPush.
+  q: Angular AsyncPipe
+  docs: https://angular.dev/api/common/AsyncPipe
+take-until-destroyed:
+  term: takeUntilDestroyed
+  def: >-
+    An operator from `@angular/core/rxjs-interop` that completes a subscription when the component
+    or service is destroyed. In an injection context it gets `DestroyRef` itself; outside one it
+    takes it as a parameter. Stable since v19.
+  q: Angular takeUntilDestroyed
+  docs: https://angular.dev/ecosystem/rxjs-interop/take-until-destroyed
+control-flow-blocks:
+  term: Built-in control flow (@if, @for, @switch)
+  def: >-
+    Angular 17+ template syntax for conditions and loops that replaces the `*ngIf`, `*ngFor` and
+    `ngSwitch` directives. `@for` requires `track` and has an `@empty` block; the old directives are
+    deprecated since v20.
+  q: Angular control flow blocks
+  docs: https://angular.dev/guide/templates/control-flow
+defer-block:
+  term: '@defer block (deferrable views)'
+  def: >-
+    A template block whose code is loaded as a separate chunk on a trigger: entering the viewport,
+    browser idle time, user interaction. The `@placeholder` and `@loading` blocks show a stand-in.
+    Introduced in Angular 17.
+  q: Angular defer block deferrable views
+  docs: https://angular.dev/guide/templates/defer
+signal-input:
+  term: Signal inputs and outputs (input, output, model)
+  def: >-
+    The `input()`, `output()` and `model()` functions that replace the `@Input()` and `@Output()`
+    decorators. An input is a read-only signal, `model()` is a two-way binding. Stable since
+    Angular 19.
+  q: Angular signal inputs
+  docs: https://angular.dev/guide/components/inputs
+angular-hydration:
+  term: Hydration
+  def: >-
+    Bringing the app to life in the browser on top of HTML rendered on the server (SSR): Angular
+    reuses the existing DOM instead of building it again. Stable since v17; incremental hydration
+    since v20.
+  q: Angular hydration SSR
+  docs: https://angular.dev/guide/hydration
+application-builder:
+  term: Application builder
+  def: >-
+    The Angular CLI builder based on esbuild, with a Vite dev server; the default for new projects
+    since v17. It replaces the Webpack builders, which were deprecated in v22.
+  q: Angular application builder esbuild
+  docs: https://angular.dev/tools/cli/build-system-migration
+ng-update:
+  term: ng update
+  def: >-
+    The Angular CLI command that upgrades packages to the next major version and runs automatic code
+    migrations. You can't skip versions: upgrades go one at a time.
+  q: Angular ng update
+  docs: https://angular.dev/update-guide
+lazy-route:
+  term: Lazy-loaded route
+  def: >-
+    A route whose code is split into a separate chunk and loaded on first navigation, via
+    `loadComponent` or `loadChildren` with a dynamic `import()`. It shrinks the initial bundle.
+  q: Angular lazy loading routes loadChildren
+  docs: https://angular.dev/best-practices/performance/lazy-loaded-routes
+signal-store:
+  term: NgRx SignalStore
+  def: >-
+    A store from the `@ngrx/signals` package built on signals: state, computed values and methods
+    are composed with `withState`, `withComputed` and `withMethods`. Much less code than the classic
+    NgRx Store.
+  q: NgRx SignalStore
+  docs: https://ngrx.io/guide/signals/signal-store
+ngrx-store:
+  term: NgRx Store
+  def: >-
+    Redux for Angular: global state changes only through actions and reducers, is read through
+    selectors, and side effects live in effects. It gives tracing in Redux DevTools at the cost of
+    boilerplate.
+  q: NgRx Store Redux Angular
+  docs: https://ngrx.io/guide/store
+virtual-scroll:
+  term: Virtual scrolling
+  def: >-
+    A technique where only the visible rows of a long list exist in the DOM, and the rest are swapped
+    in as you scroll. In Angular — `cdk-virtual-scroll-viewport` from the CDK or the built-in mode of
+    component library grids.
+  q: Angular CDK virtual scroll
+  docs: https://material.angular.dev/cdk/scrolling/overview
+http-interceptor:
+  term: HTTP interceptor
+  def: >-
+    A function in the `HttpClient` chain that sees every request and response: it adds headers and
+    tokens, logs and handles errors. Since Angular 15 interceptors can be functions registered with
+    `withInterceptors`.
+  q: Angular HTTP interceptors
+  docs: https://angular.dev/guide/http/interceptors

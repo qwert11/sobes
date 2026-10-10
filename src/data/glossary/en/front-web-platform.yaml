@@ -1,0 +1,168 @@
+box-model:
+  term: Box model
+  def: >-
+    The way CSS treats every element as a rectangle of content, padding, border and margin.
+    What `width` includes is set by `box-sizing`.
+  q: CSS box model
+  docs: https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Box_model/Introduction
+flexbox:
+  term: Flexbox
+  def: >-
+    A one-dimensional CSS layout module: the children of a `display: flex` container line up in a row
+    or column and share free space by `flex-grow` and `flex-shrink`.
+  q: CSS flexbox basic concepts
+  docs: https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Flexible_box_layout/Basic_concepts
+css-grid:
+  term: CSS Grid
+  def: >-
+    A two-dimensional CSS layout module: a `display: grid` container defines rows and columns,
+    and its children occupy cells and areas of the grid.
+  q: CSS grid layout
+  docs: https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Grid_layout
+css-specificity:
+  term: Specificity
+  def: >-
+    A selector's weight in the cascade — a triple of ids; classes, attributes and pseudo-classes;
+    type selectors and pseudo-elements. With equal origin and layer, the more specific rule wins.
+  q: CSS specificity
+  docs: https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Cascade/Specificity
+media-query:
+  term: Media query
+  def: >-
+    An `@media` condition under which styles apply: viewport width, orientation, device type,
+    dark mode. The basis of responsive design.
+  q: CSS media queries
+  docs: https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Media_queries/Using
+container-query:
+  term: Container query
+  def: >-
+    An `@container` condition that checks the size of the nearest ancestor with `container-type`
+    rather than the viewport. Lets a component adapt to wherever it is placed.
+  q: CSS container queries
+  docs: https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Containment/Container_queries
+screen-reader:
+  term: Screen reader
+  def: >-
+    Software that reads the interface aloud or outputs it to a braille display: NVDA, JAWS,
+    VoiceOver, TalkBack. It reads the accessibility tree, not pixels.
+  q: screen reader web accessibility
+  docs: https://developer.mozilla.org/en-US/docs/Glossary/Screen_reader
+semantic-html:
+  term: Semantic HTML
+  def: >-
+    Markup with elements chosen by meaning: `button`, `nav`, `main`, `label`, headings — instead of
+    `div` and `span`. It gives role, keyboard behaviour and structure for screen readers with no extra code.
+  q: semantic HTML accessibility
+  docs: https://developer.mozilla.org/en-US/docs/Learn_web_development/Core/Accessibility/HTML
+accessibility-tree:
+  term: Accessibility tree
+  def: >-
+    A structure the browser builds from the DOM for assistive technologies: every node has a role,
+    an accessible name, a description and a state.
+  q: accessibility tree browser
+  docs: https://developer.mozilla.org/en-US/docs/Glossary/Accessibility_tree
+wai-aria:
+  term: WAI-ARIA
+  def: >-
+    A W3C specification of `role` and `aria-*` attributes that add to the accessibility tree where HTML
+    lacks semantics. It changes only what the screen reader hears, not how the element behaves.
+  q: WAI-ARIA basics
+  docs: https://developer.mozilla.org/en-US/docs/Web/Accessibility/ARIA
+wcag:
+  term: WCAG (Web Content Accessibility Guidelines)
+  def: >-
+    A W3C standard of testable accessibility success criteria at levels A, AA and AAA. The current
+    version is WCAG 2.2 (October 2023); laws usually require level AA.
+  q: WCAG 2.2
+  docs: https://www.w3.org/TR/WCAG22/
+european-accessibility-act:
+  term: European Accessibility Act (EAA)
+  def: >-
+    EU Directive 2019/882, which since 28 June 2025 requires a range of products and services to be
+    accessible: online shops, banking, transport, e-books. Its technical basis is EN 301 549.
+  q: European Accessibility Act
+  docs: https://eur-lex.europa.eu/eli/dir/2019/882/oj
+cssom:
+  term: CSSOM (CSS Object Model)
+  def: >-
+    The tree of rules the browser builds from all the page's styles. Together with the DOM it is needed
+    to build the render tree, which is why CSS blocks the first render.
+  q: CSSOM CSS object model
+  docs: https://developer.mozilla.org/en-US/docs/Web/API/CSS_Object_Model
+critical-rendering-path:
+  term: Critical rendering path
+  def: >-
+    The browser's steps from receiving HTML to the first frame: DOM, CSSOM, render tree, layout, paint,
+    composite. Its length is set by render-blocking CSS and scripts.
+  q: critical rendering path
+  docs: https://developer.mozilla.org/en-US/docs/Web/Performance/Guides/Critical_rendering_path
+render-blocking-resource:
+  term: Render-blocking resource
+  def: >-
+    A resource the browser must have before it starts rendering: stylesheets in the `head` and
+    synchronous scripts. Scripts with `defer`, `async` and modules do not block.
+  q: render-blocking resources
+  docs: https://developer.mozilla.org/en-US/docs/Glossary/Render_blocking
+reflow:
+  term: Reflow
+  def: >-
+    Recomputing element sizes and positions (layout) after a change to geometry or the DOM.
+    More expensive than a repaint, which only redraws pixels.
+  q: reflow repaint browser
+  docs: https://developer.mozilla.org/en-US/docs/Glossary/Reflow
+layout-thrashing:
+  term: Layout thrashing
+  def: >-
+    Interleaving style writes with geometry reads (`offsetHeight`, `getBoundingClientRect`), which forces
+    the browser to recompute layout synchronously on every read.
+  q: layout thrashing forced synchronous layout
+  docs: https://web.dev/articles/avoid-large-complex-layouts-and-layout-thrashing
+compositing:
+  term: Compositing
+  def: >-
+    Assembling a frame from ready layers on a separate compositor thread. Changes to a layer's
+    `transform` and `opacity` skip layout and paint.
+  q: browser compositing layers
+  docs: https://web.dev/articles/stick-to-compositor-only-properties-and-manage-layer-count
+core-web-vitals:
+  term: Core Web Vitals
+  def: >-
+    Google's three user-experience metrics: LCP (loading), INP (responsiveness) and CLS (visual
+    stability). Assessed at the 75th percentile of real visits.
+  q: Core Web Vitals
+  docs: https://web.dev/articles/vitals
+lcp:
+  term: LCP (Largest Contentful Paint)
+  def: >-
+    The time from the start of navigation until the largest image or text block in the viewport
+    is rendered. Good is 2.5 seconds or less.
+  q: Largest Contentful Paint
+  docs: https://web.dev/articles/lcp
+inp:
+  term: INP (Interaction to Next Paint)
+  def: >-
+    The delay from a click, tap or key press to the next frame, worst of the visit. Good is 200 ms
+    or less. It replaced FID as a Core Web Vital in March 2024.
+  q: Interaction to Next Paint
+  docs: https://web.dev/articles/inp
+cls:
+  term: CLS (Cumulative Layout Shift)
+  def: >-
+    A measure of unexpected layout shifts: the largest burst of shifts during the page's lifetime.
+    Good is 0.1 or less.
+  q: Cumulative Layout Shift
+  docs: https://web.dev/articles/cls
+real-user-monitoring:
+  term: RUM (real user monitoring)
+  def: >-
+    Collecting performance metrics in real users' browsers and sending them to analytics.
+    Gives field data, as opposed to Lighthouse lab measurements.
+  q: real user monitoring web performance
+  docs: https://developer.mozilla.org/en-US/docs/Web/Performance/Guides/Rum-vs-Synthetic
+code-splitting:
+  term: Code splitting
+  def: >-
+    Splitting a bundle into chunks that load on demand via dynamic `import()`: by route or by rarely
+    used features. Reduces the amount of JS loaded at startup.
+  q: code splitting dynamic import
+  docs: https://developer.mozilla.org/en-US/docs/Glossary/Code_splitting

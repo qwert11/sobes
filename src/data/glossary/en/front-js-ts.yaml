@@ -1,0 +1,169 @@
+js-primitive:
+  term: Primitive
+  def: >-
+    A JavaScript value that is not an object and has no methods: `string`, `number`, `bigint`, `boolean`, `undefined`, `null`, `symbol`. Primitives are immutable and compared by value.
+  q: JavaScript primitive
+  docs: https://developer.mozilla.org/docs/Glossary/Primitive
+strict-equality:
+  term: Strict equality (===)
+  def: >-
+    Comparison without type conversion: values of different types are not equal, and objects are equal only if the reference is the same. The one oddity is that `NaN === NaN` is `false`.
+  q: JavaScript strict equality
+  docs: https://developer.mozilla.org/docs/Web/JavaScript/Reference/Operators/Strict_equality
+type-coercion:
+  term: Type coercion
+  def: >-
+    Automatic conversion of a value to another type that JavaScript performs on its own: in `==`, arithmetic, `if` and template literals. For example, `'5' * 2` gives `10`.
+  q: JavaScript type coercion
+  docs: https://developer.mozilla.org/docs/Glossary/Type_coercion
+nullish-coalescing:
+  term: Nullish coalescing (??)
+  def: >-
+    `a ?? b` returns `b` only if `a` is `null` or `undefined`. Unlike `||`, it does not replace `0`, `''` or `false`.
+  q: JavaScript nullish coalescing operator
+  docs: https://developer.mozilla.org/docs/Web/JavaScript/Reference/Operators/Nullish_coalescing
+truthy-falsy:
+  term: Truthy and falsy
+  def: >-
+    How a value behaves in a boolean context (`if`, `&&`, `||`). Falsy values are `false`, `0`, `-0`, `0n`, `''`, `null`, `undefined` and `NaN`; everything else, including `[]` and `'0'`, is truthy.
+  q: JavaScript truthy falsy
+  docs: https://developer.mozilla.org/docs/Glossary/Falsy
+lexical-scope:
+  term: Lexical scope
+  def: >-
+    The rule that a variable's visibility is determined by where it is declared in the code, not where it is called from. JavaScript has global, module, function and block scopes.
+  q: JavaScript lexical scope
+  docs: https://developer.mozilla.org/docs/Glossary/Scope
+js-closure:
+  term: Closure (JavaScript)
+  def: >-
+    A function together with a reference to the lexical environment it was created in. Captured variables live as long as the function and are seen by reference, not as a copy of the value.
+  q: JavaScript closure
+  docs: https://developer.mozilla.org/docs/Web/JavaScript/Guide/Closures
+  wiki: Closure (computer programming)
+hoisting:
+  term: Hoisting
+  def: >-
+    Declarations are processed before the code of a scope runs. Function declarations are available in full, `var` with the value `undefined`, while `let`, `const` and `class` stay in the temporal dead zone until their declaration line.
+  q: JavaScript hoisting
+  docs: https://developer.mozilla.org/docs/Glossary/Hoisting
+temporal-dead-zone:
+  term: Temporal dead zone (TDZ)
+  def: >-
+    The region from the start of a block to a `let`, `const` or `class` declaration where the variable already exists, but accessing it throws `ReferenceError`.
+  q: JavaScript temporal dead zone
+  docs: https://developer.mozilla.org/docs/Web/JavaScript/Reference/Statements/let#temporal_dead_zone_tdz
+this-binding:
+  term: this in JavaScript
+  def: >-
+    A keyword whose value is set by how a function is called: `new`, `call`/`apply`/`bind`, a call through an object, or a plain call. Arrow functions have no `this` of their own.
+  q: JavaScript this keyword
+  docs: https://developer.mozilla.org/docs/Web/JavaScript/Reference/Operators/this
+arrow-function:
+  term: Arrow function
+  def: >-
+    A short function syntax, `(x) => x * 2`. It has no `this`, `arguments` or `super` of its own — it takes them from the enclosing scope — and cannot be called with `new`.
+  q: JavaScript arrow function
+  docs: https://developer.mozilla.org/docs/Web/JavaScript/Reference/Functions/Arrow_functions
+event-loop:
+  term: Event loop
+  def: >-
+    The mechanism of a JavaScript runtime that, whenever the call stack is empty, runs all microtasks and then takes the next task from the queue. It lets a single thread serve timers, events and I/O.
+  q: JavaScript event loop
+  docs: https://developer.mozilla.org/docs/Web/JavaScript/Reference/Execution_model
+js-promise:
+  term: Promise
+  def: >-
+    An object holding the result of an asynchronous operation, which will be fulfilled with a value or rejected with an error. The `then`, `catch` and `finally` callbacks run as microtasks.
+  q: JavaScript Promise
+  docs: https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Promise
+js-call-stack:
+  term: Call stack (JavaScript)
+  def: >-
+    The stack of frames of running functions on JavaScript's single thread. While it is not empty, the event loop takes no new tasks; overflowing it throws `RangeError`.
+  q: JavaScript call stack
+  docs: https://developer.mozilla.org/docs/Glossary/Call_stack
+microtask:
+  term: Microtask
+  def: >-
+    A short callback that runs right after the current task, before the next task and before rendering: promise reactions, continuations after `await`, `queueMicrotask`. The microtask queue is drained completely.
+  q: JavaScript microtask queue
+  docs: https://developer.mozilla.org/docs/Web/API/HTML_DOM_API/Microtask_guide
+task-queue:
+  term: Task queue (macrotask)
+  def: >-
+    The queue from which the event loop takes one task at a time: `setTimeout` callbacks, user events, network messages. All microtasks run between tasks.
+  q: JavaScript task queue macrotask
+  docs: https://developer.mozilla.org/docs/Web/API/HTML_DOM_API/Microtask_guide
+unhandled-rejection:
+  term: Unhandled rejection
+  def: >-
+    A rejected promise with no error handler attached. The browser fires the `unhandledrejection` event, and Node.js 15+ terminates the process by default.
+  q: JavaScript unhandled promise rejection
+  docs: https://developer.mozilla.org/docs/Web/API/Window/unhandledrejection_event
+type-erasure:
+  term: Type erasure
+  def: >-
+    The TypeScript compiler removes type annotations when emitting JavaScript. Types do not exist at runtime: they cannot be checked, reflected on or used as values.
+  q: TypeScript type erasure
+  docs: https://www.typescriptlang.org/docs/handbook/2/basic-types.html#erased-types
+structural-typing:
+  term: Structural typing
+  def: >-
+    Type compatibility is determined by the set of members, not by name or declared inheritance. TypeScript works this way; C# and Java use nominal typing.
+  q: TypeScript structural typing
+  docs: https://www.typescriptlang.org/docs/handbook/type-compatibility.html
+type-narrowing:
+  term: Narrowing
+  def: >-
+    The compiler refining a variable's type from checks in the code: after `typeof x === 'string'`, `instanceof`, `in` or a comparison with a literal, a narrower type is known inside the branch.
+  q: TypeScript narrowing
+  docs: https://www.typescriptlang.org/docs/handbook/2/narrowing.html
+ts-strict:
+  term: TypeScript strict mode
+  def: >-
+    The `tsconfig.json` flag that turns on the family of strict checks: `strictNullChecks`, `noImplicitAny`, `strictFunctionTypes` and others. On by default since TypeScript 6.0.
+  q: TypeScript strict mode tsconfig
+  docs: https://www.typescriptlang.org/tsconfig/#strict
+zod:
+  term: Zod
+  def: >-
+    A schema library for TypeScript: it validates data at runtime and infers a static type from the schema via `z.infer`. Used at boundaries — API responses, forms, configuration.
+  q: Zod TypeScript schema validation
+  docs: https://zod.dev
+type-guard:
+  term: Type guard
+  def: >-
+    A function with the return type `value is T`: if it returns `true`, the compiler narrows the argument to `T`. Whether the check inside is correct is up to its author.
+  q: TypeScript type predicate type guard
+  docs: https://www.typescriptlang.org/docs/handbook/2/narrowing.html#using-type-predicates
+discriminated-union:
+  term: Discriminated union
+  def: >-
+    A union of object types with a shared tag field of a literal type, such as `kind` or `status`. Checking the tag narrows the value to one variant.
+  q: TypeScript discriminated union
+  docs: https://www.typescriptlang.org/docs/handbook/2/narrowing.html#discriminated-unions
+utility-types:
+  term: Utility types
+  def: >-
+    Built-in TypeScript generic types that build a new type from an existing one: `Partial`, `Required`, `Readonly`, `Pick`, `Omit`, `Record`, `ReturnType`, `Awaited` and others.
+  q: TypeScript utility types
+  docs: https://www.typescriptlang.org/docs/handbook/utility-types.html
+never-type:
+  term: The never type
+  def: >-
+    A type with no values: the result of a function that never returns and what is left after exhaustive narrowing. Assigning to `never` in a `default` branch checks that a `switch` handled every variant.
+  q: TypeScript never exhaustiveness checking
+  docs: https://www.typescriptlang.org/docs/handbook/2/narrowing.html#exhaustiveness-checking
+mapped-type:
+  term: Mapped type
+  def: >-
+    A type of the form `{ [K in keyof T]: ... }` that iterates over keys and builds a new object type from them. It can add or remove `readonly` and `?` and rename keys with `as`.
+  q: TypeScript mapped types
+  docs: https://www.typescriptlang.org/docs/handbook/2/mapped-types.html
+conditional-type:
+  term: Conditional type
+  def: >-
+    A type of the form `T extends U ? X : Y` that picks a result based on type compatibility. With `infer` it extracts part of a type; over a union it distributes across the members by default.
+  q: TypeScript conditional types
+  docs: https://www.typescriptlang.org/docs/handbook/2/conditional-types.html
