@@ -1,0 +1,861 @@
+---
+title: Web security basics
+description: Authentication and authorization, cookies and tokens, OWASP Top 10, XSS and CORS, injection and password storage, HTTPS, TLS and HSTS.
+sidebar:
+  order: 1
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+How an ASP.NET Core web app recognizes the user and decides what they may do, which vulnerabilities show up most often, and which techniques and settings close them. Security conversations in interviews usually start here before moving on to OAuth, JWT and corporate sign-in.
+
+**Before this topic:** [Hosting and the pipeline](/sobes/en/aspnet/hosting/).
+
+<Q id="security.web.authn-authz" level="j">
+
+## How does authentication differ from authorization, and how does an app "remember" the user: a cookie session or a token?
+
+<A short l="j">
+
+<T k="authentication">Authentication</T> answers "who are you?", while <T k="authorization">authorization</T> answers "what are you allowed to do?": without signing in the server returns 401, without permission — 403. Between requests the app recognizes the user by an <T k="authentication-cookie">authentication cookie</T> that the browser attaches itself, or by a token in the `Authorization` header.
+
+</A>
+
+<A short l="m">
+
+In ASP.NET Core an <T k="authentication-scheme">authentication scheme</T> identifies the user from the request and puts them into `HttpContext.User` as a `ClaimsPrincipal`. When authorization refuses, it asks the scheme to Challenge — 401 or a login page — or to Forbid with a 403. A cookie suits a browser on its own domain, a <T k="bearer-token">bearer token</T> suits APIs and mobile clients; the cookie's cost is <T k="csrf">CSRF</T> protection, the token's is storage and revocation.
+
+</A>
+
+<A short l="s">
+
+Authentication turns the request's credentials into a `ClaimsPrincipal`, and authorization decides based on it and the endpoint metadata, which is why `UseAuthorization` comes after `UseRouting`. The ASP.NET Core cookie scheme keeps no session on the server: the cookie carries the whole ticket, encrypted with Data Protection. So instant revocation needs a check on every request or a server-side ticket store, which brings state back. A token is stateless too, but in the browser it has no `HttpOnly` protection, so browsers usually get a cookie and tokens are left to APIs and services.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **Authentication** — checking who the user is: password, certificate, Windows account.
+- **Authorization** — checking what they're allowed to do: a role, access to a specific document.
+
+**How the app remembers the user**
+
+HTTP keeps no state between requests, so after sign-in the server hands out a "pass":
+
+- **cookie** — the browser attaches it to every request to that site on its own;
+- **token** — the client adds it to the `Authorization: Bearer ...` header itself.
+
+**How to use**
+
+1. Register a scheme: `AddAuthentication().AddCookie()`.
+2. After checking the password, call `HttpContext.SignInAsync` — it issues the cookie.
+3. Protect the endpoint with `[Authorize]` or `RequireAuthorization()`.
+
+**Common mistake**
+
+Mixing up the status codes. 401 means "I don't know who you are, sign in", 403 means "I know you, but no".
+
+**Takeaway:** authentication identifies the user, authorization decides their rights, and a cookie or token carries the sign-in result between requests.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+1. A scheme is a name, a handler and its options. `AddCookie`, `AddJwtBearer` and `AddNegotiate` register schemes; a single scheme becomes the default.
+2. `UseAuthentication` calls Authenticate on the default scheme and puts the result into `HttpContext.User`. It doesn't reject anonymous requests.
+3. `UseAuthorization` reads `[Authorize]` and the endpoint's policies. Not signed in — Challenge; signed in without permission — Forbid.
+
+**How schemes respond**
+
+| Action | Cookie | JWT Bearer |
+|---|---|---|
+| Challenge | 302 to the login page | 401 and `WWW-Authenticate: Bearer` |
+| Forbid | 302 to the "access denied" page | 403 |
+
+**When to choose what**
+
+- Cookie — server-rendered UI (MVC, Razor Pages, Blazor Server) and SPAs on the same domain.
+- Bearer token — APIs for external, mobile and server-side clients.
+
+**Pitfalls**
+
+- Since .NET 10 the cookie scheme returns 401 and 403 without a redirect on API endpoints (`[ApiController]`, Minimal APIs with JSON, SignalR). Before that, `fetch` got the login page HTML after the redirect.
+- `WebApplication` adds `UseAuthentication` and `UseAuthorization` right after `UseRouting` on its own. With `UseCors` you call them explicitly, after it.
+- Authentication alone protects nothing: without `[Authorize]` or a global policy the endpoint is open.
+
+**Takeaway:** the scheme identifies the user and shapes the refusal, while authorization decides when to refuse.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- The cookie scheme serializes the `AuthenticationTicket` — claims and properties — encrypts it with Data Protection and writes it to the `.AspNetCore.Cookies` cookie. The server stores nothing.
+- By default the cookie is `HttpOnly`, `SameSite=Lax` and lives 14 days with sliding expiration. A large cookie is split into chunks but still goes out with every request.
+- Nodes in a farm must share Data Protection keys, otherwise a cookie issued by one node can't be decrypted by another.
+
+**Trade-offs**
+
+| Property | Cookie | Bearer token |
+|---|---|---|
+| Who sends it | the browser itself | client code |
+| Main risk | CSRF | theft by a script on the page |
+| Revocation before expiry | a per-request check or `ITicketStore` | short lifetime and a refresh token |
+
+- A locked-out user keeps working while their cookie is alive. Identity handles this with a security stamp check (`SecurityStampValidator`, every 30 minutes by default); a custom scheme uses the `OnValidatePrincipal` event.
+- `ITicketStore` moves the ticket to the server: the cookie is small and revocation is instant, but you get state and a store round trip on every request.
+- A SPA without tokens in the browser is the BFF pattern, covered in [OAuth 2.0 and OpenID Connect](/sobes/en/security/oauth-oidc/).
+
+**How to check in production**
+
+- The .NET 10 metrics `aspnetcore.authentication.challenges`, `aspnetcore.authentication.forbids` and `aspnetcore.authorization.attempts` show refusals by scheme and policy.
+- Users being signed out en masse after a deployment means the nodes have different Data Protection keys.
+
+**Takeaway:** a cookie and a token are both passes without server state, and instant revocation always costs either state or a short lifetime.
+
+</A>
+
+<Ex>
+
+```csharp
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// A single scheme becomes the default scheme
+builder.Services.AddAuthentication().AddCookie();
+builder.Services.AddAuthorization();
+
+var app = builder.Build();
+
+app.UseAuthentication(); // fills HttpContext.User
+app.UseAuthorization();  // checks the endpoint's requirements
+
+app.MapPost("/login", async (HttpContext ctx) =>
+{
+    // The password is already verified: issue a cookie with an encrypted ticket
+    var identity = new ClaimsIdentity(
+        [new Claim(ClaimTypes.Name, "alice")], CookieAuthenticationDefaults.AuthenticationScheme);
+    await ctx.SignInAsync(new ClaimsPrincipal(identity));
+});
+
+app.MapGet("/me", (ClaimsPrincipal user) => new { name = user.Identity!.Name })
+    .RequireAuthorization();                             // no cookie — 401, not a redirect (.NET 10)
+app.MapGet("/admin", () => new { secret = 42 })
+    .RequireAuthorization(p => p.RequireRole("Admin")); // alice without the Admin role — 403
+
+app.Run();
+```
+
+</Ex>
+
+<Next>
+
+- What does an anonymous user get from a protected endpoint? — It depends on the scheme: JWT — 401 with `WWW-Authenticate`, cookie — a redirect to sign-in, and on API endpoints since .NET 10 — 401.
+- Where is the session stored with cookie authentication? — Nowhere: the encrypted ticket lives in the cookie itself; server-side storage goes through `ITicketStore`.
+- How do you sign a user out on all devices? — Change the security stamp that `SecurityStampValidator` checks, or keep tickets on the server.
+- How does `AddSession` differ from cookie authentication? — Session stores data on the server under an ID in a cookie and doesn't prove identity.
+- Why have several schemes in one app? — For example, cookies for the UI and JWT for the API; a policy or `[Authorize(AuthenticationSchemes = ...)]` picks the right one.
+
+</Next>
+
+<Src>
+
+- [Overview of ASP.NET Core authentication](https://learn.microsoft.com/aspnet/core/security/authentication/)
+- [Use cookie authentication without ASP.NET Core Identity](https://learn.microsoft.com/aspnet/core/security/authentication/cookie)
+- [Cookie login redirects disabled for known API endpoints (.NET 10)](https://learn.microsoft.com/aspnet/core/breaking-changes/10/cookie-authentication-api-endpoints)
+
+</Src>
+
+</Q>
+
+<Q id="security.web.owasp" level="j">
+
+## What is the OWASP Top 10, and which vulnerabilities in it matter most?
+
+<A short l="j">
+
+The <T k="owasp-top-10">OWASP Top 10</T> is the OWASP community's list of the ten main risk categories for web applications; the current edition is from 2025. First place goes to <T k="broken-access-control">broken access control</T>, not injection, so checking access to resources comes first in reviews.
+
+</A>
+
+<A short l="m">
+
+The Top 10 is built from data on discovered vulnerabilities plus a practitioner survey: eight categories come from data, two from the survey. In the 2025 edition <T k="ssrf">SSRF</T> was folded into access control, <T k="xss">XSS</T> remains part of injection, and the new categories are the <T k="software-supply-chain">software supply chain</T> and mishandling of exceptional conditions. In .NET, injection is mostly closed by defaults — EF Core parameters and Razor encoding — while access, configuration and dependencies are on you.
+
+</A>
+
+<A short l="s">
+
+The Top 10 is an awareness and prioritization document, not a standard: for verifiable requirements OWASP recommends ASVS. The 2025 shift is from code defects to process: misconfiguration rose to second place and the supply chain to third. The framework removes whole classes of bugs but doesn't know who owns an order, so <T k="idor">IDOR</T>, the default policy and package auditing stay with the team. The cost is ongoing work: access tests, `NuGetAudit` in CI and reviews of environment settings.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+OWASP (Open Worldwide Application Security Project) is an open application security community. The Top 10 is its ranking of the main web application risks, updated every few years: 2017, 2021, 2025.
+
+**Top five in 2025**
+
+1. **A01 Broken Access Control** — a user gets someone else's data or functions.
+2. **A02 Security Misconfiguration** — dangerous settings: detailed errors in production, exposed service endpoints.
+3. **A03 Software Supply Chain Failures** — vulnerable or tampered packages and builds.
+4. **A04 Cryptographic Failures** — unencrypted data, weak algorithms.
+5. **A05 Injection** — SQL injection, XSS, command injection.
+
+**Common mistake**
+
+Assuming the framework protects against everything. An ORM closes SQL injection but won't check that an order belongs to the current user.
+
+**Takeaway:** the Top 10 is a map of the most common risks, and access control comes first.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+A category is a group of weaknesses from the CWE catalog. Its rank depends on frequency and impact in testing data, and two categories are added by the practitioner survey.
+
+**Risk — example — defense in .NET**
+
+| Risk | Example | Defense in .NET |
+|---|---|---|
+| A01 Access control | `GET /orders/43` returns someone else's order | owner check, `[Authorize]`, `FallbackPolicy` |
+| A02 Misconfiguration | developer exception page in production | `UseExceptionHandler`, environment checks |
+| A03 Supply chain | a package with a known CVE | `NuGetAudit`, lock file, Package Source Mapping |
+| A04 Cryptography | password in SHA-256, site over HTTP | `PasswordHasher`, HTTPS and HSTS, Data Protection |
+| A05 Injection | SQL built by string concatenation | parameters, `FromSql`, Razor encoding |
+| A06 Insecure design | password reset without an attempt limit | threat modeling, rate limiting |
+| A07 Authentication | password brute force | Identity lockout, MFA |
+| A08 Integrity | `BinaryFormatter`, unsigned updates | `System.Text.Json`, signed artifacts |
+| A09 Logging | failed sign-ins don't reach the log | security events in logs and alerts |
+| A10 Exceptional conditions | a failed permission check lets the request through | fail closed, responses without details |
+
+**Pitfalls**
+
+- In the 2021 edition SSRF was its own A10, and vulnerable components were A06. Category numbers in older reports don't match 2025.
+- `[Authorize]` checks that the user signed in, not that the resource is theirs. A01 is closed by a check in code.
+
+**Takeaway:** almost every category has a framework defense, but access control and design are closed only by your own code.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- 2025 is the eighth edition. Eight categories are chosen from data and two from the survey, to capture risks the data doesn't show yet.
+- Categories became broader and closer to root causes. The supply chain covers not just known CVEs but CI/CD, and A10 covers failing open and leaking error details.
+
+**Trade-offs**
+
+- The Top 10 is an awareness document. For requirements and acceptance OWASP offers ASVS, for testing — WSTG.
+- Injection dropped in the ranking largely thanks to ORMs and template engines. What remains is what the framework can't know: who owns a resource and which actions are allowed.
+- Since .NET 10 `NuGetAudit` checks transitive packages by default. New warnings can break a build with `TreatWarningsAsErrors` — triage them rather than silencing them.
+- A `FallbackPolicy` with `RequireAuthenticatedUser()` closes everything by default: a forgotten `[Authorize]` stops being a hole, and public endpoints are marked `[AllowAnonymous]` explicitly.
+
+**How to check in production**
+
+- In CI — Roslyn security analyzers (`CA2100`, `CA5350`, `CA5351`) and `dotnet list package --vulnerable --include-transitive`; on staging — DAST such as ZAP.
+- Spikes of 403 and 404 while IDs are being enumerated in the logs are a sign of someone probing for IDOR.
+
+**Takeaway:** the Top 10 sets priorities, not completeness: the framework closes injection, while access, configuration and dependencies remain a team process.
+
+</A>
+
+<Ex>
+
+```csharp
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddAuthentication().AddCookie();
+// Everything is closed by default: public endpoints are marked AllowAnonymous
+builder.Services.AddAuthorizationBuilder()
+    .SetFallbackPolicy(new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
+builder.Services.AddSingleton<OrderStore>();
+
+var app = builder.Build();
+
+app.MapGet("/orders/{id:int}", (int id, ClaimsPrincipal user, OrderStore store) =>
+{
+    var order = store.Find(id);
+    // A01: the policy checked sign-in, we check the owner ourselves
+    return order is not null && order.OwnerId == user.Identity?.Name
+        ? Results.Ok(order)
+        : Results.NotFound(); // 404, not 403: don't confirm that someone else's order exists
+});
+
+app.Run();
+
+public record Order(int Id, string OwnerId, decimal Total);
+
+public class OrderStore
+{
+    private readonly Dictionary<int, Order> _orders = new() { [42] = new(42, "alice", 100m) };
+    public Order? Find(int id) => _orders.GetValueOrDefault(id);
+}
+```
+
+</Ex>
+
+<Next>
+
+- What changed in the 2025 edition compared with 2021? — SSRF moved into A01, the supply chain (A03) and exceptional conditions (A10) appeared, and misconfiguration rose to second place.
+- Why is XSS a kind of injection? — User data ends up in HTML or JavaScript and becomes code; since 2021 XSS is part of Injection.
+- What is IDOR and how do you find it? — Accessing someone else's object by changing an id; you find it with tests where user A requests user B's resource.
+- How does the Top 10 differ from ASVS? — The Top 10 is an awareness ranking of risks; ASVS is a verifiable list of requirements by level.
+- How do you track vulnerable packages in .NET? — `NuGetAudit` during restore and `dotnet list package --vulnerable --include-transitive`.
+
+</Next>
+
+<Src>
+
+- [OWASP Top 10:2025](https://top10.owasp.org/2025/)
+- [ASP.NET Core security topics](https://learn.microsoft.com/aspnet/core/security/)
+- [Auditing package dependencies for security vulnerabilities](https://learn.microsoft.com/nuget/concepts/auditing-packages)
+
+</Src>
+
+</Q>
+
+<Q id="security.web.xss-cors" level="m">
+
+## How do XSS and CORS work, and how do you defend against them?
+
+<A short l="j">
+
+XSS is an attack in which someone else's script ends up on your page and runs in the user's browser; output encoding protects against it, and Razor does it for you. <T k="cors">CORS</T> is how a server allows a script from another site to read its responses: without it the browser won't hand them to the script.
+
+</A>
+
+<A short l="m">
+
+XSS comes in stored, reflected and DOM-based forms; the main defense is context-aware encoding, while <T k="content-security-policy">CSP</T> and `HttpOnly` limit the damage when encoding is missed. CORS relaxes the <T k="same-origin-policy">same-origin policy</T>: `Access-Control-Allow-*` headers tell the browser which origins may get the response, and "non-simple" requests are preceded by a <T k="preflight-request">preflight</T>. CORS doesn't protect the server: a simple cross-site request still arrives and runs, so CSRF is stopped by antiforgery tokens and <T k="samesite-cookie">`SameSite`</T>, not CORS.
+
+</A>
+
+<A short l="s">
+
+Both topics are about the origin boundary in the browser. XSS gets around it from inside: the attacker's script runs as your origin and can do anything your JavaScript can, including reading tokens from `localStorage`. CORS is a controlled hole in that boundary: `Access-Control-Allow-Credentials: true` with a reflected `Origin` hands the user's data to any site. So a strict CSP `script-src` and an exact origin list are defense in depth, not a replacement for encoding and server-side checks.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **XSS** (cross-site scripting) — an attacker leaves `<script>...</script>` in a comment, and the site shows the comment without encoding. The script runs for every reader and acts on their behalf.
+- **CORS** — permission from the server. A script on `https://shop.example` can read a response from `https://api.example` only if the API returns a matching `Access-Control-Allow-Origin`.
+
+**How to use**
+
+- Output data in Razor with `@`: it turns `<` into `&lt;`. Don't use `Html.Raw` with user data.
+- Set the `HttpOnly` and `Secure` flags on cookies.
+- In an API, allow CORS only for your own front ends: `policy.WithOrigins("https://shop.example")`.
+
+**Common mistake**
+
+Treating CORS as API protection. It restricts only the browser; `curl` or an attacker's server calls the API with no CORS at all.
+
+**Takeaway:** output encoding protects against XSS, while CORS merely lets the browser hand responses to other sites.
+
+</A>
+
+<A l="m">
+
+**How it works: XSS**
+
+| Type | Where the script comes from |
+|---|---|
+| Stored | from the database: a comment, a profile name |
+| Reflected | from the request: a `?q=` parameter ends up in the response |
+| DOM-based | the page's own JavaScript inserts data via `innerHTML` |
+
+Encoding depends on context: HTML — `HtmlEncoder`, JavaScript — `JavaScriptEncoder`, URL — `UrlEncoder`. Data for scripts is safer in a `data-*` attribute read through `dataset`.
+
+**How it works: CORS**
+
+1. The browser adds an `Origin` header to a cross-origin request.
+2. A simple request — `GET`, `HEAD` or `POST` with a form or `text/plain` — is sent immediately. The browser only decides whether to hand the response to the script.
+3. Everything else — `PUT`, `DELETE`, `application/json`, custom headers — first goes out as a preflight `OPTIONS` request. Without permission the actual request isn't sent.
+
+**Pitfalls**
+
+- ASP.NET Core forbids `AllowAnyOrigin()` together with `AllowCredentials()` by throwing. `SetIsOriginAllowed(_ => true)` bypasses that ban and opens the API, cookies included, to any site.
+- Put `UseCors` after `UseRouting` and before authentication and authorization: preflight requests carry no credentials.
+- CORS doesn't stop CSRF: a form from another site is a simple request. Antiforgery is covered in [MVC, Razor and SignalR](/sobes/en/aspnet/mvc-signalr/).
+
+**Takeaway:** XSS is closed by context-aware encoding, while CORS is a browser access setting that doesn't protect the server.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- Razor encodes `@` using HTML attribute rules: they're stricter than HTML and suit both contexts. The default encoders only pass Basic Latin, so Cyrillic in markup becomes `&#x...;` until you widen `HtmlEncoder` with `UnicodeRanges`.
+- `HtmlString`, `Html.Raw` and `MarkupString` in Blazor turn encoding off. User-supplied HTML goes through a sanitizer such as HtmlSanitizer, or you accept Markdown without HTML.
+
+**Defense in depth**
+
+- **CSP.** `script-src 'nonce-...' 'strict-dynamic'`, `object-src 'none'` and `base-uri 'none'` stop an injected inline script from running. There's no built-in CSP middleware: you set the header with your own middleware or a package like NetEscapades.AspNetCore.SecurityHeaders. Roll it out with `Content-Security-Policy-Report-Only` first to collect violations.
+- **Cookies.** `HttpOnly` hides the cookie from `document.cookie`, `Secure` keeps it off HTTP. The `__Host-` prefix requires `Secure` and `Path=/` and forbids `Domain`, so a subdomain can't overwrite it.
+
+**Trade-offs**
+
+- A token in `localStorage` is convenient for a SPA but leaks immediately under XSS. A script can't read an `HttpOnly` cookie, but it can still send requests as the user while the page is open.
+- `SetPreflightMaxAge` caches the preflight and saves a round trip. Browsers cap the duration: Chromium at two hours.
+
+**How to check in production**
+
+- CSP reports show both attack attempts and legitimate scripts you broke.
+- A DAST scanner checks CSP, cookie flags and how the API responds to a foreign `Origin`.
+
+**Takeaway:** encoding is the main defense against XSS, CSP and cookie flags limit the damage, and CORS is configured with an exact list of origins.
+
+</A>
+
+<Ex>
+
+```csharp
+using Microsoft.AspNetCore.CookiePolicy;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddCors(options => options.AddPolicy("spa", policy => policy
+    .WithOrigins("https://shop.example")   // an exact list, not "*"
+    .WithMethods("GET", "POST")
+    .WithHeaders("Content-Type")
+    .AllowCredentials()                    // together with AllowAnyOrigin() — InvalidOperationException
+    .SetPreflightMaxAge(TimeSpan.FromMinutes(10))));
+
+var app = builder.Build();
+
+app.Use(async (context, next) =>
+{
+    // Scripts only from our own origin, inline scripts are blocked
+    context.Response.Headers.ContentSecurityPolicy =
+        "default-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
+    await next();
+});
+app.UseCookiePolicy(new CookiePolicyOptions
+{
+    HttpOnly = HttpOnlyPolicy.Always,      // invisible to document.cookie
+    Secure = CookieSecurePolicy.Always,    // HTTPS only
+    MinimumSameSitePolicy = SameSiteMode.Lax
+});
+app.UseRouting();
+app.UseCors();
+
+app.MapPost("/api/cart", () => new { items = 3 }).RequireCors("spa");
+
+app.Run();
+```
+
+```http
+OPTIONS /api/cart HTTP/1.1
+Origin: https://shop.example
+Access-Control-Request-Method: POST
+Access-Control-Request-Headers: content-type
+
+HTTP/1.1 204 No Content
+Access-Control-Allow-Origin: https://shop.example
+Access-Control-Allow-Credentials: true
+Access-Control-Allow-Methods: GET,POST
+Access-Control-Allow-Headers: Content-Type
+Access-Control-Max-Age: 600
+```
+
+If the `Origin` isn't on the list, the server still returns 204 but without the `Access-Control-Allow-*` headers, and the browser won't send the actual request.
+
+</Ex>
+
+<Next>
+
+- How does stored XSS differ from DOM-based? — Stored XSS comes from the server's database; DOM-based XSS is created by the page's own JavaScript via `innerHTML` or `eval`, and server-side encoding doesn't help with it.
+- Does `HttpOnly` protect against XSS? — No, it only hides the cookie from scripts; the script can still send requests as the user.
+- When does the browser send a preflight? — For methods other than `GET`, `HEAD` and `POST`, for a `Content-Type` like `application/json`, and for custom headers.
+- Why can't you use `*` with credentials? — Otherwise any site could read responses made with the user's cookies; the spec and ASP.NET Core both forbid it.
+- Does CORS protect against CSRF? — No, a simple cross-site POST still runs; you need antiforgery tokens and `SameSite`.
+
+</Next>
+
+<Src>
+
+- [Prevent Cross-Site Scripting (XSS) in ASP.NET Core](https://learn.microsoft.com/aspnet/core/security/cross-site-scripting)
+- [Enable Cross-Origin Requests (CORS) in ASP.NET Core](https://learn.microsoft.com/aspnet/core/security/cors)
+- [Content Security Policy Cheat Sheet — OWASP](https://cheatsheetseries.owasp.org/cheatsheets/Content_Security_Policy_Cheat_Sheet.html)
+
+</Src>
+
+</Q>
+
+<Q id="security.web.injection-passwords" level="m">
+
+## How do you defend against injection, and how should passwords and secrets be stored?
+
+<A short l="j">
+
+Injection is when user data spliced into SQL or an OS command changes its meaning, as in <T k="sql-injection">SQL injection</T>; the defense is to pass values as parameters. Passwords are stored neither in plain text nor encrypted: you store a slow <T k="password-hashing">hash</T> with a <T k="password-salt">salt</T>, and in ASP.NET Core that's done by Identity's `PasswordHasher`.
+
+</A>
+
+<A short l="m">
+
+The general rule against injection is to keep code and data apart: parameters in SQL, `ArgumentList` instead of a command line, allowlists for column names and paths. Passwords are hashed with a slow function — PBKDF2, bcrypt or Argon2 — and a unique salt, because a GPU tries billions of SHA-256 hashes per second. Secrets live outside code and the repository, and your own sensitive data is encrypted with <T k="data-protection">Data Protection</T>, which manages the keys itself.
+
+</A>
+
+<A short l="s">
+
+Injection is code and data getting mixed, and only structural separation closes it reliably, not escaping: parameters, processes without a shell, serializers without arbitrary types. In .NET 10 `PasswordHasher` is PBKDF2-HMAC-SHA512 with 100,000 iterations while OWASP recommends 220,000; the iteration count is stored in the hash, so you raise it without resetting passwords. The cost of a slow hash is CPU on every sign-in, and an unthrottled login form becomes a DoS target. Data Protection suits data the app will decrypt later, but its keys must not be deleted while that data lives.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **SQL injection.** The query is built by concatenation, and the user types `' OR 1=1 --` into the login field. The condition becomes always true, and the password check is skipped.
+- **Password hash** — a one-way transformation. On sign-in you hash the entered password and compare the hashes.
+
+**How to use**
+
+- In EF Core write LINQ or `FromSql($"... {name}")`: interpolation becomes a parameter.
+- In Dapper pass `new { name }`, in ADO.NET — `SqlParameter`.
+- Store passwords through ASP.NET Core Identity or `PasswordHasher<TUser>`.
+- Connection strings and API keys go to User Secrets locally and to a secret store on the server; see [Configuration and logging](/sobes/en/aspnet/config-logging/).
+
+**Common mistake**
+
+Storing `SHA256(password)`. The hash is fast and unsalted: identical passwords give identical hashes, and a dictionary attack takes minutes.
+
+**Takeaway:** data goes in as parameters, passwords are stored as a slow salted hash, secrets live outside the code.
+
+</A>
+
+<A l="m">
+
+**How it works: injection**
+
+| Where | Dangerous | Safe |
+|---|---|---|
+| EF Core | `FromSqlRaw("..." + name)` | LINQ, `FromSql($"...{name}")` |
+| Dapper, ADO.NET | concatenation in the command text | `@name` parameters |
+| Processes | `cmd.exe /c` with a user-supplied string | `ArgumentList` without a shell |
+| Files | `Path.Combine(root, userPath)` | `Path.GetFullPath` and a check that the path is inside `root` |
+
+<T k="command-injection">Command injection</T> is the same trick against a shell: `&` or `;` in the data appends a command. Table and column names can't be parameters — pick them from an allowlist.
+
+**How it works: passwords**
+
+1. A random salt is generated for each user. Identical passwords give different hashes, and precomputed tables are useless.
+2. A slow function (KDF) runs the password and salt through tens or hundreds of thousands of iterations.
+3. The algorithm, parameters, salt and hash are stored as one string.
+4. On sign-in the hash is recomputed with the stored parameters and compared in constant time.
+
+**Pitfalls**
+
+- `Path.Combine` drops `root` if the user passes an absolute path.
+- Encrypting passwords instead of hashing them: if the key leaks, every password leaks.
+
+**Takeaway:** code and data are separated with parameters and allowlists, and a password becomes a slow salted hash.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- `PasswordHasher` format V3 since .NET 7: PBKDF2-HMAC-SHA512, a 128-bit salt, a 256-bit hash, 100,000 iterations. The iteration count lives in the hash itself, so you can raise `PasswordHasherOptions.IterationCount`: old hashes return `SuccessRehashNeeded`, and `UserManager` rehashes them on sign-in.
+- OWASP recommends Argon2id (19 MiB of memory, 2 iterations), scrypt, bcrypt (cost 10 or more) or PBKDF2-HMAC-SHA512 with 220,000 iterations. Argon2 and bcrypt are third-party packages in .NET; bcrypt only uses the first 72 bytes of a password.
+- For your own PBKDF2 in .NET 10 use the static `Rfc2898DeriveBytes.Pbkdf2`: the class constructors are obsolete (SYSLIB0060).
+
+**Trade-offs**
+
+- A slow hash is a deliberate CPU load on every sign-in. Without rate limiting and account lockout the login form becomes a DoS target.
+- <T k="insecure-deserialization">Insecure deserialization</T>: `BinaryFormatter` in .NET 9+ always throws `PlatformNotSupportedException`, and Newtonsoft.Json with `TypeNameHandling.Auto` or `All` lets the attacker choose the type. `System.Text.Json` only creates declared types, with polymorphism through a `[JsonDerivedType]` allowlist.
+- Data Protection rotates its key every 90 days and keeps old keys for decryption. A deleted key means lost data, and for indefinite storage Microsoft recommends tools with stricter key management.
+
+**How to check in production**
+
+- Identity hashes starting with `AQAAAAEAACcQ` use the old format (SHA-256, 10,000 iterations), `AQAAAAIAAYag` the current one. The share of old ones shows how many users haven't signed in since the upgrade.
+- The `CA2100`, `CA3001`, `CA3006` and `CA2326` analyzers in CI catch SQL built from strings, injection and dangerous `TypeNameHandling`.
+
+**Takeaway:** injection is closed by structurally separating code and data, and a password hash carries its own parameters, which you raise over time.
+
+</A>
+
+<Ex>
+
+```csharp
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.Options;
+
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddDataProtection().SetApplicationName("shop"); // same name on every farm node
+var app = builder.Build();
+
+// The default is 100,000 iterations; OWASP recommends 220,000 for PBKDF2-HMAC-SHA512
+var hasher = new PasswordHasher<User>(
+    Options.Create(new PasswordHasherOptions { IterationCount = 220_000 }));
+var user = new User("alice");
+var hash = hasher.HashPassword(user, "P@ssw0rd"); // AQAAAAIAA1tg...: format, iterations, salt, hash
+Console.WriteLine(hasher.VerifyHashedPassword(user, hash, "P@ssw0rd")); // Success
+Console.WriteLine(hasher.VerifyHashedPassword(user, hash, "wrong"));    // Failed
+
+// Data Protection: reversible encryption, the framework manages the keys
+var protector = app.Services.GetRequiredService<IDataProtectionProvider>()
+    .CreateProtector("Shop.PassportNumber.v1"); // the purpose isolates data of different features
+var stored = protector.Protect("AB123456");
+Console.WriteLine(protector.Unprotect(stored)); // AB123456
+
+app.Run();
+
+public record User(string Name);
+```
+
+</Ex>
+
+<Ex title="Injection: SQL and starting a process">
+
+```csharp
+// NuGet: Dapper, Microsoft.Data.SqlClient
+using System.Diagnostics;
+using System.Net;
+using Dapper;
+using Microsoft.Data.SqlClient;
+
+var builder = WebApplication.CreateBuilder(args);
+var app = builder.Build();
+
+app.MapGet("/users", async (string name, IConfiguration config) =>
+{
+    await using var db = new SqlConnection(config.GetConnectionString("Main"));
+    // Dangerous: "... WHERE Name = '" + name + "'" — with name = "' OR 1=1 --" returns everyone
+    // Safe: the value goes as the @name parameter and never becomes part of the SQL
+    return await db.QueryAsync<UserRow>("SELECT Id, Name FROM Users WHERE Name = @name", new { name });
+});
+
+app.MapPost("/ping", (string host) =>
+{
+    // Format allowlist: an IP address only, no "-n 1000" and no "& del *"
+    if (!IPAddress.TryParse(host, out _)) return Results.BadRequest();
+    // No shell: host is a single argument, & and ; mean nothing
+    var psi = new ProcessStartInfo("ping") { UseShellExecute = false };
+    psi.ArgumentList.Add(host);
+    using var process = Process.Start(psi);
+    return Results.Accepted();
+});
+
+app.Run();
+
+public record UserRow(int Id, string Name);
+```
+
+</Ex>
+
+<Next>
+
+- Does EF Core fully protect against SQL injection? — LINQ and `FromSql` with interpolation do; `FromSqlRaw` and `ExecuteSqlRaw` with concatenation don't.
+- Why not salted SHA-256? — A salt defeats precomputed tables but not speed: a GPU tries billions of SHA-256 hashes per second.
+- How do you move to a stronger hash without resetting passwords? — Store the version and parameters in the hash and rehash on successful sign-in, like `SuccessRehashNeeded` in Identity.
+- What is a pepper? — A shared secret kept outside the database and added to the password; a leaked database alone isn't enough to brute-force.
+- How does Data Protection differ from hashing? — Encryption is reversible and meant for data you'll need to read; you never need to read a password, so you hash it.
+
+</Next>
+
+<Src>
+
+- [Hash passwords in ASP.NET Core](https://learn.microsoft.com/aspnet/core/security/data-protection/consumer-apis/password-hashing)
+- [Password Storage Cheat Sheet — OWASP](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)
+- [SQL queries — EF Core](https://learn.microsoft.com/ef/core/querying/sql-queries)
+
+</Src>
+
+</Q>
+
+<Q id="security.web.https-tls" level="s">
+
+## How do HTTPS and TLS work, and what do you configure in production?
+
+<A short l="j">
+
+HTTPS is HTTP over <T k="tls">TLS</T>: the protocol encrypts traffic and uses a certificate to prove you're talking to the real server. In ASP.NET Core `UseHttpsRedirection` moves requests from HTTP to HTTPS, and `UseHsts` tells the browser to stop using HTTP for the site.
+
+</A>
+
+<A short l="m">
+
+In the TLS 1.3 handshake the client and server agree on a cipher and derive a shared key in one round trip, and the server signs the handshake with the certificate key. The client validates the <T k="certificate-chain">certificate chain</T> up to a trusted root, the validity period and the host name. In production you add <T k="hsts">HSTS</T>, an HTTPS redirect and correct scheme forwarding from the proxy, otherwise the redirect loops.
+
+</A>
+
+<A short l="s">
+
+TLS 1.3 removed static RSA key exchange, so every connection has <T k="forward-secrecy">forward secrecy</T>, and a full handshake takes one round trip. The production decisions are where to <T k="tls-termination">terminate TLS</T>, how to rotate certificates automatically and how hard to enforce HSTS: preload is close to irreversible. With termination at the proxy the internal hop is unencrypted, so sensitive zones re-encrypt or move to <T k="mtls">mTLS</T>. Leave versions and ciphers to the OS: .NET uses its settings, and Windows Server 2019 won't do TLS 1.3 at all.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **TLS** — a protocol over TCP that encrypts data, protects it from tampering and proves the server's identity.
+- **Certificate** — the server's public key and domain name, signed by a certificate authority (CA) the browser trusts.
+
+**Why**
+
+Without HTTPS, passwords, cookies and tokens travel in plain text. Any hop on the way can read and modify them, such as public Wi-Fi.
+
+**How to use**
+
+1. `app.UseHttpsRedirection()` answers an HTTP request with a redirect to HTTPS.
+2. `app.UseHsts()` outside Development adds the `Strict-Transport-Security` header, and the browser remembers the site is HTTPS-only.
+3. The developer certificate is installed with `dotnet dev-certs https --trust`.
+
+**Common mistake**
+
+Relying on the redirect without HSTS. The first HTTP request can be intercepted and kept from ever reaching HTTPS — that's SSL stripping.
+
+**Takeaway:** TLS encrypts and proves the server, the redirect leads to HTTPS, and HSTS stops the browser from going back to HTTP.
+
+</A>
+
+<A l="m">
+
+**How it works: the TLS 1.3 handshake**
+
+1. **ClientHello**: versions, ciphers, a key share for the Diffie-Hellman exchange and the site name (SNI).
+2. **ServerHello**: the chosen cipher and the server's key share. Both sides compute the shared secret; everything after that is encrypted.
+3. The server sends its certificate with intermediates, a signature over the handshake made with its private key (CertificateVerify), and Finished.
+4. The client verifies the chain and signature, replies with Finished and immediately sends the HTTP request. One round trip instead of two in TLS 1.2.
+
+**Chain of trust**
+
+The site's certificate is signed by an intermediate CA, which is signed by a root from the OS or browser store. The client verifies the signatures up to the root, the validity period and that the host matches a name in the SAN.
+
+**Pitfalls**
+
+- Behind a proxy that terminates TLS the app sees `http`. Without forwarded headers `UseHttpsRedirection` loops and `UseHsts` stays silent: the header is only sent in HTTPS responses.
+- If no HTTPS port is found, the log says "Failed to determine the https port for redirect" and nothing is redirected. Set the port with `HttpsPort` or `ASPNETCORE_HTTPS_PORT`.
+- Under IIS, IIS itself decrypts TLS and the app sees `https` with no extra setup. Redirect and HSTS can be enabled in IIS too (IIS 10 version 1709 and later) — then don't duplicate them in code.
+
+**Takeaway:** TLS 1.3 gives encryption in one round trip, and the app's job is to learn the request's real scheme behind a proxy.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- TLS 1.3 key exchange is ephemeral only — (EC)DHE — and the certificate key just signs the handshake. A stolen private key can't decrypt traffic recorded earlier.
+- Kestrel encrypts through `SslStream`, which uses SChannel on Windows and OpenSSL on Linux. TLS 1.3 on Windows starts with Windows Server 2022.
+
+**Trade-offs**
+
+| Where to decrypt | Pro | Con |
+|---|---|---|
+| At the proxy | certificates in one place, app CPU freed up | traffic is unencrypted inside the network |
+| At the proxy and again to Kestrel | encryption along the whole path | a second certificate and handshake |
+| Only in Kestrel (L4 proxy) | the proxy never sees the traffic | no WAF or HTTP routing at the proxy |
+
+- **HSTS preload.** A `max-age` of at least a year, `includeSubDomains` and `preload` let you join the list built into browsers and protect even the first visit. Removal takes months, and any subdomain without HTTPS becomes unreachable.
+- **mTLS.** `ClientCertificateMode.RequireCertificate` in Kestrel plus `AddCertificate()` from the Microsoft.AspNetCore.Authentication.Certificate package. Behind a proxy the certificate is passed in a header and read with `UseCertificateForwarding`.
+- **Certificate lifetime.** Since March 15, 2026 public certificates are issued for at most 200 days, and from 2029 for 47. Rotation has to be automated: ACME, Key Vault.
+
+**How to check in production**
+
+- `kestrel.tls_handshake.duration` with the `tls.protocol.version` attribute shows handshake cost and the share of TLS 1.2.
+- `openssl s_client -connect host:443 -showcerts` shows whether the server sends its intermediate certificates.
+
+**Takeaway:** TLS in production is a set of infrastructure decisions: where to decrypt, how to rotate certificates and how irreversibly to enforce HSTS.
+
+</A>
+
+<Ex>
+
+```csharp
+using Microsoft.AspNetCore.Connections.Features;
+using Microsoft.AspNetCore.Server.Kestrel.Https;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// The certificate lives in configuration (Kestrel:Certificates:Default); protocols are left to the OS
+builder.WebHost.ConfigureKestrel(kestrel => kestrel.ConfigureHttpsDefaults(https =>
+    https.ClientCertificateMode = ClientCertificateMode.AllowCertificate)); // mTLS if the client wants it
+
+builder.Services.AddHsts(options =>
+{
+    options.MaxAge = TimeSpan.FromDays(365); // the default is 30 days
+    options.IncludeSubDomains = true;
+    options.Preload = true;                  // only once every subdomain is on HTTPS
+});
+builder.Services.AddHttpsRedirection(options =>
+{
+    options.RedirectStatusCode = StatusCodes.Status308PermanentRedirect; // the default is 307
+    options.HttpsPort = 443;
+});
+
+var app = builder.Build();
+
+if (!app.Environment.IsDevelopment())
+    app.UseHsts(); // Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
+app.UseHttpsRedirection();
+
+app.MapGet("/", (HttpContext ctx) =>
+    ctx.Features.Get<ITlsHandshakeFeature>()?.Protocol.ToString()); // "Tls13"
+
+app.Run();
+```
+
+```json
+{
+  "Kestrel": {
+    "Certificates": {
+      "Default": { "Path": "/certs/shop.crt", "KeyPath": "/certs/shop.key" }
+    }
+  }
+}
+```
+
+</Ex>
+
+<Next>
+
+- Why is TLS 1.3 faster than TLS 1.2? — A full handshake takes one round trip instead of two; resumption allows 0-RTT, but that data can be replayed.
+- What is forward secrecy? — Session keys come from a one-time Diffie-Hellman exchange, so stealing the certificate key doesn't expose past traffic.
+- Why doesn't HSTS protect the first visit? — The browser hasn't seen the header yet; only the preload list closes that gap.
+- Why shouldn't an API redirect to HTTPS? — The client has already sent the data and token over HTTP; an API should not listen on HTTP or should answer 400.
+- How do you set up mTLS between services? — Kestrel with `ClientCertificateMode.RequireCertificate` and `AddCertificate()`, or a service mesh that does mTLS for the app.
+
+</Next>
+
+<Src>
+
+- [Enforce HTTPS in ASP.NET Core](https://learn.microsoft.com/aspnet/core/security/enforcing-ssl)
+- [Configure endpoints for the ASP.NET Core Kestrel web server](https://learn.microsoft.com/aspnet/core/fundamentals/servers/kestrel/endpoints)
+- [RFC 8446: The Transport Layer Security (TLS) Protocol Version 1.3](https://www.rfc-editor.org/rfc/rfc8446)
+
+</Src>
+
+</Q>

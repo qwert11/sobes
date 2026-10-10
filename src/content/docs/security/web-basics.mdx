@@ -1,0 +1,861 @@
+---
+title: Основы веб-безопасности
+description: Аутентификация и авторизация, cookie и токены, OWASP Top 10, XSS и CORS, инъекции и хранение паролей, HTTPS, TLS и HSTS.
+sidebar:
+  order: 1
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+Как веб-приложение на ASP.NET Core узнаёт пользователя и решает, что ему можно, какие уязвимости встречаются чаще всего и какими приёмами и настройками их закрывают. С этих вопросов обычно начинают разговор о безопасности, прежде чем перейти к OAuth, JWT и корпоративному входу.
+
+**Перед этой темой:** [Хостинг и конвейер](/sobes/aspnet/hosting/).
+
+<Q id="security.web.authn-authz" level="j">
+
+## Чем аутентификация отличается от авторизации и как приложение «помнит» пользователя: сессия на cookie или токен?
+
+<A short l="j">
+
+<T k="authentication">Аутентификация</T> отвечает на вопрос «кто ты?», а <T k="authorization">авторизация</T> — «что тебе можно?»: без входа сервер отвечает 401, без прав — 403. Между запросами приложение узнаёт пользователя по <T k="authentication-cookie">cookie аутентификации</T>, которую браузер прикладывает сам, или по токену в заголовке `Authorization`.
+
+</A>
+
+<A short l="m">
+
+В ASP.NET Core пользователя по запросу определяет <T k="authentication-scheme">схема аутентификации</T> и кладёт его в `HttpContext.User` как `ClaimsPrincipal`. Авторизация при отказе вызывает у схемы Challenge — 401 или страницу входа — либо Forbid с кодом 403. Cookie подходит браузеру на своём домене, <T k="bearer-token">bearer-токен</T> — API и мобильным клиентам; цена cookie — защита от <T k="csrf">CSRF</T>, токена — хранение и отзыв.
+
+</A>
+
+<A short l="s">
+
+Аутентификация превращает учётные данные запроса в `ClaimsPrincipal`, а авторизация решает по нему и метаданным endpoint'а, поэтому `UseAuthorization` стоит после `UseRouting`. Cookie-схема ASP.NET Core не хранит сессию на сервере: в cookie лежит весь билет, зашифрованный Data Protection. Поэтому мгновенный отзыв требует проверки на каждом запросе или серверного хранилища билетов, то есть возвращает состояние. Токен тоже обходится без состояния, но в браузере лишён защиты `HttpOnly`, поэтому браузеру обычно дают cookie, а токены оставляют API и сервисам.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+- **Аутентификация** — проверка, кто пользователь: пароль, сертификат, учётная запись Windows.
+- **Авторизация** — проверка, что ему разрешено: роль, доступ к конкретному документу.
+
+**Как приложение помнит пользователя**
+
+HTTP не хранит состояние между запросами, поэтому после входа сервер выдаёт «пропуск»:
+
+- **cookie** — браузер сам прикладывает её к каждому запросу на этот сайт;
+- **токен** — клиент сам добавляет его в заголовок `Authorization: Bearer ...`.
+
+**Как пользоваться**
+
+1. Зарегистрируйте схему: `AddAuthentication().AddCookie()`.
+2. После проверки пароля вызовите `HttpContext.SignInAsync` — он выдаст cookie.
+3. Закройте endpoint атрибутом `[Authorize]` или вызовом `RequireAuthorization()`.
+
+**Частая ошибка**
+
+Путать коды ответа. 401 — «не знаю, кто ты, войди», 403 — «знаю, но нельзя».
+
+**Итог:** аутентификация определяет пользователя, авторизация — его права, а cookie или токен переносят результат входа между запросами.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+1. Схема — имя, обработчик и его настройки. `AddCookie`, `AddJwtBearer`, `AddNegotiate` регистрируют схемы; единственная схема становится схемой по умолчанию.
+2. `UseAuthentication` вызывает Authenticate у схемы по умолчанию и кладёт результат в `HttpContext.User`. Анонимный запрос он не отклоняет.
+3. `UseAuthorization` читает `[Authorize]` и политики endpoint'а. Не вошёл — Challenge, вошёл без прав — Forbid.
+
+**Как отвечают схемы**
+
+| Действие | Cookie | JWT Bearer |
+|---|---|---|
+| Challenge | 302 на страницу входа | 401 и `WWW-Authenticate: Bearer` |
+| Forbid | 302 на страницу «доступ запрещён» | 403 |
+
+**Когда что выбирать**
+
+- Cookie — серверный UI (MVC, Razor Pages, Blazor Server) и SPA на том же домене.
+- Bearer-токен — API для внешних, мобильных и серверных клиентов.
+
+**Ловушки**
+
+- С .NET 10 cookie-схема на API-endpoint'ах (`[ApiController]`, Minimal API с JSON, SignalR) отвечает 401 и 403 без редиректа. Раньше `fetch` получал после редиректа HTML страницы входа.
+- `WebApplication` сам добавляет `UseAuthentication` и `UseAuthorization` сразу после `UseRouting`. С `UseCors` их вызывают явно, после него.
+- Сама аутентификация ничего не закрывает: без `[Authorize]` или общей политики endpoint открыт.
+
+**Итог:** схема определяет пользователя и форму отказа, а авторизация решает, когда отказать.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- Cookie-схема сериализует `AuthenticationTicket` — claims и свойства, — шифрует его через Data Protection и пишет в cookie `.AspNetCore.Cookies`. Сервер ничего не хранит.
+- По умолчанию cookie `HttpOnly`, `SameSite=Lax` и живёт 14 дней со скользящим продлением. Большая cookie делится на части, но всё равно уходит в каждом запросе.
+- Узлы фермы должны делить ключи Data Protection, иначе cookie одного узла не расшифруется на другом.
+
+**Компромиссы**
+
+| Свойство | Cookie | Bearer-токен |
+|---|---|---|
+| Кто отправляет | браузер сам | код клиента |
+| Главный риск | CSRF | кража скриптом на странице |
+| Отзыв до истечения | проверка при запросе или `ITicketStore` | короткий срок жизни и refresh-токен |
+
+- Заблокированный пользователь работает, пока жива его cookie. Identity закрывает это проверкой метки безопасности (`SecurityStampValidator`, по умолчанию раз в 30 минут), своя схема — событием `OnValidatePrincipal`.
+- `ITicketStore` переносит билет на сервер: cookie короткая, отзыв мгновенный, но появляются состояние и поход в хранилище на каждый запрос.
+- SPA без токенов в браузере — паттерн BFF, подробно — в теме [OAuth 2.0 и OpenID Connect](/sobes/security/oauth-oidc/).
+
+**Как проверить в проде**
+
+- Метрики .NET 10 `aspnetcore.authentication.challenges`, `aspnetcore.authentication.forbids` и `aspnetcore.authorization.attempts` показывают отказы по схемам и политикам.
+- Массовый выход пользователей после деплоя — признак того, что ключи Data Protection у узлов разные.
+
+**Итог:** cookie и токен — пропуск без серверного состояния, и мгновенный отзыв всегда стоит либо состояния, либо короткого срока жизни.
+
+</A>
+
+<Ex>
+
+```csharp
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// Единственная схема становится схемой по умолчанию
+builder.Services.AddAuthentication().AddCookie();
+builder.Services.AddAuthorization();
+
+var app = builder.Build();
+
+app.UseAuthentication(); // заполняет HttpContext.User
+app.UseAuthorization();  // проверяет требования endpoint'а
+
+app.MapPost("/login", async (HttpContext ctx) =>
+{
+    // Пароль уже проверен: выдаём cookie с зашифрованным билетом
+    var identity = new ClaimsIdentity(
+        [new Claim(ClaimTypes.Name, "alice")], CookieAuthenticationDefaults.AuthenticationScheme);
+    await ctx.SignInAsync(new ClaimsPrincipal(identity));
+});
+
+app.MapGet("/me", (ClaimsPrincipal user) => new { name = user.Identity!.Name })
+    .RequireAuthorization();                             // без cookie — 401, а не редирект (.NET 10)
+app.MapGet("/admin", () => new { secret = 42 })
+    .RequireAuthorization(p => p.RequireRole("Admin")); // alice без роли Admin — 403
+
+app.Run();
+```
+
+</Ex>
+
+<Next>
+
+- Что получит анонимный пользователь на защищённом endpoint'е? — Решает схема: JWT — 401 с `WWW-Authenticate`, cookie — редирект на вход, а на API-endpoint'ах с .NET 10 — 401.
+- Где хранится сессия при cookie-аутентификации? — Нигде: зашифрованный билет лежит в самой cookie; серверное хранение — через `ITicketStore`.
+- Как разлогинить пользователя на всех устройствах? — Сменить метку безопасности, которую проверяет `SecurityStampValidator`, или хранить билеты на сервере.
+- Чем `AddSession` отличается от cookie-аутентификации? — Сессия хранит данные на сервере по идентификатору в cookie и не подтверждает личность.
+- Зачем несколько схем в одном приложении? — Например, cookie для UI и JWT для API; политика или `[Authorize(AuthenticationSchemes = ...)]` выбирает нужную.
+
+</Next>
+
+<Src>
+
+- [Overview of ASP.NET Core authentication](https://learn.microsoft.com/aspnet/core/security/authentication/)
+- [Use cookie authentication without ASP.NET Core Identity](https://learn.microsoft.com/aspnet/core/security/authentication/cookie)
+- [Cookie login redirects disabled for known API endpoints (.NET 10)](https://learn.microsoft.com/aspnet/core/breaking-changes/10/cookie-authentication-api-endpoints)
+
+</Src>
+
+</Q>
+
+<Q id="security.web.owasp" level="j">
+
+## Что такое OWASP Top 10 и какие уязвимости в нём главные?
+
+<A short l="j">
+
+<T k="owasp-top-10">OWASP Top 10</T> — список десяти главных категорий рисков веб-приложений от сообщества OWASP; текущая редакция — 2025 года. Первое место в нём занимает <T k="broken-access-control">нарушение контроля доступа</T>, а не инъекции, поэтому проверку прав на ресурс смотрят в первую очередь.
+
+</A>
+
+<A short l="m">
+
+Top 10 собирают по данным о найденных уязвимостях и опросу практиков: восемь категорий — из данных, две — из опроса. В редакции 2025 года <T k="ssrf">SSRF</T> вошёл в контроль доступа, <T k="xss">XSS</T> остаётся частью инъекций, а новые категории — <T k="software-supply-chain">цепочка поставок</T> и обработка исключительных ситуаций. Инъекции в .NET в основном закрыты умолчаниями — параметрами EF Core и кодированием Razor, — а доступ, конфигурацию и зависимости проверяют сами.
+
+</A>
+
+<A short l="s">
+
+Top 10 — документ для осведомлённости и приоритетов, а не стандарт: для проверяемых требований OWASP советует ASVS. Сдвиг 2025 года — от ошибок в коде к процессу: конфигурация поднялась на второе место, цепочка поставок — на третье. Фреймворк убирает целые классы уязвимостей, но не знает, кому принадлежит заказ, поэтому <T k="idor">IDOR</T>, политика по умолчанию и аудит пакетов остаются на команде. Цена — регулярная работа: тесты доступа, `NuGetAudit` в CI и ревью настроек окружений.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+OWASP (Open Worldwide Application Security Project) — открытое сообщество по безопасности приложений. Top 10 — его рейтинг главных рисков веб-приложений, который обновляется раз в несколько лет: 2017, 2021, 2025.
+
+**Первая пятёрка 2025 года**
+
+1. **A01 Broken Access Control** — пользователь получает чужие данные или функции.
+2. **A02 Security Misconfiguration** — опасные настройки: подробные ошибки в проде, открытые служебные endpoint'ы.
+3. **A03 Software Supply Chain Failures** — уязвимые или подменённые пакеты и сборка.
+4. **A04 Cryptographic Failures** — данные без шифрования, слабые алгоритмы.
+5. **A05 Injection** — SQL-инъекции, XSS, командные инъекции.
+
+**Частая ошибка**
+
+Считать, что фреймворк защищает от всего. ORM закрывает SQL-инъекции, но не проверит, что заказ принадлежит текущему пользователю.
+
+**Итог:** Top 10 — карта самых частых рисков, и первым в ней стоит контроль доступа.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+Категория — группа слабостей из каталога CWE. Место зависит от частоты и тяжести в данных тестирования, а две категории добавляет опрос практиков.
+
+**Риск — пример — защита в .NET**
+
+| Риск | Пример | Защита в .NET |
+|---|---|---|
+| A01 Контроль доступа | `GET /orders/43` отдаёт чужой заказ | проверка владельца, `[Authorize]`, `FallbackPolicy` |
+| A02 Конфигурация | страница исключений разработчика в проде | `UseExceptionHandler`, проверка окружения |
+| A03 Цепочка поставок | пакет с известной CVE | `NuGetAudit`, lock-файл, Package Source Mapping |
+| A04 Криптография | пароль в SHA-256, сайт по HTTP | `PasswordHasher`, HTTPS и HSTS, Data Protection |
+| A05 Инъекции | SQL из конкатенации строк | параметры, `FromSql`, кодирование Razor |
+| A06 Небезопасный дизайн | сброс пароля без лимита попыток | моделирование угроз, rate limiting |
+| A07 Аутентификация | перебор паролей | блокировка в Identity, MFA |
+| A08 Целостность | `BinaryFormatter`, неподписанные обновления | `System.Text.Json`, подпись артефактов |
+| A09 Журналирование | неудачный вход не попадает в лог | события безопасности в логах и алерты |
+| A10 Исключительные ситуации | сбой проверки прав пропускает запрос | отказ при сбое (fail closed), ответ без деталей |
+
+**Ловушки**
+
+- В редакции 2021 года SSRF был отдельной A10, а уязвимые компоненты — A06. Номера в старых отчётах не совпадают с 2025.
+- `[Authorize]` проверяет, что пользователь вошёл, но не что ресурс его. A01 закрывается проверкой в коде.
+
+**Итог:** почти у каждой категории есть защита во фреймворке, но контроль доступа и дизайн закрываются только своим кодом.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- 2025 — восьмая редакция. Восемь категорий выбраны по данным, две — опросом, чтобы учесть риски, которые данные ещё не видят.
+- Категории стали шире и ближе к первопричине. Цепочка поставок охватывает не только известные CVE, но и CI/CD, а A10 — отказ «в открытую сторону» и утечку деталей ошибок.
+
+**Компромиссы**
+
+- Top 10 — документ осведомлённости. Для требований и приёмки OWASP предлагает ASVS, для тестирования — WSTG.
+- Инъекции опустились в рейтинге во многом благодаря ORM и шаблонизаторам. Остаётся то, чего фреймворк знать не может: владелец ресурса и допустимые действия.
+- С .NET 10 `NuGetAudit` по умолчанию проверяет и транзитивные пакеты. Новые предупреждения могут ломать сборку с `TreatWarningsAsErrors` — их разбирают, а не глушат.
+- `FallbackPolicy` с `RequireAuthenticatedUser()` закрывает всё по умолчанию: забытый `[Authorize]` перестаёт быть дырой, а открытые endpoint'ы помечают `[AllowAnonymous]` явно.
+
+**Как проверить в проде**
+
+- В CI — анализаторы безопасности Roslyn (`CA2100`, `CA5350`, `CA5351`) и `dotnet list package --vulnerable --include-transitive`; на стенде — DAST, например ZAP.
+- Всплески 403 и 404 на переборе идентификаторов в логах — признак поиска IDOR.
+
+**Итог:** Top 10 задаёт приоритеты, а не полноту: фреймворк закрывает инъекции, а доступ, конфигурация и зависимости остаются процессом команды.
+
+</A>
+
+<Ex>
+
+```csharp
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddAuthentication().AddCookie();
+// Всё закрыто по умолчанию: открытые endpoint'ы помечают AllowAnonymous
+builder.Services.AddAuthorizationBuilder()
+    .SetFallbackPolicy(new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
+builder.Services.AddSingleton<OrderStore>();
+
+var app = builder.Build();
+
+app.MapGet("/orders/{id:int}", (int id, ClaimsPrincipal user, OrderStore store) =>
+{
+    var order = store.Find(id);
+    // A01: вход проверила политика, владельца проверяем сами
+    return order is not null && order.OwnerId == user.Identity?.Name
+        ? Results.Ok(order)
+        : Results.NotFound(); // 404, а не 403: не подтверждаем, что чужой заказ есть
+});
+
+app.Run();
+
+public record Order(int Id, string OwnerId, decimal Total);
+
+public class OrderStore
+{
+    private readonly Dictionary<int, Order> _orders = new() { [42] = new(42, "alice", 100m) };
+    public Order? Find(int id) => _orders.GetValueOrDefault(id);
+}
+```
+
+</Ex>
+
+<Next>
+
+- Что изменилось в редакции 2025 года по сравнению с 2021? — SSRF вошёл в A01, появились цепочка поставок (A03) и обработка исключительных ситуаций (A10), конфигурация поднялась на второе место.
+- Почему XSS относится к инъекциям? — Данные пользователя попадают в HTML или JavaScript и становятся кодом; с 2021 года XSS входит в Injection.
+- Что такое IDOR и как его найти? — Доступ к чужому объекту подменой id; ищут тестами «пользователь A запрашивает ресурс пользователя B».
+- Чем Top 10 отличается от ASVS? — Top 10 — рейтинг рисков для осведомлённости, ASVS — проверяемый список требований по уровням.
+- Как в .NET следить за уязвимыми пакетами? — `NuGetAudit` при restore и `dotnet list package --vulnerable --include-transitive`.
+
+</Next>
+
+<Src>
+
+- [OWASP Top 10:2025](https://top10.owasp.org/2025/)
+- [ASP.NET Core security topics](https://learn.microsoft.com/aspnet/core/security/)
+- [Auditing package dependencies for security vulnerabilities](https://learn.microsoft.com/nuget/concepts/auditing-packages)
+
+</Src>
+
+</Q>
+
+<Q id="security.web.xss-cors" level="m">
+
+## Как работают XSS и CORS и как от них защищаться?
+
+<A short l="j">
+
+XSS — атака, при которой чужой скрипт попадает на вашу страницу и выполняется в браузере пользователя; от неё защищает кодирование вывода, которое Razor делает сам. <T k="cors">CORS</T> — способ, которым сервер разрешает скрипту с другого сайта читать свои ответы: без этого браузер их скрипту не отдаёт.
+
+</A>
+
+<A short l="m">
+
+XSS бывает хранимым, отражённым и DOM-based; главная защита — кодирование по контексту, а <T k="content-security-policy">CSP</T> и `HttpOnly` уменьшают ущерб от пропусков. CORS ослабляет <T k="same-origin-policy">same-origin policy</T>: заголовки `Access-Control-Allow-*` говорят браузеру, каким источникам отдать ответ, а «непростые» запросы предваряет <T k="preflight-request">preflight</T>. Сервер CORS не защищает: простой межсайтовый запрос дойдёт и выполнится, поэтому от CSRF спасают antiforgery-токены и <T k="samesite-cookie">`SameSite`</T>.
+
+</A>
+
+<A short l="s">
+
+Обе темы — про границу источника (origin) в браузере. XSS обходит её изнутри: скрипт атакующего работает от имени вашего origin и может всё, что может ваш JavaScript, включая чтение токенов из `localStorage`. CORS — контролируемая дыра в этой границе: `Access-Control-Allow-Credentials: true` с отражённым `Origin` отдаёт данные пользователя любому сайту. Поэтому строгий `script-src` в CSP и точный список origin'ов — эшелонированная защита, а не замена кодированию и проверкам на сервере.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+- **XSS** (межсайтовый скриптинг) — злоумышленник оставляет в комментарии `<script>...</script>`, а сайт показывает комментарий без кодирования. Скрипт выполняется у каждого читателя и действует от его имени.
+- **CORS** — разрешение от сервера. Скрипт с `https://shop.example` прочитает ответ `https://api.example`, только если API вернёт подходящий `Access-Control-Allow-Origin`.
+
+**Как пользоваться**
+
+- Выводите данные в Razor через `@`: он превращает `<` в `&lt;`. `Html.Raw` с данными пользователя не используйте.
+- Ставьте cookie флаги `HttpOnly` и `Secure`.
+- В API разрешайте CORS только своим фронтендам: `policy.WithOrigins("https://shop.example")`.
+
+**Частая ошибка**
+
+Считать CORS защитой API. Он ограничивает только браузер, а `curl` или сервер злоумышленника вызывают API без всякого CORS.
+
+**Итог:** от XSS защищает кодирование вывода, а CORS лишь разрешает браузеру отдавать ответы чужим сайтам.
+
+</A>
+
+<A l="m">
+
+**Как устроено: XSS**
+
+| Вид | Откуда берётся скрипт |
+|---|---|
+| Хранимый | из базы: комментарий, имя в профиле |
+| Отражённый | из запроса: параметр `?q=` попадает в ответ |
+| DOM-based | JavaScript страницы сам вставляет данные через `innerHTML` |
+
+Кодирование зависит от контекста: HTML — `HtmlEncoder`, JavaScript — `JavaScriptEncoder`, URL — `UrlEncoder`. Данные для скрипта надёжнее положить в атрибут `data-*` и прочитать через `dataset`.
+
+**Как устроено: CORS**
+
+1. Браузер добавляет к межсайтовому запросу заголовок `Origin`.
+2. Простой запрос — `GET`, `HEAD` или `POST` с формой или `text/plain` — уходит сразу. Браузер лишь решает, отдать ли ответ скрипту.
+3. Остальные — `PUT`, `DELETE`, `application/json`, свои заголовки — сначала идут preflight-запросом `OPTIONS`. Без разрешения основной запрос не отправляется.
+
+**Ловушки**
+
+- `AllowAnyOrigin()` вместе с `AllowCredentials()` ASP.NET Core запрещает исключением. `SetIsOriginAllowed(_ => true)` этот запрет обходит и открывает API с cookie любому сайту.
+- `UseCors` ставят после `UseRouting` и до аутентификации и авторизации: preflight приходит без учётных данных.
+- CORS не мешает CSRF: форма с чужого сайта — простой запрос. Antiforgery разобран в теме [MVC, Razor и SignalR](/sobes/aspnet/mvc-signalr/).
+
+**Итог:** XSS закрывают кодированием по контексту, а CORS — настройка браузерного доступа, которая сервер не защищает.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- Razor кодирует `@` по правилам HTML-атрибута: они строже HTML и подходят обоим контекстам. Кодировщики по умолчанию пропускают только Basic Latin, поэтому кириллица в разметке становится `&#x...;`, пока не расширить `HtmlEncoder` через `UnicodeRanges`.
+- `HtmlString`, `Html.Raw` и `MarkupString` в Blazor отключают кодирование. Пользовательский HTML пропускают через санитайзер, например HtmlSanitizer, или принимают Markdown без HTML.
+
+**Эшелонированная защита**
+
+- **CSP.** `script-src 'nonce-...' 'strict-dynamic'`, `object-src 'none'` и `base-uri 'none'` не дают выполниться внедрённому inline-скрипту. Встроенного middleware для CSP нет: заголовок ставят своим middleware или пакетом NetEscapades.AspNetCore.SecurityHeaders. Сначала включают `Content-Security-Policy-Report-Only`, чтобы собрать нарушения.
+- **Cookie.** `HttpOnly` скрывает cookie от `document.cookie`, `Secure` не пускает её в HTTP. Префикс `__Host-` требует `Secure` и `Path=/` и запрещает `Domain`, поэтому поддомен её не перезапишет.
+
+**Компромиссы**
+
+- Токен в `localStorage` удобен SPA, но при XSS сразу утекает. Cookie с `HttpOnly` скрипт не прочитает, но отправит запросы от имени пользователя, пока открыта страница.
+- `SetPreflightMaxAge` кеширует preflight и убирает лишний round trip. Браузеры ограничивают срок сверху: Chromium — двумя часами.
+
+**Как проверить в проде**
+
+- Отчёты CSP показывают и попытки атак, и сломанные легитимные скрипты.
+- DAST-сканер проверяет CSP, флаги cookie и ответ API на чужой `Origin`.
+
+**Итог:** кодирование — основная защита от XSS, CSP и флаги cookie ограничивают ущерб, а CORS настраивают точным списком источников.
+
+</A>
+
+<Ex>
+
+```csharp
+using Microsoft.AspNetCore.CookiePolicy;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddCors(options => options.AddPolicy("spa", policy => policy
+    .WithOrigins("https://shop.example")   // точный список, не "*"
+    .WithMethods("GET", "POST")
+    .WithHeaders("Content-Type")
+    .AllowCredentials()                    // вместе с AllowAnyOrigin() — InvalidOperationException
+    .SetPreflightMaxAge(TimeSpan.FromMinutes(10))));
+
+var app = builder.Build();
+
+app.Use(async (context, next) =>
+{
+    // Скрипты только со своего origin, inline-скрипты запрещены
+    context.Response.Headers.ContentSecurityPolicy =
+        "default-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
+    await next();
+});
+app.UseCookiePolicy(new CookiePolicyOptions
+{
+    HttpOnly = HttpOnlyPolicy.Always,      // document.cookie их не увидит
+    Secure = CookieSecurePolicy.Always,    // только по HTTPS
+    MinimumSameSitePolicy = SameSiteMode.Lax
+});
+app.UseRouting();
+app.UseCors();
+
+app.MapPost("/api/cart", () => new { items = 3 }).RequireCors("spa");
+
+app.Run();
+```
+
+```http
+OPTIONS /api/cart HTTP/1.1
+Origin: https://shop.example
+Access-Control-Request-Method: POST
+Access-Control-Request-Headers: content-type
+
+HTTP/1.1 204 No Content
+Access-Control-Allow-Origin: https://shop.example
+Access-Control-Allow-Credentials: true
+Access-Control-Allow-Methods: GET,POST
+Access-Control-Allow-Headers: Content-Type
+Access-Control-Max-Age: 600
+```
+
+Если `Origin` не из списка, сервер тоже ответит 204, но без заголовков `Access-Control-Allow-*`, и браузер не отправит основной запрос.
+
+</Ex>
+
+<Next>
+
+- Чем хранимый XSS отличается от DOM-based? — Хранимый приходит с сервера из базы, DOM-based создаёт сам JavaScript страницы через `innerHTML` или `eval`; серверное кодирование от второго не спасает.
+- Защищает ли `HttpOnly` от XSS? — Нет, он только прячет cookie от скрипта; запросы от имени пользователя скрипт всё равно отправит.
+- Когда браузер шлёт preflight? — Для методов кроме `GET`, `HEAD` и `POST`, для `Content-Type` вроде `application/json` и для своих заголовков.
+- Почему нельзя `*` вместе с credentials? — Иначе любой сайт читал бы ответы с cookie пользователя; спецификация и ASP.NET Core это запрещают.
+- Защищает ли CORS от CSRF? — Нет, простой межсайтовый POST выполняется; нужны antiforgery-токены и `SameSite`.
+
+</Next>
+
+<Src>
+
+- [Prevent Cross-Site Scripting (XSS) in ASP.NET Core](https://learn.microsoft.com/aspnet/core/security/cross-site-scripting)
+- [Enable Cross-Origin Requests (CORS) in ASP.NET Core](https://learn.microsoft.com/aspnet/core/security/cors)
+- [Content Security Policy Cheat Sheet — OWASP](https://cheatsheetseries.owasp.org/cheatsheets/Content_Security_Policy_Cheat_Sheet.html)
+
+</Src>
+
+</Q>
+
+<Q id="security.web.injection-passwords" level="m">
+
+## Как защититься от инъекций и как правильно хранить пароли и секреты?
+
+<A short l="j">
+
+Инъекция — данные пользователя, вклеенные в SQL или команду ОС, меняют её смысл, как в <T k="sql-injection">SQL-инъекции</T>; защита — передавать значения параметрами. Пароли не хранят ни открыто, ни зашифрованными: хранят медленный <T k="password-hashing">хеш</T> с <T k="password-salt">солью</T>, и в ASP.NET Core это делает `PasswordHasher` из Identity.
+
+</A>
+
+<A short l="m">
+
+Общее правило против инъекций — не смешивать код и данные: параметры в SQL, `ArgumentList` вместо командной строки, белые списки для имён колонок и путей. Пароль хешируют медленной функцией — PBKDF2, bcrypt или Argon2 — с уникальной солью, потому что SHA-256 видеокарта перебирает миллиардами в секунду. Секреты держат вне кода и репозитория, а свои чувствительные данные шифруют через <T k="data-protection">Data Protection</T>, которая сама ведёт ключи.
+
+</A>
+
+<A short l="s">
+
+Инъекция — смешение кода и данных, и надёжно её закрывает только структурное разделение, а не экранирование: параметры, процессы без оболочки, сериализаторы без произвольных типов. `PasswordHasher` в .NET 10 — PBKDF2-HMAC-SHA512 со 100 000 итераций, а OWASP советует 220 000; число итераций хранится в хеше, поэтому его поднимают без сброса паролей. Цена медленного хеша — CPU на каждый вход, и форма логина без ограничений становится точкой DoS. Data Protection подходит для данных, которые приложение потом расшифрует, но её ключи нельзя удалять, пока живут данные.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+- **SQL-инъекция.** Запрос собран конкатенацией, а пользователь вводит в поле логина `' OR 1=1 --`. Условие становится всегда истинным, проверка пароля пропускается.
+- **Хеш пароля** — необратимое преобразование. При входе хешируют введённый пароль и сравнивают хеши.
+
+**Как пользоваться**
+
+- В EF Core пишите LINQ или `FromSql($"... {name}")`: интерполяция превращается в параметр.
+- В Dapper передавайте `new { name }`, в ADO.NET — `SqlParameter`.
+- Пароли храните через ASP.NET Core Identity или `PasswordHasher<TUser>`.
+- Строки подключения и ключи API — в User Secrets локально и в хранилище секретов на сервере, подробно — в теме [Конфигурация и логирование](/sobes/aspnet/config-logging/).
+
+**Частая ошибка**
+
+Хранить `SHA256(password)`. Хеш быстрый и без соли: одинаковые пароли дают одинаковые хеши, а словарь перебирается за минуты.
+
+**Итог:** данные передают параметрами, пароли хранят медленным хешем с солью, секреты — вне кода.
+
+</A>
+
+<A l="m">
+
+**Как устроено: инъекции**
+
+| Где | Опасно | Безопасно |
+|---|---|---|
+| EF Core | `FromSqlRaw("..." + name)` | LINQ, `FromSql($"...{name}")` |
+| Dapper, ADO.NET | конкатенация в тексте команды | параметры `@name` |
+| Процессы | `cmd.exe /c` со строкой от пользователя | `ArgumentList` без оболочки |
+| Файлы | `Path.Combine(root, userPath)` | `Path.GetFullPath` и проверка, что путь внутри `root` |
+
+<T k="command-injection">Командная инъекция</T> — тот же приём для оболочки: `&` или `;` в данных добавляют свою команду. Имена таблиц и колонок параметром не передать — их выбирают из белого списка.
+
+**Как устроено: пароли**
+
+1. Для каждого пользователя генерируется случайная соль. Одинаковые пароли дают разные хеши, и заранее посчитанные таблицы бесполезны.
+2. Медленная функция (KDF) прогоняет пароль с солью десятки и сотни тысяч раз.
+3. В базу пишут алгоритм, параметры, соль и хеш одной строкой.
+4. При входе хеш пересчитывается с сохранёнными параметрами и сравнивается за постоянное время.
+
+**Ловушки**
+
+- `Path.Combine` отбрасывает `root`, если пользователь передал абсолютный путь.
+- Шифровать пароли вместо хеширования: утечёт ключ — утекут все пароли.
+
+**Итог:** код и данные разделяют параметрами и белыми списками, а пароль превращают в медленный хеш с солью.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- `PasswordHasher` формата V3 с .NET 7: PBKDF2-HMAC-SHA512, соль 128 бит, хеш 256 бит, 100 000 итераций. Число итераций лежит в самом хеше, поэтому `PasswordHasherOptions.IterationCount` можно поднять: старые хеши дают `SuccessRehashNeeded`, и `UserManager` пересчитывает их при входе.
+- OWASP советует Argon2id (19 МиБ памяти, 2 итерации), scrypt, bcrypt (cost от 10) или PBKDF2-HMAC-SHA512 с 220 000 итераций. Argon2 и bcrypt в .NET — сторонние пакеты; bcrypt учитывает только первые 72 байта пароля.
+- Для своего PBKDF2 в .NET 10 остаётся статический `Rfc2898DeriveBytes.Pbkdf2`: конструкторы класса устарели (SYSLIB0060).
+
+**Компромиссы**
+
+- Медленный хеш — намеренная нагрузка на CPU при каждом входе. Без rate limiting и блокировки учётных записей форма входа становится точкой DoS.
+- <T k="insecure-deserialization">Небезопасная десериализация</T>: `BinaryFormatter` в .NET 9+ всегда бросает `PlatformNotSupportedException`, а Newtonsoft.Json с `TypeNameHandling.Auto` или `All` даёт атакующему выбрать тип. `System.Text.Json` создаёт только объявленные типы, полиморфизм — по белому списку `[JsonDerivedType]`.
+- Data Protection меняет ключ каждые 90 дней и хранит старые для расшифровки. Удалённый ключ — потерянные данные, а для бессрочного хранения Microsoft советует средства со строгим управлением ключами.
+
+**Как проверить в проде**
+
+- Хеши Identity с префиксом `AQAAAAEAACcQ` — старый формат (SHA-256, 10 000 итераций), `AQAAAAIAAYag` — текущий. Доля старых показывает, сколько пользователей не входили после обновления.
+- Анализаторы `CA2100`, `CA3001`, `CA3006` и `CA2326` в CI ловят SQL из строк, инъекции и опасный `TypeNameHandling`.
+
+**Итог:** инъекции закрывает структурное разделение кода и данных, а хеш пароля несёт свои параметры, которые повышают со временем.
+
+</A>
+
+<Ex>
+
+```csharp
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.Options;
+
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddDataProtection().SetApplicationName("shop"); // одно имя на всех узлах фермы
+var app = builder.Build();
+
+// По умолчанию 100 000 итераций; OWASP для PBKDF2-HMAC-SHA512 советует 220 000
+var hasher = new PasswordHasher<User>(
+    Options.Create(new PasswordHasherOptions { IterationCount = 220_000 }));
+var user = new User("alice");
+var hash = hasher.HashPassword(user, "P@ssw0rd"); // AQAAAAIAA1tg...: формат, итерации, соль, хеш
+Console.WriteLine(hasher.VerifyHashedPassword(user, hash, "P@ssw0rd")); // Success
+Console.WriteLine(hasher.VerifyHashedPassword(user, hash, "wrong"));    // Failed
+
+// Data Protection: обратимое шифрование, ключами управляет фреймворк
+var protector = app.Services.GetRequiredService<IDataProtectionProvider>()
+    .CreateProtector("Shop.PassportNumber.v1"); // purpose изолирует данные разных задач
+var stored = protector.Protect("AB123456");
+Console.WriteLine(protector.Unprotect(stored)); // AB123456
+
+app.Run();
+
+public record User(string Name);
+```
+
+</Ex>
+
+<Ex title="Инъекции: SQL и запуск процесса">
+
+```csharp
+// NuGet: Dapper, Microsoft.Data.SqlClient
+using System.Diagnostics;
+using System.Net;
+using Dapper;
+using Microsoft.Data.SqlClient;
+
+var builder = WebApplication.CreateBuilder(args);
+var app = builder.Build();
+
+app.MapGet("/users", async (string name, IConfiguration config) =>
+{
+    await using var db = new SqlConnection(config.GetConnectionString("Main"));
+    // Опасно: "... WHERE Name = '" + name + "'" — при name = "' OR 1=1 --" вернёт всех
+    // Безопасно: значение уходит параметром @name и не становится частью SQL
+    return await db.QueryAsync<UserRow>("SELECT Id, Name FROM Users WHERE Name = @name", new { name });
+});
+
+app.MapPost("/ping", (string host) =>
+{
+    // Белый список формата: только IP-адрес, никаких "-n 1000" и "& del *"
+    if (!IPAddress.TryParse(host, out _)) return Results.BadRequest();
+    // Без оболочки: host уходит одним аргументом, & и ; ничего не значат
+    var psi = new ProcessStartInfo("ping") { UseShellExecute = false };
+    psi.ArgumentList.Add(host);
+    using var process = Process.Start(psi);
+    return Results.Accepted();
+});
+
+app.Run();
+
+public record UserRow(int Id, string Name);
+```
+
+</Ex>
+
+<Next>
+
+- Защищает ли EF Core от SQL-инъекций полностью? — LINQ и `FromSql` с интерполяцией — да; `FromSqlRaw` и `ExecuteSqlRaw` с конкатенацией — нет.
+- Почему не SHA-256 с солью? — Соль убивает заранее посчитанные таблицы, но не скорость: видеокарта перебирает миллиарды SHA-256 в секунду.
+- Как перейти на более стойкий хеш без сброса паролей? — Хранить версию и параметры в хеше и пересчитывать при успешном входе, как `SuccessRehashNeeded` в Identity.
+- Что такое перец (pepper)? — Общий секрет вне базы, который добавляют к паролю; утечка одной базы без него не даёт перебора.
+- Чем Data Protection отличается от хеширования? — Шифрование обратимо и нужно для данных, которые придётся прочитать; пароль читать не нужно, его хешируют.
+
+</Next>
+
+<Src>
+
+- [Hash passwords in ASP.NET Core](https://learn.microsoft.com/aspnet/core/security/data-protection/consumer-apis/password-hashing)
+- [Password Storage Cheat Sheet — OWASP](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)
+- [SQL queries — EF Core](https://learn.microsoft.com/ef/core/querying/sql-queries)
+
+</Src>
+
+</Q>
+
+<Q id="security.web.https-tls" level="s">
+
+## Как работают HTTPS и TLS и что настроить в продакшене?
+
+<A short l="j">
+
+HTTPS — это HTTP поверх <T k="tls">TLS</T>: протокол шифрует трафик и по сертификату подтверждает, что вы говорите с настоящим сервером. В ASP.NET Core `UseHttpsRedirection` переводит запросы с HTTP на HTTPS, а `UseHsts` велит браузеру больше не ходить на сайт по HTTP.
+
+</A>
+
+<A short l="m">
+
+При рукопожатии TLS 1.3 клиент и сервер за один round trip выбирают шифр и вырабатывают общий ключ, а сервер подписывает рукопожатие ключом сертификата. Клиент проверяет <T k="certificate-chain">цепочку сертификатов</T> до доверенного корня, срок действия и имя хоста. В проде к этому добавляют <T k="hsts">HSTS</T>, редирект на HTTPS и передачу схемы от прокси, иначе редирект зацикливается.
+
+</A>
+
+<A short l="s">
+
+TLS 1.3 убрал статический RSA-обмен, поэтому у каждого соединения есть <T k="forward-secrecy">forward secrecy</T>, а полное рукопожатие занимает один round trip. Решения в проде — где <T k="tls-termination">терминировать TLS</T>, как автоматически ротировать сертификаты и насколько жёстко включать HSTS: preload почти необратим. При терминации на прокси внутренний участок идёт открытым, поэтому чувствительные зоны шифруют повторно или переводят на <T k="mtls">mTLS</T>. Версии и шифры лучше оставить ОС: .NET берёт её настройки, и на Windows Server 2019 TLS 1.3 не будет.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+- **TLS** — протокол поверх TCP: шифрует данные, защищает их от подмены и подтверждает подлинность сервера.
+- **Сертификат** — открытый ключ сервера и его доменное имя, подписанные центром сертификации (CA), которому доверяет браузер.
+
+**Зачем**
+
+Без HTTPS пароль, cookie и токен идут открытым текстом. Их читает и подменяет любой узел по пути, например публичный Wi-Fi.
+
+**Как пользоваться**
+
+1. `app.UseHttpsRedirection()` отвечает на HTTP-запрос редиректом на HTTPS.
+2. `app.UseHsts()` вне Development добавляет заголовок `Strict-Transport-Security`, и браузер запоминает, что сайт работает только по HTTPS.
+3. Сертификат разработчика ставит `dotnet dev-certs https --trust`.
+
+**Частая ошибка**
+
+Ограничиться редиректом без HSTS. Первый запрос по HTTP перехватывают и не дают перейти на HTTPS — это SSL stripping.
+
+**Итог:** TLS шифрует и подтверждает сервер, редирект ведёт на HTTPS, а HSTS запрещает браузеру возвращаться на HTTP.
+
+</A>
+
+<A l="m">
+
+**Как устроено: рукопожатие TLS 1.3**
+
+1. **ClientHello**: версии, шифры, ключевая доля (key share) для обмена Диффи — Хеллмана и имя сайта (SNI).
+2. **ServerHello**: выбранный шифр и ключевая доля сервера. Обе стороны вычисляют общий секрет, дальше всё зашифровано.
+3. Сервер отправляет сертификат с промежуточными, подпись рукопожатия закрытым ключом (CertificateVerify) и Finished.
+4. Клиент проверяет цепочку и подпись, отвечает Finished и сразу шлёт HTTP-запрос. Один round trip вместо двух у TLS 1.2.
+
+**Цепочка доверия**
+
+Сертификат сайта подписан промежуточным CA, тот — корневым из хранилища ОС или браузера. Клиент проверяет подписи до корня, срок действия и совпадение хоста с именами в SAN.
+
+**Ловушки**
+
+- За прокси с терминацией TLS приложение видит `http`. Без forwarded headers `UseHttpsRedirection` зацикливается, а `UseHsts` молчит: заголовок отправляется только в HTTPS-ответах.
+- Не найден HTTPS-порт — в логе «Failed to determine the https port for redirect», редиректа нет. Порт задают `HttpsPort` или `ASPNETCORE_HTTPS_PORT`.
+- В IIS TLS расшифровывает сам IIS, и приложение видит `https` без настройки. Редирект и HSTS можно включить и в IIS (с IIS 10 версии 1709) — тогда их не дублируют в коде.
+
+**Итог:** TLS 1.3 даёт шифрование за один round trip, а приложению важно правильно узнать схему запроса за прокси.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- В TLS 1.3 обмен ключами только эфемерный — (EC)DHE, а ключ сертификата лишь подписывает рукопожатие. Украденный закрытый ключ не расшифрует записанный ранее трафик.
+- Kestrel шифрует через `SslStream`, а тот — через SChannel на Windows и OpenSSL на Linux. TLS 1.3 на Windows — начиная с Windows Server 2022.
+
+**Компромиссы**
+
+| Где расшифровывать | Плюс | Минус |
+|---|---|---|
+| На прокси | сертификаты в одном месте, CPU приложения свободен | внутри сети трафик открыт |
+| На прокси и снова до Kestrel | шифрование на всём пути | второй сертификат и рукопожатие |
+| Только в Kestrel (L4-прокси) | прокси не видит трафик | нет WAF и маршрутизации по HTTP на прокси |
+
+- **HSTS preload.** `max-age` от года, `includeSubDomains` и `preload` позволяют попасть в список, вшитый в браузеры, и защитить даже первый визит. Удаление из списка занимает месяцы, а поддомен без HTTPS станет недоступен.
+- **mTLS.** `ClientCertificateMode.RequireCertificate` в Kestrel и `AddCertificate()` из пакета Microsoft.AspNetCore.Authentication.Certificate. За прокси сертификат передают заголовком и читают через `UseCertificateForwarding`.
+- **Срок сертификатов.** С 15 марта 2026 года публичные сертификаты выдают не больше чем на 200 дней, с 2029-го — на 47. Ротация должна быть автоматической: ACME, Key Vault.
+
+**Как проверить в проде**
+
+- `kestrel.tls_handshake.duration` с атрибутом `tls.protocol.version` показывает цену рукопожатий и долю TLS 1.2.
+- `openssl s_client -connect host:443 -showcerts` показывает, отдаёт ли сервер промежуточные сертификаты.
+
+**Итог:** TLS в проде — это решения инфраструктуры: где расшифровывать, как ротировать сертификаты и насколько необратимо включать HSTS.
+
+</A>
+
+<Ex>
+
+```csharp
+using Microsoft.AspNetCore.Connections.Features;
+using Microsoft.AspNetCore.Server.Kestrel.Https;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// Сертификат — в конфигурации (Kestrel:Certificates:Default), протоколы не задаём: решает ОС
+builder.WebHost.ConfigureKestrel(kestrel => kestrel.ConfigureHttpsDefaults(https =>
+    https.ClientCertificateMode = ClientCertificateMode.AllowCertificate)); // mTLS по желанию клиента
+
+builder.Services.AddHsts(options =>
+{
+    options.MaxAge = TimeSpan.FromDays(365); // по умолчанию 30 дней
+    options.IncludeSubDomains = true;
+    options.Preload = true;                  // только когда все поддомены на HTTPS
+});
+builder.Services.AddHttpsRedirection(options =>
+{
+    options.RedirectStatusCode = StatusCodes.Status308PermanentRedirect; // по умолчанию 307
+    options.HttpsPort = 443;
+});
+
+var app = builder.Build();
+
+if (!app.Environment.IsDevelopment())
+    app.UseHsts(); // Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
+app.UseHttpsRedirection();
+
+app.MapGet("/", (HttpContext ctx) =>
+    ctx.Features.Get<ITlsHandshakeFeature>()?.Protocol.ToString()); // "Tls13"
+
+app.Run();
+```
+
+```json
+{
+  "Kestrel": {
+    "Certificates": {
+      "Default": { "Path": "/certs/shop.crt", "KeyPath": "/certs/shop.key" }
+    }
+  }
+}
+```
+
+</Ex>
+
+<Next>
+
+- Чем TLS 1.3 быстрее TLS 1.2? — Полное рукопожатие за один round trip вместо двух; при возобновлении возможен 0-RTT, но такие данные можно повторить.
+- Что такое forward secrecy? — Ключи сеанса из одноразового обмена Диффи — Хеллмана: кража ключа сертификата не раскрывает прошлый трафик.
+- Почему HSTS не защищает первый визит? — Браузер ещё не видел заголовок; закрывает это только preload-список.
+- Почему API не стоит редиректить на HTTPS? — Клиент уже отправил данные и токен по HTTP; API лучше не слушать на HTTP или отвечать 400.
+- Как сделать mTLS между сервисами? — Kestrel с `ClientCertificateMode.RequireCertificate` и `AddCertificate()` или service mesh, который делает mTLS за приложение.
+
+</Next>
+
+<Src>
+
+- [Enforce HTTPS in ASP.NET Core](https://learn.microsoft.com/aspnet/core/security/enforcing-ssl)
+- [Configure endpoints for the ASP.NET Core Kestrel web server](https://learn.microsoft.com/aspnet/core/fundamentals/servers/kestrel/endpoints)
+- [RFC 8446: The Transport Layer Security (TLS) Protocol Version 1.3](https://www.rfc-editor.org/rfc/rfc8446)
+
+</Src>
+
+</Q>

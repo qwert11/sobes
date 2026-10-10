@@ -1,0 +1,140 @@
+jwt:
+  term: JWT (JSON Web Token)
+  def: >-
+    A compact token made of a JSON header, a JSON set of claims and a signature, each base64url-encoded
+    and joined by dots. Defined in RFC 7519; most often used as an access token for APIs.
+  q: JSON Web Token
+  docs: https://www.rfc-editor.org/rfc/rfc7519
+  wiki: JSON Web Token
+base64url:
+  term: base64url
+  def: >-
+    A base64 variant for URLs and headers: `-` and `_` instead of `+` and `/`, with no `=` padding.
+    It is encoding, not encryption: anyone can decode the string.
+  q: base64url encoding
+  docs: https://www.rfc-editor.org/rfc/rfc4648#section-5
+jws:
+  term: JWS (JSON Web Signature)
+  def: >-
+    A format for signed data (RFC 7515). In compact form it is three base64url parts: header,
+    payload and signature. It protects integrity and authenticity but does not hide the content.
+  q: JSON Web Signature
+  docs: https://www.rfc-editor.org/rfc/rfc7515
+jwe:
+  term: JWE (JSON Web Encryption)
+  def: >-
+    A format for encrypted data (RFC 7516). In compact form it has five parts: header, encrypted key,
+    initialization vector, ciphertext and tag. It hides the payload from everyone but the key holder.
+  q: JSON Web Encryption
+  docs: https://www.rfc-editor.org/rfc/rfc7516
+oidc-discovery:
+  term: OpenID Connect discovery document
+  def: >-
+    JSON at `/.well-known/openid-configuration` on the authorization server: the issuer, endpoint
+    addresses and `jwks_uri`. `AddJwtBearer` uses it to find the signature validation keys on its own.
+  q: OpenID Connect Discovery
+  docs: https://openid.net/specs/openid-connect-discovery-1_0.html
+jwks:
+  term: JWKS (JSON Web Key Set)
+  def: >-
+    The issuer's set of public keys in JSON (RFC 7517). Each key carries a `kid`, which the validator
+    uses to pick the key for a particular token's signature.
+  q: JSON Web Key Set
+  docs: https://www.rfc-editor.org/rfc/rfc7517
+key-rotation:
+  term: Signing key rotation
+  def: >-
+    Scheduled replacement of the key an issuer signs tokens with. The new key is published in the JWKS
+    ahead of time and the old one is kept until its tokens expire, otherwise validators with a cache reject tokens.
+  q: JWT signing key rotation JWKS
+  docs: https://learn.microsoft.com/entra/identity-platform/signing-key-rollover
+clock-skew:
+  term: Clock skew
+  def: >-
+    A time tolerance applied to `exp` and `nbf` in case the issuer's and the API's clocks drift apart.
+    `TokenValidationParameters.ClockSkew` defaults to 5 minutes.
+  q: TokenValidationParameters ClockSkew
+  docs: https://learn.microsoft.com/dotnet/api/microsoft.identitymodel.tokens.tokenvalidationparameters.clockskew
+claims-mapping:
+  term: Inbound claims mapping (MapInboundClaims)
+  def: >-
+    Renaming short token claims to long WS-Federation claim types: `sub` becomes
+    `ClaimTypes.NameIdentifier`. On by default in `JwtBearerOptions`; turned off with `MapInboundClaims = false`.
+  q: ASP.NET Core MapInboundClaims
+  docs: https://learn.microsoft.com/aspnet/core/security/authentication/claims
+algorithm-confusion:
+  term: Algorithm confusion
+  def: >-
+    An attack where the attacker changes `alg` in the header: to `none`, or from RS256 to HS256, signing
+    the token with the public key as an HMAC secret. The defense is a fixed set of algorithms bound to the key.
+  q: JWT algorithm confusion attack
+  docs: https://www.rfc-editor.org/rfc/rfc8725#section-2.1
+token-revocation:
+  term: Token revocation
+  def: >-
+    Declaring a token invalid before it expires. An API validates a self-contained JWT locally,
+    so revocation needs a list of revoked `jti` values or introspection.
+  q: JWT token revocation
+  docs: https://www.rfc-editor.org/rfc/rfc7009
+token-introspection:
+  term: Token introspection
+  def: >-
+    An API asking the authorization server "is this token valid and what does it contain" (RFC 7662).
+    It gives instant revocation at the cost of a network call per validation.
+  q: OAuth 2.0 token introspection
+  docs: https://www.rfc-editor.org/rfc/rfc7662
+explicit-typing:
+  term: Explicit JWT typing
+  def: >-
+    Stating the kind of token in the `typ` header, for example `at+jwt` for an access token. It stops
+    an id_token or another JWT from the same issuer from passing as an access token (RFC 8725, section 3.11).
+  q: JWT explicit typing typ at+jwt
+  docs: https://www.rfc-editor.org/rfc/rfc8725#section-3.11
+reference-token:
+  term: Reference token
+  def: >-
+    An opaque identifier token: the data stays with the authorization server, and the API gets it
+    through introspection. It is revocable instantly and reveals nothing, but needs a network call.
+  q: reference token vs JWT
+client-credentials:
+  term: Client credentials
+  def: >-
+    An OAuth 2.0 flow where an application gets a token on its own behalf with a `client_id` and a secret
+    or certificate, with no user involved. Used for service-to-service calls and background jobs.
+  q: OAuth 2.0 client credentials grant
+  docs: https://www.rfc-editor.org/rfc/rfc6749#section-4.4
+api-gateway:
+  term: API gateway
+  def: >-
+    A single entry point in front of a set of services: it routes requests, checks authentication,
+    rate-limits and aggregates responses. In .NET gateways are often built on YARP.
+  q: API gateway pattern microservices
+  docs: https://learn.microsoft.com/azure/architecture/microservices/design/gateway
+token-exchange:
+  term: Token exchange
+  def: >-
+    An OAuth 2.0 grant from RFC 8693: a service hands the authorization server an incoming token and gets
+    a new one for another `audience`. The user stays in `sub`, and the calling service goes into `act`.
+  q: OAuth 2.0 token exchange RFC 8693
+  docs: https://www.rfc-editor.org/rfc/rfc8693
+mtls:
+  term: mTLS (mutual TLS)
+  def: >-
+    TLS where both sides present a certificate, not just the server. It encrypts traffic between services
+    and proves exactly which service is calling.
+  q: mutual TLS
+  docs: https://learn.microsoft.com/aspnet/core/security/authentication/certauth
+sender-constrained-token:
+  term: Sender-constrained token
+  def: >-
+    A token that only the holder of a specific key can use: via an mTLS certificate (RFC 8705)
+    or a DPoP signature (RFC 9449). Stolen without the key, the token is useless.
+  q: sender-constrained access token
+  docs: https://www.rfc-editor.org/rfc/rfc8705
+confused-deputy:
+  term: Confused deputy
+  def: >-
+    A service with broad rights runs a client's request using its own rights without checking the
+    client's. The client gains access through the service that it does not have itself.
+  q: confused deputy problem
+  wiki: Confused deputy problem

@@ -1,0 +1,728 @@
+---
+title: JWT и защита API
+description: Структура и подпись JWT, проверка токена в ASP.NET Core, типичные уязвимости, передача идентичности между сервисами и через API Gateway.
+sidebar:
+  order: 3
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+Как устроен JWT, что на самом деле гарантирует подпись, как ASP.NET Core проверяет токен и где в этой проверке ошибаются. В конце — как передать идентичность пользователя через цепочку сервисов и API Gateway, не раздавая токены с доступом ко всей системе.
+
+**Перед этой темой:** [OAuth 2.0 и OpenID Connect](/sobes/security/oauth-oidc/).
+
+<Q id="security.jwt.structure" level="j">
+
+## Из чего состоит JWT и что гарантирует подпись?
+
+<A short l="j">
+
+<T k="jwt">JWT</T> (JSON Web Token) — строка из трёх частей `header.payload.signature`, каждая закодирована в <T k="base64url">base64url</T>: заголовок с алгоритмом, полезная нагрузка с <T k="claim">claims</T> и подпись. Подпись гарантирует, что токен выпустил владелец ключа и его не меняли, но не скрывает содержимое: payload может прочитать любой.
+
+</A>
+
+<A short l="m">
+
+JWT в компактной форме — это <T k="jws">JWS</T>: заголовок и payload в base64url плюс подпись над ними — HMAC общим секретом, RSA или ECDSA закрытым ключом. Стандартные claims из RFC 7519 — `iss`, `sub`, `aud`, `exp`, `nbf`, `iat`, `jti` — говорят, кто выпустил токен, о ком он, для кого и на какой срок. Подпись даёт целостность и подлинность, но не конфиденциальность: для неё нужен <T k="jwe">JWE</T>, а проще — не класть секреты в payload.
+
+</A>
+
+<A short l="s">
+
+JWT — самодостаточный токен: API проверяет его локально по ключу издателя, без запроса к базе или серверу авторизации. Подпись доказывает только происхождение и целостность; что токен выписан этому API, не истёк и вообще является access-токеном, проверяют по `aud`, `exp` и `typ`. Асимметричная подпись (RS256, ES256) позволяет раздать открытый ключ всем проверяющим, а с HS256 каждый проверяющий может и выпускать токены. Цена самодостаточности — до `exp` токен нельзя отозвать без дополнительного состояния.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+JWT — компактный токен вида `xxxxx.yyyyy.zzzzz`. Его выдаёт сервер авторизации, а клиент отправляет как <T k="bearer-token">bearer-токен</T> в заголовке `Authorization: Bearer ...`.
+
+**Из чего состоит**
+
+1. **Header** — алгоритм подписи и тип: `{"alg":"RS256","typ":"JWT"}`.
+2. **Payload** — claims, то есть утверждения о пользователе и о самом токене: `sub` — кто это, `exp` — до какого момента токен действует.
+3. **Signature** — подпись над строкой `header.payload`.
+
+Header и payload — обычный JSON в base64url. Это кодирование, а не шифрование.
+
+**Частая ошибка**
+
+Считать содержимое токена скрытым. Любой, кто видит токен, декодирует base64url и прочитает все claims. Поэтому пароли и персональные данные в payload не кладут.
+
+**Итог:** JWT — подписанный, но не зашифрованный JSON: подделать нельзя, прочитать можно.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+- **Подпись** считается над строкой `base64url(header) + "." + base64url(payload)` алгоритмом из `alg`. Изменение одного символа в payload ломает подпись.
+- **Алгоритмы:** HS256 — HMAC-SHA256 с общим секретом, RS256 и PS256 — RSA, ES256 — ECDSA на кривой P-256. Поле `kid` в заголовке говорит, каким из ключей издателя подписан токен.
+- **Стандартные claims** (RFC 7519) необязательны. Обязательными их делает профиль, например RFC 9068 для access-токенов.
+
+| Claim | Что означает |
+|---|---|
+| `iss` | кто выпустил токен |
+| `sub` | о ком токен: id пользователя или клиента |
+| `aud` | для кого: какой API должен его принять |
+| `exp`, `nbf` | действует до и не раньше; секунды Unix-времени |
+| `iat`, `jti` | когда выпущен; уникальный id токена |
+
+**Когда что выбирать**
+
+| | JWS | JWE |
+|---|---|---|
+| Частей в компактной форме | 3 | 5 |
+| Защищает | целостность и подлинность | ещё и конфиденциальность |
+| Кто читает payload | любой | владелец ключа расшифровки |
+
+**Ловушки**
+
+- **Подписан не значит годен.** Подпись ничего не говорит о сроке, издателе и получателе — их проверяют отдельно.
+- **HS256 симметричен.** Кто может проверить токен, тот может и выпустить его.
+
+**Правило**
+
+Access-токены подписывают асимметрично (RS256, ES256), а в payload кладут идентификаторы и права, но не персональные данные.
+
+**Итог:** JWS защищает от подделки, но не от чтения; скрыть содержимое может только JWE.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- Компактная форма JWS (RFC 7515) — три части в base64url без `=` в конце, через точку. У JWE (RFC 7516) пять частей: заголовок, зашифрованный ключ, вектор инициализации, шифротекст и тег аутентификации.
+- Вложенный JWT — сначала подпись, потом шифрование: JWE, внутри которого JWS. Так payload и подписан, и скрыт.
+- Ключ для проверки берётся не из токена, а из конфигурации проверяющего. `kid` лишь выбирает ключ из заранее известного набора.
+
+**Цена**
+
+- **Размер.** base64url добавляет треть к JSON, подпись RS256 с 2048-битным ключом — ещё 256 байт, или 342 символа после кодирования. Токен с сотней ролей легко весит несколько килобайт и едет в каждом запросе.
+- **CPU.** Проверка подписи не ходит в сеть, но выполняется на каждом запросе в каждом сервисе.
+
+**Компромиссы**
+
+| | HS256 | RS256, ES256 |
+|---|---|---|
+| Кто проверяет | владельцы общего секрета | любой с открытым ключом |
+| Кто может выпустить | любой проверяющий | только владелец закрытого ключа |
+| Где уместна | один сервис сам выпускает и проверяет | сервер авторизации и много API |
+
+Самодостаточность — тоже компромисс: проверка без сети, но отозвать токен до `exp` без дополнительного состояния нельзя.
+
+**Как проверить в проде**
+
+- Декодировать токен локально (`JsonWebTokenHandler.ReadJsonWebToken`) и посмотреть `alg`, `kid`, `iss`, `aud`, `exp`. Боевые токены в сторонние онлайн-декодеры не вставляют.
+- Размер токенов виден по заголовку `Authorization` на прокси: ответы 400 или 431 означают, что превышен лимит заголовков.
+
+**Итог:** JWT — подписанное, а не секретное утверждение издателя; асимметричная подпись отделяет того, кто выпускает токены, от тех, кто их проверяет.
+
+</A>
+
+<Ex>
+
+```csharp
+// NuGet: Microsoft.IdentityModel.JsonWebTokens
+using System.Security.Cryptography;
+using Microsoft.IdentityModel.JsonWebTokens;
+using Microsoft.IdentityModel.Tokens;
+
+var key = new SymmetricSecurityKey(RandomNumberGenerator.GetBytes(32)); // 256 случайных бит
+var handler = new JsonWebTokenHandler();
+var parameters = new TokenValidationParameters
+{
+    ValidIssuer = "https://auth.example.com",
+    ValidAudience = "orders-api",
+    IssuerSigningKey = key,
+};
+
+string token = handler.CreateToken(new SecurityTokenDescriptor
+{
+    Issuer = "https://auth.example.com",
+    Audience = "orders-api",
+    Claims = new Dictionary<string, object> { ["sub"] = "42" },
+    Expires = DateTime.UtcNow.AddMinutes(5),
+    SigningCredentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256),
+});
+Console.WriteLine(token.Split('.').Length); // 3: header.payload.signature
+
+// Прочитать можно без ключа: payload только закодирован
+var jwt = handler.ReadJsonWebToken(token);
+Console.WriteLine($"{jwt.Alg} {jwt.Subject}"); // HS256 42
+
+// Меняем sub в payload — подпись больше не сходится
+var parts = token.Split('.');
+var payload = Base64UrlEncoder.Decode(parts[1]).Replace("\"42\"", "\"1\"");
+var forged = $"{parts[0]}.{Base64UrlEncoder.Encode(payload)}.{parts[2]}";
+
+Console.WriteLine((await handler.ValidateTokenAsync(token, parameters)).IsValid);  // True
+Console.WriteLine((await handler.ValidateTokenAsync(forged, parameters)).IsValid); // False
+```
+
+HS256 здесь нужен, чтобы пример был самодостаточным. В проде access-токены подписывает сервер авторизации асимметричным ключом.
+
+</Ex>
+
+<Ex title="Токен после декодирования">
+
+```json
+{ "alg": "RS256", "kid": "2026-10", "typ": "at+jwt" }
+
+{
+  "iss": "https://auth.example.com",
+  "sub": "42",
+  "aud": "orders-api",
+  "exp": 1791332100,
+  "nbf": 1791331200,
+  "iat": 1791331200,
+  "jti": "5f0c6a9e-3b1d-4c55-9a7e-2d8f1b6e4c10",
+  "scope": "orders.read"
+}
+```
+
+Первый объект — header, второй — payload. Токен выпущен 7 октября 2026 года в 00:00 UTC и действует 15 минут; `typ: at+jwt` помечает access-токен по RFC 9068.
+
+</Ex>
+
+<Next>
+
+- Чем base64url отличается от base64? — `-` и `_` вместо `+` и `/` и нет `=` в конце: строку можно вставить в URL и заголовок.
+- Можно ли продлить токен, поменяв `exp`? — Нет: изменение payload ломает подпись, и токен не пройдёт проверку.
+- Какие claims обязательны по RFC 7519? — Никакие; обязательность задают профили, например RFC 9068 для access-токенов.
+- Зачем `kid` в заголовке? — Выбрать один из нескольких опубликованных ключей издателя; без этого не обойтись при смене ключей.
+- Когда нужен JWE? — Когда payload нужно скрыть от клиента и промежуточных узлов; чаще проще не класть туда секретов.
+
+</Next>
+
+<Src>
+
+- [RFC 7519: JSON Web Token (JWT)](https://www.rfc-editor.org/rfc/rfc7519)
+- [RFC 7515: JSON Web Signature (JWS)](https://www.rfc-editor.org/rfc/rfc7515)
+- [JsonWebTokenHandler Class](https://learn.microsoft.com/dotnet/api/microsoft.identitymodel.jsonwebtokens.jsonwebtokenhandler)
+
+</Src>
+
+</Q>
+
+<Q id="security.jwt.validation" level="m">
+
+## Как ASP.NET Core проверяет JWT?
+
+<A short l="j">
+
+Проверку делает обработчик `AddJwtBearer` из пакета `Microsoft.AspNetCore.Authentication.JwtBearer`: он берёт токен из заголовка `Authorization: Bearer`, проверяет подпись, издателя, получателя и срок действия и превращает claims в `HttpContext.User`. Достаточно указать `Authority` — адрес сервера авторизации — и `Audience` — имя своего API.
+
+</A>
+
+<A short l="m">
+
+`JwtBearerHandler` по `Authority` загружает <T k="oidc-discovery">discovery-документ</T> и <T k="jwks">JWKS</T> — набор открытых ключей издателя, кеширует их и проверяет токен локально: подпись, `iss`, `aud`, `exp` и `nbf` с допуском `ClockSkew`, по умолчанию 5 минут. С .NET 8 токен разбирает `JsonWebTokenHandler` вместо `JwtSecurityTokenHandler`, поэтому `context.SecurityToken` в событиях — это `JsonWebToken`. Частая ловушка — `MapInboundClaims`: по умолчанию `sub` превращается в длинный URI `ClaimTypes.NameIdentifier`, и `FindFirst("sub")` возвращает `null`.
+
+</A>
+
+<A short l="s">
+
+Проверка JWT — локальная операция по закешированной конфигурации: метаданные и ключи перечитываются раз в 12 часов, а при неизвестном `kid` — внепланово, но не чаще раза в 5 минут. Поэтому <T k="key-rotation">ротация ключей</T> безопасна, только если сервер авторизации публикует новый ключ в JWKS заранее и держит старый, пока живут подписанные им токены. <T k="clock-skew">Допуск часов</T> в 5 минут фактически продлевает жизнь каждого токена, и для коротких токенов его уменьшают. Переход на `JsonWebTokenHandler` в .NET 8 дал около 30% производительности и last known good конфигурацию, но сломал код, который приводил токен к `JwtSecurityToken`.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+JWT Bearer — схема аутентификации: клиент присылает токен в заголовке `Authorization: Bearer ...`, а API проверяет его и узнаёт пользователя. Токен выдаёт сервер авторизации, API только проверяет.
+
+**Как пользоваться**
+
+1. Установите пакет `Microsoft.AspNetCore.Authentication.JwtBearer`.
+2. Вызовите `AddAuthentication().AddJwtBearer(...)` и задайте `Authority` и `Audience`.
+3. Пометьте эндпоинты `RequireAuthorization()` или `[Authorize]`.
+4. В обработчике пользователь доступен как `HttpContext.User` — его claims пришли из токена.
+
+**Что проверяется**
+
+Подпись, издатель (`iss`), получатель (`aud`) и срок (`exp`). Если что-то не так — ответ 401.
+
+**Частая ошибка**
+
+Отключить проверку получателя (`ValidateAudience = false`), чтобы «заработало». Тогда API примет токен, выпущенный для любого другого API того же сервера авторизации.
+
+**Итог:** `AddJwtBearer` с `Authority` и `Audience` — и API проверяет токен сам, без запроса к серверу авторизации на каждый вызов.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+1. При первом запросе обработчик загружает `{Authority}/.well-known/openid-configuration`, а по ссылке `jwks_uri` из него — JWKS. Оттуда берутся ожидаемый `iss` и ключи подписи.
+2. `JsonWebTokenHandler` (.NET 8+) выбирает ключ по `kid` и проверяет подпись.
+3. Проверяются `iss`, `aud` (значение из `Audience`), `exp` и `nbf` с допуском `ClockSkew`.
+4. Claims становятся `ClaimsPrincipal` в `HttpContext.User`. При ошибке — 401 и заголовок `WWW-Authenticate: Bearer error="invalid_token"`.
+
+**Параметры `TokenValidationParameters`**
+
+| Параметр | По умолчанию |
+|---|---|
+| `ValidateIssuer`, `ValidateAudience`, `ValidateLifetime` | `true` |
+| `RequireSignedTokens`, `RequireExpirationTime` | `true` |
+| `ClockSkew` | 5 минут |
+| `ValidAlgorithms`, `ValidTypes` | не заданы: подходит любой |
+
+**Ловушки**
+
+- **<T k="claims-mapping">Маппинг claims</T>.** `MapInboundClaims` по умолчанию `true`: `sub` становится `http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier`. Выключите его и задайте `NameClaimType` и `RoleClaimType`.
+- **Код времён .NET 7.** `context.SecurityToken as JwtSecurityToken` в событиях с .NET 8 даёт `null`: там `JsonWebToken`. Старое поведение возвращает `UseSecurityTokenValidators = true`.
+- **`RequireHttpsMetadata`.** По умолчанию `true`; метаданные по HTTP допустимы только при разработке.
+
+**Правило**
+
+Задавайте `Authority` и `Audience`, не отключайте проверки, а для коротких токенов уменьшайте `ClockSkew` до 30–60 секунд.
+
+**Итог:** API сам проверяет подпись по ключам из JWKS и claims по `TokenValidationParameters`; сервер авторизации нужен только для метаданных.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- `JwtBearerHandler` держит `ConfigurationManager<OpenIdConnectConfiguration>`. Метаданные и JWKS он перечитывает раз в 12 часов (`AutomaticRefreshInterval`).
+- Если ключа с таким `kid` нет, `RefreshOnIssuerKeyNotFound` (по умолчанию `true`) запрашивает внеплановое обновление. Оно выполняется не чаще раза в 5 минут (`RefreshInterval`).
+- С .NET 8 менеджер конфигурации передаётся в `TokenValidationParameters.ConfigurationManager`. `JsonWebTokenHandler` запоминает last known good — последнюю конфигурацию, с которой токены успешно проверялись.
+
+**Цена**
+
+- В сеть проверка не ходит: только разбор и подпись. Загрузку метаданных оплачивает первый запрос после старта, и недоступный в этот момент сервер авторизации ломает аутентификацию.
+- `ClockSkew` прибавляется к каждому `exp`: токен на 5 минут фактически живёт 10.
+
+**Компромиссы**
+
+- **Ротация ключей.** Из-за кеша новый ключ должен появиться в JWKS заранее, а старый — оставаться до истечения последнего подписанного им токена. Иначе между ротацией и обновлением кеша часть запросов получит 401.
+- **Обработчики токенов.** `JsonWebTokenHandler` быстрее примерно на 30% и асинхронный. `JwtSecurityTokenHandler` из `System.IdentityModel.Tokens.Jwt` остаётся ради совместимости.
+- **Несколько издателей.** Одна схема — один `Authority`. Для двух серверов авторизации регистрируют две схемы и выбирают нужную через `AddPolicyScheme`.
+
+**Как проверить в проде**
+
+- Отказ `JwtBearerHandler` пишет в лог с уровнем `Information`, поэтому для категории `Microsoft.AspNetCore.Authentication` уровень понижают. Причину видно по коду: `IDX10223` — токен истёк, `IDX10214` — не тот `aud`, `IDX10205` — не тот `iss`.
+- Событие `OnAuthenticationFailed` — место для метрики отказов по типу исключения.
+
+**Итог:** проверка JWT — локальная операция по закешированным ключам; в проде её надёжность определяют ротация ключей, `ClockSkew` и понятные логи отказов.
+
+</A>
+
+<Ex>
+
+```csharp
+// NuGet: Microsoft.AspNetCore.Authentication.JwtBearer
+using System.Security.Claims;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddAuthentication().AddJwtBearer(options =>
+{
+    // Discovery: {Authority}/.well-known/openid-configuration → issuer и jwks_uri
+    options.Authority = "https://auth.example.com";
+    options.Audience = "orders-api";  // ожидаемый aud
+    options.MapInboundClaims = false; // sub остаётся "sub", а не длинным URI
+    options.TokenValidationParameters.NameClaimType = "name";
+    options.TokenValidationParameters.RoleClaimType = "role";
+    options.TokenValidationParameters.ClockSkew = TimeSpan.FromSeconds(30); // вместо 5 минут
+});
+builder.Services.AddAuthorization();
+
+var app = builder.Build();
+
+app.UseAuthentication();
+app.UseAuthorization();
+
+// Без токена — 401, с валидным токеном — значение sub
+app.MapGet("/me", (ClaimsPrincipal user) => user.FindFirst("sub")?.Value)
+    .RequireAuthorization();
+
+app.Run();
+```
+
+</Ex>
+
+<Next>
+
+- Ходит ли API к серверу авторизации на каждый запрос? — Нет: метаданные и ключи кешируются и обновляются раз в 12 часов или при неизвестном `kid`.
+- Почему просроченный токен ещё несколько минут работает? — `ClockSkew` по умолчанию 5 минут.
+- Почему `User.FindFirst("sub")` возвращает `null`? — `MapInboundClaims` превратил `sub` в `ClaimTypes.NameIdentifier`.
+- Что изменилось в JwtBearer в .NET 8? — По умолчанию `JsonWebTokenHandler`, в событиях `JsonWebToken`; вернуть старое — `UseSecurityTokenValidators = true`.
+- Как принимать токены двух серверов авторизации? — Две схемы `AddJwtBearer` и `AddPolicyScheme`, который выбирает схему, например, по `iss`.
+
+</Next>
+
+<Src>
+
+- [Configure JWT bearer authentication in ASP.NET Core](https://learn.microsoft.com/aspnet/core/security/authentication/configure-jwt-bearer-authentication)
+- [Breaking change: Security token events return a JsonWebToken](https://learn.microsoft.com/aspnet/core/breaking-changes/8/securitytoken-events)
+- [Map, customize, and transform claims in ASP.NET Core](https://learn.microsoft.com/aspnet/core/security/authentication/claims)
+
+</Src>
+
+</Q>
+
+<Q id="security.jwt.pitfalls" level="m">
+
+## Какие уязвимости и ошибки бывают с JWT?
+
+<A short l="j">
+
+Главные ошибки — принять токен, не проверив всё (подпись, издателя, получателя и срок), и считать содержимое токена секретом. Кроме того, JWT нельзя просто «отозвать»: украденный токен работает до `exp`, поэтому access-токены делают короткими, на минуты.
+
+</A>
+
+<A short l="m">
+
+Классика — доверие заголовку токена: `alg: none` без подписи и <T k="algorithm-confusion">подмена алгоритма</T>, когда RS256 меняют на HS256 и подписывают токен открытым ключом как HMAC-секретом. Дальше идут ошибки конфигурации: слабый секрет HS256, отключённая проверка `aud`, долгоживущие токены, персональные данные в payload, раздутый размер. Защита — белый список алгоритмов, асимметричные ключи, проверка `iss`, `aud` и `exp`, короткая жизнь и <T k="token-revocation">отзыв</T> по `jti` или через <T k="token-introspection">интроспекцию</T> там, где он нужен.
+
+</A>
+
+<A short l="s">
+
+Уязвимости JWT следуют из одного факта: токен приносит атакующий, поэтому ничему в нём, включая `alg`, `kid` и `jku`, нельзя доверять до проверки подписи ключом, который API знает сам. RFC 8725 сводит защиту к правилам: фиксированный набор алгоритмов, ключи с достаточной энтропией, обязательная проверка `aud` и <T k="explicit-typing">явный тип</T> `typ`, отличающий access-токен от id_token. Отдельный компромисс — отзыв: самодостаточный токен отзывается только состоянием на стороне API или заменой на <T k="reference-token">reference-токен</T> с интроспекцией, то есть сетевым вызовом на каждый запрос.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+Ошибки с JWT почти всегда сводятся к двум: API принимает токен, который не должен принять, или токен раскрывает лишнее.
+
+**Частые ошибки**
+
+- **Неполная проверка.** С отключёнными `ValidateAudience` или `ValidateLifetime` проходит токен для другого сервиса или просроченный токен.
+- **Слабый секрет.** HS256 с секретом вроде `"secret123"` подбирается перебором по одному перехваченному токену, и атакующий выпускает любые токены.
+- **Секреты в payload.** Payload читает любой, кто увидел токен: в логах, в браузере, на прокси.
+- **Долгая жизнь.** Токен на сутки, украденный из лога, работает сутки: штатно его не отозвать.
+
+**Как защититься**
+
+Включённые проверки, access-токен на 5–15 минут, в payload — только идентификаторы.
+
+**Итог:** проверяйте всё, что можно проверить, делайте токены короткими и не кладите в них секреты.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+Токен приносит клиент, поэтому и заголовок, и payload под контролем атакующего. Атаки используют то, что API доверяет им до проверки.
+
+| Ошибка | Последствие | Защита |
+|---|---|---|
+| Принимать `alg: none` | токен без подписи проходит | `RequireSignedTokens` (по умолчанию `true`), `ValidAlgorithms` |
+| Брать алгоритм из `alg` для любого ключа | RS256 → HS256 с открытым ключом как секретом | алгоритм привязан к типу ключа, `ValidAlgorithms` |
+| Короткий или словарный секрет HS256 | перебор офлайн и свои токены | случайный ключ от 256 бит или асимметричная подпись |
+| Не проверять `aud` | принимается токен чужого API | `Audience` и `ValidateAudience = true` |
+| Токен живёт часы и дни | украденный токен долго работает | 5–15 минут и refresh-токен у клиента |
+| Персональные данные в payload | утечка через логи и браузер | только идентификаторы |
+| Сотни ролей и групп в токене | заголовок больше лимита прокси, 400 или 431 | права загружать в API, а не возить в токене |
+
+**Ловушки**
+
+- **Отзыв.** Блокировка пользователя или выход из системы не отменяют уже выданный access-токен. Нужен механизм сверху: список отозванных `jti` или интроспекция.
+- **`ValidateIssuerSigningKey`.** Подпись проверяется и без него. Флаг включает дополнительную проверку самого ключа, например срока сертификата, и по умолчанию выключен.
+
+**Правило**
+
+Алгоритм, ключ, издатель, получатель и тип берутся из конфигурации API, а не из токена.
+
+**Итог:** почти все атаки на JWT — доверие данным токена до проверки; их закрывают белый список алгоритмов, полная валидация и короткая жизнь.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- **Подмена алгоритма.** Уязвимая библиотека вызывает `verify(token, key)` с алгоритмом из `alg`. Если API знает открытый RSA-ключ, а атакующий ставит HS256, библиотека считает HMAC с открытым ключом как секретом — а он опубликован в JWKS. `Microsoft.IdentityModel` проверяет, что алгоритм подходит к типу ключа, поэтому RSA-ключ для HS256 не используется.
+- **Ключ из токена.** Заголовки `jwk`, `jku` и `x5u` передают ключ или его URL прямо в токене. Проверяющий, который им доверяет, проверит подпись ключом атакующего, а запрос по `jku` и `x5u` — готовый SSRF. `kid` — тоже ввод атакующего: RFC 8725 предупреждает об SQL- и LDAP-инъекциях через него.
+- **Путаница токенов.** id_token или токен для другого API подписан тем же издателем и проходит проверку подписи. Защита — `aud` и явный `typ`, например `at+jwt` из RFC 9068 через `ValidTypes`.
+- **Слабый ключ.** Актуальный `Microsoft.IdentityModel` отклоняет ключ HS256 короче 256 бит (`IDX10720`), но длина не гарантирует энтропию: пароль из словаря длиной 40 символов всё ещё подбирается.
+
+**Компромиссы**
+
+| Подход | Плюс | Минус |
+|---|---|---|
+| Короткий JWT без отзыва | нет состояния и сети | окно до `exp` после кражи |
+| JWT и список отозванных `jti` | быстрый отзыв | общее хранилище, проверка на каждом запросе |
+| Reference-токен и интроспекция | мгновенный отзыв, payload скрыт | запрос к серверу авторизации; кеш снова даёт окно |
+
+**Как проверить в проде**
+
+- Негативные тесты в CI: токен с `alg: none`, с чужим `aud`, просроченный и подписанный чужим ключом получают 401.
+- Заголовок `Authorization` не должен целиком попадать в логи и трассировки.
+
+**Итог:** JWT безопасен настолько, насколько API не доверяет токену; отзыв — осознанный выбор между состоянием и окном уязвимости.
+
+</A>
+
+<Ex>
+
+```csharp
+// NuGet: Microsoft.AspNetCore.Authentication.JwtBearer
+using System.Collections.Concurrent;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.JsonWebTokens;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddSingleton<RevokedTokens>();
+builder.Services.AddAuthentication().AddJwtBearer(options =>
+{
+    options.Authority = "https://auth.example.com";
+    options.Audience = "orders-api";                         // проверку aud не отключаем
+    options.TokenValidationParameters.ValidAlgorithms = ["RS256"]; // ни none, ни HS256
+    options.TokenValidationParameters.ValidTypes = ["at+jwt"];     // только access-токены
+
+    // Отзыв до exp: jti из списка отозванных — 401
+    options.Events = new JwtBearerEvents
+    {
+        OnTokenValidated = context =>
+        {
+            var revoked = context.HttpContext.RequestServices.GetRequiredService<RevokedTokens>();
+            if (context.SecurityToken is not JsonWebToken jwt || revoked.ContainsKey(jwt.Id))
+                context.Fail("Token revoked");
+            return Task.CompletedTask;
+        }
+    };
+});
+
+var app = builder.Build();
+app.MapGet("/orders", () => "ok").RequireAuthorization();
+app.Run();
+
+// jti → exp; в проде — общее хранилище, например Redis с TTL до exp
+public class RevokedTokens : ConcurrentDictionary<string, DateTimeOffset>;
+```
+
+`ValidTypes = ["at+jwt"]` подходит, только если сервер авторизации ставит такой `typ`; многие ставят `JWT`.
+
+</Ex>
+
+<Next>
+
+- Почему не стоит возить в токене все роли и группы? — Размер растёт в каждом запросе, а изменения прав не видны до нового токена.
+- Как отозвать JWT до истечения? — Список отозванных `jti` до их `exp` или reference-токены с интроспекцией.
+- Почему пароль нельзя использовать как ключ HS256? — Мало энтропии: ключ подбирается офлайн по одному токену; RFC 8725 это прямо запрещает.
+- Чем опасен `kid`? — Это ввод атакующего; его только ищут в известном наборе ключей и не подставляют в SQL- и LDAP-запросы.
+- Зачем `typ: at+jwt`? — Отличить access-токен от id_token и других JWT того же издателя.
+
+</Next>
+
+<Src>
+
+- [RFC 8725: JSON Web Token Best Current Practices](https://www.rfc-editor.org/rfc/rfc8725)
+- [RFC 9068: JWT Profile for OAuth 2.0 Access Tokens](https://www.rfc-editor.org/rfc/rfc9068)
+- [TokenValidationParameters Class](https://learn.microsoft.com/dotnet/api/microsoft.identitymodel.tokens.tokenvalidationparameters)
+
+</Src>
+
+</Q>
+
+<Q id="security.jwt.service-to-service" level="s">
+
+## Как передавать идентичность между сервисами и через API Gateway?
+
+<A short l="j">
+
+Есть два базовых способа: передать дальше токен пользователя, чтобы следующий сервис знал, от чьего имени запрос, или получить собственный токен сервиса через <T k="client-credentials">client credentials</T>. Каждый сервис всё равно проверяет пришедший токен сам, даже если перед ним стоит <T k="api-gateway">API Gateway</T>.
+
+</A>
+
+<A short l="m">
+
+Проброс токена пользователя прост, но требует широкого `aud`: токен годен во всех сервисах, и украденный в одном работает везде. Client credentials даёт сервису собственную идентичность, но теряет пользователя, и проверка прав пользователя ложится на вызывающий сервис. Компромисс — <T k="token-exchange">token exchange</T> (RFC 8693): сервис обменивает входящий токен у сервера авторизации на новый, с узким `aud` и тем же `sub`.
+
+</A>
+
+<A short l="s">
+
+Задача — довести до последнего сервиса и пользователя, и цепочку вызывающих, не раздавая токенов с широким доступом. Token exchange на каждый переход выпускает токен с узким `aud`, пользователем в `sub` и сервисом в `act`; цена — запрос к серверу авторизации, ответ которого кешируют до `exp`. Шлюз проверяет токен на входе ради быстрых отказов и лимитов, но сервисы проверяют его снова: иначе всякий, кто попал в сеть мимо шлюза, — доверенный клиент. Транспорт между сервисами закрывает <T k="mtls">mTLS</T>, а <T k="sender-constrained-token">привязка токена к ключу клиента</T> делает украденный токен бесполезным.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+В микросервисах запрос пользователя проходит несколько сервисов: шлюз → orders → billing. Каждому нужно знать, кто вызывает и от чьего имени.
+
+**Как пользоваться**
+
+- **Проброс токена.** Сервис кладёт полученный токен пользователя в заголовок `Authorization` своего запроса к следующему сервису.
+- **Client credentials.** Сервис получает собственный токен по `client_id` и секрету или сертификату. Так работают фоновые задачи, где пользователя нет.
+- **API Gateway.** Единая точка входа: маршрутизирует запросы, проверяет токен, ограничивает частоту. Токен идёт дальше в сервисы.
+
+**Частая ошибка**
+
+Проверять токен только на шлюзе, а сервисам доверять заголовку `X-User-Id`. Любой, кто попал во внутреннюю сеть, подставит туда чужой id.
+
+**Итог:** пользователь передаётся токеном, сервис представляется своим токеном, и каждый сервис проверяет то, что получил.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+| Способ | Чья идентичность в токене | Риск |
+|---|---|---|
+| Проброс токена | пользователя | широкий `aud`: токен годен во всех сервисах |
+| Client credentials | сервиса | пользователь теряется, сервис действует своими правами |
+| Token exchange | пользователя в `sub`, сервиса в `act` | запрос к серверу авторизации на каждый переход |
+
+**Token exchange по шагам**
+
+1. orders-api получает токен пользователя с `aud=orders-api`.
+2. Отправляет его на token endpoint с `grant_type=urn:ietf:params:oauth:grant-type:token-exchange`, `subject_token` и `audience=billing-api`, аутентифицируясь своим `client_id`.
+3. Сервер авторизации проверяет политику и выдаёт токен с `aud=billing-api`, тем же `sub` и, при делегировании, `act` с идентичностью orders-api.
+4. billing-api проверяет токен как обычно и видит и пользователя, и вызывающий сервис.
+
+В Microsoft Entra ID тот же сценарий — On-Behalf-Of flow; в .NET его берёт на себя Microsoft.Identity.Web.
+
+**Ловушки**
+
+- **<T k="confused-deputy">Confused deputy</T>.** Сервис с client credentials выполняет запрос пользователя своими широкими правами. Если он сам не проверил права пользователя, тот получает доступ через сервис.
+- **Широкий `aud`.** Проброс работает, только если токен выпущен сразу для всех сервисов, — это ключ от всей системы.
+
+**Правило**
+
+Есть пользователь — token exchange или On-Behalf-Of. Нет пользователя — client credentials. Проброс токена — только внутри одной границы доверия.
+
+**Итог:** выбор способа — это выбор, чья идентичность и какие права доходят до последнего сервиса цепочки.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- **Шлюз** проверяет подпись, `iss`, `aud` и срок, отсекает мусор и применяет лимиты. Сервис за ним проверяет токен снова, локально по закешированному JWKS, без сетевого вызова.
+- **Phantom token.** Снаружи клиент держит непрозрачный reference-токен, шлюз интроспектирует его и передаёт внутрь JWT. Claims не утекают наружу, а внутри проверка остаётся локальной.
+- **mTLS** шифрует трафик и доказывает, какой сервис звонит. Service mesh (Istio, Linkerd) включает его без кода. RFC 8705 привязывает токен к сертификату клиента через claim `cnf`. Где клиентский сертификат неудобен, например в SPA, ту же задачу решает DPoP (RFC 9449): клиент подписывает каждый запрос своим ключом.
+
+**Цена**
+
+- Token exchange — запрос к серверу авторизации на каждый переход. Обменянный токен кешируют по паре «пользователь — audience» до `exp`, иначе сервер авторизации становится узким местом.
+- Короткие токены сужают окно после кражи, но учащают выпуск и обмен.
+
+**Компромиссы**
+
+- **Проверка только на шлюзе** дешевле, но делает внутреннюю сеть зоной доверия: обход шлюза или взломанный сервис внутри сети дают полный доступ. Zero trust — проверка в каждом сервисе плюс mTLS.
+- **YARP как шлюз.** Аутентификацию делает обычный `AddJwtBearer`, маршрутам назначают `AuthorizationPolicy`. Заголовок `Authorization` по умолчанию уходит в сервис как есть; замену или обмен токена делают в request transform.
+
+**Как проверить в проде**
+
+- `sub` и `act` в логах и трассировках показывают, от чьего имени и кто действовал на каждом шаге.
+- Тест: запрос к сервису мимо шлюза без токена или с токеном для чужого `aud` получает 401.
+
+**Итог:** пользователь доходит до конца цепочки через обмен токенов с узким `aud`, а доверие к сети заменяют проверка токена в каждом сервисе и mTLS.
+
+</A>
+
+<Ex title="Token exchange (RFC 8693)">
+
+```csharp
+using System.Net.Http.Json;
+using System.Text.Json;
+
+using var http = new HttpClient();
+string incomingToken = "eyJ..."; // из Authorization входящего запроса, aud=orders-api
+
+// orders-api обменивает токен пользователя на токен для billing-api
+var response = await http.PostAsync("https://auth.example.com/connect/token",
+    new FormUrlEncodedContent(new Dictionary<string, string>
+    {
+        ["grant_type"] = "urn:ietf:params:oauth:grant-type:token-exchange",
+        ["subject_token"] = incomingToken,
+        ["subject_token_type"] = "urn:ietf:params:oauth:token-type:access_token",
+        ["audience"] = "billing-api",     // для кого нужен новый токен
+        ["client_id"] = "orders-api",     // кто обменивает: сервис аутентифицируется сам
+        ["client_secret"] = "from-secret-store",
+    }));
+
+// Новый токен: aud=billing-api, sub пользователя, act={"sub":"orders-api"}
+var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+string billingToken = json.GetProperty("access_token").GetString()!;
+```
+
+Сервер авторизации должен поддерживать token exchange: в Keycloak он стандартный с версии 26.2, в Duende IdentityServer реализуется как extension grant.
+
+</Ex>
+
+<Ex title="Шлюз на YARP">
+
+```csharp
+// NuGet: Yarp.ReverseProxy, Microsoft.AspNetCore.Authentication.JwtBearer
+using Yarp.ReverseProxy.Configuration;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddAuthentication().AddJwtBearer(options =>
+{
+    options.Authority = "https://auth.example.com";
+    options.Audience = "orders-api";
+});
+builder.Services.AddAuthorization();
+builder.Services.AddReverseProxy().LoadFromMemory(
+    [new RouteConfig
+    {
+        RouteId = "orders",
+        ClusterId = "orders",
+        AuthorizationPolicy = "default", // без валидного токена — 401 уже на шлюзе
+        Match = new RouteMatch { Path = "/orders/{**rest}" },
+    }],
+    [new ClusterConfig
+    {
+        ClusterId = "orders",
+        Destinations = new Dictionary<string, DestinationConfig>
+        {
+            ["orders-1"] = new() { Address = "https://orders.internal/" },
+        },
+    }]);
+
+var app = builder.Build();
+app.UseAuthentication();
+app.UseAuthorization();
+app.MapReverseProxy(); // Authorization уходит в orders как есть, и orders проверяет его снова
+app.Run();
+```
+
+</Ex>
+
+<Next>
+
+- Почему бы просто не пробросить токен пользователя? — Нужен `aud` для всех сервисов; токен, украденный в одном, работает везде.
+- Чем token exchange отличается от On-Behalf-Of в Entra ID? — OBO — вариант Microsoft для того же сценария: grant `jwt-bearer` с `requested_token_use=on_behalf_of`.
+- Что такое claim `act`? — По RFC 8693 он указывает, кто действует от имени `sub`; цепочка вызовов — вложенными `act`.
+- Достаточно ли проверить токен на шлюзе? — Нет, если сервис доступен мимо шлюза; zero trust требует проверки в каждом сервисе.
+- Что даёт mTLS поверх JWT? — Аутентификацию сервиса на транспорте и, по RFC 8705, привязку токена к сертификату.
+
+</Next>
+
+<Src>
+
+- [RFC 8693: OAuth 2.0 Token Exchange](https://www.rfc-editor.org/rfc/rfc8693)
+- [Configure JWT bearer authentication: downstream APIs](https://learn.microsoft.com/aspnet/core/security/authentication/configure-jwt-bearer-authentication#downstream-apis)
+- [YARP authentication and authorization](https://learn.microsoft.com/aspnet/core/fundamentals/servers/yarp/authn-authz)
+
+</Src>
+
+</Q>

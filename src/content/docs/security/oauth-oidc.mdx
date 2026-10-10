@@ -1,0 +1,877 @@
+---
+title: OAuth 2.0 и OpenID Connect
+description: Роли OAuth 2.0 и OpenID Connect, потоки и PKCE, access-, refresh- и ID-токены, вход через OIDC в ASP.NET Core, SPA и BFF.
+sidebar:
+  order: 2
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+Роли и потоки OAuth 2.0, токены и их жизнь, вход через OpenID Connect в ASP.NET Core и защита SPA. На этих протоколах держится корпоративный единый вход, поэтому на собеседовании проверяют и теорию, и опыт настройки.
+
+**Перед этой темой:** [Основы веб-безопасности](/sobes/security/web-basics/).
+
+<Q id="security.oauth.what-is" level="j">
+
+## Что такое OAuth 2.0 и чем от него отличается OpenID Connect?
+
+<A short l="j">
+
+<T k="oauth2">OAuth 2.0</T> — протокол делегирования доступа: пользователь разрешает приложению обращаться к API от своего имени, и приложение получает <T k="access-token">access-токен</T> вместо пароля. <T k="openid-connect">OpenID Connect</T> (OIDC) — надстройка над OAuth 2.0 для входа: приложение получает ещё <T k="id-token">ID-токен</T>, из которого узнаёт, кто вошёл.
+
+</A>
+
+<A short l="m">
+
+OAuth 2.0 (RFC 6749) отвечает на вопрос «что приложению можно»: <T k="authorization-server">сервер авторизации</T> выдаёт клиенту access-токен с ограниченными <T k="oauth-scope">scopes</T>, а API его проверяет. Кто пользователь, OAuth не определяет — это добавляет OIDC: scope `openid`, ID-токен, endpoint UserInfo и метаданные провайдера. Поэтому вход строят на OIDC: «вход» по одному access-токену опасен, ведь токен адресован API, а не клиенту.
+
+</A>
+
+<A short l="s">
+
+Суть OAuth — разделение ролей: пароль видит только сервер авторизации, а клиент получает ограниченный по scope и сроку токен. API доверяет подписи сервера авторизации, а не клиенту, и для клиента access-токен — непрозрачная строка. OIDC стандартизирует аутентификацию поверх OAuth: ID-токен адресован клиенту (`aud` равен `client_id`) и содержит `sub`, издателя, время входа и `nonce` против подмены. Цена — редиректы, ключи подписи и зависимость от провайдера, зато вход становится единым для всех приложений.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+- **OAuth 2.0** — протокол, по которому пользователь разрешает приложению доступ к своим данным, не отдавая ему пароль.
+- **OpenID Connect** — слой поверх OAuth 2.0, который добавляет вход: приложение узнаёт, кто пользователь.
+
+**Роли OAuth**
+
+| Роль | Пример |
+|---|---|
+| Resource owner — владелец ресурса | пользователь |
+| Client — клиент | веб-приложение, SPA |
+| Authorization server — сервер авторизации | Keycloak, Entra ID, ADFS |
+| Resource server — ресурсный сервер | ваш Web API |
+
+**Как пользоваться**
+
+1. Клиент отправляет пользователя на сервер авторизации.
+2. Пользователь входит там и соглашается выдать доступ.
+3. Клиент получает access-токен и вызывает с ним API, а в OIDC — ещё и ID-токен.
+
+**Частая ошибка**
+
+Считать access-токен доказательством входа. Он адресован API, а кто вошёл, говорит ID-токен.
+
+**Итог:** OAuth выдаёт приложению доступ, OIDC сообщает, кто пользователь.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+- **OAuth 2.0 (RFC 6749)** описывает выдачу access-токена: endpoints `/authorize` и `/token`, типы клиентов и потоки (grant types). Формат токена и способ узнать пользователя он не задаёт.
+- **Спецификации OpenID Connect** добавляют поверх:
+  - scope `openid` — признак OIDC-запроса, и стандартные `profile`, `email`;
+  - ID-токен — всегда JWT с полями `iss`, `sub`, `aud`, `exp`, `iat`;
+  - endpoint UserInfo — профиль пользователя по access-токену;
+  - <T k="discovery-document">discovery-документ</T> `/.well-known/openid-configuration` с адресами endpoints и ключей.
+
+**Когда что выбирать**
+
+| Задача | Что нужно |
+|---|---|
+| Войти в приложение под корпоративной учёткой | OIDC: ID-токен и сессия приложения |
+| Вызвать API от имени пользователя | access-токен с нужным scope |
+| Вызвать API от имени сервиса | access-токен, выданный самому сервису |
+
+**Ловушки**
+
+- **Вход по access-токену.** Токен, выданный другому клиенту, подойдёт и вашему. ID-токен защищён от этого проверкой `aud`.
+- **ID-токен в API.** Отправлять его в заголовке `Authorization` — ошибка: его получатель — клиент, а не API.
+
+**Правило**
+
+Аутентификация пользователя — OIDC, доступ к API — access-токен с узким scope.
+
+**Итог:** OIDC — это OAuth 2.0 плюс ID-токен, UserInfo и discovery, то есть стандартный вход поверх стандартного доступа.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- Сервер авторизации — единственное место, где пользователь вводит пароль или проходит Kerberos. Клиент видит только результат — токены.
+- API доверяет подписи сервера авторизации: проверяет издателя, аудиторию и срок токена. Подробно — в теме [JWT и защита API](/sobes/security/jwt/).
+- ID-токен адресован клиенту: `aud` равен `client_id`, а `nonce` связывает ответ с конкретным запросом входа. Чужой или повторно присланный ID-токен клиент отвергнет.
+
+**Компромиссы**
+
+- **Делегирование против пароля в приложении.** Пароль хранит один сервер, доступ отзывается по каждому клиенту отдельно. Цена — редиректы, ключи подписи и зависимость от доступности провайдера.
+- **Единый вход (SSO).** Сессия у сервера авторизации общая: вошёл в одно приложение — вошёл во все. Выход тоже приходится согласовывать: RP-initiated, front-channel и back-channel logout.
+- **Протокол против продукта.** OIDC стандартизирует обмен, но не модель прав: роли и группы каждый провайдер передаёт по-своему. ADFS, Entra ID и Keycloak различаются именами полей и поддержкой расширений.
+
+**Как проверить в проде**
+
+- Discovery-документ провайдера показывает поддерживаемые потоки, scopes и алгоритмы: `grant_types_supported`, `scopes_supported`, `id_token_signing_alg_values_supported`.
+- Содержимое токенов смотрят в логах Development или локальным декодером, не отправляя боевые токены на сторонние сайты.
+
+**Итог:** OAuth отделяет выдачу доступа от его использования, OIDC стандартизирует, кто вошёл, а держатся оба на доверии к подписи сервера авторизации.
+
+</A>
+
+<Ex>
+
+```jsonc
+// ID-токен после декодирования: адресован клиенту
+{
+  "iss": "https://login.example.com", // кто выпустил
+  "sub": "248289761001",              // постоянный id пользователя у провайдера
+  "aud": "orders-web",                // client_id приложения
+  "exp": 1791374400,                  // срок действия, Unix time
+  "iat": 1791370800,                  // время выпуска
+  "nonce": "n-0S6_WzA2Mj",            // связь с запросом входа
+  "name": "Olena Kovalenko"
+}
+```
+
+```jsonc
+// Access-токен того же входа (если провайдер выдаёт JWT): адресован API
+{
+  "iss": "https://login.example.com",
+  "sub": "248289761001",
+  "aud": "https://api.example.com/orders", // получатель — API
+  "client_id": "orders-web",               // кому выдан
+  "scope": "orders.read",                  // что клиенту разрешено
+  "exp": 1791371100
+}
+```
+
+</Ex>
+
+<Next>
+
+- Почему OAuth называют протоколом авторизации, а не аутентификации? — Он выдаёт доступ к API, но не сообщает клиенту, кто пользователь; это делает OIDC.
+- Что будет, если отправить ID-токен в API? — API должен отклонить его по `aud`: токен выпущен для клиента.
+- Что такое relying party? — Термин OIDC для клиента, который доверяет провайдеру вход пользователя.
+- Зачем нужен endpoint UserInfo, если есть ID-токен? — Чтобы не раздувать ID-токен: дополнительные данные профиля клиент берёт по access-токену.
+- Может ли ADFS быть OIDC-провайдером? — Да, начиная с Windows Server 2016; подробности — в теме «AD, Kerberos и ADFS».
+
+</Next>
+
+<Src>
+
+- [RFC 6749: The OAuth 2.0 Authorization Framework](https://datatracker.ietf.org/doc/html/rfc6749)
+- [OpenID Connect Core 1.0](https://openid.net/specs/openid-connect-core-1_0.html)
+
+</Src>
+
+</Q>
+
+<Q id="security.oauth.flows" level="m">
+
+## Какие бывают потоки OAuth и какой когда выбрать?
+
+<A short l="j">
+
+Поток (grant type) — сценарий, по которому клиент получает токен. Когда входит пользователь, берут <T k="authorization-code-flow">authorization code</T> с <T k="pkce">PKCE</T>, когда сервис вызывает сервис — <T k="client-credentials">client credentials</T>, а implicit и вход по паролю устарели.
+
+</A>
+
+<A short l="m">
+
+Поток выбирают по двум вопросам: есть ли пользователь и может ли клиент хранить секрет. Пользователю в браузере подходит authorization code с PKCE, где браузер видит только одноразовый код, сервису — client credentials, устройству без браузера — <T k="device-code-flow">device code</T>. Implicit выдаёт токен прямо в URL, password-поток показывает пароль клиенту: RFC 9700 первый не рекомендует, второй запрещает, а в черновике OAuth 2.1 их нет.
+
+</A>
+
+<A short l="s">
+
+Потоки различаются тем, по какому каналу идёт токен и чем клиент доказывает, что вход начал он. Authorization code пускает через браузер только одноразовый код, а PKCE привязывает его обмен к инициатору. RFC 9700 требует PKCE от <T k="public-client">публичных клиентов</T> и рекомендует <T k="confidential-client">конфиденциальным</T>, а implicit и password-поток считает небезопасными: токен в URL, пароль у клиента. Цена правильного выбора — редиректы и точная регистрация `redirect_uri`, зато токены не попадают в историю браузера и логи прокси.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+Поток (grant type) — сценарий, по которому клиент получает токен. Выбор зависит от двух вопросов: есть ли пользователь и может ли клиент хранить секрет.
+
+**Основные потоки**
+
+| Поток | Когда |
+|---|---|
+| Authorization code + PKCE | входит пользователь: сайт, SPA, мобильное приложение |
+| Client credentials | сервис вызывает сервис, пользователя нет |
+| Device code | у устройства нет браузера: ТВ, консольная утилита |
+| Refresh token | продлить доступ без повторного входа |
+
+**Частая ошибка**
+
+Взять поток с паролем (`grant_type=password`), потому что он «проще»: приложение само принимает логин и пароль. Тогда пароль видит клиент, а MFA и единый вход перестают работать. Современные рекомендации этот поток запрещают.
+
+**Итог:** пользователь — authorization code с PKCE, сервис — client credentials.
+
+</A>
+
+<A l="m">
+
+**Как устроено: authorization code + PKCE**
+
+1. Клиент генерирует случайный `code_verifier` и считает `code_challenge` — BASE64URL от его SHA-256.
+2. Браузер уходит на `/authorize` с `response_type=code`, `client_id`, `redirect_uri`, `scope`, `state` и `code_challenge`.
+3. Пользователь входит на сервере авторизации и подтверждает доступ.
+4. Сервер авторизации возвращает браузер на `redirect_uri` с одноразовым `code` и тем же `state`.
+5. Клиент сверяет `state` и отправляет POST на `/token` с `code` и `code_verifier`; конфиденциальный клиент добавляет свой секрет.
+6. Сервер проверяет, что хэш `code_verifier` совпал с `code_challenge`, и выдаёт токены.
+
+**Когда что выбирать**
+
+- **Конфиденциальный клиент** — серверное веб-приложение или сервис с секретом: authorization code + PKCE для пользователей, client credentials для вызовов без пользователя.
+- **Публичный клиент** — SPA, мобильное или десктопное приложение: секрета нет, PKCE обязателен.
+
+**Ловушки**
+
+- **Implicit** (`response_type=token`) кладёт access-токен во фрагмент URL: он попадает в историю браузера, его можно подменить.
+- **Нестрогий `redirect_uri`.** Сравнение по префиксу или маске позволяет увести код на подставной адрес. RFC 9700 требует точного совпадения строк.
+
+**Правило**
+
+Authorization code + PKCE для всех клиентов с пользователем, client credentials для сервисов, device code для устройств без браузера. Implicit и password в новом коде не используют.
+
+**Итог:** через браузер идёт только одноразовый код, а PKCE гарантирует, что обменяет его тот же клиент, который начал вход.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- PKCE защищает от перехвата и подмены кода: украденный `code` бесполезен без `code_verifier`, который не покидал клиента. Метод — `S256`; `plain` в OAuth 2.1 убран.
+- Фронт-канал (редиректы браузера) ненадёжен: URL видят история, расширения и логи. Поэтому по нему идёт только короткоживущий одноразовый код, а токены — прямым ответом по TLS.
+- Device code (RFC 8628): устройство получает `device_code` и `user_code`, показывает адрес и код, пользователь входит с телефона, а устройство опрашивает `/token`.
+- Client credentials выдаёт токен самому клиенту, и refresh-токен в нём не нужен: RFC 6749 советует его не выдавать.
+
+**Статус стандартов**
+
+- RFC 9700 (OAuth 2.0 Security BCP, январь 2025): password — MUST NOT, implicit — SHOULD NOT, PKCE обязателен публичным клиентам и рекомендован конфиденциальным.
+- OAuth 2.1 на октябрь 2026 — ещё черновик IETF. В нём нет implicit и password, а PKCE обязателен всем, кроме конфиденциального клиента с проверкой OIDC `nonce`.
+
+**Компромиссы**
+
+Сервису, которому нужен пользователь, client credentials не подходит: токен будет от имени сервиса. Тогда меняют токен пользователя на новый: token exchange (RFC 8693) или on-behalf-of в Entra ID.
+
+**Как проверить в проде**
+
+- В discovery-документе — `grant_types_supported` и `code_challenge_methods_supported` с `S256`; у клиента в настройках провайдера выключены implicit и password.
+- В логах прокси и веб-сервера не должно быть `access_token=` в URL.
+
+**Итог:** выбор потока — это выбор канала для токена и способа доказать, что клиент тот же; стандарты оставили authorization code + PKCE, client credentials и device code.
+
+</A>
+
+<Ex title="Authorization code + PKCE по HTTP">
+
+```http
+GET /authorize?response_type=code&client_id=orders-web
+    &redirect_uri=https%3A%2F%2Forders.example.com%2Fsignin-oidc
+    &scope=openid%20profile%20orders.read&state=af0ifjsldkj
+    &code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM
+    &code_challenge_method=S256 HTTP/1.1
+Host: login.example.com
+```
+
+```http
+POST /token HTTP/1.1
+Host: login.example.com
+Authorization: Basic b3JkZXJzLXdlYjpzZWNyZXQ=
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=authorization_code&code=SplxlOBeZQQYbYS6WxSbIA
+&redirect_uri=https%3A%2F%2Forders.example.com%2Fsignin-oidc
+&code_verifier=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk
+```
+
+Строка запроса разбита для читаемости. Первый запрос идёт через браузер, второй — напрямую от сервера приложения; заголовок `Authorization: Basic` есть только у конфиденциального клиента.
+
+</Ex>
+
+<Ex title="Как получить code_verifier и code_challenge">
+
+```csharp
+using System.Buffers.Text;
+using System.Security.Cryptography;
+using System.Text;
+
+// code_verifier: 32 случайных байта → 43 символа base64url
+var verifier = Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(32));
+
+// code_challenge = BASE64URL(SHA256(code_verifier)), метод S256
+var challenge = Base64Url.EncodeToString(SHA256.HashData(Encoding.ASCII.GetBytes(verifier)));
+
+Console.WriteLine(verifier.Length);  // 43
+Console.WriteLine(challenge.Length); // 43
+```
+
+</Ex>
+
+<Next>
+
+- Почему implicit больше не нужен SPA? — Браузеры поддерживают CORS, и SPA проходит authorization code + PKCE так же, как остальные клиенты.
+- Заменяет ли PKCE параметр `state`? — Защиту от CSRF при входе он даёт, если сервер авторизации поддерживает PKCE; в OIDC эту роль играет и `nonce`.
+- Нужен ли PKCE серверному приложению с секретом? — RFC 9700 его рекомендует: секрет не защищает от подмены кода в чужой сессии.
+- Как работает device code? — Устройство показывает код и адрес, пользователь входит на телефоне, устройство опрашивает `/token`.
+- Как сервису вызвать API от имени пользователя? — Обменять токен пользователя: token exchange (RFC 8693) или on-behalf-of.
+
+</Next>
+
+<Src>
+
+- [RFC 9700: Best Current Practice for OAuth 2.0 Security](https://datatracker.ietf.org/doc/html/rfc9700)
+- [RFC 7636: Proof Key for Code Exchange (PKCE)](https://datatracker.ietf.org/doc/html/rfc7636)
+- [The OAuth 2.1 Authorization Framework (Internet-Draft)](https://datatracker.ietf.org/doc/draft-ietf-oauth-v2-1/)
+
+</Src>
+
+</Q>
+
+<Q id="security.oauth.tokens" level="m">
+
+## Какие бывают токены и как управлять их жизнью?
+
+<A short l="j">
+
+Access-токен даёт доступ к API и живёт минуты, <T k="refresh-token">refresh-токен</T> позволяет получить новый access-токен без повторного входа, а ID-токен только сообщает клиенту, кто вошёл. Поэтому access-токен делают коротким, а refresh-токен хранят надёжнее всего.
+
+</A>
+
+<A short l="m">
+
+Access-токен ограничен scopes — что можно, и <T k="token-audience">audience</T> — для какого API; refresh-токен меняется на новую пару на `/token`, а ID-токен нужен только при входе. Короткий access-токен ограничивает ущерб от утечки, а <T k="refresh-token-rotation">ротация refresh-токенов</T> выдаёт новый refresh-токен при каждом обновлении и ловит повторное использование старого. Цена — частые обращения к серверу авторизации и логика обновления на клиенте.
+
+</A>
+
+<A short l="s">
+
+Время жизни токена — компромисс между отзывом и масштабированием. JWT API проверяет локально по подписи, но до `exp` его не отозвать; <T k="opaque-token">непрозрачный токен</T> отзывается мгновенно, зато требует <T k="token-introspection">introspection</T> у сервера авторизации. Поэтому access-токены делают короткими, а сессией управляют через refresh-токен: ротация с обнаружением повтора, абсолютный срок и <T k="token-revocation">отзыв</T> при выходе. Для публичных клиентов RFC 9700 требует ротацию или привязку refresh-токена к ключу клиента.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+| Токен | Кому адресован | Зачем |
+|---|---|---|
+| Access | API | вызвать API |
+| Refresh | серверу авторизации | получить новый access-токен |
+| ID (OIDC) | клиенту | узнать, кто вошёл |
+
+**Как пользоваться**
+
+- Access-токен отправляют в заголовке `Authorization: Bearer ...`. Это <T k="bearer-token">bearer-токен</T>: кто им владеет, тот и пользуется.
+- Когда он истекает, клиент отправляет refresh-токен на `/token` и получает новую пару.
+- Refresh-токен выдают по scope `offline_access` (OIDC) или по настройке клиента.
+
+**Частая ошибка**
+
+Выдавать access-токен на сутки, чтобы «не возиться с обновлением». Украденный токен будет работать сутки, и если это JWT, отозвать его нельзя.
+
+**Итог:** access-токен короткий и для API, refresh-токен длинный и только для сервера авторизации, ID-токен — для клиента при входе.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+- **Scope** — права клиента, а не пользователя: `orders.read` значит «клиент может читать заказы от имени пользователя». Итоговый доступ — пересечение прав пользователя и выданных scopes.
+- **Audience** (`aud`) — для какого API токен. API обязан отклонить токен с чужой аудиторией, иначе токен одного сервиса подойдёт к другому.
+- **Время жизни** — `expires_in` в ответе и `exp` в токене: минуты у access-токена, часы или дни у refresh-токена.
+
+**Когда что выбирать**
+
+| Признак | JWT | Непрозрачный |
+|---|---|---|
+| Проверка | локально, по подписи | introspection (RFC 7662) |
+| Отзыв | только истечением срока | мгновенно |
+| Нагрузка на сервер авторизации | нет | на каждый запрос или промах кэша |
+
+Структура и проверка JWT — в теме [JWT и защита API](/sobes/security/jwt/).
+
+**Ловушки**
+
+- **Параллельное обновление.** Две вкладки одновременно обновляют токен одним refresh-токеном: при ротации вторая получит `invalid_grant`. Обновление на клиенте выполняют по одному.
+- **Выход без отзыва.** Удалить токены у себя недостаточно: refresh-токен действует, пока его не отозвали на revocation endpoint (RFC 7009).
+
+**Правило**
+
+Короткий access-токен с точной audience, refresh-токен с ротацией и отзыв при выходе.
+
+**Итог:** scope и audience ограничивают, что и где может токен, а короткий срок и ротация — как долго им можно злоупотреблять.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- **Ротация** (RFC 9700): каждый ответ на `grant_type=refresh_token` содержит новый refresh-токен, а старый становится недействительным. Если старый придёт снова, сервер не знает, кто из двоих атакующий, и отзывает всю цепочку.
+- **Отзыв** (RFC 7009): отозвав refresh-токен, сервер должен отозвать и access-токены того же гранта, если умеет. Уже выданный JWT API продолжит принимать до `exp`.
+- **Introspection** (RFC 7662): ответ `{"active": true}` со scope, клиентом и сроком или `{"active": false}` для отозванного и истёкшего токена.
+- **Привязка к отправителю.** Refresh-токен конфиденциального клиента бесполезен без его секрета; публичному клиенту привязку даёт DPoP (RFC 9449).
+
+**Цена**
+
+- Короткий access-токен — регулярные обновления от каждого пользователя и нагрузка на сервер авторизации.
+- Introspection добавляет сетевой вызов к запросам API, а кэш его результата снова откладывает отзыв.
+
+**Компромиссы**
+
+- Срок access-токена — окно, в котором отозванный доступ ещё работает.
+- Срок refresh-токена задаёт, как часто пользователь входит заново: абсолютный или скользящий, продлеваемый при использовании.
+- Новые права пользователя попадают в токен только при обновлении.
+
+**Как проверить в проде**
+
+- Рост `invalid_grant` при обновлении в логах сервера авторизации — гонки обновления или обнаруженный повтор.
+- Тестами проверяют, что API отклоняет истёкший токен и токен с чужой `aud`.
+
+**Итог:** короткий access-токен ограничивает ущерб, а управление сессией переносится на refresh-токен с ротацией, сроком и отзывом.
+
+</A>
+
+<Ex title="Обновление с ротацией">
+
+```http
+POST /token HTTP/1.1
+Host: login.example.com
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=refresh_token&refresh_token=tGzv3JOkF0XG5Qx2TlKWIA&client_id=orders-spa
+```
+
+```jsonc
+{
+  "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCI6ImF0K2p3dCJ9...",
+  "token_type": "Bearer",
+  "expires_in": 300,                         // 5 минут
+  "refresh_token": "8xLOxBtZp8RmMKb7wWUcAw", // новый: прежний больше не действует
+  "scope": "openid orders.read"
+}
+```
+
+</Ex>
+
+<Ex title="Отзыв при выходе">
+
+```http
+POST /revoke HTTP/1.1
+Host: login.example.com
+Content-Type: application/x-www-form-urlencoded
+
+token=8xLOxBtZp8RmMKb7wWUcAw&token_type_hint=refresh_token&client_id=orders-spa
+```
+
+Адреса `/token`, `/revoke` и `/introspect` у каждого провайдера свои: их берут из discovery-документа.
+
+</Ex>
+
+<Next>
+
+- Почему refresh-токен не отправляют в API? — Он адресован только серверу авторизации; утечка через API дала бы долгий доступ.
+- Как отозвать JWT access-токен? — Никак до `exp`: укорачивают срок, проверяют список отозванных `jti` или переходят на непрозрачные токены.
+- Что такое scope `offline_access`? — Запрос refresh-токена в OIDC, чтобы обновлять доступ без пользователя.
+- Чем scope отличается от роли? — Scope — права клиента от имени пользователя, роль — права самого пользователя.
+- Что будет при повторном использовании старого refresh-токена? — При ротации с обнаружением повтора сервер отзовёт всю цепочку.
+
+</Next>
+
+<Src>
+
+- [RFC 9700, section 4.14: Refresh Token Protection](https://datatracker.ietf.org/doc/html/rfc9700#section-4.14)
+- [RFC 7009: OAuth 2.0 Token Revocation](https://datatracker.ietf.org/doc/html/rfc7009)
+- [RFC 7662: OAuth 2.0 Token Introspection](https://datatracker.ietf.org/doc/html/rfc7662)
+
+</Src>
+
+</Q>
+
+<Q id="security.oauth.aspnet-oidc" level="m">
+
+## Как подключить вход через OpenID Connect в ASP.NET Core?
+
+<A short l="j">
+
+Вход через OIDC собирают из двух <T k="authentication-scheme">схем аутентификации</T>: OIDC-схема ведёт пользователя к провайдеру и разбирает ответ, а cookie-схема хранит сессию. Настраивают `Authority`, `ClientId`, секрет и `ResponseType = "code"`, а адреса endpoints и ключи обработчик берёт из discovery-документа сам.
+
+</A>
+
+<A short l="m">
+
+`AddOpenIdConnect` — удалённый обработчик: на <T k="auth-challenge">challenge</T> он отправляет браузер на `/authorize`, а на колбэке `/signin-oidc` меняет код на токены, проверяет ID-токен и вызывает вход cookie-схемы. PKCE включён по умолчанию, но только для `ResponseType = code`, а умолчание там — `id_token`; <T k="pushed-authorization-request">PAR</T> с .NET 9 включается сам, если провайдер его поддерживает. Решения за вами: хранить ли токены в cookie (`SaveTokens`), переименовывать ли <T k="claim">claims</T> (`MapInboundClaims`) и кто обновляет access-токен — обработчик этого не делает.
+
+</A>
+
+<A short l="s">
+
+Обработчик OIDC хранит состояние входа — адрес возврата и `code_verifier` — в параметре `state`, зашифрованном <T k="data-protection">Data Protection</T>, а correlation- и nonce-cookie связывают колбэк с браузером. Поэтому в ферме серверов нужны общие ключи Data Protection, иначе колбэк на другом узле падает. Сессия живёт в cookie, а не в токене: её срок, обновление access-токена и выход у провайдера настраиваете вы. Цена `SaveTokens` — большая cookie на каждом запросе; её переносят на сервер через `SessionStore`.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+Вход через OIDC в ASP.NET Core — две схемы аутентификации, которые работают вместе:
+
+- **OpenID Connect** (пакет `Microsoft.AspNetCore.Authentication.OpenIdConnect`) ведёт пользователя к провайдеру и разбирает ответ;
+- **Cookie** запоминает вход между запросами.
+
+**Как пользоваться**
+
+1. Зарегистрируйте приложение у провайдера: `client_id`, секрет, redirect URI `https://ваш-сайт/signin-oidc`.
+2. В `Program.cs` вызовите `AddAuthentication` со схемой по умолчанию cookie и схемой challenge OIDC, затем `AddCookie()` и `AddOpenIdConnect(...)`.
+3. В `AddOpenIdConnect` укажите `Authority`, `ClientId`, `ClientSecret` и `ResponseType = "code"`.
+4. Защитите эндпоинты через `RequireAuthorization()` или `[Authorize]`.
+
+**Частая ошибка**
+
+Хранить `ClientSecret` в `appsettings.json` в репозитории. При разработке секрет кладут в user secrets, в проде — в хранилище секретов.
+
+**Итог:** OIDC-схема выполняет вход, cookie-схема его запоминает.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+1. Анонимный запрос к защищённому эндпоинту вызывает challenge схемы OIDC.
+2. Обработчик читает и кэширует discovery-документ провайдера и редиректит на `/authorize` с `state`, `nonce` и PKCE.
+3. Браузер возвращается с кодом POST-запросом на `/signin-oidc`: по умолчанию `response_mode=form_post`.
+4. Обработчик меняет код на токены и проверяет у ID-токена подпись, `iss`, `aud`, срок и `nonce`.
+5. Cookie-схема выдаёт cookie, и браузер возвращается на исходный адрес.
+
+**Настройки по умолчанию**
+
+| Настройка | Умолчание | Когда менять |
+|---|---|---|
+| `ResponseType` | `id_token` | всегда на `code` |
+| `UsePkce` | `true` | не трогать |
+| `SaveTokens` | `false` | нужен access-токен для API |
+| `MapInboundClaims` | `true` | нужны исходные имена claims |
+| `GetClaimsFromUserInfoEndpoint` | `false` | в ID-токене мало данных |
+
+**Ловушки**
+
+- **Переименование claims.** При `MapInboundClaims = true` claim `sub` превращается в `http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier`, и `FindFirst("sub")` вернёт `null`. При `false` задайте `NameClaimType` и `RoleClaimType`.
+- **Нет обновления токена.** Обработчик не обновляет access-токен: по refresh-токену это делает ваш код или библиотека.
+- **Reverse proxy.** Без <T k="forwarded-headers">forwarded headers</T> redirect URI собирается со схемой `http`, и провайдер его отвергает.
+
+**Правило**
+
+`ResponseType = code`, секрет вне репозитория, `MapInboundClaims = false` с явными `NameClaimType` и `RoleClaimType`.
+
+**Итог:** OIDC-обработчик делает вход и проверку ID-токена, а сессию, хранение и обновление токенов вы настраиваете сами.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- `state` — зашифрованные `AuthenticationProperties`: адрес возврата и `code_verifier` уходят к провайдеру и возвращаются обратно. Correlation-cookie проверяет, что колбэк пришёл в тот же браузер.
+- Correlation- и nonce-cookie выставляются с `SameSite=None; Secure`: колбэк приходит межсайтовым POST, и с `Lax` браузер их не отправит.
+- Ключи подписи берутся из `jwks_uri`; при незнакомом `kid` обработчик перечитывает метаданные (`RefreshOnIssuerKeyNotFound`).
+- PAR (.NET 9+, `PushedAuthorizationBehavior.UseIfAvailable`): параметры уходят прямым POST, браузер получает только `request_uri`. Entra ID PAR не поддерживает.
+
+**Цена**
+
+`SaveTokens = true` кладёт токены в cookie: несколько килобайт, которые делятся на части и уходят с каждым запросом. `SessionStore` (`ITicketStore`) переносит сессию в кэш, в cookie остаётся ключ.
+
+**Компромиссы**
+
+- Срок сессии задаёт cookie (`ExpireTimeSpan`), а не ID-токен.
+- Обновление access-токена пишут в `OnValidatePrincipal` cookie-схемы или берут библиотеку вроде Duende.AccessTokenManagement.
+- Для Entra ID Microsoft рекомендует `Microsoft.Identity.Web`; ADFS работает со стандартным обработчиком — подробнее в теме «AD, Kerberos и ADFS».
+
+**Как проверить в проде**
+
+- `Correlation failed` — потерялась correlation-cookie: SameSite или HTTP за прокси.
+- `Unable to unprotect the message.State` — колбэк попал на узел с другими ключами Data Protection.
+- `IdentityModelEventSource.ShowPII = true` — только в Development: иначе детали ошибок валидации скрыты.
+
+**Итог:** OIDC-обработчик — конечный автомат поверх cookie; надёжность входа решают ключи Data Protection, SameSite, прокси и размер сессии.
+
+</A>
+
+<Ex>
+
+```csharp
+// NuGet: Microsoft.AspNetCore.Authentication.OpenIdConnect
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.IdentityModel.Protocols.OpenIdConnect;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddAuthentication(options =>
+    {
+        options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;    // сессия
+        options.DefaultChallengeScheme = OpenIdConnectDefaults.AuthenticationScheme; // вход
+    })
+    .AddCookie()
+    .AddOpenIdConnect(options =>
+    {
+        options.Authority = "https://login.example.com"; // отсюда — discovery-документ
+        options.ClientId = "orders-web";
+        options.ClientSecret = builder.Configuration["Oidc:ClientSecret"];
+        options.ResponseType = OpenIdConnectResponseType.Code; // по умолчанию id_token
+        options.Scope.Add("orders.read");                       // openid и profile уже есть
+        options.SaveTokens = true;                              // токены — в cookie сессии
+        options.MapInboundClaims = false;                       // sub остаётся sub
+        options.TokenValidationParameters.NameClaimType = "name";
+    });
+builder.Services.AddAuthorization();
+
+var app = builder.Build();
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapGet("/", async (HttpContext ctx) => new
+{
+    name = ctx.User.Identity?.Name,
+    sub = ctx.User.FindFirst("sub")?.Value,
+    hasAccessToken = await ctx.GetTokenAsync("access_token") is not null
+}).RequireAuthorization(); // анонимного пользователя отправит к провайдеру
+
+// Выход из обеих схем: удалить cookie и завершить сессию у провайдера
+app.MapGet("/logout", () => Results.SignOut(null,
+    [CookieAuthenticationDefaults.AuthenticationScheme, OpenIdConnectDefaults.AuthenticationScheme]));
+
+app.Run();
+```
+
+</Ex>
+
+<Next>
+
+- Зачем две схемы, если вход через OIDC? — OIDC-схема только выполняет вход, а помнить пользователя между запросами должна cookie.
+- Включён ли PKCE по умолчанию? — Да, `UsePkce = true`, но он работает только с `ResponseType = code`.
+- Почему `User.FindFirst("sub")` возвращает `null`? — `MapInboundClaims` переименовал `sub` в `ClaimTypes.NameIdentifier`.
+- Где взять access-токен для вызова API? — `SaveTokens = true` и `HttpContext.GetTokenAsync("access_token")`.
+- Почему вход ломается за балансировщиком? — Нет forwarded headers или общих ключей Data Protection между узлами.
+
+</Next>
+
+<Src>
+
+- [Configure OpenID Connect Web (UI) authentication in ASP.NET Core](https://learn.microsoft.com/aspnet/core/security/authentication/configure-oidc-web-authentication)
+- [OpenIdConnectOptions Class](https://learn.microsoft.com/dotnet/api/microsoft.aspnetcore.authentication.openidconnect.openidconnectoptions)
+- [Mapping, customizing, and transforming claims in ASP.NET Core](https://learn.microsoft.com/aspnet/core/security/authentication/claims)
+
+</Src>
+
+</Q>
+
+<Q id="security.oauth.spa-bff" level="s">
+
+## Как безопасно авторизовать SPA: токены в браузере или BFF?
+
+<A short l="j">
+
+SPA может получать токены сама, через authorization code с PKCE в браузере, или отдать вход серверу по паттерну <T k="bff">BFF</T> — тогда браузер хранит только cookie. Токен в `localStorage` может украсть любой скрипт при <T k="xss">XSS</T>, поэтому для корпоративных приложений рекомендуют BFF.
+
+</A>
+
+<A short l="m">
+
+BFF — серверная часть SPA на том же сайте: она входит через OIDC как конфиденциальный клиент, держит токены у себя и выдаёт браузеру HttpOnly-cookie с <T k="samesite-cookie">SameSite</T>. Клиент целиком в браузере, например на angular-oauth2-oidc, проще развернуть, но токены доступны JavaScript, а <T k="silent-renew">silent renew</T> через iframe ломается там, где блокируют <T k="third-party-cookies">сторонние cookie</T>. Цена BFF — свой сервер с прокси для API и защита от <T k="csrf">CSRF</T>, ведь аутентификация снова держится на cookie.
+
+</A>
+
+<A short l="s">
+
+RFC 10017 (2026) ранжирует три архитектуры SPA — BFF, token-mediating backend и клиент целиком в браузере — и для бизнес-приложений с персональными данными рекомендует BFF. Решает не место хранения: при XSS скрипт сам проходит тихий вход в скрытом iframe и получает свежие токены, и <T k="dpop">DPoP</T> от этого не спасает. BFF не убирает XSS, но ограничивает ущерб: атакующий действует только из открытой вкладки и не уносит refresh-токен. Цена — сервер на пути каждого запроса, защита от CSRF и масштабирование сессий.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+У SPA нет надёжного места для секрета: весь её код и данные доступны в браузере. Подходов два:
+
+- **Токены в браузере.** SPA сама проходит authorization code + PKCE, например через angular-oauth2-oidc, и отправляет access-токен в API.
+- **BFF (Backend for Frontend).** Вход выполняет сервер приложения, токены остаются на сервере, а браузер получает только cookie.
+
+**Зачем**
+
+Если на страницу попал чужой скрипт (XSS), он прочитает токен из `localStorage` и отправит атакующему. HttpOnly-cookie скрипт прочитать не может.
+
+**Частая ошибка**
+
+Думать, что `sessionStorage` вместо `localStorage` решает проблему. Скрипт на странице читает и то и другое.
+
+**Итог:** чем меньше токенов видит браузер, тем меньше украдёт XSS, а BFF не отдаёт их браузеру совсем.
+
+</A>
+
+<A l="m">
+
+**Как устроено: BFF**
+
+1. SPA и BFF живут на одном сайте, например `app.example.com` и `app.example.com/bff`.
+2. Вход — обычный OIDC-вход серверного приложения: BFF — конфиденциальный клиент с секретом.
+3. BFF выдаёт сессионную cookie: `HttpOnly`, `Secure`, `SameSite` и префикс `__Host-`.
+4. SPA вызывает `/bff/...` с cookie, а BFF берёт access-токен из сессии, при необходимости обновляет его и проксирует запрос в API.
+
+**Когда что выбирать**
+
+| Критерий | Токены в браузере | BFF |
+|---|---|---|
+| Кража токена при XSS | возможна | токенов в браузере нет |
+| Инфраструктура | только статика | сервер и прокси для API |
+| CSRF | к bearer-токену неприменим | нужна защита |
+
+**Ловушки**
+
+- **Silent renew через iframe** опирается на cookie провайдера в стороннем контексте. Safari блокирует сторонние cookie, Firefox изолирует их по сайтам, поэтому без BFF обновляют refresh-токеном. angular-oauth2-oidc в code flow так и делает, а iframe включается `useSilentRefresh: true`.
+- **Refresh-токен в браузере** — самая ценная добыча. RFC 9700 требует для публичных клиентов ротацию или привязку к ключу.
+- **CSRF в BFF.** Cookie прикладывается сама, поэтому эндпоинты BFF требуют свой заголовок, например `X-CSRF: 1`: чужой сайт не отправит его без разрешения CORS.
+
+**Правило**
+
+Корпоративное приложение с персональными данными — BFF. Токены в браузере — когда сервера нет и риск приемлем: PKCE, короткие токены, ротация refresh-токенов.
+
+**Итог:** BFF меняет кражу токенов при XSS на защиту от CSRF, которая решается проще.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- RFC 10017 разбирает атаку, против которой хранилище бессильно. Внедрённый скрипт открывает скрытый iframe с `/authorize?prompt=none`, читает код из фрейма своего origin и меняет его на свежие токены.
+- DPoP (RFC 9449) привязывает токен к ключу клиента: каждый запрос подписан доказательством владения ключом. Неизвлекаемый ключ WebCrypto не даёт унести токен, но скрипт на странице может подписывать запросы сам или пройти новый вход со своим ключом.
+- Token-mediating backend получает токены на сервере, а access-токен отдаёт браузеру: refresh-токен не утекает, access-токен может.
+
+**Цена**
+
+- BFF стоит на пути каждого вызова API: задержка прокси, своя доступность и масштабирование.
+- Сессия с токенами раздувает cookie, а `SessionStore` требует общего кэша между узлами.
+
+**Компромиссы**
+
+- Cookie возвращает CSRF, от которого bearer-токены были свободны: нужны SameSite и свой заголовок.
+- `SameSite=Strict` RFC 10017 рекомендует, но после межсайтового колбэка OIDC первый запрос может прийти без cookie. В ASP.NET Core обычно оставляют `Lax`.
+- Готовые реализации: Duende BFF, YARP с подстановкой токена, пример Microsoft для Blazor Web App с OIDC.
+
+**Как объяснить решение команде**
+
+- Разобрать модель угроз: что получит атакующий при XSS в каждом варианте.
+- Если ASP.NET Core уже отдаёт SPA, BFF обходится в несколько эндпоинтов и прокси.
+
+**Итог:** XSS в SPA не лечится выбором хранилища; BFF не отдаёт токены браузеру и сужает ущерб до открытой вкладки.
+
+</A>
+
+<Ex title="BFF на ASP.NET Core">
+
+```csharp
+// NuGet: Microsoft.AspNetCore.Authentication.OpenIdConnect
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.IdentityModel.Protocols.OpenIdConnect;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddAuthentication(options =>
+    {
+        options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+        options.DefaultChallengeScheme = OpenIdConnectDefaults.AuthenticationScheme;
+    })
+    .AddCookie(options =>
+    {
+        options.Cookie.Name = "__Host-orders";                   // Secure, Path=/, без Domain
+        options.Cookie.SecurePolicy = CookieSecurePolicy.Always; // HttpOnly включён по умолчанию
+        options.Cookie.SameSite = SameSiteMode.Lax;              // Strict ломает возврат после входа
+    })
+    .AddOpenIdConnect(options =>
+    {
+        options.Authority = "https://login.example.com";
+        options.ClientId = "orders-bff";                         // конфиденциальный клиент
+        options.ClientSecret = builder.Configuration["Oidc:ClientSecret"];
+        options.ResponseType = OpenIdConnectResponseType.Code;
+        options.SaveTokens = true; // токены — в зашифрованной cookie, JavaScript их не видит
+    });
+builder.Services.AddAuthorization();
+builder.Services.AddHttpClient("api", c => c.BaseAddress = new Uri("https://api.example.com"));
+
+var app = builder.Build();
+
+// SPA вызывает /bff/orders с cookie, BFF добавляет токен и идёт в API
+app.MapGet("/bff/orders", async (HttpContext ctx, IHttpClientFactory http) =>
+{
+    if (ctx.Request.Headers["X-CSRF"] != "1") return Results.BadRequest(); // защита от CSRF
+
+    using var request = new HttpRequestMessage(HttpMethod.Get, "/orders");
+    request.Headers.Authorization = new("Bearer", await ctx.GetTokenAsync("access_token"));
+    using var response = await http.CreateClient("api").SendAsync(request);
+    return Results.Text(await response.Content.ReadAsStringAsync(), "application/json",
+        statusCode: (int)response.StatusCode);
+}).RequireAuthorization();
+
+app.Run();
+```
+
+</Ex>
+
+<Ex title="Токены в браузере: angular-oauth2-oidc">
+
+```ts
+import { AuthConfig, OAuthService } from 'angular-oauth2-oidc';
+
+export const authConfig: AuthConfig = {
+  issuer: 'https://login.example.com',
+  clientId: 'orders-spa',                             // публичный клиент: секрета нет
+  redirectUri: window.location.origin + '/index.html',
+  responseType: 'code',                               // authorization code + PKCE
+  scope: 'openid profile orders.read offline_access', // offline_access — за refresh-токеном
+};
+
+export async function initAuth(oauth: OAuthService) {
+  oauth.configure(authConfig);
+  await oauth.loadDiscoveryDocumentAndLogin();
+  oauth.setupAutomaticSilentRefresh(); // обновит токен на 75% его срока
+}
+```
+
+Токены здесь лежат в `sessionStorage` — хранилище библиотеки по умолчанию.
+
+</Ex>
+
+<Next>
+
+- Защищает ли HttpOnly-cookie от XSS? — От кражи сессии — да, от действий скрипта из открытой вкладки — нет.
+- Почему silent renew перестал работать в Safari? — Iframe провайдера — сторонний контекст, а Safari блокирует сторонние cookie.
+- Чем BFF отличается от token-mediating backend? — Во втором access-токен всё-таки попадает в браузер.
+- Как BFF защищается от CSRF? — SameSite-cookie плюс обязательный свой заголовок, который чужой сайт не отправит без CORS.
+- Что даёт DPoP в SPA? — Украденный токен бесполезен без ключа, но скрипт на странице может пользоваться ключом сам.
+
+</Next>
+
+<Src>
+
+- [RFC 10017: OAuth 2.0 for Browser-Based Applications](https://datatracker.ietf.org/doc/html/rfc10017)
+- [Secure an ASP.NET Core Blazor Web App with OpenID Connect (OIDC)](https://learn.microsoft.com/aspnet/core/blazor/security/blazor-web-app-with-oidc)
+- [angular-oauth2-oidc: Refreshing a Token](https://manfredsteyer.github.io/angular-oauth2-oidc/docs/additional-documentation/refreshing-a-token.html)
+
+</Src>
+
+</Q>

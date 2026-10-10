@@ -1,0 +1,196 @@
+windows-authentication:
+  term: Windows-аутентификация
+  def: >-
+    Вход в веб-приложение под доменной учётной записью Windows без ввода пароля: браузер и сервер
+    обмениваются токенами Kerberos или NTLM в HTTP-заголовках. В IIS и ASP.NET Core её также называют
+    Negotiate-аутентификацией.
+  q: Windows Authentication ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/security/authentication/windowsauth
+ntlm:
+  term: NTLM
+  def: >-
+    Протокол аутентификации Windows по схеме «вызов — ответ»: клиент доказывает знание хеша пароля,
+    а сервер проверяет ответ через контроллер домена. Не проверяет сервер и не поддерживает
+    делегирование; с 2024 года объявлен deprecated.
+  q: NTLM authentication protocol
+  docs: https://learn.microsoft.com/windows/win32/secauthn/microsoft-ntlm
+  wiki: NTLM
+kerberos:
+  term: Kerberos
+  def: >-
+    Сетевой протокол аутентификации по билетам (RFC 4120). Пароль проверяет KDC один раз, дальше клиент
+    предъявляет службам билеты, зашифрованные их ключами. Основной протокол входа в домене Active
+    Directory.
+  q: Kerberos authentication Active Directory
+  docs: https://learn.microsoft.com/windows-server/security/kerberos/kerberos-authentication-overview
+  wiki: Kerberos
+negotiate:
+  term: Negotiate (SPNEGO)
+  def: >-
+    Механизм, который выбирает протокол аутентификации: сначала Kerberos, при неудаче NTLM. В HTTP —
+    схема `WWW-Authenticate: Negotiate` (RFC 4559), в ASP.NET Core — обработчик `AddNegotiate()`.
+  q: SPNEGO Negotiate HTTP authentication
+  docs: https://learn.microsoft.com/windows/win32/secauthn/microsoft-negotiate
+active-directory:
+  term: Active Directory (AD)
+  def: >-
+    Служба каталогов Microsoft: хранит учётные записи пользователей и компьютеров, группы и политики
+    домена. Контроллеры домена проверяют пароли и выдают билеты Kerberos.
+  q: Active Directory Domain Services
+  docs: https://learn.microsoft.com/windows-server/identity/ad-ds/get-started/virtual-dc/active-directory-domain-services-overview
+  wiki: Active Directory
+kdc:
+  term: KDC (Key Distribution Center)
+  def: >-
+    Центр выдачи билетов Kerberos. В Active Directory работает на каждом контроллере домена: проверяет
+    пароль пользователя, выдаёт TGT и сервисные билеты.
+  q: Kerberos Key Distribution Center
+  docs: https://learn.microsoft.com/windows/win32/secauthn/key-distribution-center
+tgt:
+  term: TGT (Ticket Granting Ticket)
+  def: >-
+    «Билет на получение билетов» Kerberos: его выдаёт KDC после проверки пароля, и по нему клиент
+    получает сервисные билеты без повторного ввода пароля. Зашифрован ключом учётки `krbtgt`, по
+    умолчанию живёт 10 часов.
+  q: Kerberos ticket granting ticket
+service-ticket:
+  term: Сервисный билет (service ticket)
+  def: >-
+    Билет Kerberos к конкретной службе, который KDC выдаёт по TGT. Зашифрован ключом учётки, на которой
+    зарегистрирован SPN службы, поэтому служба проверяет его сама, без обращения к KDC.
+  q: Kerberos service ticket TGS
+spn:
+  term: SPN (Service Principal Name)
+  def: >-
+    Имя службы для Kerberos вида `HTTP/portal.contoso.com`, привязанное к одной учётной записи AD. По
+    нему KDC выбирает ключ, которым шифрует билет; дубликат или SPN не на той учётке ломают вход.
+  q: service principal name setspn
+  docs: https://learn.microsoft.com/windows-server/administration/windows-commands/setspn
+keytab:
+  term: Keytab
+  def: >-
+    Файл с долговременными ключами Kerberos учётной записи службы. На Linux по нему GSSAPI
+    расшифровывает билеты без пароля; путь задаёт переменная `KRB5_KTNAME`. Перевыпускается при смене
+    пароля учётки.
+  q: Kerberos keytab file ktpass
+  docs: https://learn.microsoft.com/windows-server/administration/windows-commands/ktpass
+pac:
+  term: PAC (Privilege Attribute Certificate)
+  def: >-
+    Структура внутри билета Kerberos в Active Directory со списком SID пользователя и всех его групп.
+    Из неё сервер строит Windows-токен без запроса к каталогу.
+  q: Kerberos PAC privilege attribute certificate
+adfs:
+  term: ADFS (Active Directory Federation Services)
+  def: >-
+    Роль Windows Server — служба выдачи токенов: проверяет пользователя в AD и выдаёт приложениям
+    подписанные токены по WS-Federation, SAML 2.0 или OpenID Connect. Microsoft рекомендует переходить
+    с неё на Microsoft Entra ID.
+  q: AD FS Active Directory Federation Services
+  docs: https://learn.microsoft.com/windows-server/identity/ad-fs/ad-fs-overview
+relying-party-trust:
+  term: Relying party trust
+  def: >-
+    Запись в ADFS о приложении, которому ADFS выдаёт токены: идентификатор, адрес возврата, протокол,
+    правила claims и политика доступа.
+  q: AD FS relying party trust
+claim-rules:
+  term: Правила claims (claim rules)
+  def: >-
+    Правила ADFS на собственном языке: условие, затем `=>` и действие `issue` или `add`. Определяют,
+    какие claims попадут в токен и откуда взять их значения, например из атрибутов AD.
+  q: AD FS claim rule language
+  docs: https://learn.microsoft.com/windows-server/identity/ad-fs/technical-reference/the-role-of-the-claim-rule-language
+ws-federation:
+  term: WS-Federation
+  def: >-
+    Протокол федеративного входа через браузер: приложение перенаправляет пользователя на STS, тот
+    возвращает формой POST подписанный токен, обычно SAML-assertion. В ASP.NET Core — пакет
+    `Microsoft.AspNetCore.Authentication.WsFederation`.
+  q: WS-Federation ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/security/authentication/ws-federation
+saml:
+  term: SAML 2.0
+  def: >-
+    XML-стандарт обмена утверждениями об аутентификации между поставщиком удостоверений и
+    приложением. Распространён в корпоративных продуктах и SaaS; встроенного обработчика в ASP.NET Core
+    нет.
+  q: SAML 2.0 single sign-on
+  wiki: SAML
+entra-id:
+  term: Microsoft Entra ID
+  def: >-
+    Облачная служба удостоверений Microsoft, бывший Azure Active Directory. Выдаёт токены по OIDC,
+    OAuth 2.0, SAML и WS-Federation; синхронизируется с локальным AD через Entra Connect.
+  q: Microsoft Entra ID
+  docs: https://learn.microsoft.com/entra/fundamentals/whatis
+sid:
+  term: SID (Security Identifier)
+  def: >-
+    Постоянный идентификатор учётной записи или группы в Windows, например `S-1-5-21-...-1105`. Не
+    меняется при переименовании, поэтому проверять права надёжнее по SID, чем по имени.
+  q: Windows security identifier SID
+  docs: https://learn.microsoft.com/windows-server/identity/ad-ds/manage/understand-security-identifiers
+nested-groups:
+  term: Вложенные группы
+  def: >-
+    Группы AD, входящие в другие группы. Член вложенной группы получает права внешней; Windows-токен и
+    атрибут `tokenGroups` уже содержат такое транзитивное членство, а `memberOf` — только прямое.
+  q: Active Directory nested groups
+groups-overage:
+  term: Groups overage
+  def: >-
+    Поведение Microsoft Entra ID, когда у пользователя больше групп, чем помещается в токен (200 для JWT,
+    150 для SAML): claim `groups` не выдаётся, вместо него приходит ссылка на Microsoft Graph.
+  q: Entra ID groups overage claim
+  docs: https://learn.microsoft.com/entra/identity-platform/id-token-claims-reference#groups-overage-claim
+ldap:
+  term: LDAP
+  def: >-
+    Протокол доступа к каталогам, в том числе к Active Directory: поиск пользователей, групп и
+    атрибутов. В .NET кроссплатформенный клиент — `System.DirectoryServices.Protocols`.
+  q: LDAP Active Directory .NET System.DirectoryServices.Protocols
+  docs: https://learn.microsoft.com/dotnet/api/system.directoryservices.protocols.ldapconnection
+  wiki: LDAP
+double-hop:
+  term: Double hop
+  def: >-
+    Проблема второго прыжка: приложение, получившее пользователя по Kerberos, не может от его имени
+    пройти аутентификацию на следующем сервере, потому что у него есть только билет к себе. Решается
+    делегированием Kerberos.
+  q: Kerberos double hop problem
+impersonation:
+  term: Имперсонация (impersonation)
+  def: >-
+    Выполнение кода от имени другого пользователя Windows. В ASP.NET Core —
+    `WindowsIdentity.RunImpersonated` и `RunImpersonatedAsync`, только на Windows.
+  q: WindowsIdentity RunImpersonatedAsync
+  docs: https://learn.microsoft.com/dotnet/api/system.security.principal.windowsidentity.runimpersonatedasync
+unconstrained-delegation:
+  term: Неограниченное делегирование
+  def: >-
+    Режим Kerberos, при котором клиент пересылает серверу свой TGT и сервер может действовать от имени
+    пользователя перед любой службой. Опасен; Credential Guard его блокирует.
+  q: Kerberos unconstrained delegation risk
+constrained-delegation:
+  term: Ограниченное делегирование (KCD)
+  def: >-
+    Kerberos Constrained Delegation: учётке фронтенда разрешено получать билеты от имени пользователя
+    только к перечисленным SPN (атрибут `msDS-AllowedToDelegateTo`). Работает через расширение
+    S4U2Proxy.
+  q: Kerberos constrained delegation
+  docs: https://learn.microsoft.com/windows-server/security/kerberos/kerberos-constrained-delegation-overview
+rbcd:
+  term: RBCD (resource-based constrained delegation)
+  def: >-
+    Ограниченное делегирование, которое настраивает владелец целевой службы: на её учётке перечислены
+    учётки, которым можно делегировать к ней. Появилось в Windows Server 2012, работает между доменами.
+  q: resource-based constrained delegation PrincipalsAllowedToDelegateToAccount
+  docs: https://learn.microsoft.com/windows-server/security/kerberos/kerberos-constrained-delegation-overview#resource-based-constrained-delegation-across-domains
+gmsa:
+  term: gMSA (group Managed Service Account)
+  def: >-
+    Доменная учётка службы, пароль которой AD генерирует и меняет сам. Её используют пулы IIS, службы
+    Windows и Windows-контейнеры; длинный случайный пароль защищает от Kerberoasting.
+  q: group Managed Service Account gMSA
+  docs: https://learn.microsoft.com/windows-server/identity/ad-ds/manage/group-managed-service-accounts/group-managed-service-accounts/group-managed-service-accounts-overview

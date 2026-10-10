@@ -1,0 +1,728 @@
+---
+title: JWT and API protection
+description: JWT structure and signature, token validation in ASP.NET Core, common vulnerabilities, passing identity between services and through an API gateway.
+sidebar:
+  order: 3
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+How a JWT is built, what its signature actually guarantees, how ASP.NET Core validates a token and where people get that validation wrong. At the end: how to carry a user's identity through a chain of services and an API gateway without handing out tokens that open the whole system.
+
+**Before this topic:** [OAuth 2.0 and OpenID Connect](/sobes/en/security/oauth-oidc/).
+
+<Q id="security.jwt.structure" level="j">
+
+## What is a JWT made of and what does its signature guarantee?
+
+<A short l="j">
+
+A <T k="jwt">JWT</T> (JSON Web Token) is a string of three parts, `header.payload.signature`, each encoded in <T k="base64url">base64url</T>: a header with the algorithm, a payload with <T k="claim">claims</T> and a signature. The signature guarantees that the key owner issued the token and nobody changed it, but it does not hide the content: anyone can read the payload.
+
+</A>
+
+<A short l="m">
+
+A JWT in compact form is a <T k="jws">JWS</T>: the header and payload in base64url plus a signature over them — HMAC with a shared secret, or RSA or ECDSA with a private key. The registered claims from RFC 7519 — `iss`, `sub`, `aud`, `exp`, `nbf`, `iat`, `jti` — say who issued the token, who it is about, who it is for and how long it is valid. The signature gives integrity and authenticity but not confidentiality: for that you need <T k="jwe">JWE</T>, or simply keep secrets out of the payload.
+
+</A>
+
+<A short l="s">
+
+A JWT is a self-contained token: the API validates it locally with the issuer's key, without calling a database or the authorization server. The signature proves only origin and integrity; whether the token was issued for this API, is not expired and is an access token at all is checked through `aud`, `exp` and `typ`. An asymmetric signature (RS256, ES256) lets you hand the public key to every validator, while with HS256 every validator can also mint tokens. The price of being self-contained is that you cannot revoke the token before `exp` without extra state.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+A JWT is a compact token that looks like `xxxxx.yyyyy.zzzzz`. The authorization server issues it, and the client sends it as a <T k="bearer-token">bearer token</T> in the `Authorization: Bearer ...` header.
+
+**What it consists of**
+
+1. **Header** — the signing algorithm and type: `{"alg":"RS256","typ":"JWT"}`.
+2. **Payload** — claims, that is statements about the user and the token itself: `sub` is who this is, `exp` is when the token stops being valid.
+3. **Signature** — a signature over the `header.payload` string.
+
+The header and payload are plain JSON in base64url. That is encoding, not encryption.
+
+**Common mistake**
+
+Assuming the token content is hidden. Anyone who sees the token can decode the base64url and read every claim. That is why passwords and personal data never go into the payload.
+
+**Takeaway:** a JWT is signed but not encrypted JSON: it cannot be forged, but it can be read.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- **The signature** is computed over the string `base64url(header) + "." + base64url(payload)` with the algorithm from `alg`. Changing a single character in the payload breaks it.
+- **Algorithms:** HS256 is HMAC-SHA256 with a shared secret, RS256 and PS256 are RSA, ES256 is ECDSA on the P-256 curve. The `kid` header field says which of the issuer's keys signed the token.
+- **Registered claims** (RFC 7519) are all optional. A profile makes them mandatory, for example RFC 9068 for access tokens.
+
+| Claim | Meaning |
+|---|---|
+| `iss` | who issued the token |
+| `sub` | who the token is about: a user or client id |
+| `aud` | who it is for: which API must accept it |
+| `exp`, `nbf` | valid until and not before; Unix time in seconds |
+| `iat`, `jti` | when it was issued; a unique token id |
+
+**When to choose what**
+
+| | JWS | JWE |
+|---|---|---|
+| Parts in compact form | 3 | 5 |
+| Protects | integrity and authenticity | confidentiality as well |
+| Who can read the payload | anyone | the holder of the decryption key |
+
+**Pitfalls**
+
+- **Signed does not mean valid.** The signature says nothing about lifetime, issuer or audience — those are checked separately.
+- **HS256 is symmetric.** Whoever can validate a token can also issue one.
+
+**Rule of thumb**
+
+Sign access tokens asymmetrically (RS256, ES256) and put identifiers and permissions in the payload, but no personal data.
+
+**Takeaway:** JWS protects against forgery, not against reading; only JWE can hide the content.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- The JWS compact form (RFC 7515) is three base64url parts without `=` padding, joined by dots. JWE (RFC 7516) has five: header, encrypted key, initialization vector, ciphertext and authentication tag.
+- A nested JWT is signed first and encrypted second: a JWE with a JWS inside. The payload is then both signed and hidden.
+- The validation key comes from the validator's configuration, not from the token. `kid` only selects a key from a set known in advance.
+
+**Cost**
+
+- **Size.** base64url adds a third to the JSON, and an RS256 signature with a 2048-bit key adds 256 bytes, or 342 characters once encoded. A token with a hundred roles easily weighs several kilobytes and rides along with every request.
+- **CPU.** Signature validation does not touch the network, but it runs on every request in every service.
+
+**Trade-offs**
+
+| | HS256 | RS256, ES256 |
+|---|---|---|
+| Who validates | holders of the shared secret | anyone with the public key |
+| Who can issue | any validator | only the private key holder |
+| Where it fits | one service issues and validates its own tokens | an authorization server and many APIs |
+
+Being self-contained is a trade-off too: validation needs no network, but you cannot revoke the token before `exp` without extra state.
+
+**How to check in production**
+
+- Decode the token locally (`JsonWebTokenHandler.ReadJsonWebToken`) and look at `alg`, `kid`, `iss`, `aud`, `exp`. Do not paste production tokens into third-party online decoders.
+- Token size shows up in the `Authorization` header at the proxy: 400 or 431 responses mean the header limit was exceeded.
+
+**Takeaway:** a JWT is a signed, not a secret, statement by the issuer; an asymmetric signature separates whoever issues tokens from those who validate them.
+
+</A>
+
+<Ex>
+
+```csharp
+// NuGet: Microsoft.IdentityModel.JsonWebTokens
+using System.Security.Cryptography;
+using Microsoft.IdentityModel.JsonWebTokens;
+using Microsoft.IdentityModel.Tokens;
+
+var key = new SymmetricSecurityKey(RandomNumberGenerator.GetBytes(32)); // 256 random bits
+var handler = new JsonWebTokenHandler();
+var parameters = new TokenValidationParameters
+{
+    ValidIssuer = "https://auth.example.com",
+    ValidAudience = "orders-api",
+    IssuerSigningKey = key,
+};
+
+string token = handler.CreateToken(new SecurityTokenDescriptor
+{
+    Issuer = "https://auth.example.com",
+    Audience = "orders-api",
+    Claims = new Dictionary<string, object> { ["sub"] = "42" },
+    Expires = DateTime.UtcNow.AddMinutes(5),
+    SigningCredentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256),
+});
+Console.WriteLine(token.Split('.').Length); // 3: header.payload.signature
+
+// Readable without the key: the payload is only encoded
+var jwt = handler.ReadJsonWebToken(token);
+Console.WriteLine($"{jwt.Alg} {jwt.Subject}"); // HS256 42
+
+// Change sub in the payload — the signature no longer matches
+var parts = token.Split('.');
+var payload = Base64UrlEncoder.Decode(parts[1]).Replace("\"42\"", "\"1\"");
+var forged = $"{parts[0]}.{Base64UrlEncoder.Encode(payload)}.{parts[2]}";
+
+Console.WriteLine((await handler.ValidateTokenAsync(token, parameters)).IsValid);  // True
+Console.WriteLine((await handler.ValidateTokenAsync(forged, parameters)).IsValid); // False
+```
+
+HS256 is used here only to keep the example self-contained. In production the authorization server signs access tokens with an asymmetric key.
+
+</Ex>
+
+<Ex title="A decoded token">
+
+```json
+{ "alg": "RS256", "kid": "2026-10", "typ": "at+jwt" }
+
+{
+  "iss": "https://auth.example.com",
+  "sub": "42",
+  "aud": "orders-api",
+  "exp": 1791332100,
+  "nbf": 1791331200,
+  "iat": 1791331200,
+  "jti": "5f0c6a9e-3b1d-4c55-9a7e-2d8f1b6e4c10",
+  "scope": "orders.read"
+}
+```
+
+The first object is the header, the second is the payload. The token was issued on 7 October 2026 at 00:00 UTC and is valid for 15 minutes; `typ: at+jwt` marks an access token per RFC 9068.
+
+</Ex>
+
+<Next>
+
+- How does base64url differ from base64? — `-` and `_` instead of `+` and `/`, and no `=` padding, so the string fits into URLs and headers.
+- Can you extend a token by changing `exp`? — No: changing the payload breaks the signature, and the token fails validation.
+- Which claims does RFC 7519 make mandatory? — None; profiles such as RFC 9068 for access tokens decide that.
+- Why is `kid` in the header? — To pick one of several keys the issuer publishes; you cannot rotate keys without it.
+- When do you need JWE? — When the payload must be hidden from the client and intermediaries; usually it is simpler to keep secrets out of it.
+
+</Next>
+
+<Src>
+
+- [RFC 7519: JSON Web Token (JWT)](https://www.rfc-editor.org/rfc/rfc7519)
+- [RFC 7515: JSON Web Signature (JWS)](https://www.rfc-editor.org/rfc/rfc7515)
+- [JsonWebTokenHandler Class](https://learn.microsoft.com/dotnet/api/microsoft.identitymodel.jsonwebtokens.jsonwebtokenhandler)
+
+</Src>
+
+</Q>
+
+<Q id="security.jwt.validation" level="m">
+
+## How does ASP.NET Core validate a JWT?
+
+<A short l="j">
+
+The `AddJwtBearer` handler from the `Microsoft.AspNetCore.Authentication.JwtBearer` package does it: it takes the token from the `Authorization: Bearer` header, checks the signature, issuer, audience and lifetime, and turns the claims into `HttpContext.User`. You only need to set `Authority` — the authorization server's address — and `Audience` — your API's name.
+
+</A>
+
+<A short l="m">
+
+From `Authority`, `JwtBearerHandler` loads the <T k="oidc-discovery">discovery document</T> and the <T k="jwks">JWKS</T> — the issuer's set of public keys — caches them and validates the token locally: signature, `iss`, `aud`, `exp` and `nbf` with a `ClockSkew` tolerance of 5 minutes by default. Since .NET 8 the token is parsed by `JsonWebTokenHandler` instead of `JwtSecurityTokenHandler`, so `context.SecurityToken` in events is a `JsonWebToken`. A classic trap is `MapInboundClaims`: by default `sub` becomes the long `ClaimTypes.NameIdentifier` URI, and `FindFirst("sub")` returns `null`.
+
+</A>
+
+<A short l="s">
+
+JWT validation is a local operation against cached configuration: metadata and keys are re-read every 12 hours, and on an unknown `kid` out of schedule, but no more than once every 5 minutes. So <T k="key-rotation">key rotation</T> is safe only if the authorization server publishes the new key in the JWKS ahead of time and keeps the old one while tokens signed with it are alive. The 5-minute <T k="clock-skew">clock skew</T> effectively extends every token's life, so it is reduced for short-lived tokens. The switch to `JsonWebTokenHandler` in .NET 8 brought about 30% better performance and a last known good configuration, but broke code that cast the token to `JwtSecurityToken`.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+JWT Bearer is an authentication scheme: the client sends a token in the `Authorization: Bearer ...` header, and the API validates it and learns who the user is. The authorization server issues the token; the API only validates it.
+
+**How to use**
+
+1. Install the `Microsoft.AspNetCore.Authentication.JwtBearer` package.
+2. Call `AddAuthentication().AddJwtBearer(...)` and set `Authority` and `Audience`.
+3. Mark endpoints with `RequireAuthorization()` or `[Authorize]`.
+4. Inside a handler the user is available as `HttpContext.User`, with claims taken from the token.
+
+**What gets checked**
+
+The signature, the issuer (`iss`), the audience (`aud`) and the lifetime (`exp`). If anything is wrong, the response is 401.
+
+**Common mistake**
+
+Turning off audience validation (`ValidateAudience = false`) "to make it work". The API then accepts a token issued for any other API of the same authorization server.
+
+**Takeaway:** `AddJwtBearer` with `Authority` and `Audience`, and the API validates tokens itself, without calling the authorization server on every request.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+1. On the first request the handler loads `{Authority}/.well-known/openid-configuration`, then the JWKS from its `jwks_uri`. That gives the expected `iss` and the signing keys.
+2. `JsonWebTokenHandler` (.NET 8+) selects the key by `kid` and verifies the signature.
+3. It checks `iss`, `aud` (the value of `Audience`), `exp` and `nbf` with the `ClockSkew` tolerance.
+4. The claims become a `ClaimsPrincipal` in `HttpContext.User`. On failure: 401 with `WWW-Authenticate: Bearer error="invalid_token"`.
+
+**`TokenValidationParameters` settings**
+
+| Setting | Default |
+|---|---|
+| `ValidateIssuer`, `ValidateAudience`, `ValidateLifetime` | `true` |
+| `RequireSignedTokens`, `RequireExpirationTime` | `true` |
+| `ClockSkew` | 5 minutes |
+| `ValidAlgorithms`, `ValidTypes` | not set: anything goes |
+
+**Pitfalls**
+
+- **<T k="claims-mapping">Claims mapping</T>.** `MapInboundClaims` is `true` by default: `sub` becomes `http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier`. Turn it off and set `NameClaimType` and `RoleClaimType`.
+- **Code from the .NET 7 days.** `context.SecurityToken as JwtSecurityToken` in events returns `null` since .NET 8: the token is a `JsonWebToken`. `UseSecurityTokenValidators = true` restores the old behavior.
+- **`RequireHttpsMetadata`.** It is `true` by default; metadata over HTTP is acceptable only in development.
+
+**Rule of thumb**
+
+Set `Authority` and `Audience`, do not turn validations off, and for short-lived tokens reduce `ClockSkew` to 30–60 seconds.
+
+**Takeaway:** the API verifies the signature with keys from the JWKS and the claims with `TokenValidationParameters`; the authorization server is needed only for metadata.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- `JwtBearerHandler` holds a `ConfigurationManager<OpenIdConnectConfiguration>`. It re-reads metadata and the JWKS every 12 hours (`AutomaticRefreshInterval`).
+- If there is no key with that `kid`, `RefreshOnIssuerKeyNotFound` (`true` by default) requests an out-of-schedule refresh. It runs no more than once every 5 minutes (`RefreshInterval`).
+- Since .NET 8 the configuration manager is passed to `TokenValidationParameters.ConfigurationManager`. `JsonWebTokenHandler` keeps a last known good configuration — the latest one that successfully validated tokens.
+
+**Cost**
+
+- Validation never touches the network: only parsing and the signature check. The first request after startup pays for loading metadata, and an authorization server that is down at that moment breaks authentication.
+- `ClockSkew` is added to every `exp`: a 5-minute token effectively lives for 10.
+
+**Trade-offs**
+
+- **Key rotation.** Because of the cache, a new key must appear in the JWKS ahead of time, and the old one must stay until the last token it signed expires. Otherwise some requests get 401 between the rotation and the cache refresh.
+- **Token handlers.** `JsonWebTokenHandler` is about 30% faster and asynchronous. `JwtSecurityTokenHandler` from `System.IdentityModel.Tokens.Jwt` stays for compatibility.
+- **Multiple issuers.** One scheme means one `Authority`. For two authorization servers you register two schemes and pick one with `AddPolicyScheme`.
+
+**How to check in production**
+
+- `JwtBearerHandler` logs failures at `Information` level, so lower the level for the `Microsoft.AspNetCore.Authentication` category. The code shows the reason: `IDX10223` — expired token, `IDX10214` — wrong `aud`, `IDX10205` — wrong `iss`.
+- The `OnAuthenticationFailed` event is the place for a failure metric by exception type.
+
+**Takeaway:** JWT validation is a local operation against cached keys; in production its reliability depends on key rotation, `ClockSkew` and readable failure logs.
+
+</A>
+
+<Ex>
+
+```csharp
+// NuGet: Microsoft.AspNetCore.Authentication.JwtBearer
+using System.Security.Claims;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddAuthentication().AddJwtBearer(options =>
+{
+    // Discovery: {Authority}/.well-known/openid-configuration → issuer and jwks_uri
+    options.Authority = "https://auth.example.com";
+    options.Audience = "orders-api";  // the expected aud
+    options.MapInboundClaims = false; // sub stays "sub" instead of a long URI
+    options.TokenValidationParameters.NameClaimType = "name";
+    options.TokenValidationParameters.RoleClaimType = "role";
+    options.TokenValidationParameters.ClockSkew = TimeSpan.FromSeconds(30); // instead of 5 minutes
+});
+builder.Services.AddAuthorization();
+
+var app = builder.Build();
+
+app.UseAuthentication();
+app.UseAuthorization();
+
+// No token: 401; a valid token: the sub value
+app.MapGet("/me", (ClaimsPrincipal user) => user.FindFirst("sub")?.Value)
+    .RequireAuthorization();
+
+app.Run();
+```
+
+</Ex>
+
+<Next>
+
+- Does the API call the authorization server on every request? — No: metadata and keys are cached and refreshed every 12 hours or on an unknown `kid`.
+- Why does an expired token keep working for a few minutes? — `ClockSkew` defaults to 5 minutes.
+- Why does `User.FindFirst("sub")` return `null`? — `MapInboundClaims` turned `sub` into `ClaimTypes.NameIdentifier`.
+- What changed in JwtBearer in .NET 8? — `JsonWebTokenHandler` by default and `JsonWebToken` in events; `UseSecurityTokenValidators = true` brings the old behavior back.
+- How do you accept tokens from two authorization servers? — Two `AddJwtBearer` schemes plus `AddPolicyScheme` that picks one, for example by `iss`.
+
+</Next>
+
+<Src>
+
+- [Configure JWT bearer authentication in ASP.NET Core](https://learn.microsoft.com/aspnet/core/security/authentication/configure-jwt-bearer-authentication)
+- [Breaking change: Security token events return a JsonWebToken](https://learn.microsoft.com/aspnet/core/breaking-changes/8/securitytoken-events)
+- [Map, customize, and transform claims in ASP.NET Core](https://learn.microsoft.com/aspnet/core/security/authentication/claims)
+
+</Src>
+
+</Q>
+
+<Q id="security.jwt.pitfalls" level="m">
+
+## What vulnerabilities and mistakes are common with JWT?
+
+<A short l="j">
+
+The main mistakes are accepting a token without checking everything (signature, issuer, audience and lifetime) and treating the token content as secret. On top of that, a JWT cannot simply be "revoked": a stolen token works until `exp`, which is why access tokens are kept short, measured in minutes.
+
+</A>
+
+<A short l="m">
+
+The classics are trusting the token header: `alg: none` with no signature, and <T k="algorithm-confusion">algorithm confusion</T>, where RS256 is swapped for HS256 and the token is signed with the public key used as an HMAC secret. Then come configuration mistakes: a weak HS256 secret, disabled `aud` validation, long-lived tokens, personal data in the payload, bloated size. The defenses are an algorithm allowlist, asymmetric keys, checking `iss`, `aud` and `exp`, short lifetimes and <T k="token-revocation">revocation</T> by `jti` or through <T k="token-introspection">introspection</T> where it is needed.
+
+</A>
+
+<A short l="s">
+
+JWT vulnerabilities follow from one fact: the attacker brings the token, so nothing in it, including `alg`, `kid` and `jku`, can be trusted before the signature is verified with a key the API already knows. RFC 8725 boils the defense down to rules: a fixed set of algorithms, keys with enough entropy, mandatory `aud` validation and <T k="explicit-typing">explicit typing</T> with `typ` to tell an access token from an id_token. Revocation is a separate trade-off: a self-contained token can be revoked only with state on the API side or by switching to a <T k="reference-token">reference token</T> with introspection, which means a network call per request.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+JWT mistakes almost always come down to two things: the API accepts a token it should not, or the token reveals too much.
+
+**Common mistakes**
+
+- **Incomplete validation.** With `ValidateAudience` or `ValidateLifetime` turned off, a token for another service or an expired token gets through.
+- **Weak secret.** An HS256 secret like `"secret123"` is brute-forced from a single intercepted token, and the attacker can mint any token.
+- **Secrets in the payload.** Anyone who sees the token reads the payload: in logs, in the browser, at a proxy.
+- **Long lifetime.** A one-day token stolen from a log works for a day: there is no built-in way to revoke it.
+
+**How to protect**
+
+Validations on, access tokens for 5–15 minutes, only identifiers in the payload.
+
+**Takeaway:** validate everything you can, keep tokens short and keep secrets out of them.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+The client brings the token, so both the header and the payload are under the attacker's control. Attacks exploit an API that trusts them before validation.
+
+| Mistake | Consequence | Defense |
+|---|---|---|
+| Accepting `alg: none` | an unsigned token passes | `RequireSignedTokens` (`true` by default), `ValidAlgorithms` |
+| Taking the algorithm from `alg` for any key | RS256 → HS256 with the public key as the secret | algorithm bound to the key type, `ValidAlgorithms` |
+| Short or dictionary HS256 secret | offline brute force and forged tokens | a random key of 256+ bits or an asymmetric signature |
+| Not validating `aud` | a token for another API is accepted | `Audience` and `ValidateAudience = true` |
+| Tokens living hours or days | a stolen token works for a long time | 5–15 minutes and a refresh token on the client |
+| Personal data in the payload | leaks through logs and the browser | identifiers only |
+| Hundreds of roles and groups in the token | header over the proxy limit, 400 or 431 | load permissions in the API instead of carrying them |
+
+**Pitfalls**
+
+- **Revocation.** Blocking a user or signing them out does not cancel an access token already issued. You need a mechanism on top: a list of revoked `jti` values or introspection.
+- **`ValidateIssuerSigningKey`.** The signature is verified without it. The flag adds an extra check of the key itself, such as certificate validity, and is off by default.
+
+**Rule of thumb**
+
+Algorithm, key, issuer, audience and type come from the API's configuration, not from the token.
+
+**Takeaway:** nearly every JWT attack is trusting token data before validation; an algorithm allowlist, full validation and short lifetimes close them.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- **Algorithm confusion.** A vulnerable library calls `verify(token, key)` with the algorithm from `alg`. If the API knows a public RSA key and the attacker sets HS256, the library computes an HMAC using the public key as the secret — and that key is published in the JWKS. `Microsoft.IdentityModel` checks that the algorithm matches the key type, so an RSA key is never used for HS256.
+- **Key from the token.** The `jwk`, `jku` and `x5u` headers carry a key or its URL inside the token. A validator that trusts them verifies the signature with the attacker's key, and fetching `jku` or `x5u` is a ready-made SSRF. `kid` is attacker input as well: RFC 8725 warns about SQL and LDAP injection through it.
+- **Token confusion.** An id_token or a token for another API is signed by the same issuer and passes signature validation. The defense is `aud` plus an explicit `typ`, such as `at+jwt` from RFC 9068 via `ValidTypes`.
+- **Weak key.** Current `Microsoft.IdentityModel` rejects HS256 keys shorter than 256 bits (`IDX10720`), but length does not guarantee entropy: a 40-character dictionary passphrase can still be cracked.
+
+**Trade-offs**
+
+| Approach | Pro | Con |
+|---|---|---|
+| Short JWT without revocation | no state, no network | a window until `exp` after theft |
+| JWT plus a revoked `jti` list | fast revocation | shared storage, a lookup on every request |
+| Reference token and introspection | instant revocation, hidden payload | a call to the authorization server; caching brings the window back |
+
+**How to check in production**
+
+- Negative tests in CI: tokens with `alg: none`, a foreign `aud`, an expired one and one signed with someone else's key all get 401.
+- The full `Authorization` header must never end up in logs or traces.
+
+**Takeaway:** a JWT is as safe as the API's distrust of it; revocation is a deliberate choice between state and a vulnerability window.
+
+</A>
+
+<Ex>
+
+```csharp
+// NuGet: Microsoft.AspNetCore.Authentication.JwtBearer
+using System.Collections.Concurrent;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.JsonWebTokens;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddSingleton<RevokedTokens>();
+builder.Services.AddAuthentication().AddJwtBearer(options =>
+{
+    options.Authority = "https://auth.example.com";
+    options.Audience = "orders-api";                         // aud validation stays on
+    options.TokenValidationParameters.ValidAlgorithms = ["RS256"]; // neither none nor HS256
+    options.TokenValidationParameters.ValidTypes = ["at+jwt"];     // access tokens only
+
+    // Revocation before exp: a jti from the revoked list gets 401
+    options.Events = new JwtBearerEvents
+    {
+        OnTokenValidated = context =>
+        {
+            var revoked = context.HttpContext.RequestServices.GetRequiredService<RevokedTokens>();
+            if (context.SecurityToken is not JsonWebToken jwt || revoked.ContainsKey(jwt.Id))
+                context.Fail("Token revoked");
+            return Task.CompletedTask;
+        }
+    };
+});
+
+var app = builder.Build();
+app.MapGet("/orders", () => "ok").RequireAuthorization();
+app.Run();
+
+// jti → exp; in production a shared store, for example Redis with a TTL until exp
+public class RevokedTokens : ConcurrentDictionary<string, DateTimeOffset>;
+```
+
+`ValidTypes = ["at+jwt"]` works only if your authorization server sets that `typ`; many set `JWT`.
+
+</Ex>
+
+<Next>
+
+- Why not carry every role and group in the token? — The size grows on every request, and permission changes are invisible until a new token is issued.
+- How do you revoke a JWT before it expires? — A list of revoked `jti` values kept until their `exp`, or reference tokens with introspection.
+- Why can't a password be used as an HS256 key? — Too little entropy: the key is cracked offline from one token; RFC 8725 explicitly forbids it.
+- What makes `kid` dangerous? — It is attacker input; only look it up in a known key set and never put it into SQL or LDAP queries.
+- Why `typ: at+jwt`? — To tell an access token from an id_token and other JWTs of the same issuer.
+
+</Next>
+
+<Src>
+
+- [RFC 8725: JSON Web Token Best Current Practices](https://www.rfc-editor.org/rfc/rfc8725)
+- [RFC 9068: JWT Profile for OAuth 2.0 Access Tokens](https://www.rfc-editor.org/rfc/rfc9068)
+- [TokenValidationParameters Class](https://learn.microsoft.com/dotnet/api/microsoft.identitymodel.tokens.tokenvalidationparameters)
+
+</Src>
+
+</Q>
+
+<Q id="security.jwt.service-to-service" level="s">
+
+## How do you pass identity between services and through an API gateway?
+
+<A short l="j">
+
+There are two basic options: forward the user's token so the next service knows on whose behalf the request is made, or get the service's own token through <T k="client-credentials">client credentials</T>. Either way, every service validates the token it receives, even when an <T k="api-gateway">API gateway</T> sits in front of it.
+
+</A>
+
+<A short l="m">
+
+Forwarding the user's token is simple but needs a broad `aud`: the token is valid in every service, so if it is stolen from one, it works everywhere. Client credentials give the service its own identity but lose the user, so checking the user's permissions falls on the calling service. The middle ground is <T k="token-exchange">token exchange</T> (RFC 8693): the service trades the incoming token with the authorization server for a new one with a narrow `aud` and the same `sub`.
+
+</A>
+
+<A short l="s">
+
+The goal is to get both the user and the chain of callers to the last service without handing out broadly scoped tokens. Token exchange issues a token per hop with a narrow `aud`, the user in `sub` and the service in `act`; the price is a call to the authorization server, whose response is cached until `exp`. The gateway validates the token at the edge for fast rejections and rate limits, but services validate it again: otherwise anyone who reached the network around the gateway is a trusted client. <T k="mtls">mTLS</T> secures transport between services, and <T k="sender-constrained-token">binding the token to the client's key</T> makes a stolen token useless.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+In microservices a user request passes through several services: gateway → orders → billing. Each one needs to know who is calling and on whose behalf.
+
+**How to use**
+
+- **Token forwarding.** A service puts the user's token it received into the `Authorization` header of its request to the next service.
+- **Client credentials.** A service gets its own token with a `client_id` and a secret or certificate. Background jobs, where there is no user, work this way.
+- **API gateway.** A single entry point: it routes requests, validates the token and rate-limits. The token travels on to the services.
+
+**Common mistake**
+
+Validating the token only at the gateway and having services trust an `X-User-Id` header. Anyone who gets into the internal network can put someone else's id there.
+
+**Takeaway:** the user travels as a token, a service presents its own token, and every service validates what it receives.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+| Option | Whose identity is in the token | Risk |
+|---|---|---|
+| Token forwarding | the user's | broad `aud`: the token is valid in every service |
+| Client credentials | the service's | the user is lost, the service acts with its own rights |
+| Token exchange | the user's in `sub`, the service's in `act` | a call to the authorization server per hop |
+
+**Token exchange step by step**
+
+1. orders-api receives the user's token with `aud=orders-api`.
+2. It sends it to the token endpoint with `grant_type=urn:ietf:params:oauth:grant-type:token-exchange`, `subject_token` and `audience=billing-api`, authenticating with its own `client_id`.
+3. The authorization server checks its policy and issues a token with `aud=billing-api`, the same `sub` and, for delegation, `act` with orders-api's identity.
+4. billing-api validates the token as usual and sees both the user and the calling service.
+
+In Microsoft Entra ID the same scenario is the On-Behalf-Of flow; in .NET Microsoft.Identity.Web handles it.
+
+**Pitfalls**
+
+- **<T k="confused-deputy">Confused deputy</T>.** A service with client credentials runs a user's request with its own broad rights. If it did not check the user's permissions itself, the user gains access through the service.
+- **Broad `aud`.** Forwarding works only if the token is issued for all services at once — a key to the whole system.
+
+**Rule of thumb**
+
+There is a user — token exchange or On-Behalf-Of. No user — client credentials. Forward tokens only within a single trust boundary.
+
+**Takeaway:** choosing an option means choosing whose identity and which permissions reach the last service in the chain.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- **The gateway** checks the signature, `iss`, `aud` and lifetime, drops garbage and applies rate limits. The service behind it validates the token again, locally against the cached JWKS, with no network call.
+- **Phantom token.** Outside, the client holds an opaque reference token; the gateway introspects it and passes a JWT inside. Claims do not leak out, and validation inside stays local.
+- **mTLS** encrypts traffic and proves which service is calling. A service mesh (Istio, Linkerd) turns it on without code. RFC 8705 binds the token to the client certificate through the `cnf` claim. Where a client certificate is impractical, such as in a SPA, DPoP (RFC 9449) solves the same problem: the client signs each request with its key.
+
+**Cost**
+
+- Token exchange is a call to the authorization server per hop. Exchanged tokens are cached per "user — audience" pair until `exp`, otherwise the authorization server becomes a bottleneck.
+- Short-lived tokens narrow the window after theft but mean more issuing and exchanging.
+
+**Trade-offs**
+
+- **Validation only at the gateway** is cheaper but turns the internal network into a trust zone: bypassing the gateway or compromising one service inside gives full access. Zero trust means validation in every service plus mTLS.
+- **YARP as a gateway.** Authentication is a regular `AddJwtBearer`, and routes get an `AuthorizationPolicy`. By default the `Authorization` header goes to the service as is; replacing or exchanging the token is done in a request transform.
+
+**How to check in production**
+
+- `sub` and `act` in logs and traces show on whose behalf and by whom each step was done.
+- A test: a request to a service around the gateway, with no token or with a token for another `aud`, gets 401.
+
+**Takeaway:** the user reaches the end of the chain through token exchange with a narrow `aud`, and trust in the network is replaced by token validation in every service plus mTLS.
+
+</A>
+
+<Ex title="Token exchange (RFC 8693)">
+
+```csharp
+using System.Net.Http.Json;
+using System.Text.Json;
+
+using var http = new HttpClient();
+string incomingToken = "eyJ..."; // from the incoming request's Authorization, aud=orders-api
+
+// orders-api exchanges the user's token for a token for billing-api
+var response = await http.PostAsync("https://auth.example.com/connect/token",
+    new FormUrlEncodedContent(new Dictionary<string, string>
+    {
+        ["grant_type"] = "urn:ietf:params:oauth:grant-type:token-exchange",
+        ["subject_token"] = incomingToken,
+        ["subject_token_type"] = "urn:ietf:params:oauth:token-type:access_token",
+        ["audience"] = "billing-api",     // who the new token is for
+        ["client_id"] = "orders-api",     // who is exchanging: the service authenticates itself
+        ["client_secret"] = "from-secret-store",
+    }));
+
+// The new token: aud=billing-api, the user's sub, act={"sub":"orders-api"}
+var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+string billingToken = json.GetProperty("access_token").GetString()!;
+```
+
+The authorization server has to support token exchange: Keycloak supports the standard version since 26.2, and in Duende IdentityServer you implement it as an extension grant.
+
+</Ex>
+
+<Ex title="A YARP gateway">
+
+```csharp
+// NuGet: Yarp.ReverseProxy, Microsoft.AspNetCore.Authentication.JwtBearer
+using Yarp.ReverseProxy.Configuration;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddAuthentication().AddJwtBearer(options =>
+{
+    options.Authority = "https://auth.example.com";
+    options.Audience = "orders-api";
+});
+builder.Services.AddAuthorization();
+builder.Services.AddReverseProxy().LoadFromMemory(
+    [new RouteConfig
+    {
+        RouteId = "orders",
+        ClusterId = "orders",
+        AuthorizationPolicy = "default", // no valid token: 401 right at the gateway
+        Match = new RouteMatch { Path = "/orders/{**rest}" },
+    }],
+    [new ClusterConfig
+    {
+        ClusterId = "orders",
+        Destinations = new Dictionary<string, DestinationConfig>
+        {
+            ["orders-1"] = new() { Address = "https://orders.internal/" },
+        },
+    }]);
+
+var app = builder.Build();
+app.UseAuthentication();
+app.UseAuthorization();
+app.MapReverseProxy(); // Authorization goes to orders as is, and orders validates it again
+app.Run();
+```
+
+</Ex>
+
+<Next>
+
+- Why not just forward the user's token? — It needs an `aud` covering every service; a token stolen from one works everywhere.
+- How does token exchange differ from On-Behalf-Of in Entra ID? — OBO is Microsoft's flavor of the same scenario: the `jwt-bearer` grant with `requested_token_use=on_behalf_of`.
+- What is the `act` claim? — Per RFC 8693 it names who acts on behalf of `sub`; a call chain becomes nested `act` claims.
+- Is validating the token at the gateway enough? — No, if the service is reachable around the gateway; zero trust requires validation in every service.
+- What does mTLS add on top of JWT? — Service authentication at the transport level and, per RFC 8705, binding the token to a certificate.
+
+</Next>
+
+<Src>
+
+- [RFC 8693: OAuth 2.0 Token Exchange](https://www.rfc-editor.org/rfc/rfc8693)
+- [Configure JWT bearer authentication: downstream APIs](https://learn.microsoft.com/aspnet/core/security/authentication/configure-jwt-bearer-authentication#downstream-apis)
+- [YARP authentication and authorization](https://learn.microsoft.com/aspnet/core/fundamentals/servers/yarp/authn-authz)
+
+</Src>
+
+</Q>

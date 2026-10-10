@@ -1,0 +1,139 @@
+authentication:
+  term: Автентифікація (authentication)
+  def: >-
+    Перевірка того, хто робить запит: за паролем, сертифікатом, обліковим записом Windows або
+    токеном. В ASP.NET Core її результат — `ClaimsPrincipal` у `HttpContext.User`.
+  q: ASP.NET Core authentication overview
+  docs: https://learn.microsoft.com/aspnet/core/security/authentication/
+authorization:
+  term: Авторизація (authorization)
+  def: >-
+    Рішення, що дозволено вже відомому користувачеві: який endpoint викликати, який документ
+    відкрити. Відмова користувачеві, що увійшов, — 403, тому, що не увійшов, — 401.
+  q: ASP.NET Core authorization introduction
+  docs: https://learn.microsoft.com/aspnet/core/security/authorization/introduction
+authentication-cookie:
+  term: Cookie автентифікації
+  def: >-
+    Cookie, у якій ASP.NET Core зберігає зашифрований через Data Protection квиток користувача:
+    claims і строк дії. Браузер додає її до кожного запиту, сервер сесію не зберігає.
+  q: ASP.NET Core cookie authentication
+  docs: https://learn.microsoft.com/aspnet/core/security/authentication/cookie
+owasp-top-10:
+  term: OWASP Top 10
+  def: >-
+    Рейтинг десяти головних категорій ризиків вебзастосунків від спільноти OWASP. Оновлюється раз
+    на кілька років; поточна редакція — 2025 року.
+  q: OWASP Top 10 2025
+  docs: https://top10.owasp.org/2025/
+broken-access-control:
+  term: Порушення контролю доступу (broken access control)
+  def: >-
+    Користувач читає або змінює те, що йому не належить: чужі замовлення, адмінські функції.
+    Перша категорія OWASP Top 10 у редакціях 2021 і 2025 років.
+  q: OWASP broken access control
+  docs: https://top10.owasp.org/2025/A01_2025-Broken_Access_Control/
+idor:
+  term: IDOR (небезпечне пряме посилання на об'єкт)
+  def: >-
+    Insecure Direct Object Reference — доступ до чужого об'єкта підміною ідентифікатора в запиті,
+    наприклад `/orders/43` замість `/orders/42`, коли сервер не перевіряє власника.
+  q: IDOR insecure direct object reference
+ssrf:
+  term: SSRF (підробка запиту з боку сервера)
+  def: >-
+    Server-Side Request Forgery — зловмисник змушує сервер зробити HTTP-запит на свою адресу,
+    наприклад у внутрішню мережу або до сервісу метаданих хмари. В OWASP Top 10:2025 входить до
+    категорії контролю доступу.
+  q: SSRF server-side request forgery prevention
+software-supply-chain:
+  term: Ланцюг постачання ПЗ (software supply chain)
+  def: >-
+    Усе, з чого збирається застосунок: пакети, їхні залежності, образи контейнерів, CI/CD.
+    Вразливий або підмінений пакет дає зловмисникові код усередині вашого процесу.
+  q: OWASP software supply chain failures
+  docs: https://top10.owasp.org/2025/A03_2025-Software_Supply_Chain_Failures/
+same-origin-policy:
+  term: Політика одного джерела (same-origin policy)
+  def: >-
+    Правило браузера: скрипт може читати відповіді лише свого джерела — тієї самої схеми, хоста й
+    порту. Надсилати запити на чужі джерела він може, читати відповіді — ні.
+  q: same-origin policy MDN
+  docs: https://developer.mozilla.org/docs/Web/Security/Defenses/Same-origin_policy
+cors:
+  term: CORS (Cross-Origin Resource Sharing)
+  def: >-
+    Механізм, яким сервер заголовками `Access-Control-Allow-*` дозволяє браузеру віддати відповідь
+    скрипту з іншого джерела. Послаблює same-origin policy і не захищає сам сервер.
+  q: CORS ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/security/cors
+preflight-request:
+  term: Preflight-запит
+  def: >-
+    Попередній запит `OPTIONS`, який браузер надсилає перед «непростим» міжсайтовим запитом: з
+    методом на кшталт `PUT`, тілом `application/json` або власними заголовками. Без дозволу
+    сервера основний запит не надсилається.
+  q: CORS preflight request
+  docs: https://developer.mozilla.org/docs/Glossary/Preflight_request
+content-security-policy:
+  term: Content-Security-Policy (CSP)
+  def: >-
+    Заголовок відповіді зі списком дозволених джерел скриптів, стилів та інших ресурсів. Браузер
+    блокує решту, тому впроваджений скрипт не виконається, навіть якщо кодування десь пропустили.
+  q: Content Security Policy CSP
+  docs: https://developer.mozilla.org/docs/Web/HTTP/Guides/CSP
+command-injection:
+  term: Командна ін'єкція (command injection)
+  def: >-
+    Дані користувача потрапляють у командний рядок оболонки й додають свою команду, наприклад
+    `& del *`. Захист — запуск процесу без оболонки й передача аргументів списком.
+  q: OS command injection prevention
+  docs: https://cheatsheetseries.owasp.org/cheatsheets/OS_Command_Injection_Defense_Cheat_Sheet.html
+insecure-deserialization:
+  term: Небезпечна десеріалізація
+  def: >-
+    Десеріалізатор створює типи, вказані в самих даних, і зловмисник підбирає тип, конструктор
+    або сетер якого виконує потрібний йому код. Класичні приклади — `BinaryFormatter` і
+    `TypeNameHandling` у Newtonsoft.Json.
+  q: insecure deserialization .NET
+  docs: https://learn.microsoft.com/dotnet/standard/serialization/binaryformatter-security-guide
+password-hashing:
+  term: Хешування паролів
+  def: >-
+    Зберігання пароля у вигляді результату повільної функції (PBKDF2, bcrypt, scrypt, Argon2) із
+    сіллю. Повільність навмисна: перебір бази, що витекла, стає дорогим.
+  q: password hashing ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/security/data-protection/consumer-apis/password-hashing
+password-salt:
+  term: Сіль (salt)
+  def: >-
+    Випадкове значення, унікальне для кожного пароля, яке зберігається поруч із хешем. Однакові
+    паролі дають різні хеші, а заздалегідь пораховані таблиці стають марними.
+  q: password salt
+tls:
+  term: TLS (Transport Layer Security)
+  def: >-
+    Протокол поверх TCP, який шифрує трафік, захищає його від підміни й підтверджує справжність
+    сервера сертифікатом. HTTPS — це HTTP поверх TLS; актуальні версії — 1.2 і 1.3.
+  q: TLS 1.3
+  docs: https://www.rfc-editor.org/rfc/rfc8446
+certificate-chain:
+  term: Ланцюжок сертифікатів (chain of trust)
+  def: >-
+    Сертифікат сайту підписаний проміжним центром сертифікації, той — кореневим, якому клієнт
+    довіряє заздалегідь. Сервер надсилає свій і проміжні сертифікати, клієнт перевіряє підписи
+    до кореня.
+  q: certificate chain of trust intermediate CA
+forward-secrecy:
+  term: Forward secrecy (пряма секретність)
+  def: >-
+    Властивість, за якої сеансові ключі виводяться з одноразового обміну Діффі — Геллмана.
+    Закритий ключ сертифіката, викрадений пізніше, не розшифрує записаний раніше трафік.
+  q: perfect forward secrecy TLS
+hsts:
+  term: HSTS (HTTP Strict Transport Security)
+  def: >-
+    Заголовок `Strict-Transport-Security`, після якого браузер звертається до сайту лише через
+    HTTPS протягом `max-age`. З `preload` домен потрапляє до списку, вбудованого в браузери.
+  q: HSTS ASP.NET Core UseHsts
+  docs: https://learn.microsoft.com/aspnet/core/security/enforcing-ssl#http-strict-transport-security-protocol-hsts

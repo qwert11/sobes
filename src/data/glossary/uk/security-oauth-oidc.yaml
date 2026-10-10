@@ -1,0 +1,163 @@
+oauth2:
+  term: OAuth 2.0
+  def: >-
+    Протокол делегування доступу (RFC 6749): користувач дозволяє застосунку звертатися до API від свого
+    імені, а застосунок отримує access-токен замість пароля.
+  q: OAuth 2.0 RFC 6749
+  docs: https://datatracker.ietf.org/doc/html/rfc6749
+  wiki: OAuth
+access-token:
+  term: Access-токен (токен доступу)
+  def: >-
+    Токен, з яким клієнт викликає API. Адресований ресурсному серверу й обмежений scopes, аудиторією та
+    коротким часом життя.
+  q: OAuth 2.0 access token
+  docs: https://datatracker.ietf.org/doc/html/rfc6749#section-1.4
+openid-connect:
+  term: OpenID Connect (OIDC)
+  def: >-
+    Шар автентифікації поверх OAuth 2.0: scope `openid`, ID-токен, endpoint UserInfo і discovery-документ.
+    Дає змогу застосунку дізнатися, хто увійшов.
+  q: OpenID Connect Core 1.0
+  docs: https://openid.net/specs/openid-connect-core-1_0.html
+id-token:
+  term: ID-токен
+  def: >-
+    JWT, який OpenID Connect видає клієнту після входу: хто користувач (`sub`), хто випустив токен
+    (`iss`), для якого клієнта (`aud`) і коли. В API його не надсилають.
+  q: OpenID Connect ID token
+  docs: https://openid.net/specs/openid-connect-core-1_0.html#IDToken
+authorization-server:
+  term: Сервер авторизації (authorization server)
+  def: >-
+    Сервіс, який автентифікує користувача й видає токени: Keycloak, Microsoft Entra ID, ADFS, Duende
+    IdentityServer. У термінах OIDC — OpenID Provider.
+  q: OAuth 2.0 authorization server
+  docs: https://datatracker.ietf.org/doc/html/rfc6749#section-1.1
+oauth-scope:
+  term: Scope (область доступу)
+  def: >-
+    Рядок у запиті токена, який обмежує, що клієнт може робити від імені користувача: `openid`,
+    `orders.read`, `offline_access`. Це права клієнта, а не користувача.
+  q: OAuth 2.0 scope
+  docs: https://datatracker.ietf.org/doc/html/rfc6749#section-3.3
+discovery-document:
+  term: Discovery-документ (метадані провайдера)
+  def: >-
+    JSON за адресою `/.well-known/openid-configuration` з адресами endpoints, `jwks_uri`, підтримуваними
+    потоками й алгоритмами. Клієнт налаштовується за ним автоматично.
+  q: OpenID Connect Discovery openid-configuration
+  docs: https://openid.net/specs/openid-connect-discovery-1_0.html
+authorization-code-flow:
+  term: Authorization code flow
+  def: >-
+    Потік OAuth, у якому браузер отримує одноразовий код, а клієнт обмінює його на токени прямим запитом
+    до `/token`. Основний потік для входу користувача.
+  q: OAuth 2.0 authorization code grant
+  docs: https://datatracker.ietf.org/doc/html/rfc6749#section-4.1
+pkce:
+  term: PKCE (Proof Key for Code Exchange)
+  def: >-
+    Розширення OAuth (RFC 7636): клієнт надсилає хеш випадкового рядка в запиті авторизації, а сам рядок —
+    під час обміну коду. Перехоплений код без нього марний.
+  q: PKCE OAuth RFC 7636
+  docs: https://datatracker.ietf.org/doc/html/rfc7636
+device-code-flow:
+  term: Device code flow (device authorization grant)
+  def: >-
+    Потік OAuth для пристроїв без браузера або клавіатури (RFC 8628): пристрій показує код і адресу,
+    користувач входить на іншому пристрої, а початковий опитує `/token`.
+  q: OAuth 2.0 device authorization grant
+  docs: https://datatracker.ietf.org/doc/html/rfc8628
+public-client:
+  term: Публічний клієнт
+  def: >-
+    Клієнт, який не може зберігати секрет: SPA, мобільний або десктопний застосунок. Його код доступний
+    користувачу, тому PKCE для нього обов'язковий.
+  q: OAuth public client
+  docs: https://datatracker.ietf.org/doc/html/rfc6749#section-2.1
+confidential-client:
+  term: Конфіденційний клієнт
+  def: >-
+    Клієнт, який зберігає секрет або ключ на сервері й автентифікується на сервері авторизації: серверний
+    вебзастосунок, BFF, сервіс.
+  q: OAuth confidential client
+  docs: https://datatracker.ietf.org/doc/html/rfc6749#section-2.1
+refresh-token:
+  term: Refresh-токен
+  def: >-
+    Довгоживучий токен, який клієнт обмінює на сервері авторизації на новий access-токен без повторного
+    входу користувача. В API його не надсилають.
+  q: OAuth 2.0 refresh token
+  docs: https://datatracker.ietf.org/doc/html/rfc6749#section-1.5
+token-audience:
+  term: Audience (аудиторія токена)
+  def: >-
+    Claim `aud`: для якого отримувача випущено токен. API зобов'язаний відхиляти токени з чужою
+    аудиторією, інакше токен одного сервісу підійде до іншого.
+  q: JWT aud claim audience
+  docs: https://datatracker.ietf.org/doc/html/rfc7519#section-4.1.3
+refresh-token-rotation:
+  term: Ротація refresh-токенів
+  def: >-
+    Сервер авторизації видає новий refresh-токен під час кожного оновлення, а старий робить недійсним.
+    Повторне пред'явлення старого — ознака крадіжки, і сервер відкликає весь ланцюжок.
+  q: refresh token rotation reuse detection
+  docs: https://datatracker.ietf.org/doc/html/rfc9700#section-4.14.2
+opaque-token:
+  term: Непрозорий токен (reference token)
+  def: >-
+    Випадковий рядок без даних усередині. API дізнається, що за ним стоїть, через introspection на сервері
+    авторизації: такий токен відкликається миттєво, але потребує мережевого запиту.
+  q: opaque access token reference token
+  docs: https://datatracker.ietf.org/doc/html/rfc7662
+authentication-scheme:
+  term: Схема автентифікації
+  def: >-
+    Іменована реєстрація обробника автентифікації в ASP.NET Core: `Cookies`, `OpenIdConnect`, `Bearer`.
+    Схема визначає, як автентифікувати запит, виконати challenge, вхід і вихід.
+  q: ASP.NET Core authentication scheme
+  docs: https://learn.microsoft.com/aspnet/core/security/authentication/#authentication-scheme
+auth-challenge:
+  term: Challenge (запит автентифікації)
+  def: >-
+    Дія схеми автентифікації, коли анонімному користувачу потрібен вхід: cookie-схема перенаправляє на
+    сторінку входу, OIDC — до провайдера, JWT bearer відповідає 401.
+  q: ASP.NET Core authentication challenge
+  docs: https://learn.microsoft.com/aspnet/core/security/authentication/#challenge
+pushed-authorization-request:
+  term: PAR (Pushed Authorization Requests)
+  def: >-
+    Розширення OAuth (RFC 9126): клієнт надсилає параметри авторизації прямим POST і отримує
+    `request_uri`, а браузер переходить на `/authorize` лише з ним. Параметри не видно й не підмінити в
+    браузері.
+  q: OAuth pushed authorization requests RFC 9126
+  docs: https://datatracker.ietf.org/doc/html/rfc9126
+bff:
+  term: BFF (Backend for Frontend)
+  def: >-
+    Серверна частина SPA на тому самому сайті: виконує OIDC-вхід як конфіденційний клієнт, зберігає токени
+    в себе й проксує виклики API, а браузеру видає лише HttpOnly-cookie.
+  q: OAuth BFF backend for frontend pattern
+  docs: https://datatracker.ietf.org/doc/html/rfc10017
+silent-renew:
+  term: Silent renew (тихе оновлення)
+  def: >-
+    Отримання нового токена без участі користувача: запит `/authorize` з `prompt=none` у прихованому
+    iframe використовує сесію провайдера. Ламається, якщо браузер блокує сторонні cookie.
+  q: OIDC silent renew iframe prompt=none
+  docs: https://manfredsteyer.github.io/angular-oauth2-oidc/docs/additional-documentation/silent-refresh.html
+third-party-cookies:
+  term: Сторонні cookie (third-party cookies)
+  def: >-
+    Cookie іншого сайту, завантаженого всередині сторінки, наприклад в iframe. Safari їх блокує, Firefox
+    ізолює за сайтом верхнього рівня, у Chrome їх може вимкнути користувач.
+  q: third-party cookies blocking
+  docs: https://developer.mozilla.org/en-US/docs/Web/Privacy/Guides/Third-party_cookies
+dpop:
+  term: DPoP (Demonstrating Proof of Possession)
+  def: >-
+    Механізм (RFC 9449), який прив'язує токен до ключа клієнта: кожен запит супроводжується підписаним
+    доказом володіння ключем. Викрадений без ключа токен марний.
+  q: OAuth DPoP RFC 9449
+  docs: https://datatracker.ietf.org/doc/html/rfc9449

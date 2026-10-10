@@ -1,0 +1,163 @@
+oauth2:
+  term: OAuth 2.0
+  def: >-
+    A delegated access protocol (RFC 6749): the user lets an app call an API on their behalf, and the app
+    gets an access token instead of the password.
+  q: OAuth 2.0 RFC 6749
+  docs: https://datatracker.ietf.org/doc/html/rfc6749
+  wiki: OAuth
+access-token:
+  term: Access token
+  def: >-
+    The token a client uses to call an API. It is addressed to the resource server and limited by scopes,
+    audience and a short lifetime.
+  q: OAuth 2.0 access token
+  docs: https://datatracker.ietf.org/doc/html/rfc6749#section-1.4
+openid-connect:
+  term: OpenID Connect (OIDC)
+  def: >-
+    An authentication layer on top of OAuth 2.0: the `openid` scope, the ID token, the UserInfo endpoint
+    and the discovery document. It lets an app learn who signed in.
+  q: OpenID Connect Core 1.0
+  docs: https://openid.net/specs/openid-connect-core-1_0.html
+id-token:
+  term: ID token
+  def: >-
+    A JWT that OpenID Connect issues to the client after sign-in: who the user is (`sub`), who issued the
+    token (`iss`), which client it is for (`aud`) and when. It is never sent to APIs.
+  q: OpenID Connect ID token
+  docs: https://openid.net/specs/openid-connect-core-1_0.html#IDToken
+authorization-server:
+  term: Authorization server
+  def: >-
+    The service that authenticates the user and issues tokens: Keycloak, Microsoft Entra ID, ADFS, Duende
+    IdentityServer. In OIDC terms it is the OpenID Provider.
+  q: OAuth 2.0 authorization server
+  docs: https://datatracker.ietf.org/doc/html/rfc6749#section-1.1
+oauth-scope:
+  term: Scope
+  def: >-
+    A string in the token request that limits what the client may do on behalf of the user: `openid`,
+    `orders.read`, `offline_access`. It describes the client's permissions, not the user's.
+  q: OAuth 2.0 scope
+  docs: https://datatracker.ietf.org/doc/html/rfc6749#section-3.3
+discovery-document:
+  term: Discovery document (provider metadata)
+  def: >-
+    JSON at `/.well-known/openid-configuration` with endpoint URLs, `jwks_uri`, and supported flows and
+    algorithms. Clients configure themselves from it automatically.
+  q: OpenID Connect Discovery openid-configuration
+  docs: https://openid.net/specs/openid-connect-discovery-1_0.html
+authorization-code-flow:
+  term: Authorization code flow
+  def: >-
+    The OAuth flow in which the browser receives a one-time code and the client exchanges it for tokens in
+    a direct request to `/token`. The main flow for user sign-in.
+  q: OAuth 2.0 authorization code grant
+  docs: https://datatracker.ietf.org/doc/html/rfc6749#section-4.1
+pkce:
+  term: PKCE (Proof Key for Code Exchange)
+  def: >-
+    An OAuth extension (RFC 7636): the client sends a hash of a random string in the authorization request
+    and the string itself when redeeming the code. An intercepted code is useless without it.
+  q: PKCE OAuth RFC 7636
+  docs: https://datatracker.ietf.org/doc/html/rfc7636
+device-code-flow:
+  term: Device code flow (device authorization grant)
+  def: >-
+    An OAuth flow for devices without a browser or keyboard (RFC 8628): the device shows a code and a URL,
+    the user signs in on another device, and the original one polls `/token`.
+  q: OAuth 2.0 device authorization grant
+  docs: https://datatracker.ietf.org/doc/html/rfc8628
+public-client:
+  term: Public client
+  def: >-
+    A client that cannot keep a secret: an SPA, a mobile or desktop app. Its code is available to the user,
+    so PKCE is mandatory for it.
+  q: OAuth public client
+  docs: https://datatracker.ietf.org/doc/html/rfc6749#section-2.1
+confidential-client:
+  term: Confidential client
+  def: >-
+    A client that keeps a secret or key on a server and authenticates to the authorization server: a
+    server-side web app, a BFF, a service.
+  q: OAuth confidential client
+  docs: https://datatracker.ietf.org/doc/html/rfc6749#section-2.1
+refresh-token:
+  term: Refresh token
+  def: >-
+    A long-lived token the client exchanges at the authorization server for a new access token without the
+    user signing in again. It is never sent to APIs.
+  q: OAuth 2.0 refresh token
+  docs: https://datatracker.ietf.org/doc/html/rfc6749#section-1.5
+token-audience:
+  term: Audience
+  def: >-
+    The `aud` claim: which recipient the token was issued for. An API must reject tokens with a different
+    audience, otherwise a token for one service would work against another.
+  q: JWT aud claim audience
+  docs: https://datatracker.ietf.org/doc/html/rfc7519#section-4.1.3
+refresh-token-rotation:
+  term: Refresh token rotation
+  def: >-
+    The authorization server issues a new refresh token on every refresh and invalidates the old one.
+    Presenting the old one again signals theft, and the server revokes the whole chain.
+  q: refresh token rotation reuse detection
+  docs: https://datatracker.ietf.org/doc/html/rfc9700#section-4.14.2
+opaque-token:
+  term: Opaque token (reference token)
+  def: >-
+    A random string with no data inside. The API learns what stands behind it through introspection at
+    the authorization server: such a token can be revoked instantly but needs a network call.
+  q: opaque access token reference token
+  docs: https://datatracker.ietf.org/doc/html/rfc7662
+authentication-scheme:
+  term: Authentication scheme
+  def: >-
+    A named registration of an authentication handler in ASP.NET Core: `Cookies`, `OpenIdConnect`,
+    `Bearer`. The scheme defines how to authenticate a request, issue a challenge, sign in and sign out.
+  q: ASP.NET Core authentication scheme
+  docs: https://learn.microsoft.com/aspnet/core/security/authentication/#authentication-scheme
+auth-challenge:
+  term: Challenge
+  def: >-
+    What an authentication scheme does when an anonymous user needs to sign in: the cookie scheme
+    redirects to a login page, OIDC to the provider, JWT bearer returns 401.
+  q: ASP.NET Core authentication challenge
+  docs: https://learn.microsoft.com/aspnet/core/security/authentication/#challenge
+pushed-authorization-request:
+  term: PAR (Pushed Authorization Requests)
+  def: >-
+    An OAuth extension (RFC 9126): the client sends authorization parameters in a direct POST and gets a
+    `request_uri`, and the browser goes to `/authorize` with only that. Parameters are neither visible nor
+    tamperable in the browser.
+  q: OAuth pushed authorization requests RFC 9126
+  docs: https://datatracker.ietf.org/doc/html/rfc9126
+bff:
+  term: BFF (Backend for Frontend)
+  def: >-
+    The SPA's server side on the same site: it signs in via OIDC as a confidential client, keeps the tokens
+    and proxies API calls, giving the browser only an HttpOnly cookie.
+  q: OAuth BFF backend for frontend pattern
+  docs: https://datatracker.ietf.org/doc/html/rfc10017
+silent-renew:
+  term: Silent renew
+  def: >-
+    Getting a new token without user interaction: an `/authorize` request with `prompt=none` in a hidden
+    iframe uses the provider's session. It breaks when the browser blocks third-party cookies.
+  q: OIDC silent renew iframe prompt=none
+  docs: https://manfredsteyer.github.io/angular-oauth2-oidc/docs/additional-documentation/silent-refresh.html
+third-party-cookies:
+  term: Third-party cookies
+  def: >-
+    Cookies of another site loaded inside a page, for example in an iframe. Safari blocks them, Firefox
+    partitions them by top-level site, and in Chrome the user can turn them off.
+  q: third-party cookies blocking
+  docs: https://developer.mozilla.org/en-US/docs/Web/Privacy/Guides/Third-party_cookies
+dpop:
+  term: DPoP (Demonstrating Proof of Possession)
+  def: >-
+    A mechanism (RFC 9449) that binds a token to the client's key: every request carries a signed proof of
+    possession of that key. A token stolen without the key is useless.
+  q: OAuth DPoP RFC 9449
+  docs: https://datatracker.ietf.org/doc/html/rfc9449

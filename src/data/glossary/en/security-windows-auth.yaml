@@ -1,0 +1,196 @@
+windows-authentication:
+  term: Windows authentication
+  def: >-
+    Signing into a web app with a Windows domain account without typing a password: the browser and the
+    server exchange Kerberos or NTLM tokens in HTTP headers. IIS and ASP.NET Core also call it Negotiate
+    authentication.
+  q: Windows Authentication ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/security/authentication/windowsauth
+ntlm:
+  term: NTLM
+  def: >-
+    A challenge-response Windows authentication protocol: the client proves knowledge of the password
+    hash, and the server verifies the answer through a domain controller. It doesn't authenticate the
+    server or support delegation, and it has been deprecated since 2024.
+  q: NTLM authentication protocol
+  docs: https://learn.microsoft.com/windows/win32/secauthn/microsoft-ntlm
+  wiki: NTLM
+kerberos:
+  term: Kerberos
+  def: >-
+    A ticket-based network authentication protocol (RFC 4120). The KDC checks the password once, and then
+    the client presents services with tickets encrypted with their keys. The primary sign-in protocol in
+    an Active Directory domain.
+  q: Kerberos authentication Active Directory
+  docs: https://learn.microsoft.com/windows-server/security/kerberos/kerberos-authentication-overview
+  wiki: Kerberos (protocol)
+negotiate:
+  term: Negotiate (SPNEGO)
+  def: >-
+    A mechanism that selects the authentication protocol: Kerberos first, NTLM if that fails. In HTTP it's
+    the `WWW-Authenticate: Negotiate` scheme (RFC 4559); in ASP.NET Core, the `AddNegotiate()` handler.
+  q: SPNEGO Negotiate HTTP authentication
+  docs: https://learn.microsoft.com/windows/win32/secauthn/microsoft-negotiate
+active-directory:
+  term: Active Directory (AD)
+  def: >-
+    Microsoft's directory service: it stores user and computer accounts, groups and domain policies.
+    Domain controllers verify passwords and issue Kerberos tickets.
+  q: Active Directory Domain Services
+  docs: https://learn.microsoft.com/windows-server/identity/ad-ds/get-started/virtual-dc/active-directory-domain-services-overview
+  wiki: Active Directory
+kdc:
+  term: KDC (Key Distribution Center)
+  def: >-
+    The Kerberos ticket-issuing service. In Active Directory it runs on every domain controller: it
+    checks the user's password and issues TGTs and service tickets.
+  q: Kerberos Key Distribution Center
+  docs: https://learn.microsoft.com/windows/win32/secauthn/key-distribution-center
+tgt:
+  term: TGT (Ticket Granting Ticket)
+  def: >-
+    The Kerberos "ticket for getting tickets": the KDC issues it after checking the password, and the
+    client uses it to get service tickets without re-entering the password. Encrypted with the `krbtgt`
+    account's key; lives 10 hours by default.
+  q: Kerberos ticket granting ticket
+service-ticket:
+  term: Service ticket
+  def: >-
+    A Kerberos ticket for a specific service, issued by the KDC in exchange for a TGT. It's encrypted with
+    the key of the account that owns the service's SPN, so the service validates it on its own, without
+    the KDC.
+  q: Kerberos service ticket TGS
+spn:
+  term: SPN (Service Principal Name)
+  def: >-
+    A Kerberos service name such as `HTTP/portal.contoso.com`, bound to a single AD account. The KDC uses
+    it to pick the key it encrypts the ticket with; a duplicate or an SPN on the wrong account breaks
+    sign-in.
+  q: service principal name setspn
+  docs: https://learn.microsoft.com/windows-server/administration/windows-commands/setspn
+keytab:
+  term: Keytab
+  def: >-
+    A file with the long-term Kerberos keys of a service account. On Linux, GSSAPI uses it to decrypt
+    tickets without a password; the `KRB5_KTNAME` variable sets its path. It must be reissued when the
+    account password changes.
+  q: Kerberos keytab file ktpass
+  docs: https://learn.microsoft.com/windows-server/administration/windows-commands/ktpass
+pac:
+  term: PAC (Privilege Attribute Certificate)
+  def: >-
+    A structure inside an Active Directory Kerberos ticket that lists the SIDs of the user and all of
+    their groups. The server builds a Windows token from it without querying the directory.
+  q: Kerberos PAC privilege attribute certificate
+adfs:
+  term: ADFS (Active Directory Federation Services)
+  def: >-
+    A Windows Server role acting as a security token service: it verifies users against AD and issues
+    applications signed tokens over WS-Federation, SAML 2.0 or OpenID Connect. Microsoft recommends
+    moving from it to Microsoft Entra ID.
+  q: AD FS Active Directory Federation Services
+  docs: https://learn.microsoft.com/windows-server/identity/ad-fs/ad-fs-overview
+relying-party-trust:
+  term: Relying party trust
+  def: >-
+    An ADFS entry for an application that ADFS issues tokens to: identifier, return URL, protocol, claim
+    rules and access policy.
+  q: AD FS relying party trust
+claim-rules:
+  term: Claim rules
+  def: >-
+    ADFS rules in their own language: a condition, then `=>` and an `issue` or `add` action. They decide
+    which claims go into the token and where their values come from, for example AD attributes.
+  q: AD FS claim rule language
+  docs: https://learn.microsoft.com/windows-server/identity/ad-fs/technical-reference/the-role-of-the-claim-rule-language
+ws-federation:
+  term: WS-Federation
+  def: >-
+    A browser-based federated sign-in protocol: the app redirects the user to an STS, which posts back a
+    signed token, usually a SAML assertion. In ASP.NET Core it's the
+    `Microsoft.AspNetCore.Authentication.WsFederation` package.
+  q: WS-Federation ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/security/authentication/ws-federation
+saml:
+  term: SAML 2.0
+  def: >-
+    An XML standard for exchanging authentication assertions between an identity provider and an
+    application. Common in enterprise products and SaaS; ASP.NET Core has no built-in handler for it.
+  q: SAML 2.0 single sign-on
+  wiki: Security Assertion Markup Language
+entra-id:
+  term: Microsoft Entra ID
+  def: >-
+    Microsoft's cloud identity service, formerly Azure Active Directory. It issues tokens over OIDC,
+    OAuth 2.0, SAML and WS-Federation and syncs with on-premises AD through Entra Connect.
+  q: Microsoft Entra ID
+  docs: https://learn.microsoft.com/entra/fundamentals/whatis
+sid:
+  term: SID (Security Identifier)
+  def: >-
+    A permanent identifier of a Windows account or group, such as `S-1-5-21-...-1105`. It doesn't change
+    when the account is renamed, so checking rights by SID is more reliable than by name.
+  q: Windows security identifier SID
+  docs: https://learn.microsoft.com/windows-server/identity/ad-ds/manage/understand-security-identifiers
+nested-groups:
+  term: Nested groups
+  def: >-
+    AD groups that are members of other groups. A member of a nested group gets the outer group's rights;
+    the Windows token and the `tokenGroups` attribute already contain this transitive membership, while
+    `memberOf` holds only direct membership.
+  q: Active Directory nested groups
+groups-overage:
+  term: Groups overage
+  def: >-
+    Microsoft Entra ID behavior when a user has more groups than fit in a token (200 for JWT, 150 for
+    SAML): the `groups` claim is omitted, and a link to Microsoft Graph is sent instead.
+  q: Entra ID groups overage claim
+  docs: https://learn.microsoft.com/entra/identity-platform/id-token-claims-reference#groups-overage-claim
+ldap:
+  term: LDAP
+  def: >-
+    A protocol for accessing directories, including Active Directory: searching users, groups and
+    attributes. In .NET the cross-platform client is `System.DirectoryServices.Protocols`.
+  q: LDAP Active Directory .NET System.DirectoryServices.Protocols
+  docs: https://learn.microsoft.com/dotnet/api/system.directoryservices.protocols.ldapconnection
+  wiki: Lightweight Directory Access Protocol
+double-hop:
+  term: Double hop
+  def: >-
+    The second-hop problem: an app that received the user through Kerberos can't authenticate as that
+    user to the next server, because it only has a ticket to itself. Solved with Kerberos delegation.
+  q: Kerberos double hop problem
+impersonation:
+  term: Impersonation
+  def: >-
+    Running code as another Windows user. In ASP.NET Core it's `WindowsIdentity.RunImpersonated` and
+    `RunImpersonatedAsync`, Windows only.
+  q: WindowsIdentity RunImpersonatedAsync
+  docs: https://learn.microsoft.com/dotnet/api/system.security.principal.windowsidentity.runimpersonatedasync
+unconstrained-delegation:
+  term: Unconstrained delegation
+  def: >-
+    A Kerberos mode in which the client forwards its TGT to the server, letting the server act as the user
+    toward any service. Dangerous; Credential Guard blocks it.
+  q: Kerberos unconstrained delegation risk
+constrained-delegation:
+  term: Constrained delegation (KCD)
+  def: >-
+    Kerberos Constrained Delegation: the front end's account may obtain tickets on the user's behalf only
+    to listed SPNs (the `msDS-AllowedToDelegateTo` attribute). Works through the S4U2Proxy extension.
+  q: Kerberos constrained delegation
+  docs: https://learn.microsoft.com/windows-server/security/kerberos/kerberos-constrained-delegation-overview
+rbcd:
+  term: RBCD (resource-based constrained delegation)
+  def: >-
+    Constrained delegation configured by the owner of the target service: its account lists the accounts
+    allowed to delegate to it. Introduced in Windows Server 2012; works across domains.
+  q: resource-based constrained delegation PrincipalsAllowedToDelegateToAccount
+  docs: https://learn.microsoft.com/windows-server/security/kerberos/kerberos-constrained-delegation-overview#resource-based-constrained-delegation-across-domains
+gmsa:
+  term: gMSA (group Managed Service Account)
+  def: >-
+    A domain service account whose password AD generates and rotates itself. Used by IIS app pools,
+    Windows services and Windows containers; the long random password protects against Kerberoasting.
+  q: group Managed Service Account gMSA
+  docs: https://learn.microsoft.com/windows-server/identity/ad-ds/manage/group-managed-service-accounts/group-managed-service-accounts/group-managed-service-accounts-overview

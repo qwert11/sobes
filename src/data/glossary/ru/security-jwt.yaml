@@ -1,0 +1,139 @@
+jwt:
+  term: JWT (JSON Web Token)
+  def: >-
+    Компактный токен из JSON-заголовка, JSON-набора claims и подписи, закодированных в base64url
+    и разделённых точками. Стандарт — RFC 7519; чаще всего используется как access-токен для API.
+  q: JSON Web Token
+  docs: https://www.rfc-editor.org/rfc/rfc7519
+  wiki: JSON Web Token
+base64url:
+  term: base64url
+  def: >-
+    Вариант base64 для URL и заголовков: символы `-` и `_` вместо `+` и `/`, без `=` в конце.
+    Это кодирование, а не шифрование: строку декодирует любой.
+  q: base64url encoding
+  docs: https://www.rfc-editor.org/rfc/rfc4648#section-5
+jws:
+  term: JWS (JSON Web Signature)
+  def: >-
+    Формат подписанных данных (RFC 7515). В компактной форме — три части в base64url:
+    заголовок, payload и подпись. Защищает целостность и подлинность, но не скрывает содержимое.
+  q: JSON Web Signature
+  docs: https://www.rfc-editor.org/rfc/rfc7515
+jwe:
+  term: JWE (JSON Web Encryption)
+  def: >-
+    Формат зашифрованных данных (RFC 7516). В компактной форме — пять частей: заголовок,
+    зашифрованный ключ, вектор инициализации, шифротекст и тег. Скрывает payload от всех, кроме владельца ключа.
+  q: JSON Web Encryption
+  docs: https://www.rfc-editor.org/rfc/rfc7516
+oidc-discovery:
+  term: Discovery-документ OpenID Connect
+  def: >-
+    JSON по адресу `/.well-known/openid-configuration` у сервера авторизации: issuer, адреса
+    эндпоинтов и `jwks_uri`. По нему `AddJwtBearer` сам находит ключи для проверки подписи.
+  q: OpenID Connect Discovery
+  docs: https://openid.net/specs/openid-connect-discovery-1_0.html
+jwks:
+  term: JWKS (JSON Web Key Set)
+  def: >-
+    Набор открытых ключей издателя в формате JSON (RFC 7517). Каждый ключ помечен `kid`, по которому
+    проверяющий выбирает ключ для подписи конкретного токена.
+  q: JSON Web Key Set
+  docs: https://www.rfc-editor.org/rfc/rfc7517
+key-rotation:
+  term: Ротация ключей подписи
+  def: >-
+    Плановая замена ключа, которым издатель подписывает токены. Новый ключ публикуют в JWKS заранее,
+    а старый держат, пока не истекут подписанные им токены, — иначе проверяющие с кешем отвергнут токены.
+  q: JWT signing key rotation JWKS
+  docs: https://learn.microsoft.com/entra/identity-platform/signing-key-rollover
+clock-skew:
+  term: Допуск расхождения часов (clock skew)
+  def: >-
+    Запас времени при проверке `exp` и `nbf` на случай, если часы издателя и API расходятся.
+    В `TokenValidationParameters.ClockSkew` по умолчанию 5 минут.
+  q: TokenValidationParameters ClockSkew
+  docs: https://learn.microsoft.com/dotnet/api/microsoft.identitymodel.tokens.tokenvalidationparameters.clockskew
+claims-mapping:
+  term: Маппинг входящих claims (MapInboundClaims)
+  def: >-
+    Переименование коротких claims из токена в длинные типы WS-Federation: `sub` становится
+    `ClaimTypes.NameIdentifier`. В `JwtBearerOptions` включено по умолчанию, выключается `MapInboundClaims = false`.
+  q: ASP.NET Core MapInboundClaims
+  docs: https://learn.microsoft.com/aspnet/core/security/authentication/claims
+algorithm-confusion:
+  term: Подмена алгоритма (algorithm confusion)
+  def: >-
+    Атака, при которой атакующий меняет `alg` в заголовке: на `none` или с RS256 на HS256, подписывая
+    токен открытым ключом как HMAC-секретом. Защита — фиксированный набор алгоритмов, привязанный к ключу.
+  q: JWT algorithm confusion attack
+  docs: https://www.rfc-editor.org/rfc/rfc8725#section-2.1
+token-revocation:
+  term: Отзыв токена
+  def: >-
+    Признание токена недействительным до истечения срока. Самодостаточный JWT API проверяет локально,
+    поэтому для отзыва нужен список отозванных `jti` или интроспекция.
+  q: JWT token revocation
+  docs: https://www.rfc-editor.org/rfc/rfc7009
+token-introspection:
+  term: Интроспекция токена
+  def: >-
+    Запрос API к серверу авторизации «действителен ли этот токен и что в нём» (RFC 7662).
+    Даёт мгновенный отзыв ценой сетевого вызова на каждую проверку.
+  q: OAuth 2.0 token introspection
+  docs: https://www.rfc-editor.org/rfc/rfc7662
+explicit-typing:
+  term: Явная типизация JWT
+  def: >-
+    Указание вида токена в заголовке `typ`, например `at+jwt` для access-токена. Не даёт выдать
+    id_token или другой JWT того же издателя за access-токен (RFC 8725, раздел 3.11).
+  q: JWT explicit typing typ at+jwt
+  docs: https://www.rfc-editor.org/rfc/rfc8725#section-3.11
+reference-token:
+  term: Reference-токен
+  def: >-
+    Непрозрачный токен-идентификатор: сами данные хранятся у сервера авторизации, а API получает их
+    интроспекцией. Отзывается сразу и ничего не раскрывает, но требует сетевого вызова.
+  q: reference token vs JWT
+client-credentials:
+  term: Client credentials
+  def: >-
+    Поток OAuth 2.0, в котором приложение получает токен от своего имени по `client_id` и секрету
+    или сертификату, без пользователя. Применяется для вызовов между сервисами и фоновых задач.
+  q: OAuth 2.0 client credentials grant
+  docs: https://www.rfc-editor.org/rfc/rfc6749#section-4.4
+api-gateway:
+  term: API Gateway (шлюз API)
+  def: >-
+    Единая точка входа перед набором сервисов: маршрутизирует запросы, проверяет аутентификацию,
+    ограничивает частоту и агрегирует ответы. В .NET шлюз часто строят на YARP.
+  q: API gateway pattern microservices
+  docs: https://learn.microsoft.com/azure/architecture/microservices/design/gateway
+token-exchange:
+  term: Token exchange (обмен токенов)
+  def: >-
+    Grant OAuth 2.0 из RFC 8693: сервис отдаёт серверу авторизации входящий токен и получает новый
+    для другого `audience`. Пользователь остаётся в `sub`, вызывающий сервис попадает в `act`.
+  q: OAuth 2.0 token exchange RFC 8693
+  docs: https://www.rfc-editor.org/rfc/rfc8693
+mtls:
+  term: mTLS (взаимный TLS)
+  def: >-
+    TLS, в котором сертификат предъявляют обе стороны, а не только сервер. Шифрует трафик между
+    сервисами и доказывает, какой именно сервис звонит.
+  q: mutual TLS
+  docs: https://learn.microsoft.com/aspnet/core/security/authentication/certauth
+sender-constrained-token:
+  term: Токен, привязанный к отправителю (sender-constrained)
+  def: >-
+    Токен, которым может воспользоваться только владелец определённого ключа: через сертификат mTLS
+    (RFC 8705) или подпись DPoP (RFC 9449). Украденный без ключа токен бесполезен.
+  q: sender-constrained access token
+  docs: https://www.rfc-editor.org/rfc/rfc8705
+confused-deputy:
+  term: Confused deputy («запутанный заместитель»)
+  def: >-
+    Ситуация, когда сервис с широкими правами выполняет запрос клиента своими правами и не проверяет
+    права самого клиента. Клиент получает через сервис доступ, которого у него нет.
+  q: confused deputy problem

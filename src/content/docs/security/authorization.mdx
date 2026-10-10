@@ -1,0 +1,929 @@
+---
+title: Авторизация
+description: Роли и атрибут Authorize, claims и их трансформация, политики, requirements и handlers, авторизация по ресурсу, ABAC и ReBAC, проектирование системы управления доступом.
+sidebar:
+  order: 5
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+Как приложение решает, что можно уже аутентифицированному пользователю: роли и claims, политики с requirements и handlers, проверка доступа к конкретному объекту, модели ABAC и ReBAC и устройство централизованной системы управления доступом. На собеседовании здесь проверяют и знание ASP.NET Core, и умение спроектировать права для десятков приложений.
+
+**Перед этой темой:** [Основы веб-безопасности](/sobes/security/web-basics/), [JWT и защита API](/sobes/security/jwt/).
+
+<Q id="security.authz.rbac" level="j">
+
+## Что такое ролевая модель доступа (RBAC) и как она выглядит в ASP.NET Core?
+
+<A short l="j">
+
+<T k="rbac">RBAC</T> (role-based access control) — модель, в которой права выдают не пользователю, а роли, а пользователя включают в нужные роли. В ASP.NET Core это атрибут `[Authorize(Roles = "Admin")]` или вызов `RequireAuthorization` у <T k="endpoint">эндпоинта</T>: пользователь без роли получит отказ, а `[AllowAnonymous]` открывает эндпоинт всем.
+
+</A>
+
+<A short l="m">
+
+RBAC разделяет две связи — «пользователь — роль» и «роль — права», поэтому перевод сотрудника — это смена ролей, а не правка десятков прав. В ASP.NET Core `[Authorize]` без параметров применяет <T k="default-policy">политику по умолчанию</T> (нужен вход), `Roles = "A,B"` требует любую из ролей, несколько атрибутов — все сразу, а эндпоинт без метаданных авторизации открыт, если не задана <T k="fallback-policy">fallback policy</T>. Цена — роли зашиты в код строками, и проверка «кто ты» подменяет проверку «что тебе можно».
+
+</A>
+
+<A short l="s">
+
+Модель NIST RBAC описывает пользователей, роли, права и сессии, а поверх них — иерархии ролей и разделение обязанностей; `[Authorize(Roles)]` реализует только базовый уровень — проверку членства через `IsInRole` по claims. Безопасное умолчание — fallback policy с `RequireAuthenticatedUser`: забытый атрибут становится отказом, а не дырой, публичное же помечают явно. Компромисс: роли хороши для грубых границ, но в коде лучше проверять право через именованную политику, а роли в cookie или токене устаревают до их перевыпуска.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+RBAC — модель доступа в два шага: права собирают в роли, а пользователям назначают роли. Роль «Бухгалтер» даёт просмотр и проведение платежей, и новому бухгалтеру выдают её, а не двадцать прав.
+
+**Зачем**
+
+Доступом управляют группами, а не каждым пользователем, и по составу роли видно, кто что может.
+
+**Как пользоваться**
+
+- `[Authorize]` — только вошедшие пользователи.
+- `[Authorize(Roles = "Admin,Manager")]` — роль Admin или Manager.
+- Два атрибута `[Authorize(Roles = ...)]` с разными ролями — нужны обе.
+- `[AllowAnonymous]` — доступ без входа: страница логина.
+- В Minimal API — `RequireAuthorization()` и `AllowAnonymous()` у эндпоинта или группы `MapGroup`.
+
+**Частая ошибка**
+
+Забыть `[Authorize]` на новом контроллере: эндпоинт без атрибута открыт всем. Защищает fallback policy, которая требует входа везде, где не сказано иное.
+
+**Итог:** права собирают в роли, роли выдают пользователям, а ASP.NET Core проверяет их атрибутом или `RequireAuthorization`.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+1. Аутентификация заполняет `HttpContext.User`; роли в нём — claims специального типа.
+2. Middleware авторизации собирает <T k="endpoint-metadata">метаданные эндпоинта</T> — `[Authorize]`, `RequireAuthorization` — в одну политику.
+3. `Roles` превращается в требование: `User.IsInRole` истинно хотя бы для одной роли из списка.
+4. Если требование не выполнено, аноним получает challenge (предложение войти), а вошедший — forbid (отказ).
+
+**Какая политика применится**
+
+| Метаданные эндпоинта | Что проверяется |
+|---|---|
+| нет | fallback policy; по умолчанию её нет, и доступ открыт |
+| `[Authorize]`, `RequireAuthorization()` | default policy: пользователь вошёл |
+| `Roles = "..."` или `Policy = "..."` | роли или именованная политика |
+| `[AllowAnonymous]`, `AllowAnonymous()` | ничего: отказа не будет |
+
+**Ловушки**
+
+- **`[AllowAnonymous]` сильнее.** На контроллере он отменяет все `[Authorize]` его actions.
+- **Регистр.** Роли сравниваются с учётом регистра: `Admin` и `admin` — разные роли.
+- **Строки в коде.** Опечатку в имени роли компилятор не поймает, а переименование роли превращается в поиск по всему проекту.
+
+**Правило**
+
+Fallback policy с `RequireAuthenticatedUser`, явный `AllowAnonymous` для публичного, а в атрибутах — имена политик вместо списков ролей.
+
+**Итог:** нет метаданных — fallback policy, `[Authorize]` — default policy, `Roles` — проверка `IsInRole`.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- Модель NIST RBAC (стандарт ANSI INCITS 359) — это базовый уровень (пользователи, роли, права, сессии), иерархии ролей и ограничения: статическое и динамическое разделение обязанностей. ASP.NET Core даёт только базовый уровень, остальное строят снаружи.
+- `Roles` превращается в `RolesAuthorizationRequirement`, а `IsInRole` ищет в каждой identity claim с типом её `RoleClaimType`. Если провайдер кладёт роли в claim с другим именем, `IsInRole` вернёт `false` при правильных ролях.
+
+**Компромиссы**
+
+- **Роль или право в коде.** `[Authorize(Roles = "HR,Admin")]` смешивает «кто» и «что можно». Политика `CanApproveVacation` прячет состав ролей в одном месте, и новая роль не требует правки контроллеров.
+- **Роли в токене или cookie.** Проверка ничего не стоит, но снятая роль действует до перевыпуска токена или конца сессии.
+- **Безопасность по умолчанию.** Fallback policy делает забытый атрибут отказом. Цена — каждое публичное место надо пометить явно: вход, health checks, публичные страницы и их статику.
+
+**Как проверить в проде**
+
+- Интеграционный тест через `WebApplicationFactory` перебирает `EndpointDataSource` и падает, если у эндпоинта нет ни метаданных авторизации, ни `AllowAnonymous`.
+- При отказе категория логов `Microsoft.AspNetCore.Authorization` пишет «Authorization failed» и список невыполненных требований.
+
+**Итог:** `[Authorize(Roles)]` — базовый RBAC поверх claims; в проде к нему добавляют fallback policy, политики вместо строк ролей и учёт того, что роли в токене устаревают.
+
+</A>
+
+<Ex>
+
+```csharp
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddAuthentication().AddCookie(); // единственная схема становится схемой по умолчанию
+builder.Services.AddAuthorizationBuilder()
+    // Всё, что не помечено явно, требует входа
+    .SetFallbackPolicy(new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
+
+var app = builder.Build();
+
+// Публичный эндпоинт: вход тестового пользователя с ролью Manager
+app.MapGet("/login", () => Results.SignIn(new ClaimsPrincipal(new ClaimsIdentity(
+    [new Claim(ClaimTypes.Name, "alice"), new Claim(ClaimTypes.Role, "Manager")], "Cookies"))))
+   .AllowAnonymous();
+
+app.MapGet("/profile", (ClaimsPrincipal user) => user.Identity!.Name); // fallback: любой вошедший
+
+// Атрибут на лямбде: Admin ИЛИ Manager — alice проходит
+app.MapGet("/reports", [Authorize(Roles = "Admin,Manager")] () => "reports");
+
+// Всем эндпоинтам группы нужна роль Admin — alice получит отказ
+var admin = app.MapGroup("/admin").RequireAuthorization(p => p.RequireRole("Admin"));
+admin.MapGet("/users", () => "users");
+
+app.Run();
+```
+
+</Ex>
+
+<Next>
+
+- Как потребовать две роли одновременно? — Два атрибута `[Authorize(Roles = ...)]` или два вызова `RequireRole` в политике; список через запятую — это ИЛИ.
+- Чем default policy отличается от fallback policy? — Default применяется к `[Authorize]` без параметров, fallback — к эндпоинтам без метаданных авторизации.
+- Что победит: `[Authorize]` на контроллере или `[AllowAnonymous]` на action? — `[AllowAnonymous]`: с ним атрибуты `[Authorize]` игнорируются.
+- Почему `IsInRole` возвращает `false`, хотя роль в токене есть? — Claim роли пришёл с другим типом, чем `RoleClaimType` identity; это настраивается в схеме аутентификации.
+- Как закрыть сразу группу эндпоинтов? — `MapGroup(...).RequireAuthorization(...)` в Minimal API или атрибут на контроллере.
+
+</Next>
+
+<Src>
+
+- [Simple authorization in ASP.NET Core](https://learn.microsoft.com/aspnet/core/security/authorization/simple)
+- [Role-based authorization in ASP.NET Core](https://learn.microsoft.com/aspnet/core/security/authorization/roles)
+- [Policy-based authorization: default and fallback policies](https://learn.microsoft.com/aspnet/core/security/authorization/policies#default-and-fallback-policies)
+
+</Src>
+
+</Q>
+
+<Q id="security.authz.claims" level="m">
+
+## Что такое claims-based идентичность?
+
+<A short l="j">
+
+<T k="claim">Claim</T> — утверждение о пользователе в виде пары «тип — значение»: имя, email, отдел, роль. Все claims лежат в `HttpContext.User` типа <T k="claims-principal">`ClaimsPrincipal`</T>, и приложение принимает решения по ним, поэтому роль — это просто claim особого типа.
+
+</A>
+
+<A short l="m">
+
+Пользователь описывается набором утверждений от доверенного издателя: `ClaimsPrincipal` содержит одну или несколько <T k="claims-identity">`ClaimsIdentity`</T>, по одной на способ аутентификации, а в каждой — свои claims. Claims выдаёт схема аутентификации при входе, дополнить их данными приложения можно через <T k="claims-transformation">`IClaimsTransformation`</T>, а роль — это claim с типом `RoleClaimType`, который читает `IsInRole`. Цена — claims остаются снимком на момент входа и увеличивают каждый запрос.
+
+</A>
+
+<A short l="s">
+
+Claims отделяют «что о пользователе утверждает издатель» от «что ему можно»: приложение доверяет подписи издателя и не ходит в каталог пользователей на каждый запрос. Отсюда и риск: claim — снимок, и без дополнительного механизма его не отозвать до истечения cookie или токена. `IClaimsTransformation` дополняет principal данными приложения, но выполняется на каждой аутентификации, иногда несколько раз за запрос, поэтому должен быть идемпотентным и кешировать обращения к базе. Граница такая: в токене — устойчивые сведения о личности, а быстро меняющиеся права — в самом приложении.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+- **Claim** — пара «тип — значение» о пользователе: `name = alice`, `department = HR`, `role = Manager`.
+- **`ClaimsIdentity`** — claims, полученные одним способом входа: из cookie, токена или Windows.
+- **`ClaimsPrincipal`** — пользователь целиком, одна или несколько identity. Это `HttpContext.User`.
+
+**Откуда берутся**
+
+Их выдаёт тот, кто аутентифицировал пользователя. Форма входа записывает claims в cookie, сервер идентификации — в токен, Windows-аутентификация берёт их из учётной записи домена.
+
+**Как пользоваться**
+
+- `User.Identity.Name` — имя, `User.IsInRole("Admin")` — роль.
+- `User.FindFirst(ClaimTypes.Email)?.Value` — значение claim.
+- `User.HasClaim("department", "HR")` — проверка значения.
+
+**Частая ошибка**
+
+Класть в claims быстро меняющиеся данные: остаток отпуска, список заявок. Они не обновятся, пока пользователь не войдёт заново.
+
+**Итог:** claims — утверждения о пользователе, а роль — один из них.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+| Тип | Что содержит |
+|---|---|
+| `Claim` | `Type`, `Value`, `ValueType` и `Issuer` — кто выдал |
+| `ClaimsIdentity` | claims одной аутентификации, `AuthenticationType`, `NameClaimType`, `RoleClaimType` |
+| `ClaimsPrincipal` | список identity; свойство `Claims` — claims всех identity сразу |
+
+- Identity считается аутентифицированной, если у неё задан `AuthenticationType`. `new ClaimsIdentity(claims)` без него — аноним с claims.
+- Типы claims — длинные URI из `ClaimTypes` или короткие имена JWT и OIDC: `sub`, `email`, `role`. Как одни превращаются в другие, решает схема аутентификации.
+
+**Роли — частный случай**
+
+`IsInRole("Admin")` ищет в каждой identity claim с типом её `RoleClaimType` и значением `Admin`. Через него работают `[Authorize(Roles)]` и `RequireRole`.
+
+**Дополнение claims**
+
+После успешной аутентификации ASP.NET Core вызывает `IClaimsTransformation.TransformAsync`. Там добавляют данные приложения: внутренний id сотрудника, отдел из кадровой системы.
+
+**Ловушки**
+
+- `TransformAsync` может вызываться несколько раз за запрос: claim добавляют, только если его ещё нет.
+- Результат не сохраняется в cookie и вычисляется на каждом запросе, поэтому обращение к базе в нём кешируют.
+- Значения claims сравниваются с учётом регистра.
+
+**Правило**
+
+В токене или cookie — устойчивые сведения о личности, а данные приложения добавляют в самом приложении.
+
+**Итог:** principal — набор identity, identity — набор claims, а роль — claim, который читает `IsInRole`.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- `AuthenticationService.AuthenticateAsync` вызывает обработчик схемы, а затем `IClaimsTransformation`. Middleware аутентификации делает это для схемы по умолчанию, а политика с явными `AuthenticationSchemes` — ещё раз для своих схем.
+- ASP.NET Core Identity собирает claims при входе через `IUserClaimsPrincipalFactory<TUser>`. Дальше они живут в cookie и обновляются, только когда cookie перевыпускают, например валидатором security stamp — по умолчанию раз в 30 минут.
+- `WindowsPrincipal` и `GenericPrincipal` наследуют `ClaimsPrincipal`, поэтому любой способ входа даёт приложению один и тот же API.
+
+**Цена**
+
+- Каждый claim увеличивает cookie или токен, а они едут в каждом запросе. Большую cookie ASP.NET Core делит на части (`.AspNetCore.CookiesC1`, `C2`), но заголовки всё равно упираются в лимиты прокси и сервера.
+- Трансформация с запросом к базе добавляет задержку каждому запросу, поэтому результат кешируют по id пользователя с коротким TTL.
+
+**Компромиссы**
+
+| Источник данных для решения | Плюс | Минус |
+|---|---|---|
+| claims в cookie или токене | без сетевых вызовов | устаревают до перевыпуска |
+| трансформация с кешем | свежие данные приложения | кеш или база на каждый запрос |
+| запрос в момент проверки | точное решение по объекту | задержка в момент проверки |
+
+**Как проверить в проде**
+
+- Эндпоинт для администраторов, который отдаёт `User.Claims`, показывает типы, издателей и то, что добавила трансформация.
+- Размер заголовков `Cookie` и `Authorization` в логах прокси — ранний сигнал, что claims разрослись.
+
+**Итог:** claims — снимок утверждений издателя; держите в них устойчивое, а изменчивое добавляйте трансформацией с кешем или проверяйте в момент решения.
+
+</A>
+
+<Ex>
+
+```csharp
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authentication;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddAuthentication().AddCookie();
+builder.Services.AddAuthorizationBuilder()
+    .AddPolicy("HrOnly", p => p.RequireClaim("department", "HR"));
+builder.Services.AddSingleton<EmployeeDirectory>();
+builder.Services.AddTransient<IClaimsTransformation, DepartmentClaimsTransformation>();
+
+var app = builder.Build();
+
+// В cookie попадают только имя и роль
+app.MapGet("/login", () => Results.SignIn(new ClaimsPrincipal(new ClaimsIdentity(
+    [new Claim(ClaimTypes.Name, "alice"), new Claim(ClaimTypes.Role, "Manager")], "Cookies"))));
+
+// name, role и department, который добавила трансформация
+app.MapGet("/me", (ClaimsPrincipal user) => user.Claims.Select(c => new { c.Type, c.Value }))
+   .RequireAuthorization();
+app.MapGet("/hr/vacancies", () => "vacancies").RequireAuthorization("HrOnly"); // alice из HR — проходит
+
+app.Run();
+
+public class EmployeeDirectory
+{
+    public string GetDepartment(string userName) => userName == "alice" ? "HR" : "IT";
+}
+
+// Вызывается после каждой успешной аутентификации, иногда несколько раз за запрос
+public class DepartmentClaimsTransformation(EmployeeDirectory directory) : IClaimsTransformation
+{
+    public Task<ClaimsPrincipal> TransformAsync(ClaimsPrincipal principal)
+    {
+        if (principal.Identity?.Name is not { } name || principal.HasClaim(c => c.Type == "department"))
+            return Task.FromResult(principal); // аноним или claim уже есть: ничего не делаем
+
+        var clone = principal.Clone(); // исходный principal не меняем
+        clone.AddIdentity(new ClaimsIdentity([new Claim("department", directory.GetDepartment(name))]));
+        return Task.FromResult(clone);
+    }
+}
+```
+
+</Ex>
+
+<Next>
+
+- Чем `ClaimsIdentity` отличается от `ClaimsPrincipal`? — Identity — claims одной аутентификации, principal — пользователь с одной или несколькими identity.
+- Почему `IsAuthenticated` равно `false`, хотя claims есть? — У identity не задан `AuthenticationType`.
+- Сколько раз вызывается `IClaimsTransformation`? — На каждый `AuthenticateAsync`, иногда несколько раз за запрос; результат в cookie не сохраняется.
+- Как обновить claims, не дожидаясь нового входа? — Перевыпустить cookie через `SignInAsync` или токен; в ASP.NET Core Identity это делает валидатор security stamp.
+- Чем claim отличается от права? — Claim говорит, кто субъект, право — что ему можно; решение принимает приложение, сопоставляя claims с правилами.
+
+</Next>
+
+<Src>
+
+- [Claims-based authorization in ASP.NET Core](https://learn.microsoft.com/aspnet/core/security/authorization/claims)
+- [Map, customize, and transform claims in ASP.NET Core](https://learn.microsoft.com/aspnet/core/security/authentication/claims)
+- [ClaimsPrincipal class](https://learn.microsoft.com/dotnet/api/system.security.claims.claimsprincipal)
+
+</Src>
+
+</Q>
+
+<Q id="security.authz.policies" level="m">
+
+## Как работает авторизация на политиках?
+
+<A short l="j">
+
+<T k="authorization-policy">Политика</T> — именованное правило доступа: его регистрируют в `Program.cs` и применяют по имени через `[Authorize(Policy = "CanApprove")]` или `RequireAuthorization("CanApprove")`. Поэтому правило «кто может утверждать заявки» меняют в одном месте, а не в каждом контроллере.
+
+</A>
+
+<A short l="m">
+
+Политика — это список <T k="authorization-requirement">requirements</T>, а решение по каждому принимают <T k="authorization-handler">handlers</T> с зависимостями из DI: нужны все requirements, а для одного requirement хватит успеха любого handler'а, если никто не вызвал `Fail`. Доступ к конкретному объекту — «правит только автор» — проверяют <T k="resource-based-authorization">по ресурсу</T> через `IAuthorizationService.AuthorizeAsync(User, document, policy)`, потому что атрибуты срабатывают до загрузки данных. Цена — правило разнесено по классам, а проверку в коде легко забыть в новом методе.
+
+</A>
+
+<A short l="s">
+
+Политики отделяют место применения (атрибут, эндпоинт, вызов сервиса) от логики решения (handlers в DI), поэтому правило становится обычным тестируемым классом, а `AddAuthorizationBuilder` собирает все правила в одном месте. Проверка по ресурсу — это `AuthorizationHandler<TRequirement, TResource>` и вызов `AuthorizeAsync` в коде; на чужой объект часто отвечают 404 вместо 403, чтобы не раскрывать его существование, а для отказов middleware это настраивает `IAuthorizationMiddlewareResultHandler`. Цена: handlers выполняются на каждую проверку без кеша результата, а списки («мои документы») так не проверить — права для них переносят в условие запроса.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+Политика — правило доступа с именем. Внутри — требования: «вошёл», «есть роль», «есть claim» или своё условие.
+
+**Как пользоваться**
+
+1. Зарегистрируйте политику: `AddAuthorizationBuilder().AddPolicy("HrOnly", p => p.RequireClaim("department", "HR"))`.
+2. Примените её: `[Authorize(Policy = "HrOnly")]` на контроллере или `.RequireAuthorization("HrOnly")` у эндпоинта.
+3. Для сложного правила напишите свой requirement и handler — класс, который принимает решение.
+
+**Зачем**
+
+Правило описано один раз. Если доступ нужно дать ещё и аудиторам, правят регистрацию политики, а не все атрибуты.
+
+**Частая ошибка**
+
+Не зарегистрировать handler в DI. Requirement тогда никто не обработает, и политика всегда отказывает.
+
+**Итог:** политика — именованный набор требований, который применяют по имени.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+1. `AddAuthorizationBuilder()` (.NET 7+) регистрирует политики; каждая — список `IAuthorizationRequirement`.
+2. При проверке `IAuthorizationService` создаёт `AuthorizationHandlerContext`: пользователь, requirements и ресурс.
+3. Вызываются все зарегистрированные `IAuthorizationHandler`. Handler вызывает `context.Succeed(requirement)`, `context.Fail()` или ничего.
+4. Политика выполнена, если успешны все requirements и никто не вызвал `Fail`.
+
+**Как сочетаются**
+
+| Ситуация | Результат |
+|---|---|
+| несколько requirements в политике | нужны все (И) |
+| несколько handlers одного requirement | хватит одного `Succeed` (ИЛИ) |
+| хотя бы один `Fail()` | отказ, даже если другие вызвали `Succeed` |
+
+**Авторизация по ресурсу**
+
+Атрибут проверяется до загрузки данных. Поэтому правило «правит только автор» проверяют в коде: загрузить документ, вызвать `AuthorizeAsync(User, document, "EditDocument")` и при отказе вернуть `Forbid()`. Handler наследует `AuthorizationHandler<TRequirement, Document>`; для CRUD есть готовый `OperationAuthorizationRequirement`.
+
+**Ловушки**
+
+- Handlers вызываются в любом порядке и даже для неаутентифицированного пользователя.
+- У эндпоинта `context.Resource` — это `HttpContext`, а не ваш объект.
+- Опечатка в имени политики — `InvalidOperationException` при первом запросе, а не при старте.
+
+**Правило**
+
+Простое условие — `RequireRole`, `RequireClaim`, `RequireAssertion`. Нужны сервисы или объект — requirement и handler.
+
+**Итог:** политика — И по requirements, ИЛИ по handlers, а проверка по объекту — вызов `AuthorizeAsync` в коде.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- `AuthorizationMiddleware` объединяет метаданные эндпоинта в одну политику, а `IPolicyEvaluator` аутентифицирует пользователя по её схемам и вызывает `IAuthorizationService`.
+- `DefaultAuthorizationHandlerProvider` отдаёт все `IAuthorizationHandler` из DI: каждый handler вызывается при каждой проверке, а `AuthorizationHandler<T>` просто пропускает чужие requirements.
+- Результат проверки на эндпоинте обрабатывает `IAuthorizationMiddlewareResultHandler`: по умолчанию challenge или forbid. Своя реализация меняет ответ, например 404 вместо 403.
+- `IAuthorizationPolicyProvider` строит политики по имени на лету (`"MinAge:18"`), а с .NET 8 атрибут с `IAuthorizationRequirementData` сам несёт requirements без регистрации политики.
+
+**Цена**
+
+Результат handlers не кешируется: запрос к базе или сервису прав внутри handler'а выполняется при каждой проверке. Handler регистрируют с любым временем жизни; scoped получает `DbContext` запроса.
+
+**Компромиссы**
+
+- **Атрибут или вызов в коде.** Атрибут виден в метаданных, и его наличие проверяется тестом. Вызов `AuthorizeAsync` легко забыть в новом методе.
+- **Объект или список.** `AuthorizeAsync` проверяет один загруженный объект. Для списков права выражают в `WHERE`, иначе ломаются пагинация и производительность.
+- **404 или 403.** 404 скрывает существование ресурса, 403 понятнее клиенту и поддержке.
+
+**Как проверить в проде**
+
+- Логи категории `Microsoft.AspNetCore.Authorization` показывают, какие requirements не выполнены.
+- Handlers тестируют без веб-хоста: создают `AuthorizationHandlerContext` с нужным principal и ресурсом и вызывают `HandleAsync`.
+
+**Итог:** политики — встроенный движок правил ASP.NET Core: требования декларативно, решения в handlers, объект — через `IAuthorizationService`, списки — фильтром в запросе.
+
+</A>
+
+<Ex>
+
+```csharp
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddAuthentication().AddCookie();
+builder.Services.AddAuthorizationBuilder()
+    .AddPolicy("EditDocument", p => p.AddRequirements(new EditDocumentRequirement()));
+// Два handler'а одного requirement: хватит успеха любого (ИЛИ)
+builder.Services.AddSingleton<IAuthorizationHandler, AuthorHandler>();
+builder.Services.AddSingleton<IAuthorizationHandler, AdminHandler>();
+
+var app = builder.Build();
+
+app.MapPut("/documents/{id:int}", async (int id, ClaimsPrincipal user, IAuthorizationService auth) =>
+{
+    var doc = new Document(id, Author: "bob"); // в жизни — загрузка из базы
+    var result = await auth.AuthorizeAsync(user, doc, "EditDocument");
+    return result.Succeeded ? Results.Ok(doc) : Results.Forbid(); // не автор и не Admin — Forbid
+}).RequireAuthorization();
+
+app.Run();
+
+public record Document(int Id, string Author);
+
+public class EditDocumentRequirement : IAuthorizationRequirement { }
+
+// Handler с ресурсом: получает загруженный документ
+public class AuthorHandler : AuthorizationHandler<EditDocumentRequirement, Document>
+{
+    protected override Task HandleRequirementAsync(
+        AuthorizationHandlerContext context, EditDocumentRequirement requirement, Document doc)
+    {
+        if (context.User.Identity?.Name == doc.Author) context.Succeed(requirement);
+        return Task.CompletedTask;
+    }
+}
+
+public class AdminHandler : AuthorizationHandler<EditDocumentRequirement>
+{
+    protected override Task HandleRequirementAsync(
+        AuthorizationHandlerContext context, EditDocumentRequirement requirement)
+    {
+        if (context.User.IsInRole("Admin")) context.Succeed(requirement);
+        return Task.CompletedTask;
+    }
+}
+```
+
+</Ex>
+
+<Next>
+
+- Как сделать правило «ИЛИ» между двумя условиями? — Несколько handlers одного requirement или `RequireAssertion` с `||`.
+- Зачем вызывать `context.Fail()`, если можно просто не вызывать `Succeed`? — `Fail` гарантирует отказ, даже если другой handler вызвал `Succeed`, например для заблокированного пользователя.
+- Почему проверку «автор документа» нельзя сделать атрибутом? — Атрибут срабатывает до загрузки документа; ресурс передают в `AuthorizeAsync` явно.
+- Как вернуть 404 вместо 403 при отказе в middleware? — Своя реализация `IAuthorizationMiddlewareResultHandler`.
+- Как получить политику по шаблону имени, например `MinAge:18`? — Свой `IAuthorizationPolicyProvider` или атрибут с `IAuthorizationRequirementData` (.NET 8+).
+
+</Next>
+
+<Src>
+
+- [Policy-based authorization in ASP.NET Core](https://learn.microsoft.com/aspnet/core/security/authorization/policies)
+- [Resource-based authorization in ASP.NET Core](https://learn.microsoft.com/aspnet/core/security/authorization/resource-based)
+- [Customize the behavior of AuthorizationMiddleware](https://learn.microsoft.com/aspnet/core/security/authorization/customizingauthorizationmiddlewareresponse)
+
+</Src>
+
+</Q>
+
+<Q id="security.authz.abac-rebac" level="s">
+
+## Когда RBAC не хватает: ABAC, ReBAC и внешние движки политик?
+
+<A short l="j">
+
+Когда права зависят не только от должности, ролей становится слишком много — это <T k="role-explosion">взрыв ролей</T>. Тогда используют <T k="abac">ABAC</T>, где решение строится по атрибутам пользователя, объекта и обстановки («менеджер видит заявки своего отдела»), или <T k="rebac">ReBAC</T>, где оно строится по связям («с кем поделились папкой, тот видит её документы»).
+
+</A>
+
+<A short l="m">
+
+RBAC отвечает на вопрос «кто ты», но не «чей это объект»: правило «руководитель утверждает заявки своего отдела» в ролях требует отдельной роли на каждый отдел. ABAC (NIST SP 800-162) вычисляет решение из атрибутов субъекта, объекта, операции и окружения, а ReBAC — из графа отношений, как Google <T k="zanzibar">Zanzibar</T> и его открытые последователи OpenFGA и SpiceDB. В ASP.NET Core ABAC ложится на handlers политик, а внешний движок нужен, когда правила общие для многих сервисов, — ценой сетевого вызова и ещё одной точки отказа.
+
+</A>
+
+<A short l="s">
+
+Выбор модели — это выбор, где живут данные для решения: роли — в токене, атрибуты — у пользователя и объекта, отношения — в отдельном графе. Решение можно вынести во внешнюю <T k="policy-decision-point">точку принятия решений</T> (OPA, OpenFGA), оставив приложению роль точки применения: это даёт единые правила и аудит, но стоит задержки, согласования данных и дорогих запросов вида «что мне доступно». Поэтому грубые проверки делают на шлюзе, точные — в сервисе, а списки фильтруют в запросе или через <T k="row-level-security">row-level security</T> базы.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+- **Взрыв ролей** — под каждое сочетание должности, отдела и региона заводят роль: `HR_Kyiv_Manager`, `HR_Lviv_Manager` и так сотни.
+- **ABAC** (attribute-based) — доступ решает правило над атрибутами: пользователя (отдел, должность), объекта (отдел, гриф), действия и обстановки (время, сеть).
+- **ReBAC** (relationship-based) — доступ решают связи: Аня — редактор папки, папка содержит документ, значит, Аня может его править.
+
+**Пример**
+
+| Правило | Модель |
+|---|---|
+| админка — только администраторам | RBAC |
+| менеджер видит заявки своего отдела | ABAC |
+| документ видят те, с кем им поделились | ReBAC |
+
+**Частая ошибка**
+
+Решать каждое новое правило новой ролью. Через год ролей больше, чем пользователей, и никто не помнит, что даёт каждая.
+
+**Итог:** роли — для грубых границ, атрибуты и связи — для правил «своё» и «поделились».
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+- **ABAC.** По NIST SP 800-162 атрибуты субъекта, объекта, операции и окружения сравниваются с политикой. В ASP.NET Core это handler, который сравнивает claim `department` пользователя с отделом заявки.
+- **ReBAC.** Права выводятся из графа. Zanzibar хранит связи кортежами `объект#отношение@пользователь`, например `doc:readme#owner@10`, а конфигурация задаёт вывод: «читатель папки — читатель и её документов».
+- **OPA** (Open Policy Agent) — универсальный движок: приложение отправляет JSON с данными запроса, а правила на языке Rego возвращают решение.
+
+**Когда что выбирать**
+
+| Модель | Подходит, когда |
+|---|---|
+| RBAC | права определяются должностью, ролей десятки |
+| ABAC | правила «своё»: отдел, регион, гриф, время |
+| ReBAC | шаринг, вложенные папки и группы, делегирование |
+
+**Где проверять**
+
+- **Шлюз** — грубо: вошёл ли пользователь и есть ли у него доступ к сервису.
+- **Сервис** — точно: этот пользователь и этот объект.
+- **База** — списки: условие в `WHERE` или row-level security.
+
+**Ловушки**
+
+- Проверить один объект легко, а показать «всё, что мне доступно» — нет: фильтр после выборки ломает пагинацию.
+- Атрибуты пользователя берут из claims или каталога, а не из параметров запроса.
+
+**Правило**
+
+Начинайте с ролей и политик, ABAC реализуйте в handlers, внешний движок подключайте, когда правила общие для многих сервисов.
+
+**Итог:** RBAC — «кто ты», ABAC — «какие атрибуты у тебя и у объекта», ReBAC — «как ты связан с объектом».
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- NIST SP 800-162 делит ABAC на точки: PEP применяет решение, PDP принимает его, PIP поставляет атрибуты, PAP хранит политики. В ASP.NET Core middleware и вызовы `AuthorizeAsync` — PEP, handlers — встроенный PDP.
+- Zanzibar (USENIX ATC 2019) обслуживает Drive, YouTube, Cloud: триллионы ACL и миллионы проверок в секунду. Против «new enemy problem» — отозванный пользователь видит контент, добавленный после отзыва, — клиент хранит с контентом токен версии (zookie), и проверка идёт по данным не старше него. В SpiceDB это ZedToken.
+
+**Цена**
+
+- Внешний PDP — сетевой вызов на каждую проверку: его ставят рядом с сервисом и кешируют решения.
+- «Что мне доступно» — отдельный дорогой запрос: `ListObjects` в OpenFGA, `LookupResources` в SpiceDB.
+- Отношения дублируются в базе приложения и в графе: нужны синхронизация и сверка.
+
+**Компромиссы**
+
+| Где проверять | Плюс | Минус |
+|---|---|---|
+| шлюз | один раз для всех сервисов | не знает данных объекта |
+| сервис | полный контекст объекта | правила дублируются по сервисам |
+| база (RLS) | защищает от забытой проверки в коде | логика в SQL, нужен контекст пользователя |
+
+RLS требует передать пользователя в соединение: `set_config` в PostgreSQL, `sp_set_session_context` в SQL Server. С пулом соединений значение задают на транзакцию, иначе оно достанется следующему запросу.
+
+**Как проверить в проде**
+
+- Каждое решение логируют: кто, какое действие, над каким объектом, результат, версия политики.
+- Политики тестируют в CI: `opa test` для Rego, `fga model test` для модели OpenFGA.
+
+**Итог:** RBAC не исчезает, а дополняется: атрибуты — в handlers, отношения — в графе вроде OpenFGA, списки — в запросе или RLS, а внешний PDP оправдан, когда правила общие для многих сервисов.
+
+</A>
+
+<Ex>
+
+```csharp
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddAuthentication().AddCookie();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<IAuthorizationHandler, ApproveRequestHandler>();
+builder.Services.AddAuthorizationBuilder()
+    .AddPolicy("ApproveRequest", p => p.AddRequirements(new ApproveRequirement()));
+
+var app = builder.Build();
+
+app.MapPost("/requests/{id:int}/approve", async (int id, ClaimsPrincipal user, IAuthorizationService auth) =>
+{
+    var request = new AccessRequest(id, Department: "HR", RequestedBy: "bob"); // из базы
+    var result = await auth.AuthorizeAsync(user, request, "ApproveRequest");
+    return result.Succeeded ? Results.Ok() : Results.Forbid();
+}).RequireAuthorization();
+
+app.Run();
+
+public record AccessRequest(int Id, string Department, string RequestedBy);
+
+public class ApproveRequirement : IAuthorizationRequirement { }
+
+// ABAC: решение из атрибутов субъекта, объекта и окружения
+public class ApproveRequestHandler(TimeProvider time)
+    : AuthorizationHandler<ApproveRequirement, AccessRequest>
+{
+    protected override Task HandleRequirementAsync(
+        AuthorizationHandlerContext context, ApproveRequirement requirement, AccessRequest request)
+    {
+        var user = context.User;
+        var hour = time.GetLocalNow().Hour;
+        if (user.IsInRole("Manager")                              // субъект: роль
+            && user.HasClaim("department", request.Department)    // субъект и объект: отдел
+            && user.Identity?.Name != request.RequestedBy         // объект: не своя заявка
+            && hour is >= 8 and < 20)                             // окружение: рабочее время
+            context.Succeed(requirement);
+        return Task.CompletedTask;
+    }
+}
+```
+
+</Ex>
+
+<Ex title="RLS в PostgreSQL">
+
+```sql
+-- Приложение подключается не владельцем таблицы: владелец обходит RLS
+ALTER TABLE access_requests ENABLE ROW LEVEL SECURITY;
+
+-- Без значения app.department_id условие даёт NULL, и строк не видно
+CREATE POLICY same_department ON access_requests
+    USING (department_id = current_setting('app.department_id', true)::int);
+
+BEGIN;
+-- true: значение действует до конца транзакции и не достанется следующему запросу из пула
+SELECT set_config('app.department_id', '42', true);
+SELECT * FROM access_requests; -- только заявки отдела 42
+COMMIT;
+```
+
+</Ex>
+
+<Next>
+
+- Как заметить взрыв ролей? — Ролей сопоставимо с пользователями, и роли отличаются одним параметром — его пора вынести в атрибут.
+- Чем ABAC отличается от ReBAC? — ABAC сравнивает свойства, ReBAC проходит по связям в графе; «владелец» и «поделились» естественнее в ReBAC.
+- Что такое new enemy problem? — Проверка по устаревшим ACL показывает отозванному пользователю новый контент; Zanzibar решает её токеном версии (zookie).
+- Как показать список доступных объектов в ReBAC? — `ListObjects` в OpenFGA или `LookupResources` в SpiceDB, либо копия прав в базе приложения для фильтрации.
+- Чем RLS лучше фильтра в коде и чем хуже? — Его не обойти забытым `WHERE`, но логика уходит в SQL и нужен контекст пользователя в соединении.
+
+</Next>
+
+<Src>
+
+- [NIST SP 800-162: Guide to Attribute Based Access Control](https://csrc.nist.gov/pubs/sp/800/162/upd2/final)
+- [Zanzibar: Google's Consistent, Global Authorization System](https://www.usenix.org/conference/atc19/presentation/pang)
+- [OpenFGA: Authorization concepts](https://openfga.dev/docs/authorization-concepts)
+
+</Src>
+
+</Q>
+
+<Q id="security.authz.access-system" level="s">
+
+## Как спроектировать централизованную систему управления доступом для многих внутренних приложений?
+
+<A short l="j">
+
+Это отдельный сервис с каталогом всех приложений и их прав: сотрудник подаёт заявку, руководитель и владелец приложения согласуют её, а система выдаёт права и записывает, кто, что и когда получил. Главный принцип — <T k="least-privilege">наименьшие привилегии</T>: выдают только нужное для работы и забирают, когда оно перестало быть нужным.
+
+</A>
+
+<A short l="m">
+
+Центральная система (класс IGA, identity governance and administration) хранит каталог приложений, прав и ролей, проводит заявки через согласование, выдаёт права приложениям и регулярно их пересматривает (<T k="access-review">access review</T>). Ключевое архитектурное решение — как права попадают в приложение, через claims при входе или запрос к сервису прав, и как быстро до него доходит отзыв. Цена централизации — сервис прав становится критичной зависимостью, поэтому решения кешируют, а выдачу делают асинхронной и повторяемой.
+
+</A>
+
+<A short l="s">
+
+Ядро системы — желаемое состояние доступа (кто какие права должен иметь, на каком основании и до какого срока) и циклы, которые приводят к нему реальность: <T k="provisioning">провижининг</T> в AD и приложения, сверка, отзыв по сроку, пересмотр. Правила безопасности — наименьшие привилегии, <T k="separation-of-duties">разделение обязанностей</T>, <T k="just-in-time-access">временный доступ</T> — проверяются при подаче заявки, а не постфактум. Главный компромисс — доставка прав: claims в токене быстрые, но устаревают до перевыпуска, а онлайн-запрос свежий, но добавляет задержку и точку отказа; поэтому грубые роли обычно едут в токене, а точные права запрашивают с кешем и сбросом по событию.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+Система управления доступом — одно место, где видны все приложения компании и кто какие права в них имеет.
+
+**Как устроено для сотрудника**
+
+1. Выбирает в каталоге приложение и роль, пишет обоснование.
+2. Заявку согласуют руководитель и владелец приложения.
+3. Система выдаёт права через группу AD или API приложения.
+4. Всё пишется в журнал: кто просил, кто согласовал, когда выдали.
+
+**Принципы**
+
+- **Наименьшие привилегии** — только то, что нужно для работы.
+- **Срок** — временные права заканчиваются сами.
+- **Пересмотр** — руководитель регулярно подтверждает, что права ещё нужны.
+
+**Частая ошибка**
+
+Выдавать, но не забирать. Сотрудник сменил отдел, старые права остались, и через несколько переводов у него доступ почти ко всему — это <T k="privilege-creep">накопление прав</T>.
+
+**Итог:** заявка, согласование, выдача, журнал и пересмотр — в одном месте для всех приложений.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+- **Каталог** — приложения, их права, роли как наборы прав, владельцы.
+- **Источник сотрудников** — кадровая система или AD: приём, перевод, увольнение.
+- **Заявки** — маршрут согласования зависит от риска права: руководитель, владелец приложения, служба безопасности.
+- **Выдача** — группы AD, протокол SCIM или API приложения; повторный запуск не должен дублировать права.
+- **Доставка в приложение** — claims при входе или запрос к сервису прав.
+- **Аудит и пересмотр** — журнал всех изменений и регулярные кампании подтверждения.
+
+**Когда что выбирать**
+
+| Доставка прав | Плюс | Минус |
+|---|---|---|
+| группы AD или claims в токене | без вызовов, стандартно | изменения видны после нового входа |
+| запрос к API прав с кешем | свежие и точные права | задержка, зависимость от сервиса |
+
+**Ловушки**
+
+- **«Как у коллеги».** Копирование прав коллеги переносит и лишнее.
+- **Перевод опаснее увольнения.** При увольнении блокируют учётную запись, а при переводе старые права тихо копятся.
+- **Права в обход системы.** Выданное вручную в приложении система не видит — нужна сверка.
+
+**Правило**
+
+У каждого права есть владелец, обоснование и срок, и всё, что система выдала, она умеет отозвать.
+
+**Итог:** каталог, заявки, выдача, доставка, аудит и пересмотр — без любой из частей доступ расползается.
+
+</A>
+
+<A l="s">
+
+**Схема компонентов**
+
+1. Каталог: приложения, права, роли-пакеты, владельцы, уровень риска.
+2. Синхронизация сотрудников из кадровой системы или AD: события приёма, перевода, увольнения.
+3. Движок заявок: маршрут по риску и проверка разделения обязанностей до согласования.
+4. Хранилище назначений — желаемое состояние: кто, что, основание, срок.
+5. Провижининг: коннекторы к AD, SCIM и API через очередь с повторами.
+6. Сверка: сравнение желаемого и фактического, поиск прав, выданных в обход.
+7. API решений и события «права изменились» для кешей приложений.
+8. Неизменяемый журнал аудита.
+9. Кампании пересмотра и автоматический отзыв по сроку.
+
+**Компромиссы**
+
+- **Отзыв.** С claims в токене он доходит только через время жизни токена или сессии. Сокращают жизнь токена или проверяют версию прав при обновлении сессии.
+- **Онлайн-проверка.** Кеш в приложении с TTL в минуты плюс событие для сброса. Если сервис прав недоступен, изменения запрещают (fail closed), а для чтения выбор между устаревшим кешем и отказом согласуют с безопасностью.
+- **Разделение обязанностей.** Конфликтные пары прав («создаёт платёж» и «утверждает платёж») проверяют при заявке; без владельцев эти правила быстро устаревают.
+
+**Как проверить в проде**
+
+- Время от согласования до фактической выдачи и число прав без владельца.
+- Расхождения сверки: права в приложениях, которых нет в системе.
+- Доля прав, подтверждённых на пересмотре без изменений: стопроцентное «подтвердить всё» — признак формальности.
+- Журнал отвечает на вопрос «кто имел доступ к X на дату Y»; если нет — аудит неполный.
+
+**Итог:** централизованный доступ — это желаемое состояние и циклы, которые сводят к нему реальность; главное архитектурное решение — как и с какой задержкой права доходят до приложений.
+
+</A>
+
+<Ex title="Приложение спрашивает права у центрального сервиса">
+
+```csharp
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.Extensions.Caching.Memory;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddAuthentication().AddCookie();
+builder.Services.AddMemoryCache();
+builder.Services.AddSingleton<PermissionClient>();
+builder.Services.AddSingleton<IAuthorizationHandler, PermissionHandler>();
+builder.Services.AddAuthorizationBuilder()
+    .AddPolicy("requests.approve", p => p.AddRequirements(new PermissionRequirement("requests.approve")));
+
+var app = builder.Build();
+
+app.MapPost("/requests/{id:int}/approve", (int id) => $"Request {id} approved")
+   .RequireAuthorization("requests.approve");
+
+app.Run();
+
+public record PermissionRequirement(string Permission) : IAuthorizationRequirement;
+
+public class PermissionClient
+{
+    // В жизни — HttpClient к сервису прав: GET /users/{user}/permissions?app=hr-portal
+    public Task<string[]> GetAsync(string user) => Task.FromResult<string[]>(["requests.approve"]);
+}
+
+public class PermissionHandler(PermissionClient client, IMemoryCache cache)
+    : AuthorizationHandler<PermissionRequirement>
+{
+    protected override async Task HandleRequirementAsync(
+        AuthorizationHandlerContext context, PermissionRequirement requirement)
+    {
+        if (context.User.Identity?.Name is not { } user) return;
+
+        // Кеш на минуту: компромисс между нагрузкой на сервис прав и скоростью отзыва
+        var permissions = await cache.GetOrCreateAsync($"perm:{user}", entry =>
+        {
+            entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(1);
+            return client.GetAsync(user);
+        });
+        if (permissions?.Contains(requirement.Permission) == true) context.Succeed(requirement);
+    }
+}
+
+// Подписчик на событие «права изменились»: отзыв доходит быстрее TTL
+public class PermissionsChangedHandler(IMemoryCache cache)
+{
+    public void Handle(string user) => cache.Remove($"perm:{user}");
+}
+```
+
+</Ex>
+
+<Next>
+
+- Как быстро отозвать доступ, если права приходят в токене? — Короткая жизнь access token, отзыв refresh token и проверка версии прав; для cookie — перепроверка principal в `OnValidatePrincipal`.
+- Что такое разделение обязанностей и где его проверять? — Запрет конфликтных прав у одного человека; статически при заявке и динамически при выполнении операции.
+- Чем роль в каталоге отличается от группы AD? — Роль — набор прав с владельцем и правилами выдачи, группа — один из способов доставить её в приложение.
+- Как выдать временный доступ администратора? — Право с датой окончания или активация по запросу на несколько часов, как в Microsoft Entra PIM.
+- Что делать, если сервис прав недоступен? — Изменения запрещать, а для чтения заранее выбрать: короткий устаревший кеш или отказ.
+
+</Next>
+
+<Src>
+
+- [NIST SP 800-53 Rev. 5: AC-5 Separation of Duties, AC-6 Least Privilege](https://csrc.nist.gov/pubs/sp/800/53/r5/upd1/final)
+- [Microsoft Entra ID Governance: entitlement management](https://learn.microsoft.com/entra/id-governance/entitlement-management-overview)
+- [Microsoft Entra access reviews](https://learn.microsoft.com/entra/id-governance/access-reviews-overview)
+
+</Src>
+
+</Q>

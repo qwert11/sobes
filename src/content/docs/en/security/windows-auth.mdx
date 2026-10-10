@@ -1,0 +1,887 @@
+---
+title: AD, Kerberos and ADFS
+description: NTLM, Kerberos and Negotiate, tickets and SPNs, Windows authentication in ASP.NET Core, ADFS and federation, AD groups in authorization, double hop and Kerberos delegation.
+sidebar:
+  order: 4
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+How corporate sign-in works on a Windows network: how Kerberos differs from NTLM, how ASP.NET Core learns who the user is and which AD groups they belong to, what ADFS does, and why a call made on the user's behalf breaks at the second server. These questions come up wherever applications live on an internal network with Active Directory.
+
+**Before this topic:** [OAuth 2.0 and OpenID Connect](/sobes/en/security/oauth-oidc/).
+
+<Q id="security.win.ntlm-kerberos" level="j">
+
+## What is Windows authentication: how does NTLM differ from Kerberos, and what is Negotiate?
+
+<A short l="j">
+
+<T k="windows-authentication">Windows authentication</T> signs the user into a web app with their domain account without typing a password: the browser proves to the server who the user is. It does so with <T k="ntlm">NTLM</T> (an answer to the server's challenge) or <T k="kerberos">Kerberos</T> (a ticket from the domain controller), and the <T k="negotiate">Negotiate</T> scheme picks Kerberos and falls back to NTLM if that fails.
+
+</A>
+
+<A short l="m">
+
+Both protocols prove knowledge of the password without sending it. With NTLM the server checks the client's answer through the domain controller on every sign-in, while with Kerberos the server validates the ticket itself and proves its own identity to the client. The price of Kerberos is infrastructure: DNS names, registered service names and synchronized clocks — otherwise Negotiate silently falls back to NTLM.
+
+</A>
+
+<A short l="s">
+
+Over HTTP, Windows authentication is an exchange of SPNEGO tokens in the `WWW-Authenticate: Negotiate` and `Authorization` headers, carrying Kerberos or NTLM inside. NTLM doesn't authenticate the server, can't delegate and is open to relay and pass-the-hash. Microsoft deprecated it in 2024 and plans to disable network NTLM by default in the next Windows Server release. So the senior's job is to find every fallback to NTLM and remove its cause, which means infrastructure work: service names (SPNs), DNS, browser zones, clients outside the domain.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+Windows authentication means the browser signs into the app with the same account the user used to sign into Windows. Accounts live in <T k="active-directory">Active Directory</T> (AD), and passwords are verified by a domain controller (DC).
+
+**How the protocols differ**
+
+| Aspect | NTLM | Kerberos |
+|---|---|---|
+| How it proves identity | answers the server's challenge | presents a ticket from the DC |
+| Who verifies | the DC, on every sign-in | the server itself |
+| Server authentication | no | yes |
+
+**What Negotiate is**
+
+An HTTP scheme that tries Kerberos and uses NTLM if that fails. The server replies `401` with `WWW-Authenticate: Negotiate`, and the browser repeats the request with a token in `Authorization`.
+
+**Common mistake**
+
+Opening the site by IP address. Kerberos needs a DNS name, so sign-in silently goes through NTLM.
+
+**Takeaway:** Negotiate picks Kerberos, and NTLM is the fallback that's on its way out.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+NTLM is three messages over two `401` round trips:
+
+1. The client says it wants NTLM.
+2. The server sends a challenge — a random number.
+3. The client returns the challenge processed with a key derived from the password hash. The server doesn't know the password and forwards the answer to the DC.
+
+With Kerberos the client has already obtained a ticket for this service from the DC. The ticket is encrypted with the service's key, so the server validates it on its own, without the DC.
+
+**What will work when**
+
+| Situation | Protocol |
+|---|---|
+| Domain client, service DNS name registered in AD | Kerberos |
+| IP address, name not registered, client outside the domain | NTLM |
+| The app must call further on the user's behalf | Kerberos only |
+
+**Pitfalls**
+
+- **Silent fallback.** Negotiate doesn't tell you Kerberos failed. You can see the protocol in the `Authorization: Negotiate` token: base64 NTLM starts with `TlRMTVNTUA`, Kerberos usually with `YII`.
+- **Bound to the connection.** Authentication lives on the TCP connection. A proxy without connection affinity breaks it.
+- **HTTP/2.** Windows authentication doesn't work over HTTP/2: the client drops to HTTP/1.1 for the handshake.
+
+**Rule of thumb**
+
+The goal is Kerberos for every domain client, and every NTLM sign-in is a reason to look for the cause.
+
+**Takeaway:** NTLM checks a challenge answer through the DC, Kerberos checks a ticket without the DC; Negotiate takes the best one available.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- Negotiate is the SPNEGO mechanism (RFC 4178) carried over HTTP (RFC 4559).
+- An NTLMv2 response is an HMAC-MD5 keyed with the NT hash of the password. The hash is as good as the password: stealing it enables pass-the-hash.
+- NTLM doesn't authenticate the server, so a response can be forwarded to another server (NTLM relay). For HTTPS the defense is Extended Protection, which binds authentication to the TLS channel.
+
+**Cost**
+
+- Every NTLM sign-in is a request from the server to the DC over Netlogon. With thousands of users that is noticeable load on the DCs.
+- NTLM takes two `401` round trips versus one for Kerberos.
+
+**NTLM status (October 2026)**
+
+1. June 2024 — all versions of NTLM deprecated.
+2. Windows 11 24H2 and Windows Server 2025 — NTLMv1 removed.
+3. January 2026 — Microsoft's three-phase plan:
+   - NTLM auditing, available now;
+   - in the second half of 2026, IAKerb and a local Kerberos ticket-issuing center for scenarios that fall back to NTLM today;
+   - in the next Windows Server and client release, network NTLM is disabled by default and can only be re-enabled by policy.
+
+**How to check in production**
+
+- Event 4624 in the server's Security log: the Authentication Package field shows `Kerberos` or `NTLM`.
+- NTLM auditing — the "Network security: Restrict NTLM" policies in audit mode.
+- Typical causes of NTLM: an IP address or a name without an SPN, a client outside the domain, a site outside the browser's "Local intranet" zone.
+
+**Takeaway:** NTLM is a fallback with no server authentication and no delegation, and Microsoft is switching it off; the senior's job is to find and remove every fallback to it.
+
+</A>
+
+<Ex>
+
+```csharp
+// NuGet: Microsoft.AspNetCore.Authentication.Negotiate
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authentication.Negotiate;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// Negotiate: Kerberos first, NTLM if that fails
+builder.Services.AddAuthentication(NegotiateDefaults.AuthenticationScheme)
+    .AddNegotiate();
+
+// Without [AllowAnonymous] every endpoint requires sign-in
+builder.Services.AddAuthorization(options =>
+    options.FallbackPolicy = options.DefaultPolicy);
+
+var app = builder.Build();
+
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapGet("/whoami", (ClaimsPrincipal user) => user.Identity?.Name); // CONTOSO\alice
+
+app.Run();
+```
+
+On IIS the same code runs on top of IIS's own Windows Authentication: the Negotiate handler sees that the server supports it natively and hands the work over. In IIS you enable Windows Authentication and disable anonymous access.
+
+</Ex>
+
+<Next>
+
+- Why can't an NTLM sign-in be passed on to another server? — The server only gets the answer to its own challenge, not a ticket or the user's key.
+- How do you tell that NTLM was used rather than Kerberos? — From the token in `Authorization` (`TlRMTVNTUA` means NTLM) or from event 4624 on the server.
+- Why doesn't Kerberos work with an IP address? — Tickets are issued for a service name; by default none is requested for an IP, and Negotiate falls back to NTLM.
+- Why HTTPS if the password isn't sent? — Without TLS the data and session cookie are readable and an NTLM response can be relayed; Extended Protection binds sign-in to the TLS channel.
+- What is Microsoft doing with NTLM? — Deprecated since 2024, NTLMv1 removed, network NTLM to be disabled by default in the next Windows Server release.
+
+</Next>
+
+<Src>
+
+- [Configure Windows Authentication in ASP.NET Core](https://learn.microsoft.com/aspnet/core/security/authentication/windowsauth)
+- [Microsoft Negotiate](https://learn.microsoft.com/windows/win32/secauthn/microsoft-negotiate)
+- [Advancing Windows security: Disabling NTLM by default](https://techcommunity.microsoft.com/blog/windows-itpro-blog/advancing-windows-security-disabling-ntlm-by-default/4489526)
+
+</Src>
+
+</Q>
+
+<Q id="security.win.kerberos-flow" level="m">
+
+## How does Kerberos work, and how do you enable it in ASP.NET Core?
+
+<A short l="j">
+
+Kerberos is a ticket-based sign-in protocol: the user proves to the <T k="kdc">KDC</T> on a domain controller once that they know the password, gets a <T k="tgt">TGT</T>, and uses it to get a <T k="service-ticket">service ticket</T> for a specific application. The application validates the ticket with its own key without contacting the domain controller, so the password is never re-entered or sent over the network.
+
+</A>
+
+<A short l="m">
+
+Kerberos is three exchanges: AS issues a TGT, TGS uses the TGT to issue a ticket for a service named by an <T k="spn">SPN</T>, and AP presents that ticket to the server. The ticket is encrypted with the key of the account that owns the SPN, so an SPN on the wrong account, a duplicate SPN or clock skew over 5 minutes breaks sign-in. In ASP.NET Core `AddNegotiate()` turns it on: on IIS the ticket is validated by IIS, on Kestrel on Windows by the process itself, on Linux by GSSAPI with a key from a <T k="keytab">keytab</T>.
+
+</A>
+
+<A short l="s">
+
+Kerberos (RFC 4120) is built on secrets shared with the KDC: the TGT is encrypted with the `krbtgt` key, a service ticket with the service's key, and session keys plus timestamps protect against replay. In AD the ticket carries a <T k="pac">PAC</T> listing the user's groups, so the server gets the user's rights without querying a DC, but new group membership only shows up with a new TGT. The trade-off is strict infrastructure: DNS names instead of IPs, one owner per SPN, synchronized clocks, AES keys. On Linux and in containers add a keytab that has to be reissued whenever the account password changes.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+Kerberos is a protocol where the password is checked once, and after that the user presents tickets to services. Tickets are issued by the KDC — a service that runs on every domain controller.
+
+**What it looks like**
+
+1. The user signs into Windows and gets a TGT — a "ticket-granting ticket".
+2. They open the portal — Windows uses the TGT to get a ticket from the KDC for exactly that portal.
+3. The browser sends the ticket in the `Authorization: Negotiate ...` header.
+4. The portal validates the ticket with its own key and knows who the user is.
+
+**How to use it**
+
+- To see your tickets, run `klist`.
+- The portal is opened by a DNS name for which an administrator registered an SPN, such as `HTTP/portal.contoso.com`.
+
+**Common mistake**
+
+Ignoring the server's clock. If it drifts from the domain controller by more than 5 minutes, Kerberos rejects tickets.
+
+**Takeaway:** the KDC checks the password once, and services trust its tickets.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+1. **AS-REQ and AS-REP.** The client sends the KDC a timestamp encrypted with a key derived from the password. The KDC replies with a TGT encrypted with the `krbtgt` account's key, plus a session key.
+2. **TGS-REQ and TGS-REP.** The client presents the TGT and the service's SPN. The KDC finds the account with that SPN and issues a ticket encrypted with that account's key.
+3. **AP-REQ.** The client sends the server the ticket and a fresh timestamp encrypted with the session key. The server decrypts the ticket with its key and checks the time.
+4. **AP-REP.** If the client asks, the server proves it also knows the key — that's mutual authentication.
+
+**Pitfalls**
+
+- **SPN on the wrong account.** An app running under a different account can't decrypt the ticket: `KRB_AP_ERR_MODIFIED` and a fallback to NTLM.
+- **Duplicate SPN.** Two owners for one SPN — the KDC won't issue a ticket.
+- **Clocks.** The default tolerance is 5 minutes, otherwise `KRB_AP_ERR_SKEW`.
+- **CNAME.** The browser requests a ticket for the canonical DNS name, so for an alias the SPN must be on the A record's name.
+
+**Who validates the ticket in ASP.NET Core**
+
+| Hosting | With whose key |
+|---|---|
+| IIS, Windows Authentication | the computer account; the app pool account with `useAppPoolCredentials` |
+| Kestrel on Windows | the account the process runs as |
+| Kestrel on Linux | from a keytab, path in `KRB5_KTNAME` |
+
+**Takeaway:** the KDC encrypts the ticket with the SPN owner's key, and only whoever holds that key can validate it.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- The server doesn't call the KDC: only the two of them know the service key. That's why stealing a service key — a keytab or a service account password — lets an attacker forge tickets to that service (silver ticket), and stealing the `krbtgt` key lets them forge any TGT (golden ticket).
+- The PAC lists the user's groups, nested ones included, and the server builds a Windows token from it without querying AD. New membership appears only with a new TGT, which lives 10 hours by default.
+- Any domain user can request a ticket for any SPN and brute-force the service account's password offline (Kerberoasting). The defense is long random passwords and AES.
+- RC4 in Kerberos is deprecated in Windows Server 2025. Since the 2026 updates (CVE-2026-20833), domain controllers assume that an account without an explicit `msDS-SupportedEncryptionTypes` supports AES only.
+
+**Trade-offs**
+
+- **Kestrel on Linux.** The principal has no groups from the PAC — they are read from AD over LDAP (`EnableLdap`): extra queries and a cache.
+- **A farm behind a load balancer.** A shared name means one SPN on a domain account that every node runs as. An SPN on one server's account breaks sign-in on the others.
+- **Keytab.** It's a key in a file. When the account password changes, the key version number (kvno) changes and the old keytab stops working.
+
+**How to check in production**
+
+- `klist get HTTP/portal.contoso.com` from a client: is a ticket issued, and with which encryption.
+- Events 4768 (TGT) and 4769 (service ticket) on the DC with a failure code: `0x7` means the SPN wasn't found.
+- Time — `w32tm /query /status` on the server and the DC.
+
+**Takeaway:** Kerberos rests on the right SPN, a shared key and synchronized clocks; almost every production incident is one of the three.
+
+</A>
+
+<Ex>
+
+```csharp
+// NuGet: Microsoft.AspNetCore.Authentication.Negotiate
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authentication.Negotiate;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddAuthentication(NegotiateDefaults.AuthenticationScheme)
+    .AddNegotiate(options =>
+    {
+        // On Linux the service key comes from a keytab (KRB5_KTNAME variable),
+        // and the principal has no groups: read them from AD over LDAP
+        if (OperatingSystem.IsLinux())
+            options.EnableLdap("contoso.com");
+    });
+builder.Services.AddAuthorization();
+
+var app = builder.Build();
+
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapGet("/", (ClaimsPrincipal user) => $"Hello, {user.Identity?.Name}")
+   .RequireAuthorization();
+
+app.Run();
+```
+
+</Ex>
+
+<Ex title="Registering SPNs and diagnosing tickets">
+
+```powershell
+# SPN on the account the app runs as; -S checks for duplicates first
+setspn -S HTTP/portal.contoso.com CONTOSO\svc-portal
+
+# All SPNs of the account and a duplicate search across the forest
+setspn -L CONTOSO\svc-portal
+setspn -X -F
+
+# Request a service ticket and view the ticket cache
+klist get HTTP/portal.contoso.com
+klist
+
+# Purge tickets to get new ones, for example after being added to a group
+klist purge
+```
+
+</Ex>
+
+<Next>
+
+- What happens if the server clock drifts by 10 minutes? — `KRB_AP_ERR_SKEW`: tickets are rejected, and Negotiate falls back to NTLM or returns `401`.
+- Why doesn't the server contact the DC to validate a ticket? — The ticket is encrypted with the service key, which only the service and the KDC know.
+- Where do you register the SPN if the IIS app pool runs as a domain account? — On that account, and enable `useAppPoolCredentials`; otherwise IIS decrypts the ticket with the computer's key.
+- Why doesn't the app see a user's new group? — Groups come from the PAC in the TGT; a new TGT is needed: sign in again or `klist purge`.
+- What is Kerberoasting? — Brute-forcing a service account's password offline from its ticket; the defense is long random passwords and AES.
+
+</Next>
+
+<Src>
+
+- [RFC 4120: The Kerberos Network Authentication Service (V5)](https://www.rfc-editor.org/rfc/rfc4120)
+- [Kerberos authentication overview](https://learn.microsoft.com/windows-server/security/kerberos/kerberos-authentication-overview)
+- [Configure Windows Authentication in ASP.NET Core: Kestrel](https://learn.microsoft.com/aspnet/core/security/authentication/windowsauth#kestrel)
+
+</Src>
+
+</Q>
+
+<Q id="security.win.adfs" level="m">
+
+## What are ADFS and federation?
+
+<A short l="j">
+
+<T k="adfs">ADFS</T> (Active Directory Federation Services) is a Windows Server role that verifies the user against AD and gives the application a signed token with claims: name, email, groups. That gives the application browser-based single sign-on even if the application itself isn't domain-joined.
+
+</A>
+
+<A short l="m">
+
+ADFS is a security token service (STS): a claims provider trust defines whom it trusts to verify the user, and a <T k="relying-party-trust">relying party trust</T> defines whom it issues tokens to and under which <T k="claim-rules">claim rules</T>. Applications connect over <T k="ws-federation">WS-Federation</T>, <T k="saml">SAML 2.0</T> or, since ADFS 2016, OpenID Connect. The cost is your own server farm, a DMZ proxy and signing certificates, which is why Microsoft recommends moving to <T k="entra-id">Microsoft Entra ID</T> instead of upgrading ADFS.
+
+</A>
+
+<A short l="s">
+
+ADFS implements federation: the application trusts the STS's signature rather than passwords, and the STS chooses how to verify the user — Kerberos inside the network, a form and MFA from outside through Web Application Proxy. Access logic lives in claim rules and access control policies, so those are what you migrate first. Microsoft advises moving to Entra ID rather than upgrading ADFS; besides, Windows Internal Database, its default store, is deprecated in Windows Server 2025. Migration goes app by app, and at the end the domain is converted from federated to cloud authentication.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+ADFS is a Windows Server role for browser-based single sign-on (SSO). The application doesn't check passwords: it redirects the user to ADFS and gets a token back.
+
+**What it looks like**
+
+1. The user opens the application, which redirects them to ADFS.
+2. ADFS verifies the user: inside the network with Windows authentication, outside with a sign-in form.
+3. ADFS issues a signed token with claims: name, email, groups.
+4. The application checks the signature and creates a cookie session.
+
+**Why**
+
+- The application needs no access to AD and doesn't have to be domain-joined.
+- The user signs in once for all connected applications.
+
+**Common mistake**
+
+Confusing ADFS with Active Directory. AD stores accounts, and ADFS issues tokens based on them.
+
+**Takeaway:** ADFS turns a domain account into a token the application trusts.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- **Claims provider trust** — where ADFS gets users from. By default it's AD, but it can also be a partner's ADFS — that's how federation between organizations is built.
+- **Relying party trust** — an application ADFS issues tokens to: identifier, return URL, protocol.
+- **Claim rules** — what goes into the token: LDAP attributes, groups, transformations. A rule is written as a condition, `=>` and an `issue` action.
+
+**When to choose what**
+
+| Protocol | Where it fits |
+|---|---|
+| WS-Federation | older .NET apps on WIF, SharePoint |
+| SAML 2.0 | off-the-shelf products and SaaS |
+| OpenID Connect (ADFS 2016+) | new web apps and APIs |
+
+**Pitfalls**
+
+- **Signing certificate rollover.** ADFS renews its token-signing certificate on its own. An app that reads metadata (`MetadataAddress`) picks up the new key; one with a hard-coded thumbprint breaks.
+- **SAML in ASP.NET Core.** There's no built-in SAML 2.0 handler; you need a third-party library. WS-Federation and OIDC ship as Microsoft packages.
+- **Token encryption.** `Microsoft.AspNetCore.Authentication.WsFederation` doesn't support it, so the relying party trust gets no encryption certificate.
+
+**Rule of thumb**
+
+A new app — OIDC; WS-Federation — for compatibility with older ones.
+
+**Takeaway:** ADFS is an STS with two kinds of trust and claim rules between them, and you pick the protocol by the age of the app.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- ADFS is a farm of servers sharing configuration in Windows Internal Database or SQL Server. Web Application Proxy in the DMZ publishes it to the internet.
+- The claims engine runs rules in order: `add` puts a claim only into the input set for later rules, `issue` also puts it into the token.
+- Groups are usually issued by a rule that asks the Active Directory attribute store for `tokenGroups`: all of the user's groups, nested ones included.
+
+**ADFS status (October 2026)**
+
+- ADFS ships in Windows Server 2025 and is supported, but Microsoft explicitly advises moving to Entra ID instead of upgrading.
+- Windows Internal Database, ADFS's default configuration store, is deprecated in Windows Server 2025.
+
+**Migration path to Entra ID**
+
+1. Entra Connect syncs users and groups so that Entra can issue groups in AD format, such as `sAMAccountName`.
+2. The AD FS application migration report (requires Entra Connect Health agents) shows active applications and the rules that can't move as-is.
+3. Applications are switched one at a time: a test instance, then production. The wizard migrates SAML apps; WS-Federation and OIDC are configured by hand.
+4. The domain is converted from federation to Password Hash Sync or Pass-through Authentication, and ADFS is decommissioned.
+
+Internal apps with Windows authentication are published through Microsoft Entra application proxy: its connector obtains a Kerberos ticket to the app on the user's behalf.
+
+**How to check in production**
+
+Token issuance errors — the AD FS/Admin log on the farm servers; token contents — an internal app page that lists the claims.
+
+**Takeaway:** ADFS works and is supported, but it's a dead end: while maintaining it, plan the move of claims and groups to Entra ID.
+
+</A>
+
+<Ex>
+
+```csharp
+// NuGet: Microsoft.AspNetCore.Authentication.WsFederation
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication.WsFederation;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddAuthentication(options =>
+    {
+        // Session in a cookie, sign-in by redirecting to ADFS
+        options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+        options.DefaultChallengeScheme = WsFederationDefaults.AuthenticationScheme;
+    })
+    .AddCookie()
+    .AddWsFederation(options =>
+    {
+        // Metadata: sign-in endpoint and token-signing certificate
+        options.MetadataAddress =
+            "https://adfs.contoso.com/FederationMetadata/2007-06/FederationMetadata.xml";
+        // Relying party trust identifier in ADFS
+        options.Wtrealm = "https://portal.contoso.com/";
+    });
+builder.Services.AddAuthorization();
+
+var app = builder.Build();
+
+app.UseAuthentication();
+app.UseAuthorization();
+
+// Claims issued by the ADFS rules
+app.MapGet("/claims", (ClaimsPrincipal user) => user.Claims.Select(c => $"{c.Type}: {c.Value}"))
+   .RequireAuthorization();
+
+app.Run();
+```
+
+For OIDC, use `AddOpenIdConnect` with `Authority = "https://adfs.contoso.com/adfs"` instead of `AddWsFederation`; the protocol itself is covered in the OAuth 2.0 and OpenID Connect topic.
+
+</Ex>
+
+<Ex title="Claim rule: AD groups as roles">
+
+```text
+c:[Type == "http://schemas.microsoft.com/ws/2008/06/identity/claims/windowsaccountname",
+   Issuer == "AD AUTHORITY"]
+ => issue(store = "Active Directory",
+          types = ("http://schemas.microsoft.com/ws/2008/06/identity/claims/role"),
+          query = ";tokenGroups;{0}",
+          param = c.Value);
+```
+
+The rule takes the user's Windows account name, asks AD for all of their groups, nested ones included, and issues each as a role claim.
+
+</Ex>
+
+<Next>
+
+- How does a relying party trust differ from a claims provider trust? — The first describes whom ADFS issues tokens to, the second whom ADFS trusts to verify the user.
+- How does ADFS choose the sign-in method? — By authentication policy: Windows authentication from the intranet, a form and MFA from the internet through WAP.
+- What breaks when the token-signing certificate rolls over? — Apps with a hard-coded thumbprint; those reading metadata pick up the new key.
+- Why does the WS-Federation handler reject unsolicited sign-ins by default? — A sign-in the app didn't request is open to CSRF; only `AllowUnsolicitedLogins` permits it.
+- What do you do with an internal Kerberos app when leaving ADFS? — Publish it through Microsoft Entra application proxy or move it to OIDC.
+
+</Next>
+
+<Src>
+
+- [AD FS overview](https://learn.microsoft.com/windows-server/identity/ad-fs/ad-fs-overview)
+- [Authenticate users with WS-Federation in ASP.NET Core](https://learn.microsoft.com/aspnet/core/security/authentication/ws-federation)
+- [AD FS application migration to Microsoft Entra ID](https://learn.microsoft.com/entra/identity/enterprise-apps/migrate-ad-fs-application-howto)
+
+</Src>
+
+</Q>
+
+<Q id="security.win.ad-groups" level="m">
+
+## How do you use AD groups for authorization in ASP.NET Core?
+
+<A short l="j">
+
+AD groups arrive together with the user: with Windows authentication as group <T k="sid">SIDs</T> in the Windows token, through ADFS or Entra ID as claims in the token. You check them with an authorization policy, such as `RequireRole(@"CONTOSO\Portal-Admins")`, not by comparing strings in code.
+
+</A>
+
+<A short l="m">
+
+Where groups come from depends on the sign-in: the Windows token holds the SIDs of all groups, <T k="nested-groups">nested</T> ones included, ADFS issues them through a `tokenGroups` rule, Entra ID as object IDs or `sAMAccountName`. To keep business code independent of group names, they are mapped to application roles in <T k="claims-transformation">`IClaimsTransformation`</T>. The cost is staleness: membership changes in AD, but the app only sees it with a new ticket or token or when the cache expires.
+
+</A>
+
+<A short l="s">
+
+Groups run into token size: a Kerberos ticket is limited by `MaxTokenSize` and by HTTP header limits. With more than 200 groups in a JWT, Entra ID sends a link to Graph instead (<T k="groups-overage">overage</T>), so large domains emit only the groups assigned to the app. Where the principal has no groups — Kestrel on Linux, overage — they are read over <T k="ldap">LDAP</T> via `System.DirectoryServices.Protocols` or from Graph, and cached. It's a trade-off between freshness of rights, load on the DCs and token size.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+An AD group is a set of accounts that an administrator grants rights to. The app checks group membership, not the user's name: a new employee gets access once they're added to the group.
+
+**How to use it**
+
+1. Enable Windows authentication (`AddNegotiate()`) or sign-in through ADFS.
+2. Define a policy: `options.AddPolicy("Admins", p => p.RequireRole(@"CONTOSO\Portal-Admins"))`.
+3. Apply it to an endpoint: `.RequireAuthorization("Admins")`.
+
+**How it works**
+
+With Windows authentication, `User.IsInRole(@"CONTOSO\Portal-Admins")` translates the group name into a SID — a permanent identifier — and looks for it in the user's Windows token. Nested groups are already included there.
+
+**Common mistake**
+
+Expecting access right after being added to a group. Groups get into the ticket when the user signs into Windows, so the user has to sign in again.
+
+**Takeaway:** access is granted to a group in AD, and the app checks membership with a policy.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+| Sign-in | How groups arrive |
+|---|---|
+| Windows: Negotiate, IIS | SIDs in `ClaimTypes.GroupSid` claims, nested ones included |
+| ADFS | claims from a rule, usually `tokenGroups`, also with nested ones |
+| Entra ID | object IDs or `sAMAccountName` of synced groups |
+
+**IClaimsTransformation**
+
+A service ASP.NET Core calls after authentication to enrich the `ClaimsPrincipal`. That's where groups are mapped to application roles: group SID → `approver`. Business code knows only roles, and the group-to-role mapping lives in one place.
+
+**Pitfalls**
+
+- **Repeated calls.** `TransformAsync` runs on every `AuthenticateAsync`, sometimes several times per request. Check whether the roles are already there.
+- **IIS without a scheme.** If you rely only on IIS automatic sign-in, `AuthenticateAsync` isn't called and the transformation never runs. You need `AddAuthentication` with a scheme: `AddNegotiate()` or `IISServerDefaults.AuthenticationScheme`.
+- **Name instead of SID.** The group gets renamed and the name check breaks, while the SID stays the same.
+- **Freshness.** Rights update with a new ticket or token, and a cache adds its own delay.
+
+**Rule of thumb**
+
+Groups at the input, application roles in policies, the mapping in `IClaimsTransformation`.
+
+**Takeaway:** groups arrive by different paths, and the app reduces them to its own roles in one place.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- `WindowsPrincipal.IsInRole(string)` translates the name into a SID through LSA on every call and only then looks at ordinary claims. Checking by SID or by your own role claims avoids that lookup.
+- A Kerberos ticket is capped by `MaxTokenSize` — 48,000 bytes by default. In HTTP it travels as base64, a third longer, and hits the header limits of HTTP.sys (`MaxFieldLength`, `MaxRequestBytes`) and Kestrel (`MaxRequestHeadersTotalSize`, 32 KB). The symptom is `400 Request Header too long`.
+- Entra ID puts at most 200 groups in a JWT and 150 in SAML. Beyond the limit the `groups` claim disappears and `_claim_names` with a link to Graph arrives instead.
+
+**Trade-offs**
+
+| Option | Pro | Con |
+|---|---|---|
+| Groups in the token | no AD queries | token size, staleness |
+| LDAP at sign-in | fresh data | DC load, needs a cache |
+| Groups assigned to the app | small token | no nested groups |
+
+**Linux**
+
+On Kestrel on Linux, `EnableLdap` reads `memberOf` through `System.DirectoryServices.Protocols` (requires `libldap`) and caches the result: 10 minutes sliding, 60 minutes absolute. `memberOf` doesn't include the primary group, usually Domain Users. `System.DirectoryServices` and `AccountManagement` work only on Windows.
+
+**How to check in production**
+
+An admin-only page shows the current user's claims. The KDC warns about large tickets with event 31 when the "Warning for large Kerberos tickets" policy is enabled.
+
+**Takeaway:** groups are token size versus freshness of rights; in large domains put only what the app needs into the token and read the rest over LDAP with a cache.
+
+</A>
+
+<Ex>
+
+```csharp
+// NuGet: Microsoft.AspNetCore.Authentication.Negotiate
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Negotiate;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddAuthentication(NegotiateDefaults.AuthenticationScheme).AddNegotiate();
+builder.Services.AddTransient<IClaimsTransformation, AdGroupsToAppRoles>();
+// RequireClaim rather than RequireRole: WindowsPrincipal.IsInRole first looks the name up through LSA
+builder.Services.AddAuthorization(options =>
+    options.AddPolicy("Approvers", p => p.RequireClaim("app_role", "approver")));
+
+var app = builder.Build();
+
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapPost("/requests/{id:int}/approve", (int id) => $"Request {id} approved")
+   .RequireAuthorization("Approvers");
+
+app.Run();
+
+public sealed class AdGroupsToAppRoles : IClaimsTransformation
+{
+    // Group SID → application role: the SID survives renaming the group
+    static readonly Dictionary<string, string> RolesBySid = new()
+    {
+        ["S-1-5-21-1004336348-1177238915-682003330-1105"] = "approver",
+    };
+
+    public Task<ClaimsPrincipal> TransformAsync(ClaimsPrincipal principal)
+    {
+        // Runs on every AuthenticateAsync: add the roles only once
+        if (principal.Identities.Any(i => i.Label == "app-roles"))
+            return Task.FromResult(principal);
+
+        var roles = principal.FindAll(ClaimTypes.GroupSid)
+            .Where(c => RolesBySid.ContainsKey(c.Value))
+            .Select(c => new Claim("app_role", RolesBySid[c.Value]));
+
+        principal.AddIdentity(new ClaimsIdentity(roles) { Label = "app-roles" });
+        return Task.FromResult(principal);
+    }
+}
+```
+
+</Ex>
+
+<Next>
+
+- Why didn't the user get access right after being added to a group? — Groups come from the TGT; a new ticket is needed: sign in again or `klist purge`.
+- Why is a SID better than a group name? — A name changes on rename and can repeat across domains, while the SID is permanent.
+- What do you do about overage in Entra ID? — Emit only the groups assigned to the app, or query membership through Microsoft Graph.
+- Why must `TransformAsync` be idempotent? — It runs on every `AuthenticateAsync`, sometimes several times per request.
+- How do you get groups on Kestrel on Linux? — `EnableLdap` in `AddNegotiate`: a cached LDAP query for `memberOf`.
+
+</Next>
+
+<Src>
+
+- [Map, customize, and transform claims in ASP.NET Core](https://learn.microsoft.com/aspnet/core/security/authentication/claims)
+- [Configure group claims for applications by using Microsoft Entra ID](https://learn.microsoft.com/entra/identity/hybrid/connect/how-to-connect-fed-group-claims)
+- [Kerberos authentication problems if a user belongs to many groups](https://learn.microsoft.com/troubleshoot/windows-server/windows-security/kerberos-authentication-problems-if-user-belongs-to-groups)
+
+</Src>
+
+</Q>
+
+<Q id="security.win.double-hop" level="s">
+
+## What is the double hop problem, and how does Kerberos delegation work?
+
+<A short l="j">
+
+<T k="double-hop">Double hop</T> is when an app that recognized the user through Windows authentication calls the next server on the user's behalf — a database, a file server, an API — and that server sees an anonymous user. The app only received a ticket to itself, not the user's password or TGT, so only Kerberos delegation allows the second hop.
+
+</A>
+
+<A short l="m">
+
+The app can act as the user on its own server through <T k="impersonation">impersonation</T>, but for the second server it needs the user's ticket to that server, and only delegation provides one. <T k="unconstrained-delegation">Unconstrained delegation</T> forwards the user's TGT to the app, <T k="constrained-delegation">constrained delegation</T> (KCD) allows tickets only to listed SPNs, and <T k="rbcd">RBCD</T> is configured on the target service's side. The cost is risk: a compromised front end with delegation can act as any user, so you pick the narrowest option.
+
+</A>
+
+<A short l="s">
+
+Double hop follows from the Kerberos model: a service ticket is only good for its own service, and the KDC issues tickets to other services on the user's behalf only under delegation rules (S4U2Proxy). Unconstrained delegation puts the user's TGT in the server's memory, so applications get KCD or RBCD instead — the latter is set by the resource owner and works across domains. Delegation breaks in the directory more often than in code: an SPN on the wrong account, a duplicate SPN, a user in Protected Users. The alternative is to call the back end as the app's account and check rights yourself, or to pass an OAuth token.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+The first hop is browser → web app, the second is app → database or file server. On the second hop the app can't present itself as the user.
+
+**Why it happens**
+
+The browser gave the app a Kerberos ticket only for that app. The app has neither the user's password nor their TGT, so it can't get a ticket to the database on the user's behalf. The database sees `NT AUTHORITY\ANONYMOUS LOGON` or denies access.
+
+**How it's solved**
+
+- The simplest way is to call the second server as the app's account and check the user's rights in the app itself.
+- If the second server must see the actual user, an administrator configures Kerberos delegation.
+
+**Common mistake**
+
+Testing in a browser on the web server itself: there's only one hop there and everything works, but not from users' workstations.
+
+**Takeaway:** the user's ticket is good only for the first server; the second needs delegation or the app's own account.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+1. The user signs into the front end with Kerberos, and the front end gets their Windows identity.
+2. The front end impersonates the user (`WindowsIdentity.RunImpersonatedAsync`) and calls the back end.
+3. Windows asks the KDC for a ticket to the back end on the user's behalf. The KDC issues it only if the front end's account is allowed to delegate to the back end's SPN.
+
+**When to choose what**
+
+| Kind | Where it's configured | What the front end can do |
+|---|---|---|
+| Unconstrained | on the front end's account | with the user's TGT — anything |
+| KCD | on the front end's account, a list of SPNs | only the listed services |
+| RBCD | on the back end's account, who may delegate | whatever the back end's owner allowed |
+
+**Pitfalls**
+
+- **Protocol transition.** The KCD mode "Use any authentication protocol" (S4U2Self) issues a ticket even for a user who signed in without Kerberos — via NTLM or a form. Convenient, but then the front end can impersonate any user to those services.
+- **IIS app pool.** Delegation is configured on the account that owns the front end's SPN: the computer account or the pool's domain account.
+- **Linux.** Impersonation in ASP.NET Core exists only on Windows.
+
+**Rule of thumb**
+
+First find out whether the back end really needs the user. If it does — RBCD or KCD "Kerberos only" to specific SPNs.
+
+**Takeaway:** delegation is the KDC's permission to issue the front end tickets on the user's behalf; the narrower the list of services, the lower the risk.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- **Unconstrained.** The client forwards its TGT to the server, where it sits in LSASS memory. Compromising the server yields the TGT of everyone who connected to it. Credential Guard, on by default on eligible Windows 11 22H2+ and Windows Server 2025, blocks this kind of delegation.
+- **KCD is S4U2Proxy.** The front end presents the user's ticket to itself to the KDC and gets a ticket to the back end. The KDC checks the SPN against the front end's `msDS-AllowedToDelegateTo` list.
+- **RBCD.** The KDC checks the `msDS-AllowedToActOnBehalfOfOtherIdentity` attribute on the back end's account; in PowerShell it's the `PrincipalsAllowedToDelegateToAccount` parameter.
+- Members of Protected Users and accounts flagged "Account is sensitive and cannot be delegated" are never delegated.
+
+**Containers and Linux**
+
+- A Windows container isn't domain-joined: a <T k="gmsa">gMSA</T> gives it a domain identity through a credential spec.
+- A Linux container gets a mounted keytab and `krb5.conf`, with the keytab path in `KRB5_KTNAME`. There's no impersonation there, so the back end is called as the service account or with an OAuth token.
+
+**How to check in production**
+
+1. `setspn -Q` and `setspn -X -F` — every SPN has exactly one owner.
+2. Events 4769 on the DC: the Transited Services field shows delegation, Failure Code shows why it was refused.
+3. The KDC reports a duplicate SPN with event 11 in the System log.
+
+**Takeaway:** delegation is the KDC's trust in the front end; pick the narrowest kind, and expect it to break in the directory more often than in code.
+
+</A>
+
+<Ex>
+
+```csharp
+// NuGet: Microsoft.AspNetCore.Authentication.Negotiate
+using System.Security.Principal;
+using Microsoft.AspNetCore.Authentication.Negotiate;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddAuthentication(NegotiateDefaults.AuthenticationScheme).AddNegotiate();
+builder.Services.AddAuthorization(options => options.FallbackPolicy = options.DefaultPolicy);
+
+var app = builder.Build();
+
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapGet("/report", async (HttpContext context) =>
+{
+    // Windows only: there's no impersonation on Linux
+    var user = (WindowsIdentity)context.User.Identity!;
+
+    // Second hop: the file server sees the user only if the app's account
+    // is allowed to delegate to cifs/files01.contoso.com
+    return await WindowsIdentity.RunImpersonatedAsync(user.AccessToken,
+        () => File.ReadAllTextAsync(@"\\files01.contoso.com\reports\daily.txt"));
+});
+
+app.Run();
+```
+
+Without delegation the file server gets an anonymous logon and denies access, even though the user has rights to the file.
+
+</Ex>
+
+<Ex title="RBCD and diagnostics">
+
+```powershell
+# The front end's SPN has exactly one owner; duplicates across the forest
+setspn -Q HTTP/portal.contoso.com
+setspn -X -F
+
+# RBCD: the file server allows the portal's account (gMSA) to delegate to it
+Set-ADComputer files01 -PrincipalsAllowedToDelegateToAccount (Get-ADServiceAccount gmsa-portal)
+Get-ADComputer files01 -Properties PrincipalsAllowedToDelegateToAccount
+
+# Does the KDC issue a ticket to the file server, and with which encryption
+klist get cifs/files01.contoso.com
+```
+
+</Ex>
+
+<Next>
+
+- Why does everything work on the server itself but not for users? — A browser on the server makes one hop; from a workstation there are two.
+- How does KCD differ from RBCD? — KCD is set on the front end as a list of SPNs, RBCD on the back end, where its owner decides, and it works across domains.
+- What is protocol transition? — S4U2Self: the front end gets a ticket for a user who didn't sign in with Kerberos; convenient and dangerous.
+- Why not just enable unconstrained delegation? — Every user's TGT ends up in the server's memory; compromising the server gives access as them anywhere.
+- How do you avoid delegation altogether? — Call the back end as the app's account and check rights yourself, or pass the user's OAuth token.
+
+</Next>
+
+<Src>
+
+- [Kerberos constrained delegation overview](https://learn.microsoft.com/windows-server/security/kerberos/kerberos-constrained-delegation-overview)
+- [Configure Windows Authentication in ASP.NET Core: Impersonation](https://learn.microsoft.com/aspnet/core/security/authentication/windowsauth#impersonation)
+- [Protected Users security group](https://learn.microsoft.com/windows-server/security/credentials-protection-and-management/protected-users-security-group)
+
+</Src>
+
+</Q>

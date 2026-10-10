@@ -1,0 +1,877 @@
+---
+title: OAuth 2.0 and OpenID Connect
+description: OAuth 2.0 and OpenID Connect roles, flows and PKCE, access, refresh and ID tokens, OIDC sign-in in ASP.NET Core, SPAs and BFF.
+sidebar:
+  order: 2
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+OAuth 2.0 roles and flows, tokens and their lifetime, OpenID Connect sign-in in ASP.NET Core and securing SPAs. Corporate single sign-on is built on these protocols, so interviews check both the theory and hands-on configuration experience.
+
+**Before this topic:** [Web security basics](/sobes/en/security/web-basics/).
+
+<Q id="security.oauth.what-is" level="j">
+
+## What is OAuth 2.0 and how does OpenID Connect differ from it?
+
+<A short l="j">
+
+<T k="oauth2">OAuth 2.0</T> is a delegated access protocol: the user lets an app call an API on their behalf, and the app gets an <T k="access-token">access token</T> instead of the password. <T k="openid-connect">OpenID Connect</T> (OIDC) is a sign-in layer on top of OAuth 2.0: the app also gets an <T k="id-token">ID token</T> that tells it who signed in.
+
+</A>
+
+<A short l="m">
+
+OAuth 2.0 (RFC 6749) answers "what is the app allowed to do": the <T k="authorization-server">authorization server</T> issues the client an access token limited by <T k="oauth-scope">scopes</T>, and the API validates it. OAuth does not define who the user is — OIDC adds that: the `openid` scope, the ID token, the UserInfo endpoint and provider metadata. That is why sign-in is built on OIDC: "signing in" with an access token alone is dangerous, because that token is meant for the API, not the client.
+
+</A>
+
+<A short l="s">
+
+The core of OAuth is separation of roles: only the authorization server sees the password, and the client gets a token limited by scope and lifetime. The API trusts the authorization server's signature, not the client, and to the client the access token is an opaque string. OIDC standardizes authentication on top of OAuth: the ID token is addressed to the client (`aud` equals `client_id`) and carries `sub`, the issuer, the sign-in time and a `nonce` against substitution. The cost is redirects, signing keys and a dependency on the provider; the payoff is one sign-in for every app.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **OAuth 2.0** — a protocol that lets a user grant an app access to their data without giving it the password.
+- **OpenID Connect** — a layer on top of OAuth 2.0 that adds sign-in: the app learns who the user is.
+
+**OAuth roles**
+
+| Role | Example |
+|---|---|
+| Resource owner | the user |
+| Client | a web app, an SPA |
+| Authorization server | Keycloak, Entra ID, ADFS |
+| Resource server | your Web API |
+
+**How to use**
+
+1. The client sends the user to the authorization server.
+2. The user signs in there and agrees to grant access.
+3. The client gets an access token and calls the API with it; with OIDC it also gets an ID token.
+
+**Common mistake**
+
+Treating an access token as proof of sign-in. It is meant for the API; the ID token is what says who signed in.
+
+**Takeaway:** OAuth gives an app access, OIDC tells it who the user is.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- **OAuth 2.0 (RFC 6749)** describes issuing an access token: the `/authorize` and `/token` endpoints, client types and flows (grant types). It defines neither the token format nor a way to identify the user.
+- **The OpenID Connect specifications** add on top:
+  - the `openid` scope — the marker of an OIDC request — plus the standard `profile` and `email`;
+  - the ID token — always a JWT with the `iss`, `sub`, `aud`, `exp` and `iat` fields;
+  - the UserInfo endpoint — the user's profile in exchange for an access token;
+  - the <T k="discovery-document">discovery document</T> `/.well-known/openid-configuration` with endpoint and key URLs.
+
+**When to choose what**
+
+| Task | What you need |
+|---|---|
+| Sign in to an app with a corporate account | OIDC: an ID token and an app session |
+| Call an API on behalf of a user | an access token with the right scope |
+| Call an API on behalf of a service | an access token issued to the service itself |
+
+**Pitfalls**
+
+- **Signing in with an access token.** A token issued to another client will work for yours too. The ID token is protected against this by the `aud` check.
+- **ID token sent to an API.** Putting it in the `Authorization` header is a mistake: its recipient is the client, not the API.
+
+**Rule of thumb**
+
+User authentication — OIDC; API access — an access token with a narrow scope.
+
+**Takeaway:** OIDC is OAuth 2.0 plus the ID token, UserInfo and discovery — standard sign-in on top of standard access.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- The authorization server is the only place where the user types a password or goes through Kerberos. The client only sees the result — tokens.
+- The API trusts the authorization server's signature: it checks the issuer, audience and lifetime of the token. Details are in [JWT and API protection](/sobes/en/security/jwt/).
+- The ID token is addressed to the client: `aud` equals `client_id`, and `nonce` ties the response to a specific sign-in request. The client rejects a foreign or replayed ID token.
+
+**Trade-offs**
+
+- **Delegation versus a password in the app.** Only one server stores the password, and access can be revoked per client. The cost is redirects, signing keys and depending on the provider being available.
+- **Single sign-on (SSO).** The session at the authorization server is shared: sign in to one app and you are signed in to all of them. Sign-out has to be coordinated too: RP-initiated, front-channel and back-channel logout.
+- **Protocol versus product.** OIDC standardizes the exchange, not the permission model: each provider passes roles and groups its own way. ADFS, Entra ID and Keycloak differ in field names and in which extensions they support.
+
+**How to check in production**
+
+- The provider's discovery document lists supported flows, scopes and algorithms: `grant_types_supported`, `scopes_supported`, `id_token_signing_alg_values_supported`.
+- Inspect token contents in Development logs or with a local decoder, without pasting production tokens into third-party sites.
+
+**Takeaway:** OAuth separates issuing access from using it, OIDC standardizes who signed in, and both rest on trust in the authorization server's signature.
+
+</A>
+
+<Ex>
+
+```jsonc
+// A decoded ID token: addressed to the client
+{
+  "iss": "https://login.example.com", // who issued it
+  "sub": "248289761001",              // stable user id at the provider
+  "aud": "orders-web",                // the app's client_id
+  "exp": 1791374400,                  // expiry, Unix time
+  "iat": 1791370800,                  // issued at
+  "nonce": "n-0S6_WzA2Mj",            // ties it to the sign-in request
+  "name": "Olena Kovalenko"
+}
+```
+
+```jsonc
+// An access token from the same sign-in (if the provider issues JWTs): addressed to the API
+{
+  "iss": "https://login.example.com",
+  "sub": "248289761001",
+  "aud": "https://api.example.com/orders", // recipient: the API
+  "client_id": "orders-web",               // issued to
+  "scope": "orders.read",                  // what the client may do
+  "exp": 1791371100
+}
+```
+
+</Ex>
+
+<Next>
+
+- Why is OAuth called an authorization protocol rather than an authentication one? — It grants access to APIs but does not tell the client who the user is; OIDC does that.
+- What happens if you send an ID token to an API? — The API should reject it by `aud`: the token was issued for the client.
+- What is a relying party? — The OIDC term for a client that relies on the provider to sign the user in.
+- Why have a UserInfo endpoint if there is an ID token? — To keep the ID token small: the client fetches extra profile data with the access token.
+- Can ADFS be an OIDC provider? — Yes, since Windows Server 2016; details are in "AD, Kerberos and ADFS".
+
+</Next>
+
+<Src>
+
+- [RFC 6749: The OAuth 2.0 Authorization Framework](https://datatracker.ietf.org/doc/html/rfc6749)
+- [OpenID Connect Core 1.0](https://openid.net/specs/openid-connect-core-1_0.html)
+
+</Src>
+
+</Q>
+
+<Q id="security.oauth.flows" level="m">
+
+## What OAuth flows are there and when do you use each?
+
+<A short l="j">
+
+A flow (grant type) is the scenario a client follows to get a token. When a user signs in, you use <T k="authorization-code-flow">authorization code</T> with <T k="pkce">PKCE</T>; when a service calls a service, <T k="client-credentials">client credentials</T>; implicit and password sign-in are obsolete.
+
+</A>
+
+<A short l="m">
+
+You pick a flow by two questions: is there a user, and can the client keep a secret. A user in a browser gets authorization code with PKCE, where the browser only sees a one-time code; a service gets client credentials; a device without a browser gets <T k="device-code-flow">device code</T>. Implicit puts the token straight into the URL and the password flow shows the password to the client: RFC 9700 discourages the first and forbids the second, and the OAuth 2.1 draft drops both.
+
+</A>
+
+<A short l="s">
+
+Flows differ in which channel carries the token and how the client proves it is the one that started the sign-in. Authorization code only lets a one-time code through the browser, and PKCE binds its redemption to whoever started the flow. RFC 9700 requires PKCE for <T k="public-client">public clients</T> and recommends it for <T k="confidential-client">confidential ones</T>, and treats implicit and the password flow as unsafe: a token in the URL, a password in the client. The cost of doing it right is redirects and exact `redirect_uri` registration; the payoff is that tokens stay out of browser history and proxy logs.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+A flow (grant type) is the scenario a client follows to get a token. The choice depends on two questions: is there a user, and can the client keep a secret.
+
+**Main flows**
+
+| Flow | When |
+|---|---|
+| Authorization code + PKCE | a user signs in: website, SPA, mobile app |
+| Client credentials | a service calls a service, no user |
+| Device code | the device has no browser: a TV, a CLI tool |
+| Refresh token | extend access without signing in again |
+
+**Common mistake**
+
+Picking the password flow (`grant_type=password`) because it is "simpler": the app collects the username and password itself. Then the client sees the password, and MFA and single sign-on stop working. Current guidance forbids this flow.
+
+**Takeaway:** a user means authorization code with PKCE, a service means client credentials.
+
+</A>
+
+<A l="m">
+
+**How it works: authorization code + PKCE**
+
+1. The client generates a random `code_verifier` and computes `code_challenge` — the BASE64URL of its SHA-256.
+2. The browser goes to `/authorize` with `response_type=code`, `client_id`, `redirect_uri`, `scope`, `state` and `code_challenge`.
+3. The user signs in at the authorization server and approves access.
+4. The authorization server sends the browser back to `redirect_uri` with a one-time `code` and the same `state`.
+5. The client checks `state` and POSTs `code` and `code_verifier` to `/token`; a confidential client adds its secret.
+6. The server checks that the hash of `code_verifier` matches `code_challenge` and issues tokens.
+
+**When to choose what**
+
+- **Confidential client** — a server-side web app or service with a secret: authorization code + PKCE for users, client credentials for calls without a user.
+- **Public client** — an SPA, mobile or desktop app: no secret, PKCE is mandatory.
+
+**Pitfalls**
+
+- **Implicit** (`response_type=token`) puts the access token into the URL fragment: it ends up in browser history and can be injected.
+- **Loose `redirect_uri` matching.** Prefix or wildcard matching lets an attacker divert the code to a rogue address. RFC 9700 requires exact string matching.
+
+**Rule of thumb**
+
+Authorization code + PKCE for every client with a user, client credentials for services, device code for devices without a browser. Implicit and password have no place in new code.
+
+**Takeaway:** only a one-time code passes through the browser, and PKCE guarantees that the client redeeming it is the one that started the sign-in.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- PKCE protects against code interception and injection: a stolen `code` is useless without the `code_verifier`, which never left the client. The method is `S256`; `plain` is removed in OAuth 2.1.
+- The front channel (browser redirects) is unreliable: history, extensions and logs all see URLs. So it carries only a short-lived one-time code, while tokens come back in a direct TLS response.
+- Device code (RFC 8628): the device gets a `device_code` and a `user_code`, shows a URL and the code, the user signs in on a phone, and the device polls `/token`.
+- Client credentials issues a token to the client itself, and a refresh token is pointless there: RFC 6749 advises not to issue one.
+
+**Status of the standards**
+
+- RFC 9700 (OAuth 2.0 Security BCP, January 2025): password — MUST NOT, implicit — SHOULD NOT, PKCE required for public clients and recommended for confidential ones.
+- OAuth 2.1 is still an IETF draft as of October 2026. It has no implicit and no password grant, and PKCE is mandatory for everyone except a confidential client that verifies the OIDC `nonce`.
+
+**Trade-offs**
+
+Client credentials does not fit a service that needs the user: the token would be on behalf of the service. Instead, the user's token is exchanged for a new one: token exchange (RFC 8693) or on-behalf-of in Entra ID.
+
+**How to check in production**
+
+- The discovery document should list `grant_types_supported` and `code_challenge_methods_supported` with `S256`; the client's settings at the provider should have implicit and password disabled.
+- Proxy and web server logs must not contain `access_token=` in URLs.
+
+**Takeaway:** choosing a flow means choosing the channel for the token and how the client proves it is the same one; the standards kept authorization code + PKCE, client credentials and device code.
+
+</A>
+
+<Ex title="Authorization code + PKCE over HTTP">
+
+```http
+GET /authorize?response_type=code&client_id=orders-web
+    &redirect_uri=https%3A%2F%2Forders.example.com%2Fsignin-oidc
+    &scope=openid%20profile%20orders.read&state=af0ifjsldkj
+    &code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM
+    &code_challenge_method=S256 HTTP/1.1
+Host: login.example.com
+```
+
+```http
+POST /token HTTP/1.1
+Host: login.example.com
+Authorization: Basic b3JkZXJzLXdlYjpzZWNyZXQ=
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=authorization_code&code=SplxlOBeZQQYbYS6WxSbIA
+&redirect_uri=https%3A%2F%2Forders.example.com%2Fsignin-oidc
+&code_verifier=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk
+```
+
+The query string is wrapped for readability. The first request goes through the browser, the second directly from the app's server; only a confidential client sends the `Authorization: Basic` header.
+
+</Ex>
+
+<Ex title="Generating code_verifier and code_challenge">
+
+```csharp
+using System.Buffers.Text;
+using System.Security.Cryptography;
+using System.Text;
+
+// code_verifier: 32 random bytes → 43 base64url characters
+var verifier = Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(32));
+
+// code_challenge = BASE64URL(SHA256(code_verifier)), method S256
+var challenge = Base64Url.EncodeToString(SHA256.HashData(Encoding.ASCII.GetBytes(verifier)));
+
+Console.WriteLine(verifier.Length);  // 43
+Console.WriteLine(challenge.Length); // 43
+```
+
+</Ex>
+
+<Next>
+
+- Why don't SPAs need implicit any more? — Browsers support CORS, so an SPA can run authorization code + PKCE like any other client.
+- Does PKCE replace the `state` parameter? — It provides sign-in CSRF protection if the authorization server supports PKCE; in OIDC `nonce` plays that role as well.
+- Does a server-side app with a secret need PKCE? — RFC 9700 recommends it: a secret does not stop a code being injected into someone else's session.
+- How does device code work? — The device shows a code and a URL, the user signs in on a phone, and the device polls `/token`.
+- How does a service call an API on behalf of a user? — By exchanging the user's token: token exchange (RFC 8693) or on-behalf-of.
+
+</Next>
+
+<Src>
+
+- [RFC 9700: Best Current Practice for OAuth 2.0 Security](https://datatracker.ietf.org/doc/html/rfc9700)
+- [RFC 7636: Proof Key for Code Exchange (PKCE)](https://datatracker.ietf.org/doc/html/rfc7636)
+- [The OAuth 2.1 Authorization Framework (Internet-Draft)](https://datatracker.ietf.org/doc/draft-ietf-oauth-v2-1/)
+
+</Src>
+
+</Q>
+
+<Q id="security.oauth.tokens" level="m">
+
+## What kinds of tokens are there and how do you manage their lifetime?
+
+<A short l="j">
+
+An access token grants access to an API and lives for minutes, a <T k="refresh-token">refresh token</T> lets the client get a new access token without signing in again, and an ID token only tells the client who signed in. That is why access tokens are kept short and refresh tokens are stored most carefully.
+
+</A>
+
+<A short l="m">
+
+An access token is limited by scopes — what is allowed — and <T k="token-audience">audience</T> — which API it is for; a refresh token is exchanged for a new pair at `/token`, and an ID token is only needed at sign-in. A short-lived access token limits the damage from a leak, and <T k="refresh-token-rotation">refresh token rotation</T> issues a new refresh token on every refresh and detects reuse of the old one. The cost is frequent calls to the authorization server and refresh logic in the client.
+
+</A>
+
+<A short l="s">
+
+Token lifetime is a trade-off between revocation and scale. The API validates a JWT locally by its signature but cannot revoke it before `exp`; an <T k="opaque-token">opaque token</T> can be revoked instantly but needs <T k="token-introspection">introspection</T> at the authorization server. So access tokens are kept short, and the session is managed through the refresh token: rotation with reuse detection, an absolute lifetime and <T k="token-revocation">revocation</T> on sign-out. For public clients RFC 9700 requires rotation or binding the refresh token to the client's key.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+| Token | Addressed to | Purpose |
+|---|---|---|
+| Access | the API | call the API |
+| Refresh | the authorization server | get a new access token |
+| ID (OIDC) | the client | learn who signed in |
+
+**How to use**
+
+- The access token is sent in the `Authorization: Bearer ...` header. It is a <T k="bearer-token">bearer token</T>: whoever holds it can use it.
+- When it expires, the client sends the refresh token to `/token` and gets a new pair.
+- A refresh token is issued for the `offline_access` scope (OIDC) or by client configuration.
+
+**Common mistake**
+
+Issuing access tokens for a whole day "to avoid dealing with refresh". A stolen token then works for a day, and if it is a JWT it cannot be revoked.
+
+**Takeaway:** the access token is short-lived and for the API, the refresh token is long-lived and only for the authorization server, the ID token is for the client at sign-in.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- **Scope** — the client's permissions, not the user's: `orders.read` means "the client may read orders on behalf of the user". Effective access is the intersection of the user's rights and the granted scopes.
+- **Audience** (`aud`) — which API the token is for. The API must reject a token with a different audience, otherwise a token for one service would work against another.
+- **Lifetime** — `expires_in` in the response and `exp` in the token: minutes for an access token, hours or days for a refresh token.
+
+**When to choose what**
+
+| Aspect | JWT | Opaque |
+|---|---|---|
+| Validation | locally, by signature | introspection (RFC 7662) |
+| Revocation | only by expiry | instant |
+| Load on the authorization server | none | every request or cache miss |
+
+JWT structure and validation are covered in [JWT and API protection](/sobes/en/security/jwt/).
+
+**Pitfalls**
+
+- **Concurrent refresh.** Two tabs refresh at the same time with the same refresh token: with rotation the second gets `invalid_grant`. The client serializes refreshes.
+- **Sign-out without revocation.** Deleting the tokens locally is not enough: the refresh token stays valid until it is revoked at the revocation endpoint (RFC 7009).
+
+**Rule of thumb**
+
+A short access token with a precise audience, a rotated refresh token, and revocation on sign-out.
+
+**Takeaway:** scope and audience limit what a token can do and where, while a short lifetime and rotation limit how long it can be abused.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- **Rotation** (RFC 9700): every response to `grant_type=refresh_token` contains a new refresh token, and the old one becomes invalid. If the old one shows up again, the server cannot tell which of the two parties is the attacker, so it revokes the whole chain.
+- **Revocation** (RFC 7009): when a refresh token is revoked, the server should also revoke access tokens from the same grant if it can. A JWT already issued is still accepted by the API until `exp`.
+- **Introspection** (RFC 7662): the response is `{"active": true}` with the scope, client and expiry, or `{"active": false}` for a revoked or expired token.
+- **Sender binding.** A confidential client's refresh token is useless without the client's secret; for public clients, DPoP (RFC 9449) provides the binding.
+
+**Cost**
+
+- Short access tokens mean regular refreshes from every user and load on the authorization server.
+- Introspection adds a network call to API requests, and caching its result delays revocation again.
+
+**Trade-offs**
+
+- The access token lifetime is the window in which revoked access still works.
+- The refresh token lifetime decides how often the user signs in again: absolute, or sliding and extended on use.
+- New user permissions reach the token only on refresh.
+
+**How to check in production**
+
+- A rise in `invalid_grant` on refresh in the authorization server logs means refresh races or detected reuse.
+- Tests check that the API rejects an expired token and a token with a foreign `aud`.
+
+**Takeaway:** a short access token limits the damage, and session management moves to the refresh token with rotation, a lifetime and revocation.
+
+</A>
+
+<Ex title="Refresh with rotation">
+
+```http
+POST /token HTTP/1.1
+Host: login.example.com
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=refresh_token&refresh_token=tGzv3JOkF0XG5Qx2TlKWIA&client_id=orders-spa
+```
+
+```jsonc
+{
+  "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCI6ImF0K2p3dCJ9...",
+  "token_type": "Bearer",
+  "expires_in": 300,                         // 5 minutes
+  "refresh_token": "8xLOxBtZp8RmMKb7wWUcAw", // new: the previous one no longer works
+  "scope": "openid orders.read"
+}
+```
+
+</Ex>
+
+<Ex title="Revocation on sign-out">
+
+```http
+POST /revoke HTTP/1.1
+Host: login.example.com
+Content-Type: application/x-www-form-urlencoded
+
+token=8xLOxBtZp8RmMKb7wWUcAw&token_type_hint=refresh_token&client_id=orders-spa
+```
+
+The `/token`, `/revoke` and `/introspect` URLs differ between providers: take them from the discovery document.
+
+</Ex>
+
+<Next>
+
+- Why is a refresh token never sent to the API? — It is addressed only to the authorization server; leaking it through an API would give long-lived access.
+- How do you revoke a JWT access token? — You can't before `exp`: shorten its lifetime, check a denylist of `jti` values, or switch to opaque tokens.
+- What is the `offline_access` scope? — The OIDC request for a refresh token, so access can be renewed without the user present.
+- How does a scope differ from a role? — A scope is what the client may do on behalf of the user; a role is what the user may do.
+- What happens when an old refresh token is reused? — With rotation and reuse detection, the server revokes the whole chain.
+
+</Next>
+
+<Src>
+
+- [RFC 9700, section 4.14: Refresh Token Protection](https://datatracker.ietf.org/doc/html/rfc9700#section-4.14)
+- [RFC 7009: OAuth 2.0 Token Revocation](https://datatracker.ietf.org/doc/html/rfc7009)
+- [RFC 7662: OAuth 2.0 Token Introspection](https://datatracker.ietf.org/doc/html/rfc7662)
+
+</Src>
+
+</Q>
+
+<Q id="security.oauth.aspnet-oidc" level="m">
+
+## How do you add OpenID Connect sign-in to ASP.NET Core?
+
+<A short l="j">
+
+OIDC sign-in is built from two <T k="authentication-scheme">authentication schemes</T>: the OIDC scheme takes the user to the provider and processes the response, and the cookie scheme keeps the session. You configure `Authority`, `ClientId`, the secret and `ResponseType = "code"`, and the handler reads endpoint URLs and keys from the discovery document itself.
+
+</A>
+
+<A short l="m">
+
+`AddOpenIdConnect` is a remote handler: on <T k="auth-challenge">challenge</T> it sends the browser to `/authorize`, and on the `/signin-oidc` callback it exchanges the code for tokens, validates the ID token and signs in with the cookie scheme. PKCE is on by default but only for `ResponseType = code`, and the default there is `id_token`; since .NET 9 <T k="pushed-authorization-request">PAR</T> kicks in automatically if the provider supports it. The decisions are yours: whether to store tokens in the cookie (`SaveTokens`), whether to rename <T k="claim">claims</T> (`MapInboundClaims`), and who refreshes the access token — the handler does not.
+
+</A>
+
+<A short l="s">
+
+The OIDC handler keeps sign-in state — the return URL and `code_verifier` — in the `state` parameter encrypted with <T k="data-protection">Data Protection</T>, while correlation and nonce cookies bind the callback to the browser. So a server farm needs shared Data Protection keys, otherwise a callback that lands on another node fails. The session lives in the cookie, not in the token: you configure its lifetime, access token refresh and sign-out at the provider. The cost of `SaveTokens` is a big cookie on every request; `SessionStore` moves it to the server.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+OIDC sign-in in ASP.NET Core is two authentication schemes working together:
+
+- **OpenID Connect** (the `Microsoft.AspNetCore.Authentication.OpenIdConnect` package) takes the user to the provider and processes the response;
+- **Cookie** remembers the sign-in between requests.
+
+**How to use**
+
+1. Register the app with the provider: `client_id`, secret, redirect URI `https://your-site/signin-oidc`.
+2. In `Program.cs`, call `AddAuthentication` with cookie as the default scheme and OIDC as the challenge scheme, then `AddCookie()` and `AddOpenIdConnect(...)`.
+3. In `AddOpenIdConnect`, set `Authority`, `ClientId`, `ClientSecret` and `ResponseType = "code"`.
+4. Protect endpoints with `RequireAuthorization()` or `[Authorize]`.
+
+**Common mistake**
+
+Keeping `ClientSecret` in `appsettings.json` in the repository. In development the secret goes to user secrets, in production to a secret store.
+
+**Takeaway:** the OIDC scheme performs sign-in, the cookie scheme remembers it.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+1. An anonymous request to a protected endpoint triggers the OIDC scheme's challenge.
+2. The handler reads and caches the provider's discovery document and redirects to `/authorize` with `state`, `nonce` and PKCE.
+3. The browser comes back with the code as a POST to `/signin-oidc`: `response_mode=form_post` is the default.
+4. The handler exchanges the code for tokens and validates the ID token's signature, `iss`, `aud`, lifetime and `nonce`.
+5. The cookie scheme issues a cookie, and the browser returns to the original URL.
+
+**Default settings**
+
+| Setting | Default | When to change |
+|---|---|---|
+| `ResponseType` | `id_token` | always, to `code` |
+| `UsePkce` | `true` | leave it |
+| `SaveTokens` | `false` | you need the access token for an API |
+| `MapInboundClaims` | `true` | you want the original claim names |
+| `GetClaimsFromUserInfoEndpoint` | `false` | the ID token carries too little data |
+
+**Pitfalls**
+
+- **Claim renaming.** With `MapInboundClaims = true`, the `sub` claim becomes `http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier`, and `FindFirst("sub")` returns `null`. With `false`, set `NameClaimType` and `RoleClaimType`.
+- **No token refresh.** The handler does not refresh the access token: your code or a library does that with the refresh token.
+- **Reverse proxy.** Without <T k="forwarded-headers">forwarded headers</T>, the redirect URI is built with `http`, and the provider rejects it.
+
+**Rule of thumb**
+
+`ResponseType = code`, the secret outside the repository, `MapInboundClaims = false` with explicit `NameClaimType` and `RoleClaimType`.
+
+**Takeaway:** the OIDC handler performs sign-in and validates the ID token; the session, token storage and refresh are yours to configure.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- `state` is the encrypted `AuthenticationProperties`: the return URL and `code_verifier` travel to the provider and back. A correlation cookie checks that the callback arrived in the same browser.
+- The correlation and nonce cookies are set with `SameSite=None; Secure`: the callback arrives as a cross-site POST, and with `Lax` the browser would not send them.
+- Signing keys come from `jwks_uri`; on an unknown `kid` the handler re-reads the metadata (`RefreshOnIssuerKeyNotFound`).
+- PAR (.NET 9+, `PushedAuthorizationBehavior.UseIfAvailable`): parameters go in a direct POST, and the browser only gets a `request_uri`. Entra ID does not support PAR.
+
+**Cost**
+
+`SaveTokens = true` puts tokens into the cookie: a few kilobytes that get split into chunks and travel with every request. `SessionStore` (`ITicketStore`) moves the session into a cache, leaving only a key in the cookie.
+
+**Trade-offs**
+
+- The session lifetime is set by the cookie (`ExpireTimeSpan`), not by the ID token.
+- Access token refresh is written in the cookie scheme's `OnValidatePrincipal`, or taken from a library such as Duende.AccessTokenManagement.
+- For Entra ID, Microsoft recommends `Microsoft.Identity.Web`; ADFS works with the standard handler — more in "AD, Kerberos and ADFS".
+
+**How to check in production**
+
+- `Correlation failed` — the correlation cookie was lost: SameSite, or HTTP behind a proxy.
+- `Unable to unprotect the message.State` — the callback landed on a node with different Data Protection keys.
+- `IdentityModelEventSource.ShowPII = true` — Development only; otherwise validation error details are hidden.
+
+**Takeaway:** the OIDC handler is a state machine on top of cookies; sign-in reliability comes down to Data Protection keys, SameSite, the proxy and session size.
+
+</A>
+
+<Ex>
+
+```csharp
+// NuGet: Microsoft.AspNetCore.Authentication.OpenIdConnect
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.IdentityModel.Protocols.OpenIdConnect;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddAuthentication(options =>
+    {
+        options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;    // session
+        options.DefaultChallengeScheme = OpenIdConnectDefaults.AuthenticationScheme; // sign-in
+    })
+    .AddCookie()
+    .AddOpenIdConnect(options =>
+    {
+        options.Authority = "https://login.example.com"; // the discovery document comes from here
+        options.ClientId = "orders-web";
+        options.ClientSecret = builder.Configuration["Oidc:ClientSecret"];
+        options.ResponseType = OpenIdConnectResponseType.Code; // the default is id_token
+        options.Scope.Add("orders.read");                       // openid and profile are already there
+        options.SaveTokens = true;                              // tokens go into the session cookie
+        options.MapInboundClaims = false;                       // sub stays sub
+        options.TokenValidationParameters.NameClaimType = "name";
+    });
+builder.Services.AddAuthorization();
+
+var app = builder.Build();
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapGet("/", async (HttpContext ctx) => new
+{
+    name = ctx.User.Identity?.Name,
+    sub = ctx.User.FindFirst("sub")?.Value,
+    hasAccessToken = await ctx.GetTokenAsync("access_token") is not null
+}).RequireAuthorization(); // an anonymous user is sent to the provider
+
+// Sign out of both schemes: delete the cookie and end the session at the provider
+app.MapGet("/logout", () => Results.SignOut(null,
+    [CookieAuthenticationDefaults.AuthenticationScheme, OpenIdConnectDefaults.AuthenticationScheme]));
+
+app.Run();
+```
+
+</Ex>
+
+<Next>
+
+- Why two schemes if sign-in uses OIDC? — The OIDC scheme only performs sign-in; remembering the user between requests is the cookie's job.
+- Is PKCE on by default? — Yes, `UsePkce = true`, but it only works with `ResponseType = code`.
+- Why does `User.FindFirst("sub")` return `null`? — `MapInboundClaims` renamed `sub` to `ClaimTypes.NameIdentifier`.
+- Where do you get the access token to call an API? — `SaveTokens = true` and `HttpContext.GetTokenAsync("access_token")`.
+- Why does sign-in break behind a load balancer? — Missing forwarded headers, or no shared Data Protection keys between nodes.
+
+</Next>
+
+<Src>
+
+- [Configure OpenID Connect Web (UI) authentication in ASP.NET Core](https://learn.microsoft.com/aspnet/core/security/authentication/configure-oidc-web-authentication)
+- [OpenIdConnectOptions Class](https://learn.microsoft.com/dotnet/api/microsoft.aspnetcore.authentication.openidconnect.openidconnectoptions)
+- [Mapping, customizing, and transforming claims in ASP.NET Core](https://learn.microsoft.com/aspnet/core/security/authentication/claims)
+
+</Src>
+
+</Q>
+
+<Q id="security.oauth.spa-bff" level="s">
+
+## How do you secure an SPA: tokens in the browser or a BFF?
+
+<A short l="j">
+
+An SPA can get tokens itself, using authorization code with PKCE in the browser, or hand sign-in to a server following the <T k="bff">BFF</T> pattern — then the browser only holds a cookie. Any script can steal a token from `localStorage` during an <T k="xss">XSS</T> attack, which is why BFF is recommended for business apps.
+
+</A>
+
+<A short l="m">
+
+A BFF is the SPA's server side on the same site: it signs in via OIDC as a confidential client, keeps the tokens and gives the browser an HttpOnly cookie with <T k="samesite-cookie">SameSite</T>. A client that lives entirely in the browser, for example with angular-oauth2-oidc, is easier to deploy, but its tokens are reachable from JavaScript, and <T k="silent-renew">silent renew</T> through an iframe breaks wherever <T k="third-party-cookies">third-party cookies</T> are blocked. The cost of a BFF is your own server with an API proxy and <T k="csrf">CSRF</T> protection, since authentication is cookie-based again.
+
+</A>
+
+<A short l="s">
+
+RFC 10017 (2026) ranks three SPA architectures — BFF, token-mediating backend and a client entirely in the browser — and recommends BFF for business apps that handle personal data. Storage location is not what decides it: with XSS, a script can run a silent sign-in in a hidden iframe and get fresh tokens, and <T k="dpop">DPoP</T> does not stop that. A BFF does not remove XSS but limits the damage: the attacker can act only from the open tab and cannot walk away with a refresh token. The cost is a server in the path of every request, CSRF protection and session scaling.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+An SPA has no safe place for a secret: all of its code and data are available in the browser. There are two approaches:
+
+- **Tokens in the browser.** The SPA runs authorization code + PKCE itself, for example with angular-oauth2-oidc, and sends the access token to the API.
+- **BFF (Backend for Frontend).** The app's server performs sign-in, the tokens stay on the server, and the browser only gets a cookie.
+
+**Why**
+
+If a foreign script gets onto the page (XSS), it reads the token from `localStorage` and sends it to the attacker. A script cannot read an HttpOnly cookie.
+
+**Common mistake**
+
+Thinking that `sessionStorage` instead of `localStorage` solves the problem. A script on the page can read both.
+
+**Takeaway:** the fewer tokens the browser sees, the less XSS can steal, and a BFF never gives them to the browser at all.
+
+</A>
+
+<A l="m">
+
+**How it works: BFF**
+
+1. The SPA and the BFF live on the same site, for example `app.example.com` and `app.example.com/bff`.
+2. Sign-in is a normal server-side OIDC sign-in: the BFF is a confidential client with a secret.
+3. The BFF issues a session cookie: `HttpOnly`, `Secure`, `SameSite` and the `__Host-` prefix.
+4. The SPA calls `/bff/...` with the cookie, and the BFF takes the access token from the session, refreshes it when needed and proxies the request to the API.
+
+**When to choose what**
+
+| Criterion | Tokens in the browser | BFF |
+|---|---|---|
+| Token theft via XSS | possible | no tokens in the browser |
+| Infrastructure | static files only | a server and an API proxy |
+| CSRF | does not apply to bearer tokens | needs protection |
+
+**Pitfalls**
+
+- **Silent renew through an iframe** relies on the provider's cookie in a third-party context. Safari blocks third-party cookies and Firefox partitions them per site, so without a BFF you refresh with a refresh token. angular-oauth2-oidc does that in code flow, and the iframe is enabled with `useSilentRefresh: true`.
+- **A refresh token in the browser** is the most valuable loot. RFC 9700 requires rotation or key binding for public clients.
+- **CSRF in a BFF.** The browser attaches the cookie automatically, so BFF endpoints require a custom header such as `X-CSRF: 1`: another site cannot send it without CORS permission.
+
+**Rule of thumb**
+
+A business app with personal data — BFF. Tokens in the browser — when there is no server and the risk is acceptable: PKCE, short tokens, refresh token rotation.
+
+**Takeaway:** a BFF trades token theft via XSS for CSRF protection, which is easier to solve.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- RFC 10017 describes an attack that no storage choice can stop. An injected script opens a hidden iframe with `/authorize?prompt=none`, reads the code from a frame on its own origin and exchanges it for fresh tokens.
+- DPoP (RFC 9449) binds a token to the client's key: every request carries a signed proof of possession. A non-extractable WebCrypto key prevents carrying the token away, but a script on the page can sign requests itself or run a new sign-in with its own key.
+- A token-mediating backend gets tokens on the server but hands the access token to the browser: the refresh token does not leak, the access token can.
+
+**Cost**
+
+- A BFF sits in the path of every API call: proxy latency, its own availability and scaling.
+- A session holding tokens bloats the cookie, and `SessionStore` needs a cache shared between nodes.
+
+**Trade-offs**
+
+- Cookies bring back CSRF, which bearer tokens were immune to: you need SameSite and a custom header.
+- RFC 10017 recommends `SameSite=Strict`, but after OIDC's cross-site callback the first request may arrive without the cookie. ASP.NET Core apps usually keep `Lax`.
+- Ready-made options: Duende BFF, YARP with token injection, Microsoft's sample for a Blazor Web App with OIDC.
+
+**How to explain the decision to the team**
+
+- Walk through the threat model: what an attacker gets via XSS in each option.
+- If ASP.NET Core already serves the SPA, a BFF costs a few endpoints and a proxy.
+
+**Takeaway:** XSS in an SPA is not fixed by choosing storage; a BFF keeps tokens out of the browser and narrows the damage to the open tab.
+
+</A>
+
+<Ex title="A BFF in ASP.NET Core">
+
+```csharp
+// NuGet: Microsoft.AspNetCore.Authentication.OpenIdConnect
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.IdentityModel.Protocols.OpenIdConnect;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddAuthentication(options =>
+    {
+        options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+        options.DefaultChallengeScheme = OpenIdConnectDefaults.AuthenticationScheme;
+    })
+    .AddCookie(options =>
+    {
+        options.Cookie.Name = "__Host-orders";                   // Secure, Path=/, no Domain
+        options.Cookie.SecurePolicy = CookieSecurePolicy.Always; // HttpOnly is on by default
+        options.Cookie.SameSite = SameSiteMode.Lax;              // Strict breaks the return after sign-in
+    })
+    .AddOpenIdConnect(options =>
+    {
+        options.Authority = "https://login.example.com";
+        options.ClientId = "orders-bff";                         // a confidential client
+        options.ClientSecret = builder.Configuration["Oidc:ClientSecret"];
+        options.ResponseType = OpenIdConnectResponseType.Code;
+        options.SaveTokens = true; // tokens live in the encrypted cookie, JavaScript cannot see them
+    });
+builder.Services.AddAuthorization();
+builder.Services.AddHttpClient("api", c => c.BaseAddress = new Uri("https://api.example.com"));
+
+var app = builder.Build();
+
+// The SPA calls /bff/orders with the cookie; the BFF adds the token and calls the API
+app.MapGet("/bff/orders", async (HttpContext ctx, IHttpClientFactory http) =>
+{
+    if (ctx.Request.Headers["X-CSRF"] != "1") return Results.BadRequest(); // CSRF protection
+
+    using var request = new HttpRequestMessage(HttpMethod.Get, "/orders");
+    request.Headers.Authorization = new("Bearer", await ctx.GetTokenAsync("access_token"));
+    using var response = await http.CreateClient("api").SendAsync(request);
+    return Results.Text(await response.Content.ReadAsStringAsync(), "application/json",
+        statusCode: (int)response.StatusCode);
+}).RequireAuthorization();
+
+app.Run();
+```
+
+</Ex>
+
+<Ex title="Tokens in the browser: angular-oauth2-oidc">
+
+```ts
+import { AuthConfig, OAuthService } from 'angular-oauth2-oidc';
+
+export const authConfig: AuthConfig = {
+  issuer: 'https://login.example.com',
+  clientId: 'orders-spa',                             // a public client: no secret
+  redirectUri: window.location.origin + '/index.html',
+  responseType: 'code',                               // authorization code + PKCE
+  scope: 'openid profile orders.read offline_access', // offline_access asks for a refresh token
+};
+
+export async function initAuth(oauth: OAuthService) {
+  oauth.configure(authConfig);
+  await oauth.loadDiscoveryDocumentAndLogin();
+  oauth.setupAutomaticSilentRefresh(); // refreshes the token at 75% of its lifetime
+}
+```
+
+Here the tokens sit in `sessionStorage`, the library's default storage.
+
+</Ex>
+
+<Next>
+
+- Does an HttpOnly cookie protect against XSS? — Against session theft, yes; against actions taken by a script in the open tab, no.
+- Why did silent renew stop working in Safari? — The provider's iframe is a third-party context, and Safari blocks third-party cookies.
+- How does a BFF differ from a token-mediating backend? — In the latter the access token still reaches the browser.
+- How does a BFF defend against CSRF? — A SameSite cookie plus a mandatory custom header that another site cannot send without CORS.
+- What does DPoP give an SPA? — A stolen token is useless without the key, but a script on the page can use the key itself.
+
+</Next>
+
+<Src>
+
+- [RFC 10017: OAuth 2.0 for Browser-Based Applications](https://datatracker.ietf.org/doc/html/rfc10017)
+- [Secure an ASP.NET Core Blazor Web App with OpenID Connect (OIDC)](https://learn.microsoft.com/aspnet/core/blazor/security/blazor-web-app-with-oidc)
+- [angular-oauth2-oidc: Refreshing a Token](https://manfredsteyer.github.io/angular-oauth2-oidc/docs/additional-documentation/refreshing-a-token.html)
+
+</Src>
+
+</Q>

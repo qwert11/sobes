@@ -1,0 +1,170 @@
+rbac:
+  term: RBAC (ролевая модель доступа)
+  def: >-
+    Role-based access control: права собирают в роли, а пользователям назначают роли. Модель NIST
+    закреплена стандартом ANSI INCITS 359 и, кроме базового уровня, описывает иерархии ролей и
+    разделение обязанностей.
+  q: role-based access control NIST
+  docs: https://csrc.nist.gov/projects/role-based-access-control
+  wiki: Управление доступом на основе ролей
+default-policy:
+  term: Политика по умолчанию (default policy)
+  def: >-
+    Политика, которую ASP.NET Core применяет к `[Authorize]` и `RequireAuthorization()` без имени
+    политики. По умолчанию требует только аутентифицированного пользователя, меняется через
+    `SetDefaultPolicy`.
+  q: ASP.NET Core authorization default policy
+  docs: https://learn.microsoft.com/aspnet/core/security/authorization/policies#default-and-fallback-policies
+fallback-policy:
+  term: Fallback policy (резервная политика)
+  def: >-
+    Политика для эндпоинтов без метаданных авторизации. По умолчанию её нет, и такие эндпоинты открыты;
+    `SetFallbackPolicy` с `RequireAuthenticatedUser` закрывает всё, что не помечено явно.
+  q: ASP.NET Core fallback authorization policy
+  docs: https://learn.microsoft.com/aspnet/core/security/authorization/policies#require-global-user-authentication
+claim:
+  term: Claim (утверждение о субъекте)
+  def: >-
+    Пара «тип — значение» о пользователе или сервисе, выданная доверенным издателем: имя, email, отдел,
+    роль. Описывает, кто субъект, а не что ему можно; в .NET это класс `Claim`.
+  q: claims-based identity .NET
+  docs: https://learn.microsoft.com/dotnet/api/system.security.claims.claim
+claims-principal:
+  term: ClaimsPrincipal
+  def: >-
+    Пользователь в .NET: одна или несколько `ClaimsIdentity`. В ASP.NET Core это `HttpContext.User`;
+    методы `IsInRole`, `HasClaim` и `FindFirst` ищут по claims всех его identity.
+  q: ClaimsPrincipal .NET
+  docs: https://learn.microsoft.com/dotnet/api/system.security.claims.claimsprincipal
+claims-identity:
+  term: ClaimsIdentity
+  def: >-
+    Набор claims, полученных одним способом аутентификации. Хранит `AuthenticationType` (без него
+    identity не считается аутентифицированной), а также `NameClaimType` и `RoleClaimType`.
+  q: ClaimsIdentity .NET
+  docs: https://learn.microsoft.com/dotnet/api/system.security.claims.claimsidentity
+claims-transformation:
+  term: Трансформация claims (IClaimsTransformation)
+  def: >-
+    Интерфейс ASP.NET Core: его `TransformAsync` вызывается после успешной аутентификации и может
+    дополнить principal данными приложения. Срабатывает на каждом запросе, иногда несколько раз, поэтому
+    должен быть идемпотентным.
+  q: IClaimsTransformation ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/security/authentication/claims#extend-or-add-custom-claims-using-iclaimstransformation
+authorization-policy:
+  term: Политика авторизации (authorization policy)
+  def: >-
+    Именованный набор требований (requirements) в ASP.NET Core. Регистрируется через
+    `AddAuthorizationBuilder().AddPolicy`, применяется атрибутом `[Authorize(Policy = "...")]` или
+    `RequireAuthorization` и выполнена, когда выполнены все её требования.
+  q: ASP.NET Core policy-based authorization
+  docs: https://learn.microsoft.com/aspnet/core/security/authorization/policies
+authorization-requirement:
+  term: Требование авторизации (authorization requirement)
+  def: >-
+    Класс с маркерным интерфейсом `IAuthorizationRequirement`: описывает правило и его параметры,
+    например нужное право или минимальный возраст. Саму проверку выполняют handlers.
+  q: IAuthorizationRequirement ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/security/authorization/policies#requirements-and-policy-registration
+authorization-handler:
+  term: Обработчик авторизации (authorization handler)
+  def: >-
+    Реализация `IAuthorizationHandler`, обычно наследник `AuthorizationHandler<TRequirement>`: проверяет
+    requirement и вызывает `context.Succeed` или `context.Fail`. Регистрируется в DI; у одного
+    requirement может быть несколько handlers.
+  q: AuthorizationHandler ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/security/authorization/policies#authorization-handlers
+resource-based-authorization:
+  term: Авторизация по ресурсу (resource-based authorization)
+  def: >-
+    Проверка доступа к конкретному объекту — документу, заявке — после его загрузки. В ASP.NET Core
+    выполняется в коде вызовом `IAuthorizationService.AuthorizeAsync(user, resource, policy)`.
+  q: ASP.NET Core resource-based authorization
+  docs: https://learn.microsoft.com/aspnet/core/security/authorization/resource-based
+role-explosion:
+  term: Взрыв ролей (role explosion)
+  def: >-
+    Неконтролируемый рост числа ролей, когда под каждое сочетание должности, отдела, региона или проекта
+    заводят свою роль. Признак того, что параметр пора вынести в атрибут (ABAC) или отношение (ReBAC).
+  q: role explosion RBAC
+abac:
+  term: ABAC (доступ на основе атрибутов)
+  def: >-
+    Attribute-based access control: решение принимает правило над атрибутами субъекта, объекта, операции
+    и окружения — отдел, гриф, время, сеть. Модель описана в NIST SP 800-162.
+  q: attribute-based access control
+  docs: https://csrc.nist.gov/pubs/sp/800/162/upd2/final
+rebac:
+  term: ReBAC (доступ на основе отношений)
+  def: >-
+    Relationship-based access control: права выводятся из графа отношений между пользователями и
+    объектами — «владелец», «участник группы», «папка содержит документ». Так устроены Google Zanzibar,
+    OpenFGA и SpiceDB.
+  q: relationship-based access control
+  docs: https://openfga.dev/docs/authorization-concepts
+zanzibar:
+  term: Google Zanzibar
+  def: >-
+    Глобальная система авторизации Google, описанная в статье на USENIX ATC 2019. Хранит отношения
+    кортежами «объект#отношение@пользователь», обслуживает Drive, YouTube, Cloud и другие сервисы и стала
+    образцом для OpenFGA и SpiceDB.
+  q: Zanzibar Google consistent global authorization system
+  docs: https://www.usenix.org/conference/atc19/presentation/pang
+policy-decision-point:
+  term: PDP и PEP (точки принятия и применения решений)
+  def: >-
+    Policy decision point вычисляет решение «разрешить или запретить», policy enforcement point
+    перехватывает запрос и применяет это решение. Разделение описано в NIST SP 800-162; внешним PDP
+    служат, например, OPA и OpenFGA.
+  q: policy decision point policy enforcement point
+  docs: https://csrc.nist.gov/pubs/sp/800/162/upd2/final
+row-level-security:
+  term: Row-level security (RLS)
+  def: >-
+    Механизм СУБД, который фильтрует строки таблицы по политике для текущего пользователя или контекста
+    сессии: `CREATE POLICY` в PostgreSQL, `CREATE SECURITY POLICY` в SQL Server.
+  q: row-level security
+  docs: https://www.postgresql.org/docs/current/ddl-rowsecurity.html
+least-privilege:
+  term: Принцип наименьших привилегий (least privilege)
+  def: >-
+    Пользователь или процесс получает только те права, которые нужны для его задачи, и только на нужное
+    время. В NIST SP 800-53 это контроль AC-6.
+  q: principle of least privilege
+  docs: https://csrc.nist.gov/glossary/term/least_privilege
+  wiki: Принцип минимальных привилегий
+privilege-creep:
+  term: Накопление прав (privilege creep)
+  def: >-
+    Постепенный рост прав сотрудника: при переводах и новых проектах права выдают, а старые не
+    забирают. Лечится пересмотром доступа и отзывом прав при смене должности.
+  q: privilege creep
+separation-of-duties:
+  term: Разделение обязанностей (separation of duties, SoD)
+  def: >-
+    Правило, по которому критичную операцию не выполняет целиком один человек: кто создаёт платёж, тот
+    его не утверждает. В RBAC — запрет конфликтных ролей у одного пользователя (статический) или в одной
+    сессии (динамический).
+  q: separation of duties access control
+  docs: https://csrc.nist.gov/glossary/term/separation_of_duty
+access-review:
+  term: Пересмотр доступа (access review)
+  def: >-
+    Регулярная проверка выданных прав: руководитель или владелец ресурса подтверждает, что права ещё
+    нужны, или отзывает их. Другие названия — recertification, attestation.
+  q: user access review recertification
+  docs: https://learn.microsoft.com/entra/id-governance/access-reviews-overview
+just-in-time-access:
+  term: Временный доступ (just-in-time access)
+  def: >-
+    Права, которые действуют ограниченное время: выдаются с датой окончания или активируются по запросу
+    на несколько часов. Пример — Microsoft Entra Privileged Identity Management.
+  q: just-in-time privileged access
+  docs: https://learn.microsoft.com/entra/id-governance/privileged-identity-management/pim-configure
+provisioning:
+  term: Провижининг (provisioning)
+  def: >-
+    Автоматическое создание учётных записей и выдача прав в целевых системах — AD, SaaS, внутренних
+    приложениях — и обратный процесс, отзыв. Стандартный протокол для этого — SCIM (RFC 7643, RFC 7644).
+  q: user provisioning SCIM
+  docs: https://datatracker.ietf.org/doc/html/rfc7644

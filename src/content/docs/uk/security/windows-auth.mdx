@@ -1,0 +1,887 @@
+---
+title: AD, Kerberos і ADFS
+description: NTLM, Kerberos і Negotiate, квитки та SPN, Windows-автентифікація в ASP.NET Core, ADFS і федерація, групи AD в авторизації, double hop і делегування Kerberos.
+sidebar:
+  order: 4
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+Як влаштований корпоративний вхід у Windows-мережі: чим Kerberos відрізняється від NTLM, як ASP.NET Core дізнається про користувача та його групи AD, що робить ADFS і чому виклик від імені користувача ламається на другому сервері. Ці питання ставлять скрізь, де застосунки живуть у внутрішній мережі з Active Directory.
+
+**Перед цією темою:** [OAuth 2.0 і OpenID Connect](/sobes/uk/security/oauth-oidc/).
+
+<Q id="security.win.ntlm-kerberos" level="j">
+
+## Що таке Windows-автентифікація: чим NTLM відрізняється від Kerberos і що таке Negotiate?
+
+<A short l="j">
+
+<T k="windows-authentication">Windows-автентифікація</T> — вхід у вебзастосунок під доменним обліковим записом без введення пароля: браузер сам доводить серверу, хто користувач. Доводить він через <T k="ntlm">NTLM</T> (відповідь на виклик сервера) або <T k="kerberos">Kerberos</T> (квиток від контролера домену), а схема <T k="negotiate">Negotiate</T> обирає Kerberos і в разі невдачі відкочується на NTLM.
+
+</A>
+
+<A short l="m">
+
+Обидва протоколи доводять знання пароля, не передаючи його. У NTLM сервер перевіряє відповідь клієнта через контролер домену під час кожного входу, а в Kerberos сервер сам перевіряє квиток і доводить клієнту свою справжність. Ціна Kerberos — інфраструктура: DNS-імена, зареєстровані імена служб і синхронний час, інакше Negotiate мовчки відкочується на NTLM.
+
+</A>
+
+<A short l="s">
+
+У HTTP Windows-автентифікація — це обмін SPNEGO-токенами в заголовках `WWW-Authenticate: Negotiate` і `Authorization`, усередині яких їде Kerberos або NTLM. NTLM не перевіряє сервер, не вміє делегування й вразливий до relay і pass-the-hash. Microsoft оголосила його deprecated у 2024 році й планує вимкнути мережевий NTLM за замовчуванням у наступній версії Windows Server. Тому завдання сеньйора — знайти кожен відкат на NTLM і усунути причину, а це робота з інфраструктурою: імена служб (SPN), DNS, зони браузера, клієнти поза доменом.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+Windows-автентифікація — браузер входить у застосунок під тим обліковим записом, з яким користувач увійшов у Windows. Облікові записи зберігає <T k="active-directory">Active Directory</T> (AD), а паролі перевіряє контролер домену (DC).
+
+**Чим відрізняються протоколи**
+
+| Ознака | NTLM | Kerberos |
+|---|---|---|
+| Як доводить | відповідає на виклик сервера | пред'являє квиток від DC |
+| Хто перевіряє | DC під час кожного входу | сервер сам |
+| Перевірка сервера | немає | є |
+
+**Що таке Negotiate**
+
+Схема HTTP, яка пробує Kerberos, а в разі невдачі бере NTLM. Сервер відповідає `401` із заголовком `WWW-Authenticate: Negotiate`, браузер повторює запит із токеном в `Authorization`.
+
+**Типова помилка**
+
+Відкривати сайт за IP-адресою. Kerberos потребує DNS-імені, тому вхід мовчки піде через NTLM.
+
+**Підсумок:** Negotiate обирає Kerberos, а NTLM — запасний варіант, що застаріває.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+NTLM — три повідомлення у двох колах `401`:
+
+1. Клієнт повідомляє, що хоче NTLM.
+2. Сервер надсилає виклик — випадкове число.
+3. Клієнт повертає виклик, оброблений ключем із хешу пароля. Сервер пароля не знає й пересилає відповідь на DC.
+
+У Kerberos клієнт заздалегідь отримав у DC квиток до цієї служби. Квиток зашифрований ключем служби, тому сервер перевіряє його сам, без DC.
+
+**Коли що спрацює**
+
+| Ситуація | Протокол |
+|---|---|
+| Доменний клієнт, DNS-ім'я служби зареєстроване в AD | Kerberos |
+| IP-адреса, ім'я не зареєстроване, клієнт поза доменом | NTLM |
+| Потрібен виклик далі від імені користувача | лише Kerberos |
+
+**Пастки**
+
+- **Тихий відкат.** Negotiate не повідомляє, що Kerberos не вдався. Протокол видно з токена в `Authorization: Negotiate`: NTLM у base64 починається з `TlRMTVNTUA`, Kerberos — зазвичай з `YII`.
+- **Прив'язка до з'єднання.** Вхід живе на TCP-з'єднанні. Проксі без закріплення з'єднань ламає автентифікацію.
+- **HTTP/2.** Windows-автентифікація поверх HTTP/2 не працює: для рукостискання клієнт переходить на HTTP/1.1.
+
+**Правило**
+
+Мета — Kerberos для всіх доменних клієнтів, а кожен вхід через NTLM — привід шукати причину.
+
+**Підсумок:** NTLM перевіряє відповідь на виклик через DC, Kerberos — квиток без DC; Negotiate бере найкращий із доступних.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- Negotiate — механізм SPNEGO (RFC 4178), перенесений у HTTP (RFC 4559).
+- Відповідь NTLMv2 — HMAC-MD5 на ключі з NT-хешу пароля. Хеш рівноцінний паролю: його крадіжка дає pass-the-hash.
+- NTLM не перевіряє сервер, тому відповідь можна переслати на інший сервер (NTLM relay). Захист для HTTPS — Extended Protection: прив'язка входу до TLS-каналу.
+
+**Ціна**
+
+- Кожен вхід NTLM — запит сервера до DC через Netlogon. На тисячах користувачів це помітне навантаження на DC.
+- NTLM — два кола `401` проти одного в Kerberos.
+
+**Статус NTLM (жовтень 2026)**
+
+1. Червень 2024 — усі версії NTLM оголошено deprecated.
+2. Windows 11 24H2 і Windows Server 2025 — NTLMv1 видалено.
+3. Січень 2026 — план Microsoft із трьох фаз:
+   - аудит NTLM, уже доступний;
+   - у другій половині 2026 року — IAKerb і локальний центр видачі квитків Kerberos для сценаріїв, які зараз відкочуються на NTLM;
+   - у наступній версії Windows Server і клієнтської Windows мережевий NTLM вимкнено за замовчуванням, повернути його можна лише політикою.
+
+**Як перевірити в продакшені**
+
+- Подія 4624 у журналі Security сервера: поле Authentication Package — `Kerberos` або `NTLM`.
+- Аудит NTLM — політики «Network security: Restrict NTLM» у режимі аудиту.
+- Часті причини NTLM: IP-адреса або ім'я без SPN, клієнт поза доменом, сайт не в зоні «Місцева інтрамережа» браузера.
+
+**Підсумок:** NTLM — запасний протокол без перевірки сервера й делегування, який Microsoft вимикає; завдання сеньйора — знайти й усунути кожен відкат на нього.
+
+</A>
+
+<Ex>
+
+```csharp
+// NuGet: Microsoft.AspNetCore.Authentication.Negotiate
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authentication.Negotiate;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// Negotiate: спочатку Kerberos, у разі невдачі — NTLM
+builder.Services.AddAuthentication(NegotiateDefaults.AuthenticationScheme)
+    .AddNegotiate();
+
+// Без [AllowAnonymous] кожен ендпоінт вимагає входу
+builder.Services.AddAuthorization(options =>
+    options.FallbackPolicy = options.DefaultPolicy);
+
+var app = builder.Build();
+
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapGet("/whoami", (ClaimsPrincipal user) => user.Identity?.Name); // CONTOSO\alice
+
+app.Run();
+```
+
+На IIS той самий код працює поверх Windows Authentication самого IIS: обробник Negotiate бачить, що сервер уміє її сам, і передає роботу йому. В IIS вмикають Windows Authentication і вимикають анонімний доступ.
+
+</Ex>
+
+<Next>
+
+- Чому NTLM-вхід не можна передати далі, на інший сервер? — Сервер отримує лише відповідь на свій виклик, а не квиток чи ключ користувача.
+- Як дізнатися, що спрацював NTLM, а не Kerberos? — За токеном в `Authorization` (`TlRMTVNTUA` — NTLM) або за подією 4624 на сервері.
+- Чому за IP-адресою Kerberos не працює? — Квиток видається на ім'я служби; для IP його за замовчуванням не запитують, і Negotiate відкочується на NTLM.
+- Навіщо HTTPS, якщо пароль не передається? — Без TLS читаються дані та cookie сесії, а NTLM-відповідь можна переслати; Extended Protection прив'язує вхід до TLS-каналу.
+- Що Microsoft робить із NTLM? — Deprecated з 2024 року, NTLMv1 видалено, мережевий NTLM буде вимкнено за замовчуванням у наступній версії Windows Server.
+
+</Next>
+
+<Src>
+
+- [Configure Windows Authentication in ASP.NET Core](https://learn.microsoft.com/aspnet/core/security/authentication/windowsauth)
+- [Microsoft Negotiate](https://learn.microsoft.com/windows/win32/secauthn/microsoft-negotiate)
+- [Advancing Windows security: Disabling NTLM by default](https://techcommunity.microsoft.com/blog/windows-itpro-blog/advancing-windows-security-disabling-ntlm-by-default/4489526)
+
+</Src>
+
+</Q>
+
+<Q id="security.win.kerberos-flow" level="m">
+
+## Як працює Kerberos і як увімкнути його в ASP.NET Core?
+
+<A short l="j">
+
+Kerberos — протокол входу за квитками: користувач один раз доводить <T k="kdc">KDC</T> на контролері домену, що знає пароль, отримує <T k="tgt">TGT</T>, а за ним — <T k="service-ticket">сервісний квиток</T> до конкретного застосунку. Застосунок перевіряє квиток своїм ключем без звернення до контролера, тому пароль не вводиться повторно й не йде мережею.
+
+</A>
+
+<A short l="m">
+
+Kerberos — три обміни: AS видає TGT, TGS за TGT видає квиток до служби з іменем <T k="spn">SPN</T>, а AP пред'являє цей квиток серверу. Квиток зашифрований ключем облікового запису, на якому зареєстрований SPN, тому SPN не на тому обліковому записі, його дублікат або розбіжність годинників понад 5 хвилин ламають вхід. В ASP.NET Core його вмикає `AddNegotiate()`: на IIS квиток перевіряє IIS, на Kestrel під Windows — сам процес, під Linux — GSSAPI з ключем із <T k="keytab">keytab</T>.
+
+</A>
+
+<A short l="s">
+
+Kerberos (RFC 4120) побудований на спільних секретах із KDC: TGT зашифрований ключем `krbtgt`, сервісний квиток — ключем служби, а сеансові ключі та мітки часу захищають від повтору. В AD квиток несе <T k="pac">PAC</T> зі списком груп користувача, тому сервер отримує права без запиту до DC, але нове членство в групі видно лише з новим TGT. Компроміс — жорсткі вимоги до інфраструктури: DNS-імена замість IP, один власник у кожного SPN, синхронний час, AES-ключі. На Linux і в контейнерах додається keytab, який перевипускають після кожної зміни пароля облікового запису.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+Kerberos — протокол, у якому пароль перевіряється один раз, а далі користувач пред'являє службам квитки. Квитки видає KDC — служба на кожному контролері домену.
+
+**Як це виглядає**
+
+1. Користувач входить у Windows і отримує TGT — «квиток на отримання квитків».
+2. Відкриває портал — Windows за TGT отримує в KDC квиток саме до цього порталу.
+3. Браузер надсилає квиток у заголовку `Authorization: Negotiate ...`.
+4. Портал перевіряє квиток своїм ключем і впізнає користувача.
+
+**Як користуватися**
+
+- Переглянути свої квитки — команда `klist`.
+- Портал відкривають за DNS-ім'ям, для якого адміністратор зареєстрував SPN, наприклад `HTTP/portal.contoso.com`.
+
+**Типова помилка**
+
+Не стежити за часом сервера. Якщо годинник розходиться з контролером домену більш ніж на 5 хвилин, Kerberos відхиляє квитки.
+
+**Підсумок:** пароль перевіряє KDC один раз, а служби довіряють його квиткам.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+1. **AS-REQ і AS-REP.** Клієнт надсилає KDC мітку часу, зашифровану ключем із пароля. KDC відповідає TGT, зашифрованим ключем облікового запису `krbtgt`, і сеансовим ключем.
+2. **TGS-REQ і TGS-REP.** Клієнт пред'являє TGT і SPN служби. KDC знаходить обліковий запис із цим SPN і видає квиток, зашифрований його ключем.
+3. **AP-REQ.** Клієнт передає серверу квиток і свіжу мітку часу на сеансовому ключі. Сервер розшифровує квиток своїм ключем і звіряє час.
+4. **AP-REP.** На запит клієнта сервер доводить, що теж знає ключ, — це взаємна автентифікація.
+
+**Пастки**
+
+- **SPN не на тому обліковому записі.** Застосунок під іншим обліковим записом не розшифрує квиток: `KRB_AP_ERR_MODIFIED` і відкат на NTLM.
+- **Дублікат SPN.** У SPN два власники — KDC не видасть квиток.
+- **Годинник.** Допуск за замовчуванням — 5 хвилин, інакше `KRB_AP_ERR_SKEW`.
+- **CNAME.** Браузер запитує квиток на канонічне ім'я з DNS, тому для аліасу SPN потрібен на імені A-запису.
+
+**Хто перевіряє квиток в ASP.NET Core**
+
+| Хостинг | Чиїм ключем |
+|---|---|
+| IIS, Windows Authentication | облікового запису комп'ютера; пулу — з `useAppPoolCredentials` |
+| Kestrel на Windows | облікового запису, під яким працює процес |
+| Kestrel на Linux | із keytab, шлях у `KRB5_KTNAME` |
+
+**Підсумок:** KDC шифрує квиток ключем власника SPN, і перевірити його може лише той, хто має цей ключ.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- Сервер не ходить до KDC: ключ служби знають лише вони двоє. Тому крадіжка ключа служби — keytab або пароля сервісного облікового запису — дає змогу підробити квитки до неї (silver ticket), а ключа `krbtgt` — будь-які TGT (golden ticket).
+- PAC перелічує групи користувача, включно з вкладеними, і сервер будує з нього Windows-токен без запиту до AD. Нове членство з'явиться лише з новим TGT, а він за замовчуванням живе 10 годин.
+- Будь-який користувач домену може запросити квиток до будь-якого SPN і підбирати пароль сервісного облікового запису офлайн (Kerberoasting). Захист — довгі випадкові паролі та AES.
+- RC4 у Kerberos оголошено deprecated у Windows Server 2025. З оновлень 2026 року (CVE-2026-20833) контролери домену вважають, що обліковий запис без явного `msDS-SupportedEncryptionTypes` підтримує лише AES.
+
+**Компроміси**
+
+- **Kestrel на Linux.** Груп із PAC у принципалі немає — їх читають з AD через LDAP (`EnableLdap`): зайві запити й кеш.
+- **Ферма за балансувальником.** Спільне ім'я — один SPN на доменному обліковому записі, під яким працюють усі вузли. SPN на обліковому записі одного сервера зламає вхід на решті.
+- **Keytab.** Це ключ у файлі. Після зміни пароля облікового запису змінюється номер версії ключа (kvno), і старий keytab перестає підходити.
+
+**Як перевірити в продакшені**
+
+- `klist get HTTP/portal.contoso.com` з клієнта: чи видається квиток і з яким шифруванням.
+- На DC події 4768 (TGT) і 4769 (сервісний квиток) з кодом помилки: `0x7` — SPN не знайдено.
+- Час — `w32tm /query /status` на сервері та DC.
+
+**Підсумок:** Kerberos тримається на правильному SPN, спільному ключі й синхронному часі; майже будь-яка аварія в продакшені — одне з трьох.
+
+</A>
+
+<Ex>
+
+```csharp
+// NuGet: Microsoft.AspNetCore.Authentication.Negotiate
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authentication.Negotiate;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddAuthentication(NegotiateDefaults.AuthenticationScheme)
+    .AddNegotiate(options =>
+    {
+        // На Linux ключ служби береться з keytab (змінна KRB5_KTNAME),
+        // а груп у принципалі немає: читаємо їх з AD через LDAP
+        if (OperatingSystem.IsLinux())
+            options.EnableLdap("contoso.com");
+    });
+builder.Services.AddAuthorization();
+
+var app = builder.Build();
+
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapGet("/", (ClaimsPrincipal user) => $"Hello, {user.Identity?.Name}")
+   .RequireAuthorization();
+
+app.Run();
+```
+
+</Ex>
+
+<Ex title="Реєстрація SPN і діагностика квитків">
+
+```powershell
+# SPN на обліковому записі, під яким працює застосунок; -S спершу шукає дублікати
+setspn -S HTTP/portal.contoso.com CONTOSO\svc-portal
+
+# Усі SPN облікового запису та пошук дублікатів у всьому лісі
+setspn -L CONTOSO\svc-portal
+setspn -X -F
+
+# Запросити сервісний квиток і переглянути кеш квитків
+klist get HTTP/portal.contoso.com
+klist
+
+# Скинути квитки, щоб отримати нові, наприклад після додавання до групи
+klist purge
+```
+
+</Ex>
+
+<Next>
+
+- Що буде, якщо годинник сервера пішов на 10 хвилин? — `KRB_AP_ERR_SKEW`: квитки відхиляються, Negotiate відкотиться на NTLM або поверне `401`.
+- Чому сервер не звертається до DC під час перевірки квитка? — Квиток зашифрований ключем служби, який знають лише вона та KDC.
+- Де реєструвати SPN, якщо пул IIS працює під доменним обліковим записом? — На цьому обліковому записі та ввімкнути `useAppPoolCredentials`; інакше IIS розшифровує квиток ключем комп'ютера.
+- Чому нову групу користувача не видно в застосунку? — Групи беруться з PAC у TGT; потрібен новий TGT: повторний вхід або `klist purge`.
+- Що таке Kerberoasting? — Офлайн-підбір пароля сервісного облікового запису за його квитком; захист — довгі випадкові паролі та AES.
+
+</Next>
+
+<Src>
+
+- [RFC 4120: The Kerberos Network Authentication Service (V5)](https://www.rfc-editor.org/rfc/rfc4120)
+- [Kerberos authentication overview](https://learn.microsoft.com/windows-server/security/kerberos/kerberos-authentication-overview)
+- [Configure Windows Authentication in ASP.NET Core: Kestrel](https://learn.microsoft.com/aspnet/core/security/authentication/windowsauth#kestrel)
+
+</Src>
+
+</Q>
+
+<Q id="security.win.adfs" level="m">
+
+## Що таке ADFS і федерація?
+
+<A short l="j">
+
+<T k="adfs">ADFS</T> (Active Directory Federation Services) — роль Windows Server, яка перевіряє користувача в AD і видає застосунку підписаний токен із claims: ім'я, пошта, групи. Так застосунок отримує єдиний вхід через браузер, навіть якщо сам він не в домені.
+
+</A>
+
+<A short l="m">
+
+ADFS — служба видачі токенів (STS): claims provider trust задає, кому вона довіряє під час перевірки користувача, а <T k="relying-party-trust">relying party trust</T> — кому і за якими <T k="claim-rules">правилами claims</T> видає токени. Застосунки підключаються за <T k="ws-federation">WS-Federation</T>, <T k="saml">SAML 2.0</T> або, починаючи з ADFS 2016, за OpenID Connect. Ціна — власна ферма серверів, проксі в DMZ і сертифікати підпису, тому Microsoft радить замість оновлення ADFS переходити на <T k="entra-id">Microsoft Entra ID</T>.
+
+</A>
+
+<A short l="s">
+
+ADFS реалізує федерацію: застосунок довіряє не паролям, а підпису STS, а STS сам обирає спосіб входу — Kerberos усередині мережі, форму й MFA ззовні через Web Application Proxy. Логіка доступу живе в claim rules і політиках доступу, тому під час міграції переносять передусім їх. Microsoft радить не оновлювати ADFS, а переходити в Entra ID; до того ж Windows Internal Database, його база за замовчуванням, у Windows Server 2025 оголошена deprecated. Міграція йде по застосунках, а наприкінці домен переводять із федерації на хмарну автентифікацію.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+ADFS — роль Windows Server для єдиного входу (SSO) через браузер. Застосунок не перевіряє паролі: він перенаправляє користувача на ADFS і отримує від нього токен.
+
+**Як це виглядає**
+
+1. Користувач відкриває застосунок, той перенаправляє його на ADFS.
+2. ADFS перевіряє користувача: усередині мережі — Windows-автентифікацією, ззовні — формою входу.
+3. ADFS видає підписаний токен із claims: ім'я, пошта, групи.
+4. Застосунок перевіряє підпис і створює сесію в cookie.
+
+**Навіщо**
+
+- Застосунку не потрібен доступ до AD, і йому не обов'язково бути в домені.
+- Користувач входить один раз в усі підключені застосунки.
+
+**Типова помилка**
+
+Плутати ADFS з Active Directory. AD зберігає облікові записи, а ADFS видає на їх основі токени.
+
+**Підсумок:** ADFS перетворює доменний обліковий запис на токен, якому довіряє застосунок.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+- **Claims provider trust** — звідки ADFS бере користувачів. За замовчуванням це AD, але може бути й ADFS партнера — так будується федерація між організаціями.
+- **Relying party trust** — застосунок, якому ADFS видає токени: ідентифікатор, адреса повернення, протокол.
+- **Claim rules** — що покласти в токен: атрибути LDAP, групи, перетворення. Правило пишеться як умова, `=>` і дія `issue`.
+
+**Коли що обирати**
+
+| Протокол | Де доречний |
+|---|---|
+| WS-Federation | старі застосунки .NET на WIF, SharePoint |
+| SAML 2.0 | готові продукти та SaaS |
+| OpenID Connect (ADFS 2016+) | нові вебзастосунки та API |
+
+**Пастки**
+
+- **Зміна сертифіката підпису.** ADFS сам оновлює сертифікат підпису токенів. Застосунок, який читає метадані (`MetadataAddress`), підхопить новий ключ, а із захардкодженим відбитком — зламається.
+- **SAML в ASP.NET Core.** Вбудованого обробника SAML 2.0 немає, потрібна стороння бібліотека. WS-Federation і OIDC є у вигляді пакетів Microsoft.
+- **Шифрування токенів.** `Microsoft.AspNetCore.Authentication.WsFederation` його не підтримує, тому в relying party trust сертифікат шифрування не задають.
+
+**Правило**
+
+Новий застосунок — OIDC; WS-Federation — для сумісності зі старими.
+
+**Підсумок:** ADFS — STS із двома видами довіри та правилами claims між ними, а протокол обирають за віком застосунку.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- ADFS — ферма серверів зі спільною конфігурацією у Windows Internal Database або SQL Server. З інтернету її публікує Web Application Proxy у DMZ.
+- Рушій claims виконує правила по черзі: `add` кладе claim лише у вхідний набір для наступних правил, `issue` — ще й у токен.
+- Групи зазвичай видає правило, яке запитує в сховища Active Directory атрибут `tokenGroups`: це всі групи користувача, включно з вкладеними.
+
+**Статус ADFS (жовтень 2026)**
+
+- ADFS є у Windows Server 2025 і підтримується, але Microsoft прямо радить замість оновлення переходити на Entra ID.
+- Windows Internal Database, база конфігурації ADFS за замовчуванням, у Windows Server 2025 оголошена deprecated.
+
+**Шлях міграції на Entra ID**
+
+1. Entra Connect синхронізує користувачів і групи, щоб Entra видавала групи у форматі AD, наприклад `sAMAccountName`.
+2. Звіт AD FS application migration (потрібні агенти Entra Connect Health) показує активні застосунки та правила, які не переносяться як є.
+3. Застосунки перемикають по одному: тестовий екземпляр, потім продакшен. Майстер переносить SAML-застосунки, WS-Federation і OIDC налаштовують вручну.
+4. Домен переводять із федерації на Password Hash Sync або Pass-through Authentication і виводять ADFS з експлуатації.
+
+Внутрішні застосунки з Windows-автентифікацією публікують через Microsoft Entra application proxy: його конектор сам отримує для користувача квиток Kerberos до застосунку.
+
+**Як перевірити в продакшені**
+
+Помилки видачі токенів — журнал AD FS/Admin на серверах ферми; склад токена — службова сторінка застосунку зі списком claims.
+
+**Підсумок:** ADFS працює й підтримується, але це тупикова гілка: супроводжуючи його, планують перенесення claims і груп в Entra ID.
+
+</A>
+
+<Ex>
+
+```csharp
+// NuGet: Microsoft.AspNetCore.Authentication.WsFederation
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication.WsFederation;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddAuthentication(options =>
+    {
+        // Сесія — у cookie, вхід — перенаправленням на ADFS
+        options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+        options.DefaultChallengeScheme = WsFederationDefaults.AuthenticationScheme;
+    })
+    .AddCookie()
+    .AddWsFederation(options =>
+    {
+        // Метадані: адреса входу та сертифікат підпису токенів
+        options.MetadataAddress =
+            "https://adfs.contoso.com/FederationMetadata/2007-06/FederationMetadata.xml";
+        // Ідентифікатор relying party trust в ADFS
+        options.Wtrealm = "https://portal.contoso.com/";
+    });
+builder.Services.AddAuthorization();
+
+var app = builder.Build();
+
+app.UseAuthentication();
+app.UseAuthorization();
+
+// Claims, які видали правила ADFS
+app.MapGet("/claims", (ClaimsPrincipal user) => user.Claims.Select(c => $"{c.Type}: {c.Value}"))
+   .RequireAuthorization();
+
+app.Run();
+```
+
+Для OIDC замість `AddWsFederation` беруть `AddOpenIdConnect` з `Authority = "https://adfs.contoso.com/adfs"`; сам протокол розібрано в темі про OAuth 2.0 і OpenID Connect.
+
+</Ex>
+
+<Ex title="Правило claims: групи AD як ролі">
+
+```text
+c:[Type == "http://schemas.microsoft.com/ws/2008/06/identity/claims/windowsaccountname",
+   Issuer == "AD AUTHORITY"]
+ => issue(store = "Active Directory",
+          types = ("http://schemas.microsoft.com/ws/2008/06/identity/claims/role"),
+          query = ";tokenGroups;{0}",
+          param = c.Value);
+```
+
+Правило бере ім'я Windows-облікового запису користувача, запитує в AD усі його групи, включно з вкладеними, і видає кожну як claim ролі.
+
+</Ex>
+
+<Next>
+
+- Чим relying party trust відрізняється від claims provider trust? — Перший описує, кому ADFS видає токени, другий — кому ADFS довіряє під час перевірки користувача.
+- Як ADFS обирає спосіб входу? — За політикою автентифікації: з інтрамережі — Windows-автентифікація, через WAP з інтернету — форма й MFA.
+- Що зламається після зміни сертифіката підпису токенів? — Застосунки із захардкодженим відбитком; ті, що читають метадані, підхоплять новий ключ.
+- Чому обробник WS-Federation за замовчуванням відхиляє незапитаний вхід? — Вхід без запиту застосунку вразливий до CSRF; дозволяє його лише `AllowUnsolicitedLogins`.
+- Що робити з внутрішнім застосунком на Kerberos у разі відмови від ADFS? — Опублікувати через Microsoft Entra application proxy або перевести на OIDC.
+
+</Next>
+
+<Src>
+
+- [AD FS overview](https://learn.microsoft.com/windows-server/identity/ad-fs/ad-fs-overview)
+- [Authenticate users with WS-Federation in ASP.NET Core](https://learn.microsoft.com/aspnet/core/security/authentication/ws-federation)
+- [AD FS application migration to Microsoft Entra ID](https://learn.microsoft.com/entra/identity/enterprise-apps/migrate-ad-fs-application-howto)
+
+</Src>
+
+</Q>
+
+<Q id="security.win.ad-groups" level="m">
+
+## Як використовувати групи AD для авторизації в ASP.NET Core?
+
+<A short l="j">
+
+Групи AD надходять у застосунок разом із користувачем: під час Windows-автентифікації — як <T k="sid">SID</T> груп у Windows-токені, через ADFS або Entra ID — як claims у токені. Перевіряють їх політикою авторизації, наприклад `RequireRole(@"CONTOSO\Portal-Admins")`, а не порівнянням рядків у коді.
+
+</A>
+
+<A short l="m">
+
+Джерело груп залежить від входу: Windows-токен містить SID усіх груп, включно з <T k="nested-groups">вкладеними</T>, ADFS видає їх правилом із `tokenGroups`, Entra ID — як ID об'єктів або `sAMAccountName`. Щоб бізнес-код не залежав від імен груп, їх перетворюють на ролі застосунку в <T k="claims-transformation">`IClaimsTransformation`</T>. Ціна — застарівання: членство змінюється в AD, а застосунок бачить його лише з новим квитком, токеном або після закінчення кешу.
+
+</A>
+
+<A short l="s">
+
+Групи впираються в розмір токена: квиток Kerberos обмежений `MaxTokenSize` і лімітами заголовків HTTP. Entra ID за понад 200 груп у JWT віддає замість них посилання на Graph (<T k="groups-overage">overage</T>), тому у великих доменах видають лише групи застосунку. Де груп у принципалі немає — Kestrel на Linux, overage, — їх читають через <T k="ldap">LDAP</T> за допомогою `System.DirectoryServices.Protocols` або з Graph і кешують. Це компроміс між свіжістю прав, навантаженням на DC і розміром токена.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+Група AD — набір облікових записів, якому адміністратор видає права. Застосунок перевіряє не ім'я користувача, а членство в групі: новий співробітник отримує доступ, коли його додадуть до групи.
+
+**Як користуватися**
+
+1. Увімкніть Windows-автентифікацію (`AddNegotiate()`) або вхід через ADFS.
+2. Опишіть політику: `options.AddPolicy("Admins", p => p.RequireRole(@"CONTOSO\Portal-Admins"))`.
+3. Застосуйте її до ендпоінта: `.RequireAuthorization("Admins")`.
+
+**Як це працює**
+
+Під час Windows-автентифікації `User.IsInRole(@"CONTOSO\Portal-Admins")` перетворює ім'я групи на SID — постійний ідентифікатор — і шукає його у Windows-токені користувача. Вкладені групи там уже враховано.
+
+**Типова помилка**
+
+Чекати доступу одразу після додавання до групи. Групи потрапляють у квиток під час входу у Windows, тому користувачеві треба перезайти.
+
+**Підсумок:** доступ видають групі в AD, а застосунок перевіряє членство політикою.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+| Вхід | Як надходять групи |
+|---|---|
+| Windows: Negotiate, IIS | SID у claims `ClaimTypes.GroupSid`, включно з вкладеними |
+| ADFS | claims за правилом, зазвичай `tokenGroups`, теж із вкладеними |
+| Entra ID | ID об'єктів або `sAMAccountName` синхронізованих груп |
+
+**IClaimsTransformation**
+
+Сервіс, який ASP.NET Core викликає після автентифікації, щоб доповнити `ClaimsPrincipal`. У ньому групи перетворюють на ролі застосунку: SID групи → `approver`. Бізнес-код знає лише ролі, а відповідність груп ролям лежить в одному місці.
+
+**Пастки**
+
+- **Повторні виклики.** `TransformAsync` викликається на кожен `AuthenticateAsync`, іноді кілька разів за запит. Перевіряйте, чи ролі вже не додано.
+- **IIS без схеми.** Якщо покладатися лише на автоматичний вхід IIS, `AuthenticateAsync` не викликається і трансформація мовчить. Потрібен `AddAuthentication` зі схемою: `AddNegotiate()` або `IISServerDefaults.AuthenticationScheme`.
+- **Ім'я замість SID.** Групу перейменували — перевірка за іменем зламалася, а SID лишився тим самим.
+- **Свіжість.** Права оновлюються з новим квитком або токеном, а кеш додає свою затримку.
+
+**Правило**
+
+Групи — на вході, ролі застосунку — у політиках, відповідність — в `IClaimsTransformation`.
+
+**Підсумок:** групи надходять різними шляхами, а застосунок зводить їх до своїх ролей в одному місці.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- `WindowsPrincipal.IsInRole(string)` на кожен виклик перетворює ім'я на SID через LSA і лише потім дивиться звичайні claims. Перевірка за SID або за власними claims ролей цього запиту не робить.
+- Kerberos-квиток обмежений `MaxTokenSize` — 48 000 байтів за замовчуванням. У HTTP він їде в base64, тобто на третину довший, і впирається в ліміти заголовків HTTP.sys (`MaxFieldLength`, `MaxRequestBytes`) і Kestrel (`MaxRequestHeadersTotalSize`, 32 КБ). Симптом — `400 Request Header too long`.
+- Entra ID кладе не більше 200 груп у JWT і 150 у SAML. Понад ліміт claim `groups` зникає, натомість приходить `_claim_names` із посиланням на Graph.
+
+**Компроміси**
+
+| Рішення | Плюс | Мінус |
+|---|---|---|
+| Групи в токені | без запитів до AD | розмір токена, застарівання |
+| LDAP під час входу | свіжі дані | навантаження на DC, потрібен кеш |
+| Групи, призначені застосунку | малий токен | без вкладених груп |
+
+**Linux**
+
+На Kestrel під Linux `EnableLdap` читає `memberOf` через `System.DirectoryServices.Protocols` (потрібен `libldap`) і кешує результат: 10 хвилин ковзний термін, 60 хвилин абсолютний. `memberOf` не містить основну групу, зазвичай Domain Users. `System.DirectoryServices` і `AccountManagement` працюють лише на Windows.
+
+**Як перевірити в продакшені**
+
+Службова сторінка для адміністраторів показує claims поточного користувача. Про великі квитки KDC попереджає подією 31, якщо ввімкнено політику «Warning for large Kerberos tickets».
+
+**Підсумок:** групи — це розмір токена проти свіжості прав; у великих доменах у токен кладуть лише потрібне застосунку, решту читають через LDAP із кешем.
+
+</A>
+
+<Ex>
+
+```csharp
+// NuGet: Microsoft.AspNetCore.Authentication.Negotiate
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Negotiate;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddAuthentication(NegotiateDefaults.AuthenticationScheme).AddNegotiate();
+builder.Services.AddTransient<IClaimsTransformation, AdGroupsToAppRoles>();
+// RequireClaim, а не RequireRole: WindowsPrincipal.IsInRole спершу шукає ім'я через LSA
+builder.Services.AddAuthorization(options =>
+    options.AddPolicy("Approvers", p => p.RequireClaim("app_role", "approver")));
+
+var app = builder.Build();
+
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapPost("/requests/{id:int}/approve", (int id) => $"Request {id} approved")
+   .RequireAuthorization("Approvers");
+
+app.Run();
+
+public sealed class AdGroupsToAppRoles : IClaimsTransformation
+{
+    // SID групи → роль застосунку: SID не змінюється після перейменування групи
+    static readonly Dictionary<string, string> RolesBySid = new()
+    {
+        ["S-1-5-21-1004336348-1177238915-682003330-1105"] = "approver",
+    };
+
+    public Task<ClaimsPrincipal> TransformAsync(ClaimsPrincipal principal)
+    {
+        // Викликається на кожен AuthenticateAsync: ролі додаємо один раз
+        if (principal.Identities.Any(i => i.Label == "app-roles"))
+            return Task.FromResult(principal);
+
+        var roles = principal.FindAll(ClaimTypes.GroupSid)
+            .Where(c => RolesBySid.ContainsKey(c.Value))
+            .Select(c => new Claim("app_role", RolesBySid[c.Value]));
+
+        principal.AddIdentity(new ClaimsIdentity(roles) { Label = "app-roles" });
+        return Task.FromResult(principal);
+    }
+}
+```
+
+</Ex>
+
+<Next>
+
+- Чому користувач не отримав доступ одразу після додавання до групи? — Групи беруться з TGT; потрібен новий квиток: повторний вхід або `klist purge`.
+- Чому краще SID, а не ім'я групи? — Ім'я змінюється після перейменування й може збігтися в різних доменах, а SID постійний.
+- Що робити за overage в Entra ID? — Видавати лише групи, призначені застосунку, або запитувати членство через Microsoft Graph.
+- Чому `TransformAsync` має бути ідемпотентним? — Він викликається на кожен `AuthenticateAsync`, іноді кілька разів за запит.
+- Як отримати групи на Kestrel під Linux? — `EnableLdap` в `AddNegotiate`: запит `memberOf` через LDAP із кешем.
+
+</Next>
+
+<Src>
+
+- [Map, customize, and transform claims in ASP.NET Core](https://learn.microsoft.com/aspnet/core/security/authentication/claims)
+- [Configure group claims for applications by using Microsoft Entra ID](https://learn.microsoft.com/entra/identity/hybrid/connect/how-to-connect-fed-group-claims)
+- [Kerberos authentication problems if a user belongs to many groups](https://learn.microsoft.com/troubleshoot/windows-server/windows-security/kerberos-authentication-problems-if-user-belongs-to-groups)
+
+</Src>
+
+</Q>
+
+<Q id="security.win.double-hop" level="s">
+
+## Що таке проблема double hop і як працює делегування Kerberos?
+
+<A short l="j">
+
+<T k="double-hop">Double hop</T> — ситуація, коли застосунок, який упізнав користувача через Windows-автентифікацію, іде від його імені до наступного сервера — бази, файлового сервера, API, — а той бачить анонімного користувача. Застосунок отримав лише квиток до себе, а не пароль чи TGT користувача, тому другий стрибок дозволяє тільки делегування Kerberos.
+
+</A>
+
+<A short l="m">
+
+Діяти від імені користувача на своєму сервері застосунок може через <T k="impersonation">імперсонацію</T>, але для другого сервера йому потрібен квиток користувача до нього, а його видає лише делегування. <T k="unconstrained-delegation">Необмежене делегування</T> пересилає застосунку TGT користувача, <T k="constrained-delegation">обмежене</T> (KCD) дозволяє квитки лише до перелічених SPN, а <T k="rbcd">RBCD</T> налаштовується на боці цільової служби. Ціна — ризик: захоплений фронтенд із делегуванням діє від імені будь-якого користувача, тому обирають найвужчий варіант.
+
+</A>
+
+<A short l="s">
+
+Double hop — наслідок моделі Kerberos: сервісний квиток придатний лише для своєї служби, а квитки від імені користувача до інших служб KDC видає тільки за правилами делегування (S4U2Proxy). Необмежене делегування кладе TGT користувача в пам'ять сервера, тому застосункам налаштовують KCD або RBCD — друге задає власник ресурсу, і воно працює між доменами. Ламається делегування частіше в каталозі, ніж у коді: SPN на чужому обліковому записі, дублікат SPN, користувач у Protected Users. Альтернатива — викликати бекенд від облікового запису застосунку з перевіркою прав у себе або передавати OAuth-токен.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+Перший стрибок — браузер → вебзастосунок, другий — застосунок → база або файловий сервер. На другому стрибку застосунок не може представитися користувачем.
+
+**Чому так**
+
+Браузер віддав застосунку квиток Kerberos лише до цього застосунку. Пароля й TGT користувача в нього немає, тому квиток до бази від імені користувача не отримати. База бачить `NT AUTHORITY\ANONYMOUS LOGON` або відмовляє в доступі.
+
+**Як розв'язують**
+
+- Найпростіше ходити до другого сервера від облікового запису застосунку, а права користувача перевіряти в самому застосунку.
+- Якщо другий сервер має бачити саме користувача, адміністратор налаштовує делегування Kerberos.
+
+**Типова помилка**
+
+Перевіряти в браузері на самому вебсервері: там стрибок один і все працює, а з робочих місць — ні.
+
+**Підсумок:** квиток користувача придатний лише для першого сервера; для другого потрібне делегування або обліковий запис застосунку.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+1. Користувач входить через Kerberos у фронтенд, той отримує його Windows-ідентичність.
+2. Фронтенд імперсонує користувача (`WindowsIdentity.RunImpersonatedAsync`) і звертається до бекенда.
+3. Windows просить у KDC квиток до бекенда від імені користувача. KDC видає його, лише якщо обліковому запису фронтенда дозволено делегування до SPN бекенда.
+
+**Коли що обирати**
+
+| Вид | Де налаштовується | Що може фронтенд |
+|---|---|---|
+| Необмежене | на обліковому записі фронтенда | із TGT користувача — що завгодно |
+| KCD | на обліковому записі фронтенда, список SPN | лише перелічені служби |
+| RBCD | на обліковому записі бекенда, кому можна | те, що дозволив власник бекенда |
+
+**Пастки**
+
+- **Protocol transition.** Режим KCD «Use any authentication protocol» (S4U2Self) видає квиток навіть за користувача, який увійшов без Kerberos — через NTLM або форму. Зручно, але тоді фронтенд може видати себе за будь-якого користувача перед цими службами.
+- **Пул IIS.** Делегування налаштовують на обліковому записі, що володіє SPN фронтенда: обліковому записі комп'ютера або доменному обліковому записі пулу.
+- **Linux.** Імперсонація в ASP.NET Core є лише на Windows.
+
+**Правило**
+
+Спершу з'ясувати, чи потрібен бекенду саме користувач. Якщо так — RBCD або KCD «Kerberos only» до конкретних SPN.
+
+**Підсумок:** делегування — дозвіл KDC видавати фронтенду квитки від імені користувача; що вужчий список служб, то менший ризик.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- **Необмежене.** Клієнт пересилає серверу свій TGT, і той лежить у пам'яті LSASS. Захоплення сервера дає TGT усіх, хто до нього заходив. Credential Guard, увімкнений за замовчуванням на відповідних Windows 11 22H2+ і Windows Server 2025, таке делегування блокує.
+- **KCD — S4U2Proxy.** Фронтенд пред'являє KDC квиток користувача до себе й отримує квиток до бекенда. KDC звіряє SPN зі списком `msDS-AllowedToDelegateTo` фронтенда.
+- **RBCD.** KDC перевіряє атрибут `msDS-AllowedToActOnBehalfOfOtherIdentity` на обліковому записі бекенда; у PowerShell це параметр `PrincipalsAllowedToDelegateToAccount`.
+- Не делегуються члени Protected Users і облікові записи з прапорцем «Account is sensitive and cannot be delegated».
+
+**Контейнери та Linux**
+
+- Windows-контейнер у домен не вводять: доменну ідентичність йому дає <T k="gmsa">gMSA</T> через credential spec.
+- У Linux-контейнер монтують keytab і `krb5.conf`, шлях до keytab задає `KRB5_KTNAME`. Імперсонації там немає, тому бекенд викликають від облікового запису сервісу або з OAuth-токеном.
+
+**Як перевірити в продакшені**
+
+1. `setspn -Q` і `setspn -X -F` — у кожного SPN рівно один власник.
+2. Події 4769 на DC: поле Transited Services показує делегування, Failure Code — причину відмови.
+3. Дублікат SPN KDC позначає в журналі System подією 11.
+
+**Підсумок:** делегування — довіра KDC до фронтенда; обирають найвужчий вид, а ламається воно частіше в каталозі, ніж у коді.
+
+</A>
+
+<Ex>
+
+```csharp
+// NuGet: Microsoft.AspNetCore.Authentication.Negotiate
+using System.Security.Principal;
+using Microsoft.AspNetCore.Authentication.Negotiate;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddAuthentication(NegotiateDefaults.AuthenticationScheme).AddNegotiate();
+builder.Services.AddAuthorization(options => options.FallbackPolicy = options.DefaultPolicy);
+
+var app = builder.Build();
+
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapGet("/report", async (HttpContext context) =>
+{
+    // Лише Windows: на Linux імперсонації немає
+    var user = (WindowsIdentity)context.User.Identity!;
+
+    // Другий стрибок: файловий сервер побачить користувача, лише якщо обліковому
+    // запису застосунку дозволено делегування до cifs/files01.contoso.com
+    return await WindowsIdentity.RunImpersonatedAsync(user.AccessToken,
+        () => File.ReadAllTextAsync(@"\\files01.contoso.com\reports\daily.txt"));
+});
+
+app.Run();
+```
+
+Без делегування файловий сервер отримує анонімний вхід і відмовляє в доступі, хоча сам користувач має права на файл.
+
+</Ex>
+
+<Ex title="RBCD і діагностика">
+
+```powershell
+# У SPN фронтенда рівно один власник; дублікати в усьому лісі
+setspn -Q HTTP/portal.contoso.com
+setspn -X -F
+
+# RBCD: файловий сервер дозволяє делегування обліковому запису порталу (gMSA)
+Set-ADComputer files01 -PrincipalsAllowedToDelegateToAccount (Get-ADServiceAccount gmsa-portal)
+Get-ADComputer files01 -Properties PrincipalsAllowedToDelegateToAccount
+
+# Чи видає KDC квиток до файлового сервера і з яким шифруванням
+klist get cifs/files01.contoso.com
+```
+
+</Ex>
+
+<Next>
+
+- Чому на самому сервері все працює, а в користувачів — ні? — Браузер на сервері дає один стрибок; з робочого місця їх два.
+- Чим KCD відрізняється від RBCD? — KCD задають на фронтенді списком SPN, RBCD — на бекенді, його власник вирішує сам, і воно працює між доменами.
+- Що таке protocol transition? — S4U2Self: фронтенд отримує квиток за користувача, який увійшов не через Kerberos; зручно й небезпечно.
+- Чому не ввімкнути необмежене делегування? — TGT кожного користувача осідає в пам'яті сервера; захоплення сервера дає доступ від їхнього імені куди завгодно.
+- Як обійтися без делегування? — Викликати бекенд від облікового запису застосунку з перевіркою прав у себе або передавати OAuth-токен користувача.
+
+</Next>
+
+<Src>
+
+- [Kerberos constrained delegation overview](https://learn.microsoft.com/windows-server/security/kerberos/kerberos-constrained-delegation-overview)
+- [Configure Windows Authentication in ASP.NET Core: Impersonation](https://learn.microsoft.com/aspnet/core/security/authentication/windowsauth#impersonation)
+- [Protected Users security group](https://learn.microsoft.com/windows-server/security/credentials-protection-and-management/protected-users-security-group)
+
+</Src>
+
+</Q>

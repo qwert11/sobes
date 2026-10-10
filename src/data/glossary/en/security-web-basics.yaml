@@ -1,0 +1,141 @@
+authentication:
+  term: Authentication
+  def: >-
+    Establishing who is making the request: by password, certificate, Windows account or token.
+    In ASP.NET Core the result is a `ClaimsPrincipal` in `HttpContext.User`.
+  q: ASP.NET Core authentication overview
+  docs: https://learn.microsoft.com/aspnet/core/security/authentication/
+authorization:
+  term: Authorization
+  def: >-
+    Deciding what an already identified user may do: which endpoint to call, which document to open.
+    Refusing a signed-in user is 403, refusing an anonymous one is 401.
+  q: ASP.NET Core authorization introduction
+  docs: https://learn.microsoft.com/aspnet/core/security/authorization/introduction
+authentication-cookie:
+  term: Authentication cookie
+  def: >-
+    A cookie in which ASP.NET Core stores the user's ticket, encrypted with Data Protection: claims
+    and expiry. The browser attaches it to every request; the server keeps no session.
+  q: ASP.NET Core cookie authentication
+  docs: https://learn.microsoft.com/aspnet/core/security/authentication/cookie
+owasp-top-10:
+  term: OWASP Top 10
+  def: >-
+    The OWASP community's ranking of the ten main risk categories for web applications. It is
+    updated every few years; the current edition is from 2025.
+  q: OWASP Top 10 2025
+  docs: https://top10.owasp.org/2025/
+broken-access-control:
+  term: Broken access control
+  def: >-
+    A user reads or changes what they shouldn't: someone else's orders, admin functions. The first
+    category of the OWASP Top 10 in both the 2021 and 2025 editions.
+  q: OWASP broken access control
+  docs: https://top10.owasp.org/2025/A01_2025-Broken_Access_Control/
+idor:
+  term: IDOR (insecure direct object reference)
+  def: >-
+    Accessing someone else's object by changing an identifier in the request, for example
+    `/orders/43` instead of `/orders/42`, when the server doesn't check the owner.
+  q: IDOR insecure direct object reference
+ssrf:
+  term: SSRF (server-side request forgery)
+  def: >-
+    The attacker makes the server send an HTTP request to an address of their choosing, such as the
+    internal network or a cloud metadata service. In the OWASP Top 10:2025 it is part of the access
+    control category.
+  q: SSRF server-side request forgery prevention
+software-supply-chain:
+  term: Software supply chain
+  def: >-
+    Everything an application is built from: packages, their dependencies, container images, CI/CD.
+    A vulnerable or tampered package gives the attacker code inside your process.
+  q: OWASP software supply chain failures
+  docs: https://top10.owasp.org/2025/A03_2025-Software_Supply_Chain_Failures/
+same-origin-policy:
+  term: Same-origin policy
+  def: >-
+    The browser rule that a script may only read responses from its own origin: the same scheme,
+    host and port. It can send requests to other origins but cannot read the responses.
+  q: same-origin policy MDN
+  docs: https://developer.mozilla.org/docs/Web/Security/Defenses/Same-origin_policy
+cors:
+  term: CORS (Cross-Origin Resource Sharing)
+  def: >-
+    The mechanism by which a server uses `Access-Control-Allow-*` headers to let the browser hand a
+    response to a script from another origin. It relaxes the same-origin policy and does not protect
+    the server itself.
+  q: CORS ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/security/cors
+preflight-request:
+  term: Preflight request
+  def: >-
+    An `OPTIONS` request the browser sends before a "non-simple" cross-origin request: one with a
+    method such as `PUT`, an `application/json` body or custom headers. Without the server's
+    permission the actual request is not sent.
+  q: CORS preflight request
+  docs: https://developer.mozilla.org/docs/Glossary/Preflight_request
+content-security-policy:
+  term: Content-Security-Policy (CSP)
+  def: >-
+    A response header listing the allowed sources of scripts, styles and other resources. The
+    browser blocks everything else, so an injected script won't run even if encoding was missed
+    somewhere.
+  q: Content Security Policy CSP
+  docs: https://developer.mozilla.org/docs/Web/HTTP/Guides/CSP
+command-injection:
+  term: Command injection
+  def: >-
+    User data ends up in a shell command line and appends a command of its own, such as `& del *`.
+    The defense is to start the process without a shell and pass arguments as a list.
+  q: OS command injection prevention
+  docs: https://cheatsheetseries.owasp.org/cheatsheets/OS_Command_Injection_Defense_Cheat_Sheet.html
+insecure-deserialization:
+  term: Insecure deserialization
+  def: >-
+    The deserializer creates types named in the data itself, and the attacker picks a type whose
+    constructor or setter runs code they want. Classic examples are `BinaryFormatter` and
+    `TypeNameHandling` in Newtonsoft.Json.
+  q: insecure deserialization .NET
+  docs: https://learn.microsoft.com/dotnet/standard/serialization/binaryformatter-security-guide
+password-hashing:
+  term: Password hashing
+  def: >-
+    Storing a password as the output of a slow function (PBKDF2, bcrypt, scrypt, Argon2) with a salt.
+    The slowness is deliberate: it makes brute-forcing a leaked database expensive.
+  q: password hashing ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/security/data-protection/consumer-apis/password-hashing
+password-salt:
+  term: Salt
+  def: >-
+    A random value, unique to each password and stored next to the hash. Identical passwords produce
+    different hashes, and precomputed tables become useless.
+  q: password salt
+tls:
+  term: TLS (Transport Layer Security)
+  def: >-
+    A protocol over TCP that encrypts traffic, protects it from tampering and proves the server's
+    identity with a certificate. HTTPS is HTTP over TLS; the current versions are 1.2 and 1.3.
+  q: TLS 1.3
+  docs: https://www.rfc-editor.org/rfc/rfc8446
+certificate-chain:
+  term: Certificate chain (chain of trust)
+  def: >-
+    The site's certificate is signed by an intermediate certificate authority, which is signed by a
+    root the client already trusts. The server sends its own and the intermediate certificates, and
+    the client verifies the signatures up to the root.
+  q: certificate chain of trust intermediate CA
+forward-secrecy:
+  term: Forward secrecy
+  def: >-
+    The property that session keys come from a one-time Diffie-Hellman exchange. A certificate
+    private key stolen later cannot decrypt traffic recorded earlier.
+  q: perfect forward secrecy TLS
+hsts:
+  term: HSTS (HTTP Strict Transport Security)
+  def: >-
+    The `Strict-Transport-Security` header, after which the browser talks to the site only over HTTPS
+    for `max-age`. With `preload` the domain can join a list built into browsers.
+  q: HSTS ASP.NET Core UseHsts
+  docs: https://learn.microsoft.com/aspnet/core/security/enforcing-ssl#http-strict-transport-security-protocol-hsts

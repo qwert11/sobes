@@ -1,0 +1,175 @@
+rbac:
+  term: RBAC (role-based access control)
+  def: >-
+    A model where permissions are grouped into roles and users are assigned roles. The NIST model is
+    standardized as ANSI INCITS 359 and, beyond the core level, covers role hierarchies and separation of
+    duties.
+  q: role-based access control NIST
+  docs: https://csrc.nist.gov/projects/role-based-access-control
+  wiki: Role-based access control
+default-policy:
+  term: Default policy
+  def: >-
+    The policy ASP.NET Core applies to `[Authorize]` and `RequireAuthorization()` without a policy name.
+    Out of the box it only requires an authenticated user; change it with `SetDefaultPolicy`.
+  q: ASP.NET Core authorization default policy
+  docs: https://learn.microsoft.com/aspnet/core/security/authorization/policies#default-and-fallback-policies
+fallback-policy:
+  term: Fallback policy
+  def: >-
+    The policy for endpoints with no authorization metadata. By default there is none, so such endpoints
+    are open; `SetFallbackPolicy` with `RequireAuthenticatedUser` locks down everything not marked
+    explicitly.
+  q: ASP.NET Core fallback authorization policy
+  docs: https://learn.microsoft.com/aspnet/core/security/authorization/policies#require-global-user-authentication
+claim:
+  term: Claim
+  def: >-
+    A type-value statement about a user or service issued by a trusted issuer: name, email, department,
+    role. It describes who the subject is, not what it may do; in .NET it is the `Claim` class.
+  q: claims-based identity .NET
+  docs: https://learn.microsoft.com/dotnet/api/system.security.claims.claim
+claims-principal:
+  term: ClaimsPrincipal
+  def: >-
+    The user in .NET: one or more `ClaimsIdentity` objects. In ASP.NET Core it is `HttpContext.User`;
+    `IsInRole`, `HasClaim` and `FindFirst` search the claims of all its identities.
+  q: ClaimsPrincipal .NET
+  docs: https://learn.microsoft.com/dotnet/api/system.security.claims.claimsprincipal
+claims-identity:
+  term: ClaimsIdentity
+  def: >-
+    A set of claims obtained through one authentication method. It holds `AuthenticationType` (without
+    it the identity is not considered authenticated), plus `NameClaimType` and `RoleClaimType`.
+  q: ClaimsIdentity .NET
+  docs: https://learn.microsoft.com/dotnet/api/system.security.claims.claimsidentity
+claims-transformation:
+  term: Claims transformation (IClaimsTransformation)
+  def: >-
+    An ASP.NET Core interface whose `TransformAsync` runs after successful authentication and can add
+    app data to the principal. It runs on every request, sometimes several times, so it must be
+    idempotent.
+  q: IClaimsTransformation ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/security/authentication/claims#extend-or-add-custom-claims-using-iclaimstransformation
+authorization-policy:
+  term: Authorization policy
+  def: >-
+    A named set of requirements in ASP.NET Core. It is registered with
+    `AddAuthorizationBuilder().AddPolicy`, applied with `[Authorize(Policy = "...")]` or
+    `RequireAuthorization`, and succeeds when all its requirements succeed.
+  q: ASP.NET Core policy-based authorization
+  docs: https://learn.microsoft.com/aspnet/core/security/authorization/policies
+authorization-requirement:
+  term: Authorization requirement
+  def: >-
+    A class with the `IAuthorizationRequirement` marker interface that describes a rule and its
+    parameters, such as a required permission or a minimum age. Handlers do the actual check.
+  q: IAuthorizationRequirement ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/security/authorization/policies#requirements-and-policy-registration
+authorization-handler:
+  term: Authorization handler
+  def: >-
+    An `IAuthorizationHandler` implementation, usually derived from `AuthorizationHandler<TRequirement>`,
+    that checks a requirement and calls `context.Succeed` or `context.Fail`. Registered in DI; one
+    requirement can have several handlers.
+  q: AuthorizationHandler ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/security/authorization/policies#authorization-handlers
+resource-based-authorization:
+  term: Resource-based authorization
+  def: >-
+    An access check on a specific object, such as a document or a request, after it is loaded. In
+    ASP.NET Core it is done in code by calling
+    `IAuthorizationService.AuthorizeAsync(user, resource, policy)`.
+  q: ASP.NET Core resource-based authorization
+  docs: https://learn.microsoft.com/aspnet/core/security/authorization/resource-based
+role-explosion:
+  term: Role explosion
+  def: >-
+    Uncontrolled growth in the number of roles when every combination of job title, department, region
+    or project gets its own role. A sign that the parameter belongs in an attribute (ABAC) or a
+    relationship (ReBAC).
+  q: role explosion RBAC
+abac:
+  term: ABAC (attribute-based access control)
+  def: >-
+    A model where a rule over attributes of the subject, object, operation and environment — department,
+    classification, time, network — makes the decision. Described in NIST SP 800-162.
+  q: attribute-based access control
+  docs: https://csrc.nist.gov/pubs/sp/800/162/upd2/final
+  wiki: Attribute-based access control
+rebac:
+  term: ReBAC (relationship-based access control)
+  def: >-
+    A model where permissions are derived from a graph of relationships between users and objects —
+    "owner", "group member", "folder contains document". Google Zanzibar, OpenFGA and SpiceDB work this
+    way.
+  q: relationship-based access control
+  docs: https://openfga.dev/docs/authorization-concepts
+  wiki: Relationship-based access control
+zanzibar:
+  term: Google Zanzibar
+  def: >-
+    Google's global authorization system, described in a USENIX ATC 2019 paper. It stores relationships
+    as "object#relation@user" tuples, serves Drive, YouTube, Cloud and other services, and became the
+    model for OpenFGA and SpiceDB.
+  q: Zanzibar Google consistent global authorization system
+  docs: https://www.usenix.org/conference/atc19/presentation/pang
+policy-decision-point:
+  term: PDP and PEP (policy decision and enforcement points)
+  def: >-
+    A policy decision point computes the permit or deny decision; a policy enforcement point intercepts
+    the request and enforces that decision. The split is described in NIST SP 800-162; OPA and OpenFGA
+    are examples of external PDPs.
+  q: policy decision point policy enforcement point
+  docs: https://csrc.nist.gov/pubs/sp/800/162/upd2/final
+row-level-security:
+  term: Row-level security (RLS)
+  def: >-
+    A database feature that filters table rows by a policy for the current user or session context:
+    `CREATE POLICY` in PostgreSQL, `CREATE SECURITY POLICY` in SQL Server.
+  q: row-level security
+  docs: https://www.postgresql.org/docs/current/ddl-rowsecurity.html
+least-privilege:
+  term: Principle of least privilege
+  def: >-
+    A user or process gets only the permissions its task needs, and only for as long as it needs them.
+    In NIST SP 800-53 this is control AC-6.
+  q: principle of least privilege
+  docs: https://csrc.nist.gov/glossary/term/least_privilege
+  wiki: Principle of least privilege
+privilege-creep:
+  term: Privilege creep
+  def: >-
+    The gradual growth of an employee's permissions: transfers and new projects add access, but the old
+    access is never removed. The cure is access reviews and revoking permissions on a role change.
+  q: privilege creep
+separation-of-duties:
+  term: Separation of duties (SoD)
+  def: >-
+    A rule that no single person performs a critical operation end to end: whoever creates a payment
+    does not approve it. In RBAC it forbids conflicting roles for one user (static) or within one
+    session (dynamic).
+  q: separation of duties access control
+  docs: https://csrc.nist.gov/glossary/term/separation_of_duty
+  wiki: Separation of duties
+access-review:
+  term: Access review
+  def: >-
+    A regular check of granted permissions: a manager or resource owner confirms that the access is
+    still needed or revokes it. Also called recertification or attestation.
+  q: user access review recertification
+  docs: https://learn.microsoft.com/entra/id-governance/access-reviews-overview
+just-in-time-access:
+  term: Just-in-time access
+  def: >-
+    Permissions that last a limited time: granted with an end date or activated on request for a few
+    hours. Example: Microsoft Entra Privileged Identity Management.
+  q: just-in-time privileged access
+  docs: https://learn.microsoft.com/entra/id-governance/privileged-identity-management/pim-configure
+provisioning:
+  term: Provisioning
+  def: >-
+    Automatically creating accounts and granting permissions in target systems — AD, SaaS, internal apps
+    — and the reverse process, deprovisioning. The standard protocol for it is SCIM (RFC 7643, RFC 7644).
+  q: user provisioning SCIM
+  docs: https://datatracker.ietf.org/doc/html/rfc7644

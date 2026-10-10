@@ -44,6 +44,11 @@ export default defineConfig({
           items: [{ autogenerate: { directory: 'db' } }],
         },
         {
+          label: 'Доступ и безопасность',
+          translations: { uk: 'Доступ і безпека', en: 'Access and security' },
+          items: [{ autogenerate: { directory: 'security' } }],
+        },
+        {
           label: 'Глоссарий',
           translations: { uk: 'Глосарій', en: 'Glossary' },
           slug: 'glossary',
