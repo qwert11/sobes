@@ -1,0 +1,128 @@
+encapsulation:
+  term: Інкапсуляція (encapsulation)
+  def: >-
+    Принцип ООП: дані об'єкта і правила їх зміни зібрані в одному класі, а стан змінюється лише через
+    його методи. Так клас сам захищає свої інваріанти.
+  q: encapsulation C#
+  docs: https://learn.microsoft.com/dotnet/csharp/fundamentals/tutorials/oop
+abstraction:
+  term: Абстракція (abstraction)
+  def: >-
+    Принцип ООП: назовні видно лише суттєвий для клієнта контракт — що об'єкт уміє, а не як він це
+    робить. У C# абстракцію задають інтерфейси та абстрактні класи.
+  q: abstraction object-oriented programming
+  docs: https://learn.microsoft.com/dotnet/csharp/fundamentals/tutorials/oop
+inheritance:
+  term: Успадкування (inheritance)
+  def: >-
+    Механізм, за якого новий клас отримує члени базового і може їх розширити або перевизначити. У C#
+    клас має один базовий клас, а інтерфейсів — скільки завгодно.
+  q: C# inheritance
+  docs: https://learn.microsoft.com/dotnet/csharp/fundamentals/object-oriented/inheritance
+polymorphism:
+  term: Поліморфізм (polymorphism)
+  def: >-
+    Здатність одного коду працювати з об'єктами різних типів. В ООП зазвичай мають на увазі поліморфізм
+    підтипів: виклик віртуального методу обирає реалізацію за реальним типом об'єкта.
+  q: polymorphism C#
+  docs: https://learn.microsoft.com/dotnet/csharp/fundamentals/object-oriented/polymorphism
+parametric-polymorphism:
+  term: Параметричний поліморфізм
+  def: >-
+    Той самий код працює з будь-яким типом, переданим як параметр. У C# це generics: `List<T>`,
+    `Max<T>(T a, T b)`.
+  q: parametric polymorphism generics
+  docs: https://learn.microsoft.com/dotnet/csharp/fundamentals/types/generics
+ad-hoc-polymorphism:
+  term: Ad hoc поліморфізм
+  def: >-
+    Різна поведінка для різних типів через окремі реалізації з одним іменем: перевантаження методів і
+    операторів. Потрібну версію компілятор обирає за статичними типами аргументів.
+  q: ad hoc polymorphism overloading
+composition:
+  term: Композиція (composition)
+  def: >-
+    Об'єкт зберігає інший об'єкт у полі й використовує його через публічний контракт — відношення
+    «містить» замість «є». Порада GoF — віддавати перевагу композиції над успадкуванням класів.
+  q: composition over inheritance
+fragile-base-class:
+  term: Крихкий базовий клас (fragile base class)
+  def: >-
+    Проблема успадкування реалізації: безневинна на вигляд зміна базового класу ламає нащадків, бо вони
+    залежать від його внутрішньої будови, наприклад від того, які методи викликають один одного.
+  q: fragile base class problem
+delegation:
+  term: Делегування (delegation)
+  def: >-
+    Прийом композиції: об'єкт переадресовує виклик своєму компоненту, іноді додаючи поведінку до або
+    після. Не плутати з делегатами C# — типами-посиланнями на методи.
+  q: delegation object-oriented programming
+liskov-substitution:
+  term: Принцип підстановки Лісков (LSP)
+  def: >-
+    Принцип SOLID: об'єкт підтипу має підходити всюди, де очікується базовий тип, не порушуючи
+    правильності програми. Класичний контрприклад — квадрат, успадкований від прямокутника.
+  q: Liskov substitution principle
+cohesion:
+  term: Зв'язність (cohesion)
+  def: >-
+    Міра того, наскільки члени модуля або класу працюють на одне завдання. Висока зв'язність — дані та
+    методи, які з ними працюють, разом; низька — класи на кшталт `Utils`.
+  q: cohesion computer science
+coupling:
+  term: Зчеплення (coupling)
+  def: >-
+    Міра залежності модулів або класів один від одного: наскільки зміна одного потребує зміни іншого.
+    Прагнуть слабкого зчеплення: залежати від вузького контракту, а не від будови.
+  q: coupling computer programming
+  docs: https://learn.microsoft.com/visualstudio/code-quality/code-metrics-class-coupling
+law-of-demeter:
+  term: Закон Деметри (Law of Demeter)
+  def: >-
+    Правило «говори лише з найближчими друзями»: метод викликає методи свого об'єкта, параметрів,
+    створених у ньому об'єктів і полів, але не ходить ланцюжком `a.B.C.D()`.
+  q: Law of Demeter
+tell-dont-ask:
+  term: Tell, Don't Ask
+  def: >-
+    Принцип: не витягати дані об'єкта, щоб ухвалити рішення за нього, а попросити об'єкт виконати дію.
+    Так поведінка залишається поруч із даними.
+  q: tell don't ask
+  docs: https://martinfowler.com/bliki/TellDontAsk.html
+feature-envy:
+  term: Заздрість до функцій (feature envy)
+  def: >-
+    Запах коду з каталогу Фаулера: метод працює з даними чужого класу більше, ніж зі своїми. Зазвичай
+    його варто перенести в той клас.
+  q: feature envy code smell refactoring
+connascence:
+  term: Connascence
+  def: >-
+    Міра зв'язку Мейліра Пейдж-Джонса: два елементи пов'язані, якщо зміна одного потребує зміни
+    іншого. Види впорядковані за силою — від імені й типу до порядку, значення, алгоритму та часу.
+  q: connascence software design
+pure-function:
+  term: Чиста функція (pure function)
+  def: >-
+    Функція, результат якої залежить лише від аргументів і яка не має побічних ефектів: не змінює поля,
+    не пише у файли й базу. Її легко тестувати й викликати паралельно.
+  q: pure function C#
+expression-problem:
+  term: Проблема виразу (expression problem)
+  def: >-
+    Термін Філіпа Вадлера (1998): важко зробити так, щоб без правки старого коду можна було додавати і
+    нові варіанти даних, і нові операції. ООП полегшує перше, функції з pattern matching — друге.
+  q: expression problem Wadler
+visitor-pattern:
+  term: Відвідувач (visitor)
+  def: >-
+    Поведінковий патерн GoF: операції над ієрархією виносять в окремий клас-відвідувач із методом на
+    кожен тип, а елементи викликають потрібний метод через `Accept`. Додавати операції легко, нові
+    типи — важко.
+  q: visitor pattern C#
+data-oriented-design:
+  term: Data-oriented design
+  def: >-
+    Підхід, у якому структуру даних проєктують під те, як процесор їх читає: щільні масиви значень
+    замість графа об'єктів, послідовний доступ до пам'яті. Застосовують на гарячих ділянках.
+  q: data-oriented design

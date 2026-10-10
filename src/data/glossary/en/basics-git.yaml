@@ -1,0 +1,163 @@
+distributed-vcs:
+  term: Distributed version control system (DVCS)
+  def: >-
+    A version control system where every participant has a full copy of the repository with all its
+    history. Commits are made locally and exchanged with the server and other copies by separate
+    commands. Examples are Git and Mercurial; SVN, by contrast, is centralized.
+  q: distributed version control system
+  docs: https://git-scm.com/book/en/v2/Getting-Started-About-Version-Control
+  wiki: Distributed version control
+staging-area:
+  term: Index (staging area)
+  def: >-
+    The area between the working tree and the repository: `git add` puts changes there, and they go
+    into the next commit. It lets you commit only part of your edits.
+  q: git staging area index
+  docs: https://git-scm.com/book/en/v2/Git-Basics-Recording-Changes-to-the-Repository
+git-commit:
+  term: Commit
+  def: >-
+    A recorded snapshot of all project files together with the author, date, message and a link to the
+    parent commit. It is identified by a hash and never changes once created.
+  q: git commit
+  docs: https://git-scm.com/docs/git-commit
+git-remote:
+  term: Remote (remote repository)
+  def: >-
+    A named reference to another copy of the repository, usually on a server: `origin` is created by
+    `git clone`. Commits are exchanged with it via `fetch`, `pull` and `push`.
+  q: git remote
+  docs: https://git-scm.com/book/en/v2/Git-Basics-Working-with-Remotes
+git-branch:
+  term: Branch
+  def: >-
+    A movable pointer to a commit. A new commit automatically moves the current branch to it, so
+    creating a branch means writing one hash, not copying files.
+  q: git branch
+  docs: https://git-scm.com/book/en/v2/Git-Branching-Branches-in-a-Nutshell
+remote-tracking-branch:
+  term: Remote-tracking branch
+  def: >-
+    A local ref such as `origin/main` that remembers where a server branch was at the last `fetch`.
+    You do not commit to it directly: `fetch` and `pull` update it.
+  q: git remote-tracking branch
+  docs: https://git-scm.com/book/en/v2/Git-Branching-Remote-Branches
+fast-forward:
+  term: Fast-forward
+  def: >-
+    A merge where the target branch has no new commits, so Git simply moves its pointer to the tip of
+    the branch being merged. No merge commit is created.
+  q: git fast-forward merge
+  docs: https://git-scm.com/docs/git-merge#_fast_forward_merge
+git-rebase:
+  term: Rebase
+  def: >-
+    Moving a branch's commits onto a new base: Git reapplies each commit on top of another branch and
+    creates a copy with a new hash. It makes history linear but rewrites it.
+  q: git rebase
+  docs: https://git-scm.com/book/en/v2/Git-Branching-Rebasing
+force-with-lease:
+  term: git push --force-with-lease
+  def: >-
+    A forced push that overwrites the server branch only if it still points to the same commit as
+    your remote-tracking branch. It protects against wiping out other people's commits after a
+    rebase.
+  q: git push force-with-lease
+  docs: https://git-scm.com/docs/git-push#Documentation/git-push.txt---force-with-lease
+pull-request:
+  term: Pull request (PR, merge request)
+  def: >-
+    A request to merge one branch into another on a platform such as GitHub, GitLab or Azure DevOps.
+    Review, discussion and CI checks happen around it; GitLab calls it a merge request.
+  q: pull request
+  docs: https://docs.github.com/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/about-pull-requests
+squash-merge:
+  term: Squash merge
+  def: >-
+    A way to merge a pull request in which all the branch's commits are combined into a single commit
+    on the target branch. `main` history stays short, but intermediate commits do not make it in.
+  q: GitHub squash and merge
+  docs: https://docs.github.com/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/about-merge-methods-on-github
+interactive-rebase:
+  term: Interactive rebase
+  def: >-
+    `git rebase -i`: a rebase in which you edit the list of commits — reorder, combine (`squash`,
+    `fixup`), reword or drop them. Used to tidy your own branch before a pull request.
+  q: git interactive rebase
+  docs: https://git-scm.com/book/en/v2/Git-Tools-Rewriting-History
+cherry-pick:
+  term: Cherry-pick
+  def: >-
+    The `git cherry-pick` command, which applies the changes of one commit on top of the current
+    branch and creates a new commit with the same change. With `-x` a reference to the original
+    commit is added to the message.
+  q: git cherry-pick
+  docs: https://git-scm.com/docs/git-cherry-pick
+git-flow:
+  term: Git Flow
+  def: >-
+    Vincent Driessen's branching model (2010): long-lived `main` and `develop`, plus `feature/*`,
+    `release/*` and `hotfix/*` branches. Designed for versioned products; for continuous delivery the
+    author recommends a simpler model.
+  q: git flow branching model
+  docs: https://nvie.com/posts/a-successful-git-branching-model/
+github-flow:
+  term: GitHub Flow
+  def: >-
+    A simple branching model: a short branch off `main`, a pull request with review and checks, a
+    merge into `main` and deleting the branch. `main` is always deployable.
+  q: GitHub flow
+  docs: https://docs.github.com/get-started/using-github/github-flow
+trunk-based-development:
+  term: Trunk-based development
+  def: >-
+    A model in which all developers merge small changes into one branch (the trunk, usually `main`)
+    often and keep no other long-lived development branches. Unfinished work hides behind feature
+    flags.
+  q: trunk based development
+  docs: https://trunkbaseddevelopment.com/
+git-object:
+  term: Git object (blob, tree, commit, tag)
+  def: >-
+    The unit of storage in `.git/objects`, addressed by the hash of its contents: blob — file
+    contents, tree — a directory, commit — a snapshot with metadata, tag — an annotated tag. Objects
+    are immutable.
+  q: git objects blob tree commit
+  docs: https://git-scm.com/book/en/v2/Git-Internals-Git-Objects
+git-ref:
+  term: Ref and HEAD
+  def: >-
+    A ref is a name that points to a commit: a branch, a tag or a remote-tracking branch. HEAD is a
+    special ref to the current branch or, in a detached HEAD state, directly to a commit.
+  q: git references HEAD
+  docs: https://git-scm.com/book/en/v2/Git-Internals-Git-References
+reflog:
+  term: Reflog (reference log)
+  def: >-
+    A local log where Git records every move of HEAD and branches. It is how you find commits after
+    `reset --hard` or a deleted branch; entries live 90 days by default, unreachable ones 30.
+  q: git reflog
+  docs: https://git-scm.com/docs/git-reflog
+git-bisect:
+  term: git bisect
+  def: >-
+    A command for binary-searching the commit that introduced a bug: you mark a good and a bad
+    version, and Git halves the range at each step. `git bisect run` checks commits automatically
+    with a script or test.
+  q: git bisect run
+  docs: https://git-scm.com/docs/git-bisect
+git-filter-repo:
+  term: git filter-repo
+  def: >-
+    A tool for rewriting a repository's entire history: it removes files, replaces strings and
+    changes paths. The Git docs recommend it over the pitfall-ridden `git filter-branch`, including for removing
+    secrets.
+  q: git filter-repo
+  docs: https://github.com/newren/git-filter-repo
+git-lfs:
+  term: Git LFS (Large File Storage)
+  def: >-
+    A Git extension for large binary files: the repository stores a small text pointer, while the
+    content lives on a separate LFS server and is downloaded only for the versions you need.
+  q: Git LFS
+  docs: https://git-lfs.com/

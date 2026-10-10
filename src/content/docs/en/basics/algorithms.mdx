@@ -1,0 +1,961 @@
+---
+title: Algorithms and live coding
+description: Complexity analysis, data structures and their .NET types, sorting and binary search, recursion and dynamic programming, patterns and a step-by-step approach to live coding tasks.
+sidebar:
+  order: 4
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+How to estimate the complexity of code, which data structures and algorithms to keep in your head, and how to solve a problem in front of an interviewer. Live coding doesn't test whether you memorised algorithms; it tests whether you can reason out loud, pick the right technique and honestly assess your own solution.
+
+**Before this topic:** [Collections and LINQ](/sobes/en/dotnet/collections-linq/).
+
+<Q id="basics.algo.big-o" level="j">
+
+## What is Big O notation and how do you estimate the complexity of code?
+
+<A short l="j">
+
+<T k="big-o">Big O notation</T> describes how an algorithm's running time or memory grows as the input size n grows, ignoring constants. So one pass over an array is O(n), two nested loops over it are O(n²), and a search that halves the range each step is O(log n).
+
+</A>
+
+<A short l="m">
+
+Big O is an upper bound on how work grows with n; time and <T k="space-complexity">space</T> are estimated separately, and you state which case you mean: <T k="worst-case">worst</T>, average or <T k="amortized-complexity">amortized</T>. The rules are simple: sequential blocks add up and the dominant term wins, nested loops multiply, constants are dropped. The cost is that Big O hides constants, so for small n an asymptotically worse solution can be faster.
+
+</A>
+
+<A short l="s">
+
+Formally, f(n) = O(g(n)) if f(n) ≤ c·g(n) from some n onwards; in interviews people usually mean a tight bound, that is Θ. The complexity of recursion comes from a recurrence, for example via the <T k="master-theorem">master theorem</T>: T(n) = 2T(n/2) + O(n) gives O(n log n). You also look for the hidden cost of calls: `string +=` in a loop, `List<T>.Insert(0, x)`, LINQ inside a loop. Asymptotics is the first filter; choosing between good options is a job for measurement.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+O(f(n)) shows the shape of growth, not seconds: how many times more work there is when the input grows. Make n 10 times bigger and O(n) runs 10 times longer, while O(n²) runs 100 times longer.
+
+**Common classes**
+
+| Complexity | Name | Example |
+|---|---|---|
+| O(1) | constant | array element by index |
+| O(log n) | logarithmic | binary search |
+| O(n) | linear | one pass over an array |
+| O(n log n) | linearithmic | sorting with `Array.Sort` |
+| O(n²) | quadratic | all pairs of elements |
+| O(2^n) | exponential | enumerating all subsets |
+
+**How to estimate**
+
+1. A loop over n items — n × the cost of the body.
+2. Nested loops multiply: two loops over n — O(n²).
+3. Sequential blocks add up, and the dominant one wins: O(n) + O(n²) = O(n²).
+4. Constants are dropped: two passes — O(2n) = O(n).
+5. The range is halved at each step — O(log n).
+
+**Common mistake**
+
+Assuming code without nested loops is linear. `list.Insert(0, x)` or `s += x` in a loop cost O(n) each, so the whole loop is O(n²).
+
+**Takeaway:** Big O shows how work grows with the input, not how many milliseconds it takes.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+Time and space are estimated separately. Space means extra memory, not counting the input: a pass with a `HashSet<T>` costs O(n) space, a double loop costs O(1).
+
+| Case | Meaning | Example |
+|---|---|---|
+| Worst | a bound for any input | quicksort with bad pivots — O(n²) |
+| Average | expectation on a typical input | hash table lookup — O(1) |
+| Amortized | average over a series of operations | `List<T>.Add` — O(1) |
+
+Amortized analysis is not about probability. It is a guarantee for any series: the rare expensive operations are paid for by many cheap ones.
+
+**Pitfalls**
+
+- **Hidden cost of a call.** `string +=` copies the string, `List<T>.Remove` shifts elements — each call is O(n).
+- **Two parameters.** A loop over n orders with a nested loop over m items is O(n·m), not O(n²).
+- **Recursion uses memory.** A depth of d takes O(d) stack space, even without any collections.
+- **Repeated enumeration.** `Count()` on a lazy `IEnumerable<T>` inside a loop walks the sequence again every time.
+
+**Rule of thumb**
+
+For every solution, give two estimates — time and space — and say which case you mean.
+
+**Takeaway:** complexity is a pair of time and space plus the case: worst, average or amortized.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- O is an upper bound, Ω a lower bound, Θ a tight bound. Comparison sorting cannot beat Ω(n log n) in the worst case.
+- Recursion is analysed with a recurrence. Binary search: T(n) = T(n/2) + O(1), which is O(log n). Mergesort: T(n) = 2T(n/2) + O(n), which is O(n log n).
+- Naive recursive Fibonacci makes an exponential number of calls: every branch splits in two.
+
+**Cost**
+
+- Big O hides constants: allocations, CPU cache misses, delegate calls.
+- For small n, constants decide. That's why `Array.Sort` sorts partitions of up to 16 elements with insertion sort, even though it's O(n²).
+
+**Trade-offs**
+
+- **Time versus memory.** A `HashSet<T>` turns O(n²) into O(n) at the price of O(n) memory. Precomputation — an index, prefix sums — moves work into preparation.
+- **Worst case on untrusted input.** An attacker crafts input that hits the worst case: hash collisions, catastrophic regex backtracking. For regular expressions, .NET 7+ has `RegexOptions.NonBacktracking`, which runs in time linear in the input length.
+
+**How to check in production**
+
+<T k="benchmarkdotnet">BenchmarkDotNet</T> with `[Params]` over several values of n shows the growth curve: time grows 4× when n doubles — the algorithm is quadratic. The hot method shows up in a dotnet-trace or PerfView trace.
+
+**Takeaway:** asymptotics rules out bad solutions, while constants, memory and measurements decide between good ones.
+
+</A>
+
+<Ex>
+
+```csharp
+int[] data = [3, 8, 1, 9, 4, 8];
+
+Console.WriteLine(HasDuplicatesPairs(data));  // True
+Console.WriteLine(HasDuplicatesHashSet(data)); // True
+Console.WriteLine(HasDuplicatesSorted(data));  // True
+
+// All pairs: O(n²) time, O(1) space
+static bool HasDuplicatesPairs(int[] a)
+{
+    for (int i = 0; i < a.Length; i++)
+        for (int j = i + 1; j < a.Length; j++) // n(n-1)/2 comparisons
+            if (a[i] == a[j]) return true;
+    return false;
+}
+
+// One pass: O(n) average time, O(n) space
+static bool HasDuplicatesHashSet(int[] a)
+{
+    var seen = new HashSet<int>();
+    foreach (int x in a)
+        if (!seen.Add(x)) return true; // Add returns false for a repeat
+    return false;
+}
+
+// Sort a copy and compare neighbours: O(n log n) time, O(n) space for the copy
+static bool HasDuplicatesSorted(int[] a)
+{
+    int[] copy = [.. a];
+    Array.Sort(copy);
+    for (int i = 1; i < copy.Length; i++)
+        if (copy[i] == copy[i - 1]) return true;
+    return false;
+}
+```
+
+Three solutions to one problem — three different time/space trade-offs. Sorting in place would make space O(1), but it would mutate the caller's array.
+
+</Ex>
+
+<Next>
+
+- How is amortized complexity different from average? — Amortized holds for any series of operations; average depends on the input distribution.
+- What is the complexity of two sequential loops over n? — O(n): O(n) + O(n) = O(2n), and the constant is dropped.
+- What is the complexity of `s += x` in a loop of n iterations? — O(n²) in total copying; use `StringBuilder` or `string.Join`.
+- Why can O(n) lose to O(n²) in practice? — Constants and small n: allocations and cache misses matter more than asymptotics.
+- How do you analyse recursion? — Write down the recurrence and solve it: with a recursion tree or the master theorem.
+
+</Next>
+
+<Src>
+
+- [Analysis of Algorithms — Sedgewick, Wayne. Algorithms, 4th ed.](https://algs4.cs.princeton.edu/14analysis/)
+- [Big O notation — Wikipedia](https://en.wikipedia.org/wiki/Big_O_notation)
+- [Regular expression options: NonBacktracking](https://learn.microsoft.com/dotnet/standard/base-types/regular-expression-options)
+
+</Src>
+
+</Q>
+
+<Q id="basics.algo.structures" level="j">
+
+## Which data structures should you know and what is each one for?
+
+<A short l="j">
+
+A data structure is a way to organise data around the operations you need: an array gives you an element by index, a <T k="hash-table">hash table</T> a value by key, a stack and a queue a processing order, a tree ordered keys, a heap a fast minimum, and a graph relationships between objects. Most of them have a ready-made type in .NET, so in an interview you name both the structure and the class.
+
+</A>
+
+<A short l="m">
+
+Structures differ in which operations are fast: a <T k="linked-list">linked list</T> inserts in O(1) at a known node but searches in O(n), a <T k="binary-search-tree">search tree</T> keeps keys ordered with O(log n) operations, and a <T k="binary-heap">heap</T> gives you the minimum in O(log n) — that's `PriorityQueue<TElement, TPriority>` since .NET 6. The choice starts with "which operation is the most frequent". The cost is memory and slower other operations.
+
+</A>
+
+<A short l="s">
+
+A data structure is a set of operation guarantees plus a memory layout, and in production the layout matters just as much: arrays are contiguous, while node-based structures allocate an object per element. The BCL has no <T k="graph">graph</T> type — you store one as an <T k="adjacency-list">adjacency list</T> on top of `Dictionary`. `PriorityQueue` can't update a priority, and its `Remove` (.NET 9) is linear, so Dijkstra's algorithm pushes duplicates and skips stale entries. For top-k, a heap of size k gives O(n log k) instead of O(n log n) for a full sort.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **Stack** — LIFO: last in, first out. **Queue** — FIFO: first in, first out.
+- A **search tree** keeps keys in order, a **heap** always knows the smallest element.
+- A **graph** is vertices and edges: roads, dependencies, connections between people.
+
+**How to use**
+
+| Structure | .NET type | Typical task |
+|---|---|---|
+| Array | `T[]`, `List<T>` | data by index |
+| Stack | `Stack<T>` | brackets, undo, depth-first traversal |
+| Queue | `Queue<T>` | jobs in order, breadth-first traversal |
+| Hash table | `Dictionary`, `HashSet<T>` | lookup, counting, duplicates |
+| Search tree | `SortedSet<T>`, `SortedDictionary` | order, minimum, ranges |
+| Heap | `PriorityQueue<TElement, TPriority>` | jobs by priority, top-k |
+
+**Common mistake**
+
+Writing your own structure in an interview when a ready-made one exists. Unless asked otherwise, the interviewer usually expects `Stack<T>` or `PriorityQueue`, not a hand-rolled class.
+
+**Takeaway:** pick the structure by the operation that has to be fast.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+| Structure | Lookup | Insert and delete |
+|---|---|---|
+| Array, `List<T>` | by index O(1), by value O(n) | at the end O(1) amortized, in the middle O(n) |
+| `LinkedList<T>` | O(n) | O(1) at a known node |
+| `Stack<T>`, `Queue<T>` | top or head only, O(1) | O(1) amortized |
+| `Dictionary`, `HashSet<T>` | O(1) on average | O(1) on average |
+| `SortedSet<T>`, `SortedDictionary` | O(log n) | O(log n) |
+| `PriorityQueue` | minimum O(1) | O(log n) |
+
+**Trees and heaps**
+
+- **Search tree.** A lookup walks down from the root: smaller goes left, larger goes right. The cost equals the height of the tree. Without balancing, sorted input stretches the tree into a list and gives O(n), so .NET uses a balanced <T k="red-black-tree">red-black tree</T>.
+- **Heap.** A tree stored in an array where a parent is never larger than its children, so the minimum sits at the root. Insertion sifts an element up, extraction sifts the new root down — O(log n).
+
+**Pitfalls**
+
+- `PriorityQueue` doesn't keep insertion order for equal priorities, and `UnorderedItems` doesn't enumerate by priority.
+- `Stack<T>` enumerates from the top, not in insertion order.
+- How `Dictionary` works and what hashing costs is covered in [Collections and LINQ](/sobes/en/dotnet/collections-linq/).
+
+**Rule of thumb**
+
+Name the dominant operation of the task, and the structure follows from it: lookup by key — hash table, order — tree, minimum — heap, processing order — stack or queue.
+
+**Takeaway:** every structure speeds up some operations at the expense of others, and choosing one answers the question "what do we do most often".
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- `PriorityQueue<TElement, TPriority>` is an array-backed quaternary (4-ary) min-heap: the tree is shallower than a binary one, and a node's children sit next to each other in memory.
+- There's no "update priority" operation. `Remove`, added in .NET 9, scans linearly — O(n).
+- A graph is stored as an adjacency list, `Dictionary<int, List<int>>`: O(V + E) memory. An adjacency matrix `bool[,]` checks an edge in O(1) but takes O(V²) — it's for dense graphs.
+
+**Cost**
+
+- Node-based structures (`LinkedList<T>`, `SortedSet<T>`) create an object per element: an allocation, an object header, references, scattering across the heap.
+- Array-based structures (`List<T>`, `Queue<T>`, `PriorityQueue`) store elements contiguously and are friendlier to the CPU cache.
+
+**Trade-offs**
+
+| Task | Option | Cost |
+|---|---|---|
+| top-k out of n | `PriorityQueue` of size k | O(n log k) instead of O(n log n) |
+| Dijkstra | `PriorityQueue` with duplicates | extra entries, skipping stale ones |
+| Dijkstra with removal | `SortedSet` of (distance, vertex) pairs | O(log n) removal, but nodes |
+| Rare inserts into ordered data | sorted `List<T>` plus `BinarySearch` | O(n) insert, but contiguous memory |
+
+**How to check in production**
+
+The number of node objects shows up in `dotnet-gcdump`. When choosing between two structures, confirm it with BenchmarkDotNet and `[MemoryDiagnoser]` on realistic data volumes.
+
+**Takeaway:** asymptotics drives the choice of structure, while memory layout and missing operations decide how it behaves in production.
+
+</A>
+
+<Ex>
+
+```csharp
+// Heap: the lowest priority comes out first
+var tasks = new PriorityQueue<string, int>();
+tasks.Enqueue("deploy", 2);
+tasks.Enqueue("hotfix", 1);
+tasks.Enqueue("refactor", 3);
+Console.WriteLine(tasks.Dequeue()); // hotfix — O(log n)
+
+// Search tree: order, minimum and ranges
+var prices = new SortedSet<int> { 50, 10, 40, 20, 30 };
+Console.WriteLine(prices.Min);                                      // 10
+Console.WriteLine(string.Join(",", prices.GetViewBetween(15, 40))); // 20,30,40
+
+// Stack: bracket matching — a classic task
+Console.WriteLine(IsBalanced("([]{})")); // True
+Console.WriteLine(IsBalanced("(]"));     // False
+
+static bool IsBalanced(string s)
+{
+    var stack = new Stack<char>();
+    foreach (char c in s)
+    {
+        if (c is '(' or '[' or '{') stack.Push(c);
+        else if (stack.Count == 0 || stack.Pop() != Opening(c)) return false;
+    }
+    return stack.Count == 0; // unclosed brackets are an error too
+}
+
+static char Opening(char close) => close switch { ')' => '(', ']' => '[', _ => '{' };
+```
+
+</Ex>
+
+<Next>
+
+- How does a heap work and why is the minimum O(1)? — A parent is never larger than its children, so the minimum is always at the root; extraction is O(log n).
+- Why is the .NET search tree balanced? — Otherwise sorted input turns it into a list and operations degrade to O(n).
+- How do you store a graph in C#? — An adjacency list `Dictionary<T, List<T>>`; an adjacency matrix for dense graphs.
+- How do you find the k largest out of a million elements? — A heap of size k: O(n log k) time and O(k) memory.
+- Does `PriorityQueue` keep order for equal priorities? — No; if you need FIFO, add a sequence number to the priority.
+
+</Next>
+
+<Src>
+
+- [`PriorityQueue<TElement,TPriority>` — API reference](https://learn.microsoft.com/dotnet/api/system.collections.generic.priorityqueue-2)
+- [Selecting a collection class](https://learn.microsoft.com/dotnet/standard/collections/selecting-a-collection-class)
+- [Priority Queues — Sedgewick, Wayne. Algorithms, 4th ed.](https://algs4.cs.princeton.edu/24pq/)
+
+</Src>
+
+</Q>
+
+<Q id="basics.algo.sorting-searching" level="m">
+
+## Which sorting and searching algorithms should you know?
+
+<A short l="j">
+
+<T k="binary-search">Binary search</T> finds an element in a sorted array in O(log n) by discarding half of the range at each step; linear search works on any array but takes O(n). Comparison sorts are at best O(n log n), and in .NET you don't write your own: `Array.Sort` and `List<T>.Sort` sort in place, while `OrderBy` returns a new sequence.
+
+</A>
+
+<A short l="m">
+
+The core sorts are <T k="quicksort">quicksort</T> (O(n log n) on average, O(n²) in the worst case, in place), <T k="merge-sort">merge sort</T> (always O(n log n), <T k="stable-sort">stable</T>, but O(n) extra memory) and <T k="heapsort">heapsort</T> (O(n log n) with no extra memory, unstable). `Array.Sort` and `List<T>.Sort` use the hybrid <T k="introsort">introsort</T> and are unstable, while `OrderBy` is stable. So sorting by several keys is done with `OrderBy(...).ThenBy(...)` or a comparer with a tie-breaking key.
+
+</A>
+
+<A short l="s">
+
+Introsort is a quicksort that switches to insertion sort for partitions of up to 16 elements and to heapsort when partitioning gets too deep; that keeps the worst case at O(n log n) without an extra buffer. The price is instability, and the stable `OrderBy` pays in memory: a buffer of elements, an array of keys and an index map. Binary search looks trivial, but off-by-one errors and the overflow in `(lo + hi) / 2` lived for years even in standard libraries. That's why in an interview you write one proven template and run it through the edge cases.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **Linear search** checks elements one by one: O(n), works on any array.
+- **Binary search** needs a sorted array and halves the range: O(log n). A million elements take at most 20 steps.
+
+**How binary search works**
+
+1. Bounds: `lo = 0`, `hi = n - 1`.
+2. Middle: `mid = lo + (hi - lo) / 2`.
+3. `a[mid] == target` — found.
+4. `a[mid] < target` — search to the right: `lo = mid + 1`. Otherwise to the left: `hi = mid - 1`.
+5. Repeat while `lo <= hi`. When the bounds cross, the element isn't there.
+
+**How to use**
+
+- Sorting: `Array.Sort(array)`, `list.Sort()`, `items.OrderBy(x => x.Name)`.
+- Searching: `Array.BinarySearch` and `List<T>.BinarySearch`. If the element is missing, they return a negative number, and `~result` is the index where it should be inserted.
+
+**Common mistake**
+
+Running binary search on an unsorted array. There's no exception — just a wrong answer.
+
+**Takeaway:** binary search is O(log n), but only on sorted data; take sorting from the library.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+| Algorithm | Time | Memory and stability |
+|---|---|---|
+| Insertion | O(n²), close to O(n) on nearly sorted data | O(1), stable |
+| Quicksort | O(n log n) average, O(n²) worst | O(log n) stack, unstable |
+| Merge | O(n log n) always | O(n), stable |
+| Heap | O(n log n) always | O(1), unstable |
+
+A stable sort preserves the original order of equal elements. It matters when the data is already ordered by another field.
+
+**What .NET uses**
+
+| Method | Algorithm | Stable |
+|---|---|---|
+| `Array.Sort`, `List<T>.Sort`, `Span<T>.Sort()` | introsort, in place | no |
+| `OrderBy`, `ThenBy` (LINQ) | sort in a buffer | yes |
+
+**Pitfalls**
+
+- **Search bounds.** Mixing `lo < hi` with `hi = mid - 1`, or `lo <= hi` with `hi = mid`, skips an element or loops forever.
+- **Duplicates.** `Array.BinarySearch` returns the index of one of the equal elements, not necessarily the first. For the first occurrence you need the "lower bound" variant.
+- **An `a - b` comparer.** It overflows on large numbers. Use `a.CompareTo(b)`.
+
+**Rule of thumb**
+
+Don't write your own sort in production code. Need stability — use `OrderBy` or a comparer with a tie-breaker. Test binary search on an empty array, a single element and elements at both ends.
+
+**Takeaway:** `Array.Sort` is fast and unstable, `OrderBy` is stable and costs more memory, and binary search breaks at the boundaries.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+Introsort in `Array.Sort`, per the documentation:
+
+1. A partition of up to 16 elements — insertion sort.
+2. The number of partitions exceeds 2·log n — heapsort.
+3. Otherwise — quicksort.
+
+This protects quicksort from its O(n²) worst case. .NET Framework 4 and earlier used plain quicksort.
+
+**Cost**
+
+- `Array.Sort` on primitives without a comparer doesn't invoke a delegate per comparison. With a `Comparison<T>`, every comparison is an indirect call.
+- `OrderBy` copies elements into a buffer, computes an array of keys and sorts indexes — O(n) extra memory.
+- The Ω(n log n) lower bound applies only to comparison sorts. Counting sort or radix sort handle integers from a small range in O(n + k).
+
+**Trade-offs**
+
+- **Full or partial sort.** If you need the k smallest, a heap at O(n log k) beats sorting at O(n log n).
+- **Sort or hash.** A one-off search in unsorted data is a linear scan. Many searches — sort plus binary search, or a `HashSet<T>`.
+- **Data doesn't fit in memory.** External merge sort: sort chunks, then merge them. That's also how a database sorts when it runs out of memory.
+
+**How to check in production**
+
+BenchmarkDotNet with `[MemoryDiagnoser]` on real data compares `Array.Sort` and `OrderBy`: the difference in allocations is visible immediately.
+
+**Takeaway:** introsort gives O(n log n) in the worst case without a buffer at the cost of stability, and picking a sort method is picking between stability and memory.
+
+</A>
+
+<Ex>
+
+```csharp
+int[] sorted = [1, 3, 5, 7, 9, 11];
+
+Console.WriteLine(BinarySearch(sorted, 7));       // 3
+Console.WriteLine(BinarySearch(sorted, 4));       // -1
+Console.WriteLine(BinarySearch([], 4));           // -1 — empty array
+Console.WriteLine(Array.BinarySearch(sorted, 4)); // -3: ~(-3) = 2 — where 4 should go
+
+static int BinarySearch(int[] a, int target)
+{
+    int lo = 0, hi = a.Length - 1;     // search in [lo, hi] inclusive
+    while (lo <= hi)                   // <=, otherwise we skip the last candidate
+    {
+        int mid = lo + (hi - lo) / 2;  // not (lo + hi) / 2: int overflow
+        if (a[mid] == target) return mid;
+        if (a[mid] < target) lo = mid + 1; // mid is already checked
+        else hi = mid - 1;
+    }
+    return -1;
+}
+```
+
+</Ex>
+
+<Ex title="Sort stability">
+
+```csharp
+Order[] orders = [new(1, "B"), new(2, "A"), new(3, "B"), new(4, "A")];
+
+// OrderBy is stable: equal Customer values keep their original order
+var byCustomer = orders.OrderBy(o => o.Customer).Select(o => o.Id);
+Console.WriteLine(string.Join(" ", byCustomer)); // 2 4 1 3
+
+// Array.Sort is unstable: add a second key to guarantee the order
+var copy = orders.ToArray();
+Array.Sort(copy, (x, y) =>
+{
+    int byName = string.CompareOrdinal(x.Customer, y.Customer);
+    return byName != 0 ? byName : x.Id.CompareTo(y.Id);
+});
+Console.WriteLine(string.Join(" ", copy.Select(o => o.Id))); // 2 4 1 3
+
+record Order(int Id, string Customer);
+```
+
+With four elements `Array.Sort` uses insertion sort and happens to keep the order, but on large arrays there's no guarantee — hence the second key.
+
+</Ex>
+
+<Next>
+
+- Why is quicksort O(n²) in the worst case? — A bad pivot splits the array into 0 and n−1 elements, for example on sorted input with the first element as the pivot.
+- Why does introsort switch to heapsort? — To cap the worst case at O(n log n) when partitioning gets too deep.
+- How do you find the first occurrence among duplicates? — Lower bound: on a match, don't return; move `hi` and keep going.
+- Why not `(lo + hi) / 2`? — The sum overflows `int` on large arrays; `lo + (hi - lo) / 2` is safe.
+- When can sorting beat O(n log n)? — Without comparisons: counting or radix sort, when keys are integers from a small range.
+
+</Next>
+
+<Src>
+
+- [Array.Sort — API reference (Remarks)](https://learn.microsoft.com/dotnet/api/system.array.sort)
+- [Enumerable.OrderBy — API reference](https://learn.microsoft.com/dotnet/api/system.linq.enumerable.orderby)
+- [Nearly All Binary Searches and Mergesorts are Broken — Google Research](https://research.google/blog/extra-extra-read-all-about-it-nearly-all-binary-searches-and-mergesorts-are-broken/)
+
+</Src>
+
+</Q>
+
+<Q id="basics.algo.recursion-dp" level="m">
+
+## Recursion and dynamic programming: how do you recognise and solve the problem?
+
+<A short l="j">
+
+<T k="recursion">Recursion</T> is when a function calls itself on a smaller subproblem and stops at a base case. <T k="dynamic-programming">Dynamic programming</T> is used when the same subproblems repeat: you remember each answer, and an exponential search becomes fast, as with Fibonacci numbers.
+
+</A>
+
+<A short l="m">
+
+Recursion needs a base case and a step that moves towards it; every call takes a frame on the <T k="call-stack">call stack</T>, so depth is limited. DP fits when a problem is built from optimal answers to subproblems and those subproblems overlap. <T k="memoization">Memoization</T> caches top-down recursion, <T k="tabulation">tabulation</T> fills a table bottom-up without recursion; both cost memory for the answers, but time drops from O(2^n) to O(n) or O(n·m).
+
+</A>
+
+<A short l="s">
+
+You recognise DP by the wording: "how many ways", "minimum or maximum", "is it possible" over prefixes, sums or pairs of indexes. The solution is to define the state and the transition; the complexity is the number of states times the cost of a transition. In .NET deep recursion is dangerous: `StackOverflowException` can't be caught and kills the process, and C# doesn't guarantee <T k="tail-call">tail call optimization</T>. So recursion over user-supplied data is replaced with an explicit stack or tabulation, which also lets you keep only the last rows of the table.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+A recursive function has two parts:
+
+1. **Base case** — an answer without recursion: `Fib(0) = 0`, `Fib(1) = 1`.
+2. **Recursive step** — reduction to a smaller problem: `Fib(n) = Fib(n - 1) + Fib(n - 2)`.
+
+**Why dynamic programming**
+
+Naive `Fib(n)` computes the same thing many times: `Fib(5)` calls `Fib(3)` twice and `Fib(2)` three times. The number of calls grows exponentially, and `Fib(50)` takes tens of billions of calls.
+
+**How to use**
+
+Store each subproblem's answer in a dictionary or an array, and check for it before computing. Then `Fib(50)` is 50 computations.
+
+**Common mistake**
+
+Forgetting the base case or writing a step that doesn't shrink the problem. The recursion becomes infinite, and `StackOverflowException` kills the process — `try`/`catch` won't catch it.
+
+**Takeaway:** recursion is a base case plus a step towards it, and DP is recursion that never computes the same thing twice.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+Every call pushes a frame with arguments and local variables onto the stack. Depth d means O(d) memory, and stack size is limited: per the .NET docs, the default is 1.5 MB on Windows and macOS and 8 MB on Linux.
+
+**How to solve a DP problem**
+
+1. **State.** What `dp[s]` means: for example, the minimum number of coins for sum s.
+2. **Transition.** `dp[s] = min(dp[s - c] + 1)` over all coins c.
+3. **Base.** `dp[0] = 0`.
+4. **Order and answer.** Sums from 0 to amount; the answer is `dp[amount]`.
+5. **Complexity.** States × transition: O(amount · k) for k coins.
+
+**When to choose what**
+
+| Approach | Pro | Con |
+|---|---|---|
+| Memoization (top-down) | code mirrors the formula, computes only needed states | recursion depth, dictionary overhead |
+| Tabulation (bottom-up) | no recursion, easy to compress memory | you must know the fill order |
+
+**Classics**
+
+- **Fibonacci** — O(n) time, O(1) memory with tabulation.
+- **Coin change** — O(amount · k).
+- **Longest common subsequence (LCS)** of two strings of lengths n and m: if the characters match, `dp[i, j] = dp[i - 1, j - 1] + 1`, otherwise `max(dp[i - 1, j], dp[i, j - 1])`. O(n·m).
+
+**Pitfalls**
+
+Greedy isn't always optimal. Coins 1, 3 and 4, sum 6: greedy gives 4 + 1 + 1 — three coins, while the optimum is 3 + 3 — two.
+
+**Takeaway:** a DP problem is solved by defining the state, the transition and the base, and memoization and tabulation are two ways to walk the same states.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- A stack frame holds arguments, local variables and the return address. `StackOverflowException` can't be caught: the process terminates.
+- `RuntimeHelpers.EnsureSufficientExecutionStack()` throws an ordinary `InsufficientExecutionStackException` when stack space is running low. That's how recursive expression tree visitors and parsers protect themselves.
+- The C# compiler doesn't mark tail calls. The JIT sometimes optimizes them on its own, but you can't rely on it.
+
+**Cost**
+
+- Memoization with a dictionary means hashing and allocations. If the state is a small integer, an array is faster.
+- The LCS table takes O(n·m) memory. If you only need the length, two rows are enough: O(min(n, m)).
+
+**Trade-offs**
+
+- **Recursion versus an explicit stack.** Recursion reads better for trees and depth-first traversal. If depth depends on the input — nested JSON, a long chain of references — use a `Stack<T>` and a loop.
+- **Memoization versus tabulation.** Memoization is easier to write in an interview straight from a recursive formula. Tabulation is safer and lets you compress memory.
+
+**How to check in production**
+
+A stack overflow kills the process without anything in the usual log. The runtime prints `Stack overflow.` and the repeated frames to stderr, and a crash dump (`DOTNET_DbgEnableMiniDump=1`) can be opened in `dotnet-dump` to inspect the stack.
+
+**Takeaway:** DP is states and transitions, and in .NET recursion over untrusted data is replaced with a loop because a stack overflow can't be caught.
+
+</A>
+
+<Ex title="Fibonacci: memoization and tabulation">
+
+```csharp
+Console.WriteLine(FibMemo(50, new Dictionary<int, long>())); // 12586269025
+Console.WriteLine(FibTable(50));                             // 12586269025
+
+// Top-down: recursion plus a cache, O(n) time and O(n) memory
+static long FibMemo(int n, Dictionary<int, long> memo)
+{
+    if (n < 2) return n;                               // base case
+    if (memo.TryGetValue(n, out long cached)) return cached;
+    return memo[n] = FibMemo(n - 1, memo) + FibMemo(n - 2, memo);
+}
+
+// Bottom-up: no recursion, O(n) time and O(1) memory
+static long FibTable(int n)
+{
+    long prev = 0, cur = 1;
+    for (int i = 0; i < n; i++)
+        (prev, cur) = (cur, prev + cur);
+    return prev;
+}
+```
+
+</Ex>
+
+<Ex title="Coin change">
+
+```csharp
+Console.WriteLine(MinCoins([1, 5, 10, 25], 63)); // 6: 25 + 25 + 10 + 1 + 1 + 1
+Console.WriteLine(MinCoins([1, 3, 4], 6));       // 2: 3 + 3, greedy would use 3 coins
+Console.WriteLine(MinCoins([2], 3));             // -1: impossible
+
+// dp[s] is the minimum number of coins for sum s; O(amount · k) time, O(amount) memory
+static int MinCoins(int[] coins, int amount)
+{
+    var dp = new int[amount + 1];
+    Array.Fill(dp, int.MaxValue);
+    dp[0] = 0;                                    // base: sum 0 takes zero coins
+    for (int s = 1; s <= amount; s++)
+        foreach (int c in coins)
+            if (c <= s && dp[s - c] != int.MaxValue)
+                dp[s] = Math.Min(dp[s], dp[s - c] + 1);
+    return dp[amount] == int.MaxValue ? -1 : dp[amount];
+}
+```
+
+</Ex>
+
+<Next>
+
+- How does memoization differ from tabulation? — Top-down with a cache versus bottom-up over a table; the latter has no recursion.
+- Can you catch a `StackOverflowException`? — No, the process terminates; protect yourself with a depth limit or an explicit stack.
+- How do you recognise a DP problem? — Optimal substructure and overlapping subproblems: "how many ways", "minimum", "is it possible".
+- Why doesn't greedy coin change always work? — For coins 1, 3, 4 and sum 6 greedy gives three coins, the optimum is two.
+- How do you reduce memory in LCS? — Keep only the last two rows of the table, if you don't need the subsequence itself.
+
+</Next>
+
+<Src>
+
+- [StackOverflowException — API reference](https://learn.microsoft.com/dotnet/api/system.stackoverflowexception)
+- [RuntimeHelpers.EnsureSufficientExecutionStack](https://learn.microsoft.com/dotnet/api/system.runtime.compilerservices.runtimehelpers.ensuresufficientexecutionstack)
+- [Dynamic programming — Wikipedia](https://en.wikipedia.org/wiki/Dynamic_programming)
+
+</Src>
+
+</Q>
+
+<Q id="basics.algo.live-coding" level="s">
+
+## How do you approach a live coding task and which techniques come up most often?
+
+<A short l="j">
+
+Live coding tests not only the answer but also your thinking: clarify the problem, walk through an example, write a simple solution, improve it and check edge cases, reasoning out loud the whole time. Most tasks are solved with a handful of techniques: a hash table, <T k="two-pointers">two pointers</T>, a <T k="sliding-window">sliding window</T>, graph traversal.
+
+</A>
+
+<A short l="m">
+
+The order is: clarify input and constraints, walk through an example, name the brute-force solution and its complexity, optimise, write the code and run tests out loud. Optimising usually means recognising a technique: a pair with a given sum — hash table, a sorted array — two pointers, a subarray — sliding window or <T k="prefix-sum">prefix sums</T>, a shortest path — <T k="bfs">BFS</T>, dependencies — <T k="topological-sort">topological sort</T>. Each speed-up usually costs memory, and you say so.
+
+</A>
+
+<A short l="s">
+
+The interviewer judges communication, how you handle ambiguity and how you verify your own code as much as the final algorithm. A strong candidate names the trade-offs unprompted: O(n) memory for O(n) time, sorting in place mutates the input, recursive <T k="dfs">DFS</T> on a deep graph will overflow the stack. A working O(n²) with an honest estimate beats an unfinished O(n), so you finish the simple solution first and propose improvements afterwards.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+Live coding means solving a problem in front of the interviewer in an editor or on a whiteboard. They assess your reasoning, your code and how you test it.
+
+**How to use**
+
+1. **Clarify the problem.** Input size, negative numbers, duplicates, empty input, what to return when there's no answer.
+2. **Work through an example by hand.** It proves you understood the task.
+3. **Name the brute-force solution** and its complexity, even if it's slow.
+4. **Improve it.** Find the repeated work and remove it.
+5. **Write the code** with clear names.
+6. **Test out loud:** the example, empty input, one element, duplicates.
+
+**Common mistake**
+
+Silently writing code right after reading the problem. If the solution hits a dead end, the interviewer has no way to help you and nothing to assess.
+
+**Takeaway:** in live coding the solution is a process out loud: problem, example, simple solution, improvement, testing.
+
+</A>
+
+<A l="m">
+
+**When to choose what**
+
+| Signal in the problem | Technique | Complexity |
+|---|---|---|
+| Pair, duplicate, frequencies | hash table | O(n), O(n) memory |
+| Sorted array, pair, palindrome | two pointers | O(n), O(1) memory |
+| Longest or shortest subarray | sliding window | O(n) |
+| Many range-sum queries | prefix sums | O(n) setup, O(1) per query |
+| Unweighted shortest path, grid | BFS | O(V + E) |
+| Connectivity, all paths, search | DFS | O(V + E) |
+| Order with dependencies | topological sort | O(V + E) |
+| k largest | `PriorityQueue` of size k | O(n log k) |
+
+**Walkthrough: two sum**
+
+Find the indexes of two numbers that add up to target. Brute force — all pairs, O(n²). Speed-up: for each x, look up `target - x` among the numbers already seen in a `Dictionary`. Total: O(n) time and O(n) memory.
+
+**Walkthrough: longest substring without repeats**
+
+The window `[left, right]` grows to the right. If a character is already in the window, `left` jumps past its previous position. Each index moves at most once — O(n).
+
+**Pitfalls**
+
+- Sum overflow: sum a large `int` array into a `long`.
+- BFS and DFS without marking visited vertices loop forever on a graph with a cycle.
+- Modifying a collection during `foreach` throws `InvalidOperationException`.
+
+**Rule of thumb**
+
+Recognise the technique from the signal in the problem first, then write code.
+
+**Takeaway:** most tasks boil down to about ten techniques, and recognising the technique is half the solution.
+
+</A>
+
+<A l="s">
+
+**How to talk while solving**
+
+- State your assumptions: "I'm assuming the input fits in memory."
+- Name the complexity of an option before writing code.
+- First a plan in two or three sentences, then the code.
+- Stuck — say what you're considering and ask about the constraints.
+- After coding, trace the example line by line, like a debugger.
+
+**Trade-offs**
+
+- **Time versus memory.** A hash table gives O(n) with O(n) memory. Sorting plus two pointers is O(n log n) but O(1) extra memory, if you're allowed to modify the input.
+- **Mutating the input.** Sorting in place changes the caller's array — ask whether that's allowed.
+- **Recursion versus an explicit stack.** Recursive DFS is shorter, while a `Stack<T>` survives a deep graph.
+
+**Walkthrough: topological sort**
+
+Kahn's algorithm:
+
+1. Count the in-degree of every vertex.
+2. Put vertices with no incoming edges into a queue.
+3. Dequeue a vertex, add it to the result, decrement the in-degree of its neighbours. When one reaches zero, enqueue it.
+4. If the result doesn't contain all vertices, the graph has a cycle.
+
+Complexity — O(V + E). This is how build steps, migrations and jobs with dependencies get ordered.
+
+**How to check the solution**
+
+- Edge cases: empty input, one element, all elements equal, negative numbers, maximum n.
+- Estimate against the constraints: at n = 10^5, an O(n²) solution is 10^10 operations — seconds instead of milliseconds.
+
+**Takeaway:** at senior level they assess not only the algorithm but how you drive the solution: assumptions, trade-offs and self-checking.
+
+</A>
+
+<Ex title="Hash table and sliding window">
+
+```csharp
+Console.WriteLine(string.Join(",", TwoSum([2, 7, 11, 15], 9))); // 0,1
+Console.WriteLine(LongestUniqueRun("abcabcbb"));                // 3: "abc"
+Console.WriteLine(LongestUniqueRun(""));                        // 0 — edge case
+
+// For each x, look up target - x among the numbers seen: O(n) time, O(n) memory
+static int[] TwoSum(int[] nums, int target)
+{
+    var indexOf = new Dictionary<int, int>();
+    for (int i = 0; i < nums.Length; i++)
+    {
+        if (indexOf.TryGetValue(target - nums[i], out int j)) return [j, i];
+        indexOf[nums[i]] = i;
+    }
+    return [];
+}
+
+// Window [left, right] without repeats: O(n), each index moves once
+static int LongestUniqueRun(string s)
+{
+    var lastSeen = new Dictionary<char, int>();
+    int best = 0, left = 0;
+    for (int right = 0; right < s.Length; right++)
+    {
+        if (lastSeen.TryGetValue(s[right], out int prev) && prev >= left)
+            left = prev + 1;                      // jump past the repeat
+        lastSeen[s[right]] = right;
+        best = Math.Max(best, right - left + 1);
+    }
+    return best;
+}
+```
+
+</Ex>
+
+<Ex title="Two pointers and prefix sums">
+
+```csharp
+int[] sorted = [1, 2, 4, 7, 11, 15];
+Console.WriteLine(PairWithSum(sorted, 15)); // (4, 11)
+Console.WriteLine(PairWithSum(sorted, 100) is null); // True — no such pair
+
+int[] sales = [3, 1, 4, 1, 5, 9];
+var prefix = new int[sales.Length + 1];      // prefix[i] is the sum of the first i elements
+for (int i = 0; i < sales.Length; i++)
+    prefix[i + 1] = prefix[i] + sales[i];
+Console.WriteLine(prefix[5] - prefix[2]);    // 10: sales[2] + sales[3] + sales[4] in O(1)
+
+// Sorted array, pointers from both ends: O(n) time, O(1) memory
+static (int, int)? PairWithSum(int[] a, int target)
+{
+    int left = 0, right = a.Length - 1;
+    while (left < right)
+    {
+        int sum = a[left] + a[right];
+        if (sum == target) return (a[left], a[right]);
+        if (sum < target) left++;            // need a bigger sum
+        else right--;                        // need a smaller sum
+    }
+    return null;
+}
+```
+
+</Ex>
+
+<Ex title="Topological sort (Kahn's algorithm)">
+
+```csharp
+// Edge a → b: step a must run before b
+var graph = new Dictionary<string, string[]>
+{
+    ["restore"] = ["build"],
+    ["build"] = ["test", "pack"],
+    ["test"] = ["deploy"],
+    ["pack"] = ["deploy"],
+    ["deploy"] = [],
+};
+Console.WriteLine(string.Join(" ", TopoSort(graph))); // restore build test pack deploy
+
+// O(V + E): BFS over vertices that have no incoming edges left
+static List<string> TopoSort(Dictionary<string, string[]> graph)
+{
+    var inDegree = graph.Keys.ToDictionary(v => v, _ => 0);
+    foreach (var targets in graph.Values)
+        foreach (var t in targets) inDegree[t]++;
+
+    var queue = new Queue<string>(inDegree.Where(p => p.Value == 0).Select(p => p.Key));
+    var order = new List<string>();
+    while (queue.Count > 0)
+    {
+        var v = queue.Dequeue();
+        order.Add(v);
+        foreach (var t in graph[v])
+            if (--inDegree[t] == 0) queue.Enqueue(t);
+    }
+    if (order.Count != graph.Count) throw new InvalidOperationException("Cycle detected");
+    return order;
+}
+```
+
+</Ex>
+
+<Next>
+
+- What if you don't know the optimal solution? — Write and test the brute force, state its complexity and reason out loud about where the extra work is.
+- How does BFS differ from DFS? — BFS goes level by level with a queue and finds the unweighted shortest path; DFS goes deep with a stack or recursion.
+- How do you detect a cycle in a dependency graph? — Kahn's algorithm: if not all vertices made it into the result, there's a cycle.
+- When are two pointers better than a hash table? — When the array is already sorted or memory is tight: O(1) memory instead of O(n).
+- Which tests should you run out loud? — The example from the problem, empty input, one element, duplicates, negative numbers, maximum size.
+
+</Next>
+
+<Src>
+
+- [Undirected Graphs: BFS and DFS — Sedgewick, Wayne. Algorithms, 4th ed.](https://algs4.cs.princeton.edu/41graph/)
+- [Directed Graphs: topological sort — Sedgewick, Wayne. Algorithms, 4th ed.](https://algs4.cs.princeton.edu/42digraph/)
+- [MIT 6.006 Introduction to Algorithms](https://ocw.mit.edu/courses/6-006-introduction-to-algorithms-spring-2020/)
+
+</Src>
+
+</Q>

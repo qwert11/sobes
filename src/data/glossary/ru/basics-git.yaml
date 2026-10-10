@@ -1,0 +1,164 @@
+distributed-vcs:
+  term: Распределённая система контроля версий (DVCS)
+  def: >-
+    Система контроля версий, в которой у каждого участника полная копия репозитория со всей
+    историей. Коммиты создаются локально, а с сервером и другими копиями обмениваются отдельными
+    командами. Примеры — Git и Mercurial; SVN, наоборот, централизованная.
+  q: distributed version control system
+  docs: https://git-scm.com/book/en/v2/Getting-Started-About-Version-Control
+  wiki: Распределенная система контроля версий
+staging-area:
+  term: Индекс (staging area)
+  def: >-
+    Промежуточная область между рабочей копией и репозиторием: в неё командой `git add` кладут
+    изменения, которые войдут в следующий коммит. Позволяет закоммитить только часть правок.
+  q: git staging area index
+  docs: https://git-scm.com/book/en/v2/Git-Basics-Recording-Changes-to-the-Repository
+git-commit:
+  term: Коммит (commit)
+  def: >-
+    Зафиксированный снимок всех файлов проекта вместе с автором, датой, сообщением и ссылкой на
+    родительский коммит. Идентифицируется хешем и после создания не меняется.
+  q: git commit
+  docs: https://git-scm.com/docs/git-commit
+git-remote:
+  term: Удалённый репозиторий (remote)
+  def: >-
+    Именованная ссылка на другую копию репозитория, обычно на сервере: `origin` создаётся при
+    `git clone`. С ним обмениваются коммитами командами `fetch`, `pull` и `push`.
+  q: git remote
+  docs: https://git-scm.com/book/en/v2/Git-Basics-Working-with-Remotes
+git-branch:
+  term: Ветка (branch)
+  def: >-
+    Подвижный указатель на коммит. При новом коммите текущая ветка автоматически сдвигается на
+    него, поэтому создать ветку — значит записать один хеш, а не копировать файлы.
+  q: git branch
+  docs: https://git-scm.com/book/en/v2/Git-Branching-Branches-in-a-Nutshell
+remote-tracking-branch:
+  term: Ветка удалённого отслеживания (remote-tracking branch)
+  def: >-
+    Локальная ссылка вида `origin/main`, которая запоминает, где была ветка на сервере при последнем
+    `fetch`. Вы не коммитите в неё напрямую: её обновляют `fetch` и `pull`.
+  q: git remote-tracking branch
+  docs: https://git-scm.com/book/en/v2/Git-Branching-Remote-Branches
+fast-forward:
+  term: Fast-forward (перемотка вперёд)
+  def: >-
+    Вид слияния, когда целевая ветка не содержит новых коммитов и Git просто сдвигает её указатель
+    на вершину вливаемой ветки. Коммит слияния не создаётся.
+  q: git fast-forward merge
+  docs: https://git-scm.com/docs/git-merge#_fast_forward_merge
+git-rebase:
+  term: Rebase (перебазирование)
+  def: >-
+    Перенос коммитов ветки на новую базу: Git заново применяет каждый коммит поверх другой ветки и
+    создаёт его копию с новым хешем. Делает историю линейной, но переписывает её.
+  q: git rebase
+  docs: https://git-scm.com/book/en/v2/Git-Branching-Rebasing
+force-with-lease:
+  term: git push --force-with-lease
+  def: >-
+    Принудительная отправка, которая перезаписывает ветку на сервере, только если та указывает на
+    тот же коммит, что ваша ветка удалённого отслеживания. Защищает от затирания чужих коммитов
+    после rebase.
+  q: git push force-with-lease
+  docs: https://git-scm.com/docs/git-push#Documentation/git-push.txt---force-with-lease
+pull-request:
+  term: Pull request (PR, merge request)
+  def: >-
+    Запрос на слияние ветки в другую ветку на платформе вроде GitHub, GitLab или Azure DevOps.
+    Вокруг него идут ревью, обсуждение и проверки CI; в GitLab он называется merge request.
+  q: pull request
+  docs: https://docs.github.com/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/about-pull-requests
+squash-merge:
+  term: Squash merge
+  def: >-
+    Способ слить pull request, при котором все коммиты ветки объединяются в один коммит в целевой
+    ветке. История `main` получается короткой, но промежуточные коммиты в неё не попадают.
+  q: GitHub squash and merge
+  docs: https://docs.github.com/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/about-merge-methods-on-github
+interactive-rebase:
+  term: Интерактивный rebase (interactive rebase)
+  def: >-
+    `git rebase -i`: rebase, при котором вы редактируете список коммитов — меняете порядок,
+    объединяете (`squash`, `fixup`), правите сообщения или удаляете коммиты. Служит для чистки своей
+    ветки перед pull request.
+  q: git interactive rebase
+  docs: https://git-scm.com/book/en/v2/Git-Tools-Rewriting-History
+cherry-pick:
+  term: Cherry-pick
+  def: >-
+    Команда `git cherry-pick`, которая применяет изменения одного коммита поверх текущей ветки и
+    создаёт новый коммит с тем же содержимым правки. С ключом `-x` в сообщение добавляется ссылка на
+    исходный коммит.
+  q: git cherry-pick
+  docs: https://git-scm.com/docs/git-cherry-pick
+git-flow:
+  term: Git Flow
+  def: >-
+    Модель ветвления Винсента Дриссена (2010): долгоживущие `main` и `develop`, ветки `feature/*`,
+    `release/*` и `hotfix/*`. Рассчитана на версионируемые продукты; для continuous delivery автор
+    советует модель проще.
+  q: git flow branching model
+  docs: https://nvie.com/posts/a-successful-git-branching-model/
+github-flow:
+  term: GitHub Flow
+  def: >-
+    Простая модель ветвления: короткая ветка от `main`, pull request с ревью и проверками, слияние в
+    `main` и удаление ветки. `main` всегда готов к выкладке.
+  q: GitHub flow
+  docs: https://docs.github.com/get-started/using-github/github-flow
+trunk-based-development:
+  term: Trunk-based development (разработка в основной ветке)
+  def: >-
+    Модель, при которой все разработчики часто вливают небольшие изменения в одну ветку (trunk,
+    обычно `main`) и не держат других долгоживущих веток разработки. Незаконченное прячут за
+    feature flags.
+  q: trunk based development
+  docs: https://trunkbaseddevelopment.com/
+git-object:
+  term: Объект Git (blob, tree, commit, tag)
+  def: >-
+    Единица хранения в базе `.git/objects`, адресуемая хешем своего содержимого: blob — содержимое
+    файла, tree — каталог, commit — снимок с метаданными, tag — аннотированный тег. Объекты
+    неизменяемы.
+  q: git objects blob tree commit
+  docs: https://git-scm.com/book/en/v2/Git-Internals-Git-Objects
+git-ref:
+  term: Ссылка (ref) и HEAD
+  def: >-
+    Ссылка — имя, указывающее на коммит: ветка, тег или ветка удалённого отслеживания. HEAD —
+    особая ссылка на текущую ветку или, в состоянии detached HEAD, прямо на коммит.
+  q: git references HEAD
+  docs: https://git-scm.com/book/en/v2/Git-Internals-Git-References
+reflog:
+  term: Reflog (журнал ссылок)
+  def: >-
+    Локальный журнал, в котором Git записывает каждое перемещение HEAD и веток. Через него находят
+    коммиты после `reset --hard` или удаления ветки; записи по умолчанию живут 90 дней,
+    недостижимые — 30.
+  q: git reflog
+  docs: https://git-scm.com/docs/git-reflog
+git-bisect:
+  term: git bisect
+  def: >-
+    Команда для бинарного поиска коммита, который внёс ошибку: вы отмечаете хорошую и плохую версии,
+    а Git на каждом шаге делит диапазон пополам. `git bisect run` проверяет коммиты скриптом или
+    тестом автоматически.
+  q: git bisect run
+  docs: https://git-scm.com/docs/git-bisect
+git-filter-repo:
+  term: git filter-repo
+  def: >-
+    Инструмент для переписывания всей истории репозитория: удаляет файлы, заменяет строки, меняет
+    пути. Документация Git рекомендует его вместо `git filter-branch` с его многочисленными подводными камнями, в том числе для удаления секретов.
+  q: git filter-repo
+  docs: https://github.com/newren/git-filter-repo
+git-lfs:
+  term: Git LFS (Large File Storage)
+  def: >-
+    Расширение Git для больших бинарных файлов: в репозитории хранится маленький текстовый указатель,
+    а содержимое — на отдельном LFS-сервере и скачивается только для нужных версий.
+  q: Git LFS
+  docs: https://git-lfs.com/

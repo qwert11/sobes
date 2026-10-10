@@ -1,0 +1,161 @@
+design-pattern:
+  term: Патерн проєктування (design pattern)
+  def: >-
+    Іменоване типове розв'язання поширеної задачі проєктування: ролі класів, зв'язки між ними і
+    наслідки. Це не готовий код, а схема, яку реалізують під свою задачу.
+  q: design pattern
+  wiki: Шаблони проєктування програмного забезпечення
+gang-of-four:
+  term: «Банда чотирьох» (Gang of Four, GoF)
+  def: >-
+    Еріх Гамма, Річард Гелм, Ральф Джонсон і Джон Вліссідес — автори книги «Design Patterns»
+    (1994), де описано 23 класичні патерни у трьох групах.
+  q: Gang of Four design patterns
+creational-pattern:
+  term: Породжувальний патерн (creational pattern)
+  def: >-
+    Патерн, що відокремлює код, який використовує об'єкт, від рішення, який об'єкт створити і як.
+    У GoF їх п'ять: Abstract Factory, Builder, Factory Method, Prototype, Singleton.
+  q: creational design patterns
+structural-pattern:
+  term: Структурний патерн (structural pattern)
+  def: >-
+    Патерн, що описує, як збирати класи й об'єкти у більші структури. У GoF їх сім: Adapter,
+    Bridge, Composite, Decorator, Facade, Flyweight, Proxy.
+  q: structural design patterns
+behavioral-pattern:
+  term: Поведінковий патерн (behavioral pattern)
+  def: >-
+    Патерн, що розподіляє обов'язки між об'єктами й описує їхню взаємодію. У GoF їх одинадцять,
+    серед них Strategy, Observer, Command, Iterator, Template Method.
+  q: behavioral design patterns
+singleton-pattern:
+  term: Одинак (Singleton)
+  def: >-
+    Породжувальний патерн: у класу рівно один екземпляр і глобальна точка доступу до нього. У .NET
+    «один екземпляр» зазвичай задають реєстрацією `AddSingleton` у DI, а не статичною властивістю.
+  q: singleton pattern C#
+factory-method:
+  term: Фабричний метод (Factory Method)
+  def: >-
+    Породжувальний патерн: базовий клас оголошує метод створення об'єкта, а підклас вирішує, який
+    конкретний клас повернути.
+  q: factory method pattern
+abstract-factory:
+  term: Абстрактна фабрика (Abstract Factory)
+  def: >-
+    Породжувальний патерн: інтерфейс із методами створення цілого сімейства узгоджених об'єктів без
+    зазначення їхніх конкретних класів. Приклад у .NET — `DbProviderFactory`.
+  q: abstract factory pattern
+  docs: https://learn.microsoft.com/dotnet/api/system.data.common.dbproviderfactory
+builder-pattern:
+  term: Будівельник (Builder)
+  def: >-
+    Породжувальний патерн: складний об'єкт збирається покроковими викликами окремого об'єкта-збирача,
+    а підсумковий метод `Build` перевіряє дані й повертає результат.
+  q: builder pattern C#
+lazy-initialization:
+  term: Лінива ініціалізація (lazy initialization)
+  def: >-
+    Створення об'єкта під час першого звернення, а не заздалегідь. У .NET для цього є `Lazy<T>`: за
+    замовчуванням він потокобезпечний і кешує виняток фабрики.
+  q: Lazy<T> lazy initialization .NET
+  docs: https://learn.microsoft.com/dotnet/framework/performance/lazy-initialization
+adapter-pattern:
+  term: Адаптер (Adapter)
+  def: >-
+    Структурний патерн: обгортка реалізує інтерфейс, якого чекає клієнт, і перекладає виклики в API
+    іншого об'єкта з несумісним інтерфейсом.
+  q: adapter pattern
+facade-pattern:
+  term: Фасад (Facade)
+  def: >-
+    Структурний патерн: простий єдиний інтерфейс до складної підсистеми з кількох об'єктів. Клієнт
+    викликає фасад і не знає про частини підсистеми.
+  q: facade pattern
+proxy-pattern:
+  term: Замісник (Proxy)
+  def: >-
+    Структурний патерн: об'єкт із тим самим інтерфейсом, що й реальний, керує доступом до нього —
+    створює ліниво, викликає віддалено, перевіряє права або кешує.
+  q: proxy pattern
+delegating-handler:
+  term: DelegatingHandler
+  def: >-
+    Базовий клас обробника повідомлень `HttpClient`, який передає запит наступному обробнику через
+    `base.SendAsync`. З таких обробників збирають ланцюжок: логування, повтори, заголовки.
+  q: DelegatingHandler HttpClient
+  docs: https://learn.microsoft.com/dotnet/api/system.net.http.delegatinghandler
+dynamic-proxy:
+  term: Динамічний проксі (dynamic proxy)
+  def: >-
+    Тип-замісник, згенерований під час виконання, що перехоплює виклики методів. Так працюють Castle
+    DynamicProxy, моки Moq, ліниве завантаження EF Core і `DispatchProxy`.
+  q: Castle DynamicProxy
+  docs: https://learn.microsoft.com/dotnet/api/system.reflection.dispatchproxy
+strategy-pattern:
+  term: Стратегія (Strategy)
+  def: >-
+    Поведінковий патерн: сімейство взаємозамінних алгоритмів за спільним інтерфейсом, потрібний
+    передається ззовні. У C# стратегією часто слугує делегат або `IComparer<T>`.
+  q: strategy pattern C#
+observer-pattern:
+  term: Спостерігач (Observer)
+  def: >-
+    Поведінковий патерн: видавець сповіщає всіх підписників про зміну. У .NET це події (`event`) та
+    інтерфейси `IObservable<T>` і `IObserver<T>`.
+  q: observer design pattern .NET
+  docs: https://learn.microsoft.com/dotnet/standard/events/observer-design-pattern
+command-pattern:
+  term: Команда (Command)
+  def: >-
+    Поведінковий патерн: запит запаковано в об'єкт із даними, тому його можна передати, поставити в
+    чергу, залогувати або скасувати.
+  q: command pattern
+chain-of-responsibility:
+  term: Ланцюжок обов'язків (Chain of Responsibility)
+  def: >-
+    Поведінковий патерн: запит проходить ланцюжком обробників, і кожен вирішує, обробити його,
+    передати далі чи зупинити. Приклад у .NET — конвеєр middleware ASP.NET Core.
+  q: chain of responsibility pattern
+template-method:
+  term: Шаблонний метод (Template Method)
+  def: >-
+    Поведінковий патерн: базовий клас задає скелет алгоритму в одному методі, а окремі кроки лишає
+    підкласам через віртуальні чи абстрактні методи.
+  q: template method pattern
+anti-pattern:
+  term: Антипатерн (anti-pattern)
+  def: >-
+    Часто повторюване розв'язання, яке здається розумним, але завдає більше шкоди, ніж користі, і
+    для якого відома краща заміна.
+  q: anti-pattern software
+god-object:
+  term: Божественний об'єкт (God object)
+  def: >-
+    Антипатерн: один клас знає і робить забагато — перевірки, розрахунки, доступ до даних,
+    інтеграції. Його змінюють у кожній задачі, і він тягне за собою десятки залежностей.
+  q: god object anti-pattern
+primitive-obsession:
+  term: Одержимість примітивами (primitive obsession)
+  def: >-
+    Запах коду: поняття предметної області — email, гроші, ідентифікатори — зберігаються в
+    `string`, `decimal` та `int`. Перевірки розмазуються кодом; лікується рефакторингом Replace
+    Primitive with Object.
+  q: primitive obsession code smell
+  docs: https://refactoring.com/catalog/replacePrimitiveWithObject.html
+shotgun-surgery:
+  term: Стрілянина дробом (shotgun surgery)
+  def: >-
+    Запах коду: одна логічна зміна вимагає дрібних правок у багатьох класах. Лікується збиранням
+    пов'язаної логіки в один модуль, наприклад рефакторингами Move Function і Combine Functions into
+    Class.
+  q: shotgun surgery code smell
+  docs: https://refactoring.com/catalog/
+big-ball-of-mud:
+  term: Велика грудка бруду (Big Ball of Mud)
+  def: >-
+    Система без помітної архітектури, що виросла з миттєвих рішень. Описана Браяном Футом і
+    Джозефом Йодером 1997 року.
+  q: Big Ball of Mud Foote Yoder
+  docs: http://www.laputan.org/mud/

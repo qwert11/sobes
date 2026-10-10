@@ -59,6 +59,11 @@ export default defineConfig({
           items: [{ autogenerate: { directory: 'quality' } }],
         },
         {
+          label: 'Основа',
+          translations: { uk: 'Основа', en: 'Fundamentals' },
+          items: [{ autogenerate: { directory: 'basics' } }],
+        },
+        {
           label: 'Глоссарий',
           translations: { uk: 'Глосарій', en: 'Glossary' },
           slug: 'glossary',

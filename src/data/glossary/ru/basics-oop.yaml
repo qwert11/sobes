@@ -1,0 +1,137 @@
+encapsulation:
+  term: Инкапсуляция (encapsulation)
+  def: >-
+    Принцип ООП: данные объекта и правила их изменения собраны в одном классе, а состояние меняется
+    только через его методы. Так класс сам защищает свои инварианты.
+  q: encapsulation C#
+  docs: https://learn.microsoft.com/dotnet/csharp/fundamentals/tutorials/oop
+  wiki: Инкапсуляция (программирование)
+abstraction:
+  term: Абстракция (abstraction)
+  def: >-
+    Принцип ООП: наружу виден только существенный для клиента контракт — что объект умеет, а не как
+    он это делает. В C# абстракцию задают интерфейсы и абстрактные классы.
+  q: abstraction object-oriented programming
+  docs: https://learn.microsoft.com/dotnet/csharp/fundamentals/tutorials/oop
+inheritance:
+  term: Наследование (inheritance)
+  def: >-
+    Механизм, при котором новый класс получает члены базового и может их расширить или переопределить.
+    В C# у класса один базовый класс, а интерфейсов — сколько угодно.
+  q: C# inheritance
+  docs: https://learn.microsoft.com/dotnet/csharp/fundamentals/object-oriented/inheritance
+  wiki: Наследование (программирование)
+polymorphism:
+  term: Полиморфизм (polymorphism)
+  def: >-
+    Способность одного кода работать с объектами разных типов. В ООП обычно имеют в виду полиморфизм
+    подтипов: вызов виртуального метода выбирает реализацию по реальному типу объекта.
+  q: polymorphism C#
+  docs: https://learn.microsoft.com/dotnet/csharp/fundamentals/object-oriented/polymorphism
+  wiki: Полиморфизм (информатика)
+parametric-polymorphism:
+  term: Параметрический полиморфизм
+  def: >-
+    Один и тот же код работает с любым типом, переданным как параметр. В C# это generics: `List<T>`,
+    `Max<T>(T a, T b)`.
+  q: parametric polymorphism generics
+  docs: https://learn.microsoft.com/dotnet/csharp/fundamentals/types/generics
+ad-hoc-polymorphism:
+  term: Ad hoc полиморфизм
+  def: >-
+    Разное поведение для разных типов через отдельные реализации с одним именем: перегрузку методов и
+    операторов. Нужную версию компилятор выбирает по статическим типам аргументов.
+  q: ad hoc polymorphism overloading
+composition:
+  term: Композиция (composition)
+  def: >-
+    Объект хранит другой объект в поле и использует его через публичный контракт — отношение
+    «содержит» вместо «является». Совет GoF — предпочитать композицию наследованию классов.
+  q: composition over inheritance
+fragile-base-class:
+  term: Хрупкий базовый класс (fragile base class)
+  def: >-
+    Проблема наследования реализации: безобидное на вид изменение базового класса ломает наследников,
+    потому что они зависят от его внутреннего устройства, например от того, какие методы вызывают друг
+    друга.
+  q: fragile base class problem
+delegation:
+  term: Делегирование (delegation)
+  def: >-
+    Приём композиции: объект переадресует вызов своему компоненту, иногда добавляя поведение до или
+    после. Не путать с делегатами C# — типами-ссылками на методы.
+  q: delegation object-oriented programming
+liskov-substitution:
+  term: Принцип подстановки Лисков (LSP)
+  def: >-
+    Принцип SOLID: объект подтипа должен подходить везде, где ожидается базовый тип, без изменения
+    правильности программы. Классический контрпример — квадрат, унаследованный от прямоугольника.
+  q: Liskov substitution principle
+  wiki: Принцип подстановки Барбары Лисков
+cohesion:
+  term: Связность (cohesion)
+  def: >-
+    Мера того, насколько члены модуля или класса работают на одну задачу. Высокая связность — данные
+    и методы, которые с ними работают, вместе; низкая — классы вроде `Utils`.
+  q: cohesion computer science
+coupling:
+  term: Зацепление (coupling)
+  def: >-
+    Мера зависимости модулей или классов друг от друга: насколько изменение одного требует изменения
+    другого. Стремятся к слабому зацеплению: зависеть от узкого контракта, а не от устройства.
+  q: coupling computer programming
+  docs: https://learn.microsoft.com/visualstudio/code-quality/code-metrics-class-coupling
+law-of-demeter:
+  term: Закон Деметры (Law of Demeter)
+  def: >-
+    Правило «говори только с ближайшими друзьями»: метод вызывает методы своего объекта, параметров,
+    созданных в нём объектов и полей, но не ходит по цепочке `a.B.C.D()`.
+  q: Law of Demeter
+  wiki: Закон Деметры
+tell-dont-ask:
+  term: Tell, Don't Ask
+  def: >-
+    Принцип: не вытаскивать данные объекта, чтобы принять решение за него, а попросить объект
+    выполнить действие. Так поведение остаётся рядом с данными.
+  q: tell don't ask
+  docs: https://martinfowler.com/bliki/TellDontAsk.html
+feature-envy:
+  term: Зависть к функциям (feature envy)
+  def: >-
+    Запах кода из каталога Фаулера: метод работает с данными чужого класса больше, чем со своими.
+    Обычно его стоит перенести в тот класс.
+  q: feature envy code smell refactoring
+connascence:
+  term: Connascence (сонаследие)
+  def: >-
+    Мера связи Мейлира Пейдж-Джонса: два элемента связаны, если изменение одного требует изменения
+    другого. Виды упорядочены по силе — от имени и типа до порядка, значения, алгоритма и времени.
+  q: connascence software design
+pure-function:
+  term: Чистая функция (pure function)
+  def: >-
+    Функция, результат которой зависит только от аргументов и которая не имеет побочных эффектов: не
+    меняет поля, не пишет в файлы и базу. Её легко тестировать и вызывать параллельно.
+  q: pure function C#
+  wiki: Чистая функция
+expression-problem:
+  term: Проблема выражения (expression problem)
+  def: >-
+    Термин Филипа Вадлера (1998): трудно сделать так, чтобы без правки старого кода можно было добавлять
+    и новые варианты данных, и новые операции. ООП облегчает первое, функции с pattern matching —
+    второе.
+  q: expression problem Wadler
+visitor-pattern:
+  term: Посетитель (visitor)
+  def: >-
+    Поведенческий паттерн GoF: операции над иерархией выносятся в отдельный класс-посетитель с методом
+    на каждый тип, а элементы вызывают нужный метод через `Accept`. Добавлять операции легко, новые
+    типы — трудно.
+  q: visitor pattern C#
+  wiki: Посетитель (шаблон проектирования)
+data-oriented-design:
+  term: Data-oriented design
+  def: >-
+    Подход, в котором структуру данных проектируют под то, как процессор их читает: плотные массивы
+    значений вместо графа объектов, последовательный доступ к памяти. Применяют на горячих участках.
+  q: data-oriented design

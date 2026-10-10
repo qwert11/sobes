@@ -1,0 +1,144 @@
+space-complexity:
+  term: Space complexity
+  def: >-
+    An estimate of how much extra memory an algorithm needs as the input n grows, not counting the input itself. A pass with a `HashSet<T>` is O(n) space; a double loop with no collections is O(1).
+  q: space complexity algorithm
+  wiki: Space complexity
+worst-case:
+  term: Worst case
+  def: >-
+    The complexity on the least favourable input of a given size. It gives a guarantee for any input: quicksort is O(n log n) on average but O(n²) in the worst case.
+  q: worst case complexity
+  wiki: Worst-case complexity
+master-theorem:
+  term: Master theorem
+  def: >-
+    A ready-made solution for recurrences of the form T(n) = a·T(n/b) + f(n), which describe divide-and-conquer algorithms. For example, merge sort's T(n) = 2T(n/2) + O(n) gives O(n log n).
+  q: master theorem algorithms
+  wiki: Master theorem (analysis of algorithms)
+binary-search-tree:
+  term: Binary search tree
+  def: >-
+    A tree in which every node's left subtree holds smaller keys and its right subtree larger ones. Lookup, insert and delete cost O(height): O(log n) for a balanced tree and O(n) for a degenerate one.
+  q: binary search tree
+  wiki: Binary search tree
+binary-heap:
+  term: Binary heap
+  def: >-
+    A tree stored in an array where every parent is no larger than its children, so the minimum is at the root. Insert and extract-min are O(log n). In .NET, `PriorityQueue<TElement, TPriority>` is built on a heap.
+  q: binary heap priority queue
+  docs: https://learn.microsoft.com/dotnet/api/system.collections.generic.priorityqueue-2
+  wiki: Binary heap
+graph:
+  term: Graph
+  def: >-
+    A set of vertices and the edges between them: cities and roads, jobs and dependencies, users and connections. Edges can be directed and weighted; .NET has no built-in graph type.
+  q: graph data structure
+  wiki: Graph (abstract data type)
+adjacency-list:
+  term: Adjacency list
+  def: >-
+    A way to store a graph: for each vertex, a list of its neighbours — in C# usually a `Dictionary<T, List<T>>`. It takes O(V + E) memory and suits sparse graphs.
+  q: adjacency list graph
+  wiki: Adjacency list
+binary-search:
+  term: Binary search
+  def: >-
+    Searching a sorted array by halving the range: compare with the middle and discard the half where the element can't be. Runs in O(log n); in .NET — `Array.BinarySearch` and `List<T>.BinarySearch`.
+  q: binary search algorithm
+  docs: https://learn.microsoft.com/dotnet/api/system.array.binarysearch
+  wiki: Binary search
+quicksort:
+  term: Quicksort
+  def: >-
+    A sort that picks a pivot, partitions the rest into smaller and larger elements and recursively sorts the parts. O(n log n) on average and in place, O(n²) in the worst case; unstable.
+  q: quicksort algorithm
+  wiki: Quicksort
+merge-sort:
+  term: Merge sort
+  def: >-
+    A sort that splits the array in half, sorts the halves and merges them. Always O(n log n) and stable, but needs O(n) extra memory.
+  q: merge sort algorithm
+  wiki: Merge sort
+stable-sort:
+  term: Stable sort
+  def: >-
+    A sort that preserves the original order of elements with equal keys. `Enumerable.OrderBy` is stable; `Array.Sort` and `List<T>.Sort` are not.
+  q: stable sorting algorithm
+  wiki: Sorting algorithm
+heapsort:
+  term: Heapsort
+  def: >-
+    A sort that builds a heap from the array and repeatedly extracts its top element. O(n log n) in the worst case with O(1) extra memory, but unstable.
+  q: heapsort algorithm
+  wiki: Heapsort
+introsort:
+  term: Introsort (introspective sort)
+  def: >-
+    The hybrid sort behind `Array.Sort`: a quicksort that switches to insertion sort on small partitions and to heapsort when partitioning gets too deep. O(n log n) in the worst case, unstable.
+  q: introsort .NET Array.Sort
+  docs: https://learn.microsoft.com/dotnet/api/system.array.sort
+  wiki: Introsort
+recursion:
+  term: Recursion
+  def: >-
+    A technique where a function calls itself on a smaller subproblem. It needs a base case without recursion and a step that moves towards it; every call takes a stack frame.
+  q: recursion programming
+  wiki: Recursion (computer science)
+dynamic-programming:
+  term: Dynamic programming
+  def: >-
+    A method for problems made of overlapping subproblems: each subproblem's answer is computed once and reused. It turns an exponential search into a polynomial algorithm.
+  q: dynamic programming
+  wiki: Dynamic programming
+memoization:
+  term: Memoization
+  def: >-
+    Caching a function's results by its arguments: a repeated call with the same arguments takes the answer from a dictionary or an array. It is top-down DP — recursion plus a cache.
+  q: memoization
+  wiki: Memoization
+tabulation:
+  term: Tabulation
+  def: >-
+    Bottom-up DP: the table of answers is filled by a loop from the base cases to the target, with no recursion. It lets you keep only the last rows of the table and save memory.
+  q: dynamic programming tabulation bottom-up
+tail-call:
+  term: Tail call
+  def: >-
+    A call that is the last action of a function, so its stack frame can be reused. The C# compiler doesn't guarantee this optimization, so deep recursion in C# is rewritten as a loop.
+  q: tail call optimization C#
+  wiki: Tail call
+two-pointers:
+  term: Two pointers
+  def: >-
+    A technique where two indexes move through an array towards each other or in the same direction. It solves problems on sorted arrays in O(n) time and O(1) memory: a pair with a given sum, a palindrome, a merge.
+  q: two pointers technique
+sliding-window:
+  term: Sliding window
+  def: >-
+    A technique for subarray problems: the window [left, right] grows to the right and shrinks from the left when the condition breaks. Each index moves at most once, so it is O(n).
+  q: sliding window technique
+prefix-sum:
+  term: Prefix sums
+  def: >-
+    An array where element i is the sum of the first i elements of the original. After O(n) setup, the sum of any range takes O(1) as the difference of two prefixes.
+  q: prefix sum array
+  wiki: Prefix sum
+bfs:
+  term: Breadth-first search (BFS)
+  def: >-
+    Graph traversal level by level using a queue: first all neighbours, then neighbours of neighbours. Finds the shortest path by edge count in an unweighted graph in O(V + E).
+  q: breadth-first search
+  wiki: Breadth-first search
+dfs:
+  term: Depth-first search (DFS)
+  def: >-
+    Graph traversal that follows one branch to the end and then backtracks, using recursion or an explicit stack. O(V + E); the basis for cycle detection, connected components and topological sort.
+  q: depth-first search
+  wiki: Depth-first search
+topological-sort:
+  term: Topological sort
+  def: >-
+    An ordering of the vertices of a directed acyclic graph such that every edge goes from an earlier vertex to a later one. Kahn's algorithm does it in O(V + E) and detects cycles along the way.
+  q: topological sort Kahn algorithm
+  wiki: Topological sorting

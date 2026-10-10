@@ -1,0 +1,179 @@
+design-pattern:
+  term: Design pattern
+  def: >-
+    A named, typical solution to a recurring design problem: class roles, the relationships between
+    them, and the consequences. It is not ready-made code but a scheme you implement for your own
+    problem.
+  q: design pattern
+  wiki: Software design pattern
+gang-of-four:
+  term: Gang of Four (GoF)
+  def: >-
+    Erich Gamma, Richard Helm, Ralph Johnson and John Vlissides, authors of the book "Design
+    Patterns" (1994), which describes 23 classic patterns in three groups.
+  q: Gang of Four design patterns
+  wiki: Design Patterns
+creational-pattern:
+  term: Creational pattern
+  def: >-
+    A pattern that separates the code using an object from the decision about which object to create
+    and how. GoF lists five: Abstract Factory, Builder, Factory Method, Prototype, Singleton.
+  q: creational design patterns
+  wiki: Creational pattern
+structural-pattern:
+  term: Structural pattern
+  def: >-
+    A pattern that describes how to compose classes and objects into larger structures. GoF lists
+    seven: Adapter, Bridge, Composite, Decorator, Facade, Flyweight, Proxy.
+  q: structural design patterns
+  wiki: Structural pattern
+behavioral-pattern:
+  term: Behavioral pattern
+  def: >-
+    A pattern that distributes responsibilities between objects and describes how they interact. GoF
+    lists eleven, including Strategy, Observer, Command, Iterator and Template Method.
+  q: behavioral design patterns
+  wiki: Behavioral pattern
+singleton-pattern:
+  term: Singleton
+  def: >-
+    A creational pattern: a class has exactly one instance and a global access point to it. In .NET
+    "one instance" is usually expressed with an `AddSingleton` registration in DI rather than a static
+    property.
+  q: singleton pattern C#
+  wiki: Singleton pattern
+factory-method:
+  term: Factory Method
+  def: >-
+    A creational pattern: the base class declares a method that creates an object, and a subclass
+    decides which concrete class to return.
+  q: factory method pattern
+  wiki: Factory method pattern
+abstract-factory:
+  term: Abstract Factory
+  def: >-
+    A creational pattern: an interface with methods for creating a whole family of matching objects
+    without naming their concrete classes. An example in .NET is `DbProviderFactory`.
+  q: abstract factory pattern
+  docs: https://learn.microsoft.com/dotnet/api/system.data.common.dbproviderfactory
+builder-pattern:
+  term: Builder
+  def: >-
+    A creational pattern: a complex object is assembled through step-by-step calls on a separate
+    builder object, and a final `Build` method validates the data and returns the result.
+  q: builder pattern C#
+  wiki: Builder pattern
+lazy-initialization:
+  term: Lazy initialization
+  def: >-
+    Creating an object on first access instead of up front. .NET provides `Lazy<T>` for this: by
+    default it is thread-safe and caches an exception thrown by its factory.
+  q: Lazy<T> lazy initialization .NET
+  docs: https://learn.microsoft.com/dotnet/framework/performance/lazy-initialization
+adapter-pattern:
+  term: Adapter
+  def: >-
+    A structural pattern: a wrapper implements the interface the client expects and translates calls
+    into the API of another object with an incompatible interface.
+  q: adapter pattern
+  wiki: Adapter pattern
+facade-pattern:
+  term: Facade
+  def: >-
+    A structural pattern: a simple unified interface to a complex subsystem made of several objects.
+    The client calls the facade and doesn't know about the parts of the subsystem.
+  q: facade pattern
+  wiki: Facade pattern
+proxy-pattern:
+  term: Proxy
+  def: >-
+    A structural pattern: an object with the same interface as the real one controls access to it —
+    creates it lazily, calls it remotely, checks permissions or caches results.
+  q: proxy pattern
+  wiki: Proxy pattern
+delegating-handler:
+  term: DelegatingHandler
+  def: >-
+    The base class for `HttpClient` message handlers that pass the request to the next handler via
+    `base.SendAsync`. Such handlers are chained together for logging, retries and headers.
+  q: DelegatingHandler HttpClient
+  docs: https://learn.microsoft.com/dotnet/api/system.net.http.delegatinghandler
+dynamic-proxy:
+  term: Dynamic proxy
+  def: >-
+    A stand-in type generated at run time that intercepts method calls. Castle DynamicProxy, Moq
+    mocks, EF Core lazy loading and `DispatchProxy` all work this way.
+  q: Castle DynamicProxy
+  docs: https://learn.microsoft.com/dotnet/api/system.reflection.dispatchproxy
+strategy-pattern:
+  term: Strategy
+  def: >-
+    A behavioral pattern: a family of interchangeable algorithms behind a common interface, with the
+    one to use passed in from outside. In C# a strategy is often a delegate or an `IComparer<T>`.
+  q: strategy pattern C#
+  wiki: Strategy pattern
+observer-pattern:
+  term: Observer
+  def: >-
+    A behavioral pattern: a publisher notifies all its subscribers about a change. In .NET this means
+    events (`event`) and the `IObservable<T>` and `IObserver<T>` interfaces.
+  q: observer design pattern .NET
+  docs: https://learn.microsoft.com/dotnet/standard/events/observer-design-pattern
+command-pattern:
+  term: Command
+  def: >-
+    A behavioral pattern: a request is packaged as an object with its data, so it can be passed
+    around, queued, logged or undone.
+  q: command pattern
+  wiki: Command pattern
+chain-of-responsibility:
+  term: Chain of Responsibility
+  def: >-
+    A behavioral pattern: a request travels along a chain of handlers, and each one decides whether
+    to handle it, pass it on, or stop. An example in .NET is the ASP.NET Core middleware pipeline.
+  q: chain of responsibility pattern
+  wiki: Chain-of-responsibility pattern
+template-method:
+  term: Template Method
+  def: >-
+    A behavioral pattern: a base class defines the skeleton of an algorithm in one method and leaves
+    individual steps to subclasses through virtual or abstract methods.
+  q: template method pattern
+  wiki: Template method pattern
+anti-pattern:
+  term: Anti-pattern
+  def: >-
+    A frequently repeated solution that seems reasonable but does more harm than good, and for which
+    a better replacement is known.
+  q: anti-pattern software
+  wiki: Anti-pattern
+god-object:
+  term: God object
+  def: >-
+    An anti-pattern: a single class knows and does too much — validation, calculations, data access,
+    integrations. It changes in every task and drags dozens of dependencies along.
+  q: god object anti-pattern
+  wiki: God object
+primitive-obsession:
+  term: Primitive obsession
+  def: >-
+    A code smell: domain concepts such as email, money and identifiers are stored as `string`,
+    `decimal` and `int`. Validation gets scattered across the code; the cure is the Replace
+    Primitive with Object refactoring.
+  q: primitive obsession code smell
+  docs: https://refactoring.com/catalog/replacePrimitiveWithObject.html
+shotgun-surgery:
+  term: Shotgun surgery
+  def: >-
+    A code smell: one logical change requires many small edits across many classes. The cure is to
+    gather related logic into one module, for example with the Move Function and Combine Functions
+    into Class refactorings.
+  q: shotgun surgery code smell
+  docs: https://refactoring.com/catalog/
+big-ball-of-mud:
+  term: Big Ball of Mud
+  def: >-
+    A system with no discernible architecture that grew out of expedient decisions. Described by
+    Brian Foote and Joseph Yoder in 1997.
+  q: Big Ball of Mud Foote Yoder
+  docs: http://www.laputan.org/mud/

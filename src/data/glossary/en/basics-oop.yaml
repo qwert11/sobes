@@ -1,0 +1,145 @@
+encapsulation:
+  term: Encapsulation
+  def: >-
+    An OOP principle: an object's data and the rules for changing it live in one class, and the state
+    changes only through its methods. That way the class protects its own invariants.
+  q: encapsulation C#
+  docs: https://learn.microsoft.com/dotnet/csharp/fundamentals/tutorials/oop
+  wiki: Encapsulation (computer programming)
+abstraction:
+  term: Abstraction
+  def: >-
+    An OOP principle: only the contract that matters to the client is visible — what the object can do,
+    not how it does it. In C# abstractions are defined by interfaces and abstract classes.
+  q: abstraction object-oriented programming
+  docs: https://learn.microsoft.com/dotnet/csharp/fundamentals/tutorials/oop
+inheritance:
+  term: Inheritance
+  def: >-
+    A mechanism where a new class gets the members of a base class and can extend or override them. In
+    C# a class has one base class and any number of interfaces.
+  q: C# inheritance
+  docs: https://learn.microsoft.com/dotnet/csharp/fundamentals/object-oriented/inheritance
+  wiki: Inheritance (object-oriented programming)
+polymorphism:
+  term: Polymorphism
+  def: >-
+    The ability of one piece of code to work with objects of different types. In OOP it usually means
+    subtype polymorphism: a virtual call picks the implementation by the object's actual type.
+  q: polymorphism C#
+  docs: https://learn.microsoft.com/dotnet/csharp/fundamentals/object-oriented/polymorphism
+  wiki: Polymorphism (computer science)
+parametric-polymorphism:
+  term: Parametric polymorphism
+  def: >-
+    The same code works with any type passed as a parameter. In C# these are generics: `List<T>`,
+    `Max<T>(T a, T b)`.
+  q: parametric polymorphism generics
+  docs: https://learn.microsoft.com/dotnet/csharp/fundamentals/types/generics
+  wiki: Parametric polymorphism
+ad-hoc-polymorphism:
+  term: Ad hoc polymorphism
+  def: >-
+    Different behavior for different types through separate implementations sharing one name: method
+    and operator overloading. The compiler picks the version by the static argument types.
+  q: ad hoc polymorphism overloading
+  wiki: Ad hoc polymorphism
+composition:
+  term: Composition
+  def: >-
+    An object holds another object in a field and uses it through its public contract — a "has-a"
+    relationship instead of "is-a". The GoF advice is to favor composition over class inheritance.
+  q: composition over inheritance
+  wiki: Composition over inheritance
+fragile-base-class:
+  term: Fragile base class
+  def: >-
+    A problem of implementation inheritance: a seemingly harmless change to a base class breaks
+    subclasses, because they depend on its internals, such as which methods call each other.
+  q: fragile base class problem
+  wiki: Fragile base class
+delegation:
+  term: Delegation
+  def: >-
+    A composition technique: an object forwards a call to its component, sometimes adding behavior
+    before or after. Not to be confused with C# delegates, which are types that reference methods.
+  q: delegation object-oriented programming
+liskov-substitution:
+  term: Liskov substitution principle (LSP)
+  def: >-
+    A SOLID principle: an object of a subtype must work anywhere the base type is expected without
+    breaking the program's correctness. The classic counterexample is a square derived from a rectangle.
+  q: Liskov substitution principle
+  wiki: Liskov substitution principle
+cohesion:
+  term: Cohesion
+  def: >-
+    A measure of how much the members of a module or class serve one task. High cohesion means data and
+    the methods that work on it live together; low cohesion means classes like `Utils`.
+  q: cohesion computer science
+  wiki: Cohesion (computer science)
+coupling:
+  term: Coupling
+  def: >-
+    A measure of how much modules or classes depend on each other: how much a change in one forces a
+    change in another. The aim is loose coupling: depend on a narrow contract, not on internals.
+  q: coupling computer programming
+  docs: https://learn.microsoft.com/visualstudio/code-quality/code-metrics-class-coupling
+  wiki: Coupling (computer programming)
+law-of-demeter:
+  term: Law of Demeter
+  def: >-
+    The rule "talk only to your immediate friends": a method calls methods of its own object, its
+    parameters, objects it creates and its fields, but does not walk chains like `a.B.C.D()`.
+  q: Law of Demeter
+  wiki: Law of Demeter
+tell-dont-ask:
+  term: Tell, Don't Ask
+  def: >-
+    A principle: do not pull data out of an object to make a decision for it; ask the object to perform
+    the action. That keeps behavior next to the data.
+  q: tell don't ask
+  docs: https://martinfowler.com/bliki/TellDontAsk.html
+feature-envy:
+  term: Feature envy
+  def: >-
+    A code smell from Fowler's catalog: a method uses another class's data more than its own. It
+    usually belongs in that class.
+  q: feature envy code smell refactoring
+connascence:
+  term: Connascence
+  def: >-
+    Meilir Page-Jones's measure of dependency: two elements are connascent if changing one requires
+    changing the other. Its forms are ranked by strength — from name and type to position, meaning,
+    algorithm and timing.
+  q: connascence software design
+  wiki: Connascence
+pure-function:
+  term: Pure function
+  def: >-
+    A function whose result depends only on its arguments and which has no side effects: it does not
+    change fields or write to files or a database. It is easy to test and safe to call in parallel.
+  q: pure function C#
+  wiki: Pure function
+expression-problem:
+  term: Expression problem
+  def: >-
+    Philip Wadler's term (1998): it is hard to make both new data variants and new operations addable
+    without editing existing code. OOP makes the first easy, functions with pattern matching the second.
+  q: expression problem Wadler
+  wiki: Expression problem
+visitor-pattern:
+  term: Visitor
+  def: >-
+    A GoF behavioral pattern: operations on a hierarchy move into a separate visitor class with one
+    method per type, and elements call the right method through `Accept`. Adding operations is easy,
+    adding types is hard.
+  q: visitor pattern C#
+  wiki: Visitor pattern
+data-oriented-design:
+  term: Data-oriented design
+  def: >-
+    An approach that shapes data around how the CPU reads it: dense arrays of values instead of an
+    object graph, sequential memory access. Used on hot paths.
+  q: data-oriented design
+  wiki: Data-oriented design

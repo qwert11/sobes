@@ -1,0 +1,889 @@
+---
+title: SOLID and principles
+description: SRP and OCP, DRY, KISS and YAGNI, LSP and ISP, dependency inversion and the limits of SOLID — when principles hurt.
+sidebar:
+  order: 2
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+The five SOLID principles and three heuristics — DRY, KISS and YAGNI: what they actually say, what violations look like in C# and in .NET itself, and where the principles stop helping. Anyone can list the letters; at Senior level you are asked about the cost of each principle and its limits.
+
+**Before this topic:** [OOP](/sobes/en/basics/oop/).
+
+<Q id="basics.solid.srp-ocp" level="j">
+
+## What do the Single Responsibility Principle (SRP) and the Open/Closed Principle (OCP) mean?
+
+<A short l="j">
+
+<T k="single-responsibility">SRP</T> says a class should have one reason to change, and <T k="open-closed">OCP</T> says new behavior should be added with new code rather than by editing working code. So a report should not calculate, format and save data all at once, and a new export format is a new class, not another `switch` branch.
+
+</A>
+
+<A short l="m">
+
+These are the first two letters of <T k="solid">SOLID</T>. In Robert Martin's wording, SRP means a module is responsible to one actor — one group of people who request changes; OCP is achieved through polymorphism: the part that varies is hidden behind an interface, for example a <T k="strategy-pattern">strategy</T>, and extended with new implementations. The cost is extra types and indirect calls, so you add an extension point where changes have already happened.
+
+</A>
+
+<A short l="s">
+
+Both principles are about managing change, not about class size: SRP groups what changes for one reason, OCP protects finished code from edits when you extend it. No module is fully closed: it is closed only against the changes its author anticipated, and an abstraction along the wrong axis costs more than none at all. So you choose the axis of extension from the change history: make the first change directly in the code, and extract an abstraction on the second similar one.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **SRP, Single Responsibility Principle.** A class has one reason to change: one source of requirements drives it.
+- **OCP, Open/Closed Principle.** A class is open for extension and closed for modification: you add new behavior without rewriting finished code.
+
+**Why**
+
+Changing one feature does not break its neighbor, and tested code is not touched for the sake of a new feature.
+
+**How to use**
+
+1. Find the parts of a class that change for different reasons: calculation, formatting, persistence. Move them into separate classes.
+2. Replace a growing `switch` on type or format with an interface and one implementation per variant.
+
+**Common mistake**
+
+Reading SRP as "a class does one action" and splitting code into one-method classes. The principle is about reasons to change, not the number of methods.
+
+**Takeaway:** SRP — one reason to change; OCP — extend with new code instead of editing old code.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- **SRP according to Martin.** In "Clean Architecture" a module is responsible to one actor — a group of people who request changes. Martin's example: `Employee` with `CalculatePay` (accounting), `ReportHours` (operations) and `Save` (the technical department). If the first two share a helper method, a change for accounting silently alters the report.
+- **OCP.** Bertrand Meyer formulated it in 1988. Meyer extended a module through implementation inheritance; Martin does it through abstractions: the client depends on an interface, and new behavior is a new implementation.
+- **Strategy.** The typical way to follow OCP: the varying algorithm goes behind an interface, and the class receives the implementation it needs from outside.
+
+**Pitfalls**
+
+- The same `switch` on type in several places is the main sign of an OCP violation: a new variant requires edits in all of them.
+- SRP does not mean "one method". A class with ten methods around one rule is fine.
+- Fixing a bug does not violate OCP: the principle is about adding behavior.
+
+**Rule of thumb**
+
+Split code by who requests changes. Add an extension point once a change along that axis has already happened, not "just in case".
+
+**Takeaway:** SRP groups code by sources of change, OCP hides the varying part behind an abstraction.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- Martin restates SRP like this: gather together the things that change for the same reasons, and separate those that change for different reasons. It is cohesion, phrased in terms of people and the organization.
+- "A function should do one thing" is a separate principle for functions. Martin says explicitly that it is not SRP.
+- Closure is never complete: a module is closed only against anticipated changes. Martin calls this strategic closure — the author chooses what to protect against.
+
+**Cost**
+
+- Every extension point is an interface, extra types, an indirect call and one more hop when reading code.
+- A wrongly guessed axis is worse than none. The change arrives across the abstraction and rewrites it along with all its implementations.
+
+**Trade-offs**
+
+- Make the first change directly in the code and extract an abstraction on the second similar one: by then the axis is visible in the history.
+- At the architecture level OCP means plugins. Dependencies point toward the core, and a new module plugs in without editing the core.
+
+**How to check in production**
+
+- `git log` per file: a class edited in every other PR for unrelated tasks, and merge conflicts between teams in one file, point to an SRP violation.
+- A `switch` on the same attribute in several places is a candidate for polymorphism.
+
+**Takeaway:** SRP and OCP protect against cascading changes, and you pick their axis from the real change history instead of guessing.
+
+</A>
+
+<Ex title="Before: two reasons to change and a switch on format">
+
+```csharp
+var report = new SalesReport();
+Console.WriteLine(report.Export([120, 80], "csv")); // total;200
+
+public class SalesReport
+{
+    public string Export(int[] sales, string format)
+    {
+        int total = sales.Sum();      // accounting changes the calculation rule
+        return format switch          // report consumers change the format
+        {
+            "csv" => $"total;{total}",
+            "json" => $$"""{"total":{{total}}}""",
+            _ => throw new NotSupportedException(format)
+        };                            // a new format means editing this method
+    }
+}
+```
+
+</Ex>
+
+<Ex title="After: calculation apart, format as a strategy">
+
+```csharp
+var report = new SalesReport(new SalesCalculator());
+Console.WriteLine(report.Export([120, 80], new CsvFormatter()));  // total;200
+Console.WriteLine(report.Export([120, 80], new JsonFormatter())); // {"total":200}
+
+// One reason to change: the calculation rules
+public class SalesCalculator
+{
+    public int Total(int[] sales) => sales.Sum();
+}
+
+public interface IReportFormatter { string Format(int total); }
+
+// A new format is a new class; SalesReport does not change
+public class CsvFormatter : IReportFormatter
+{
+    public string Format(int total) => $"total;{total}";
+}
+
+public class JsonFormatter : IReportFormatter
+{
+    public string Format(int total) => $$"""{"total":{{total}}}""";
+}
+
+public class SalesReport(SalesCalculator calculator)
+{
+    public string Export(int[] sales, IReportFormatter formatter) =>
+        formatter.Format(calculator.Total(sales));
+}
+```
+
+</Ex>
+
+<Next>
+
+- How do you tell a class has several responsibilities? — Different people or departments ask to change it; edits from different teams conflict in it.
+- Does fixing a bug violate OCP? — No, OCP is about adding behavior; bugs are fixed in place.
+- How does Meyer's OCP differ from Martin's? — Meyer extended via implementation inheritance, Martin via new implementations of an abstraction.
+- How are OCP and the strategy pattern related? — A strategy closes a class against changes to an algorithm: a new algorithm is a new implementation.
+- Does SRP apply to services? — Yes, a service boundary should also match one source of change.
+
+</Next>
+
+<Src>
+
+- [The Single Responsibility Principle — Robert C. Martin](https://blog.cleancoder.com/uncle-bob/2014/05/08/SingleReponsibilityPrinciple.html)
+- [The Open Closed Principle — Robert C. Martin](https://blog.cleancoder.com/uncle-bob/2014/05/12/TheOpenClosedPrinciple.html)
+- [Architectural principles — .NET](https://learn.microsoft.com/dotnet/architecture/modern-web-apps-azure/architectural-principles)
+
+</Src>
+
+</Q>
+
+<Q id="basics.solid.dry-kiss-yagni" level="j">
+
+## What are DRY, KISS and YAGNI, and how do they relate?
+
+<A short l="j">
+
+<T k="dry">DRY</T> says every piece of knowledge lives in one place in the system, <T k="kiss">KISS</T> says pick the simplest solution that works, and <T k="yagni">YAGNI</T> says do not write code until you need it. DRY is about knowledge, not similar-looking lines, so identical code with different meaning should not be merged.
+
+</A>
+
+<A short l="m">
+
+DRY, per "The Pragmatic Programmer", means every piece of knowledge has a single, unambiguous, authoritative representation, while identical code that expresses different rules is accidental duplication and merging it does harm. KISS and YAGNI cap complexity: the solution is no more complex than the problem, and a feature comes no earlier than the need. DRY pushes toward abstractions and YAGNI postpones them; the <T k="rule-of-three">rule of three</T> is the compromise.
+
+</A>
+
+<A short l="s">
+
+All three are heuristics about the cost of change, not laws. A false abstraction over accidentally similar code couples things that change for different reasons — hence Sandi Metz's line "duplication is far cheaper than the wrong abstraction". YAGNI, as Fowler frames it, counts the cost of a premature feature: building it, delaying valuable work, carrying the complexity and repairing it, but it does not forbid refactoring or tests. In practice: one source of truth for rules, tolerate duplication until the third case, and no extensibility for hypothetical requirements.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+| Principle | Meaning |
+|---|---|
+| DRY, Don't Repeat Yourself | every piece of knowledge has one place in the system |
+| KISS, Keep It Simple, Stupid | the simplest solution that works |
+| YAGNI, You Aren't Gonna Need It | do not write what is not needed yet |
+
+**How to use**
+
+- **DRY.** A tax rate or a validation rule lives in one place, otherwise someone forgets to update one of the copies.
+- **KISS.** A plain `if` instead of a pattern, as long as the simple solution copes.
+- **YAGNI.** "We might need a second payment provider" is no reason to build support for it now.
+
+**How they relate**
+
+DRY pushes you to merge, KISS and YAGNI push you not to complicate things up front. The compromise is the rule of three: tolerate two similar fragments, extract the common part on the third.
+
+**Common mistake**
+
+Merging code just because it looks the same. If the fragments express different rules, a shared method couples them.
+
+**Takeaway:** DRY — one place for each piece of knowledge; KISS and YAGNI — no more complexity than needed.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- **DRY.** Hunt and Thomas (1999): every piece of knowledge must have a single, unambiguous, authoritative representation within a system. In the second edition (2019) they clarified that DRY is about duplicating knowledge and intent, not identical lines.
+- **Knowledge is duplicated in different forms too.** A rule in code and in a database constraint, a contract in a DTO and in the docs — those violate DRY as well.
+- **Accidental duplication.** The checks "name up to 50 characters" and "no more than 50 items per order" look alike but change for different reasons.
+- **YAGNI** comes from Extreme Programming (Kent Beck). It forbids speculative functionality, not refactoring or tests.
+
+**When to choose what**
+
+| Situation | What to do |
+|---|---|
+| One rule in two places | move it to a single source |
+| Similar code, different reasons to change | keep the duplicate |
+| Third repetition of the same logic | extract the common part |
+| "We'll need it later" | do not write it |
+
+**Pitfalls**
+
+- DRY via a shared base class or `Utils` glues together modules that would otherwise not depend on each other.
+- YAGNI does not justify skipping tests: you need them now.
+
+**Rule of thumb**
+
+Ask "is this one piece of knowledge?" first, not "is this similar code?".
+
+**Takeaway:** DRY removes duplicated knowledge, KISS and YAGNI keep you from paying for complexity up front, and the rule of three reconciles them.
+
+</A>
+
+<A l="s">
+
+**Cost**
+
+- The wrong abstraction costs more than a duplicate. Sandi Metz describes the typical path: a shared method grows parameters and `if`s for every new caller. Her advice is to inline the code back into the call sites and extract the abstraction anew.
+- Fowler splits the cost of a premature feature into four parts: cost of build, cost of delay, cost of carry and cost of repair if the guess was wrong. Even a correctly guessed feature carries complexity until the day it is needed.
+
+**Trade-offs**
+
+- DRY across services is more dangerous than within one: a shared model library couples releases. Between <T k="bounded-context">bounded contexts</T> duplication is often right.
+- Knowledge that must change in lockstep stays in one place even at the cost of coupling: a message schema is generated from one contract.
+- YAGNI works only when change is cheap: there are tests and frequent releases. A public API or a storage format cannot be reworked that way, so they are designed up front.
+
+**How to check in production**
+
+- The same bug fixed in several places is a missed DRY.
+- A method with flag parameters and branches for each caller is a false DRY.
+- Code with no callers and no test coverage is a trace of "future" features.
+
+**Takeaway:** choosing between a duplicate and an abstraction is a bet on whether the fragments change together; when in doubt, waiting is cheaper.
+
+</A>
+
+<Ex>
+
+```csharp
+Console.WriteLine(UserRules.IsValidName("Ann")); // True
+Console.WriteLine(OrderRules.IsValidQuantity(3)); // True
+
+// One piece of knowledge, one place: validation and the DB schema
+// (HasMaxLength(UserRules.MaxNameLength)) take the limit from here
+public static class UserRules
+{
+    public const int MaxNameLength = 50;
+
+    public static bool IsValidName(string name) =>
+        name.Length is > 0 and <= MaxNameLength;
+}
+
+// Looks like a duplicate, but it is different knowledge: the business changes order limits.
+// A shared IsInRange(x, 1, 50) would couple two independent rules.
+public static class OrderRules
+{
+    public const int MaxQuantity = 50;
+
+    public static bool IsValidQuantity(int quantity) =>
+        quantity is > 0 and <= MaxQuantity;
+}
+```
+
+</Ex>
+
+<Next>
+
+- Does the same constant `50` in two places violate DRY? — No if they are different rules; yes if one rule is written twice.
+- What is the rule of three? — Tolerate two repetitions, extract on the third; Don Roberts' rule, popularized by Fowler in "Refactoring".
+- Does YAGNI contradict refactoring? — No, YAGNI forbids speculative functionality, not improving structure.
+- When does YAGNI not work? — Where change is expensive: a public API, a data format, the schema of a large database.
+- Where does DRY apply besides code? — Database schema, configuration, documentation, API contracts.
+
+</Next>
+
+<Src>
+
+- [Architectural principles: Don't repeat yourself — .NET](https://learn.microsoft.com/dotnet/architecture/modern-web-apps-azure/architectural-principles#dont-repeat-yourself-dry)
+- [Yagni — Martin Fowler](https://martinfowler.com/bliki/Yagni.html)
+- [The Wrong Abstraction — Sandi Metz](https://sandimetz.com/blog/2016/1/20/the-wrong-abstraction)
+
+</Src>
+
+</Q>
+
+<Q id="basics.solid.lsp-isp" level="m">
+
+## What are the Liskov Substitution Principle (LSP) and the Interface Segregation Principle (ISP)?
+
+<A short l="j">
+
+<T k="liskov-substitution">LSP</T>: an instance of a subclass must work wherever the base type is expected, with no surprises for the calling code. <T k="interface-segregation">ISP</T>: a client should not depend on methods it does not use, so a large interface is split into several small ones.
+
+</A>
+
+<A short l="m">
+
+LSP is about behavior, not signatures: a subtype honors the base type's <T k="design-by-contract">contract</T> — it does not strengthen preconditions, does not weaken postconditions and preserves invariants. The classic violations are a square inheriting from a mutable rectangle and `NotImplementedException` in an interface implementation. ISP fixes "fat" interfaces with narrow <T k="role-interface">role interfaces</T>, such as `IReadOnlyList<T>` instead of `IList<T>`, at the price of more types.
+
+</A>
+
+<A short l="s">
+
+Formally, LSP is the Liskov and Wing (1994) requirement: any property provable about objects of the base type holds for the subtype too, including the history constraint — a subtype does not change state in ways the base type does not allow. The compiler checks only signatures, so the behavioral contract rests on documentation and tests. .NET itself works around LSP with optional capabilities: `ReadOnlyCollection<T>` implements `ICollection<T>` and throws `NotSupportedException` from `Add`, while the `IReadOnly*` interfaces are ISP added after the fact. ISP's cost is fragmentation, so interfaces are split by client roles, not by methods.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **LSP, the Liskov Substitution Principle.** Code that works with a base type works correctly with any subclass without knowing about it.
+- **ISP, the Interface Segregation Principle.** A client depends only on the methods it calls.
+
+**Why**
+
+- LSP lets you rely on polymorphism. An `if (shape is Square)` check in client code is a sign of a violation.
+- ISP reduces coupling: changing someone else's method does not affect the client, and writing a test stub is easier.
+
+**How to use**
+
+- Inherit only if the subclass fulfills everything the base type promises.
+- If an implementation has to throw `NotImplementedException`, the interface is too wide: split it.
+
+**Common mistake**
+
+Inheriting by the real-world "is a" relation. In geometry a square is a rectangle, but a mutable `Square` is not a subtype of a mutable `Rectangle`: setting the width changes the height.
+
+**Takeaway:** a subclass replaces the base type without surprises, and an interface contains only what the client needs.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+LSP is about a method's contract: preconditions (what is true before the call), postconditions (what is guaranteed after) and invariants (what is always true). A subtype must:
+
+1. not strengthen preconditions — not reject arguments the base method accepts;
+2. not weaken postconditions — not promise less than the base;
+3. preserve the base type's invariants;
+4. not throw exceptions a client of the base type does not expect.
+
+The compiler checks signatures, not behavior.
+
+**Classic violations**
+
+- `Square : Rectangle` with mutable sides: it breaks the postcondition "the width setter does not change the height".
+- `NotImplementedException` in an interface implementation.
+- `ReadOnlyCollection<T>` passed as `ICollection<T>`: `Add` throws `NotSupportedException`.
+
+**ISP**
+
+A "fat" interface, such as an `IRepository` with twenty methods, forces clients to depend on what they do not need. The fix is role interfaces shaped by client needs: `IOrderReader` and `IOrderWriter`. One class can implement both.
+
+**Rule of thumb**
+
+Accept the narrowest interface the method needs: `IEnumerable<T>` or `IReadOnlyList<T>`, not `List<T>`.
+
+**Takeaway:** LSP — a subclass honors the base type's contract; ISP — a client sees only its own role.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- Informally, LSP appeared in Barbara Liskov's keynote "Data Abstraction and Hierarchy" (1987). Formally, in Liskov and Wing's "A Behavioral Notion of Subtyping" (1994): if a property is provable for objects of type `T`, it must hold for objects of a subtype `S`.
+- The paper adds the history constraint: a subtype does not allow state changes the base type does not allow. That is why a mutable point is not a subtype of an immutable one, even if all methods match.
+- In "Clean Architecture" Martin applies LSP beyond inheritance: to interface implementations and even to REST services sharing a contract.
+
+**Trade-offs**
+
+- `Stream` with `CanSeek` and `ICollection<T>` with `IsReadOnly` formally honor LSP: the base contract itself permits `NotSupportedException`. The cost is that every client checks the flag, and the check is easy to forget.
+- `IReadOnlyCollection<T>` and `IReadOnlyList<T>` (.NET Framework 4.5) are ISP after the fact: a method that only reads no longer demands a mutable collection.
+- Interfaces that are too small fragment the model. Fowler contrasts role interfaces with "header interfaces" that copy every public method of a class; split by client roles, not one interface per method.
+
+**How to check in production**
+
+- `is`, `as` and `GetType()` checks for concrete subtypes in client code are an LSP smell.
+- A code search finds `NotImplementedException` in implementations.
+- A shared abstract test class run against every implementation of an interface checks the contract, not just the signatures.
+
+**Takeaway:** LSP is a behavioral contract the compiler does not check, and ISP makes it cheaper to honor by narrowing the contract to the client's role.
+
+</A>
+
+<Ex title="LSP violation: square and rectangle">
+
+```csharp
+Rectangle r = new Square();
+r.Width = 2;
+r.Height = 5;
+Console.WriteLine(r.Area); // 25, while a Rectangle client expects 10
+
+public class Rectangle
+{
+    public virtual int Width { get; set; }
+    public virtual int Height { get; set; }
+    public int Area => Width * Height;
+}
+
+// The square adds the invariant "width == height" and breaks
+// the base type's postcondition: the setter changes both sides
+public class Square : Rectangle
+{
+    public override int Width
+    {
+        get => base.Width;
+        set { base.Width = value; base.Height = value; }
+    }
+
+    public override int Height
+    {
+        get => base.Height;
+        set { base.Width = value; base.Height = value; }
+    }
+}
+```
+
+</Ex>
+
+<Ex title="LSP and ISP in .NET collections">
+
+```csharp
+IList<int> list = new List<int> { 1, 2 }.AsReadOnly();
+Console.WriteLine(list.IsReadOnly); // True: the contract allows refusal
+try
+{
+    list.Add(3);
+}
+catch (NotSupportedException)
+{
+    Console.WriteLine("NotSupportedException");
+}
+
+// ISP: the method only reads, so it asks for a narrow interface
+Console.WriteLine(Sum(new List<int> { 1, 2 })); // 3
+Console.WriteLine(Sum(new[] { 1, 2, 3 }));      // 6
+
+static int Sum(IReadOnlyList<int> items)
+{
+    int sum = 0;
+    for (int i = 0; i < items.Count; i++) sum += items[i];
+    return sum;
+}
+```
+
+</Ex>
+
+<Next>
+
+- How do you fix square and rectangle? — Make the types immutable or drop the inheritance: a shared `IShape` interface with `Area`.
+- Does `ReadOnlyCollection<T>.Add` violate LSP? — Formally no: the `ICollection<T>` contract allows refusal via `IsReadOnly`; in spirit, yes.
+- What is the history constraint? — A subtype does not allow state changes the base type does not allow.
+- How does a role interface differ from a header interface? — A role interface describes the client's needs; a header interface copies every method of the class.
+- How is LSP related to variance? — A subtype may accept more general arguments and return a more specific result; since C# 9 an override can return a more specific type.
+
+</Next>
+
+<Src>
+
+- [A Behavioral Notion of Subtyping — Liskov, Wing, 1994](https://www.cs.columbia.edu/~wing/publications/LiskovWing94.pdf)
+- [`ReadOnlyCollection<T>` — .NET API reference](https://learn.microsoft.com/dotnet/api/system.collections.objectmodel.readonlycollection-1)
+- [Role Interface — Martin Fowler](https://martinfowler.com/bliki/RoleInterface.html)
+
+</Src>
+
+</Q>
+
+<Q id="basics.solid.dip" level="m">
+
+## What is the Dependency Inversion Principle (DIP), and how does it differ from dependency injection (DI) and IoC?
+
+<A short l="j">
+
+The <T k="dependency-inversion">Dependency Inversion Principle</T> (DIP) says business logic should not depend on details like the database or email: both sides depend on an abstraction, such as an interface. <T k="dependency-injection">Dependency injection</T> (DI) is a way to supply an implementation of that abstraction from outside, usually through the constructor.
+
+</A>
+
+<A short l="m">
+
+DIP is a rule about the direction of dependencies: high-level modules do not depend on low-level ones, both depend on abstractions, and abstractions do not depend on details. The key is who owns the interface: the client declares it in its own terms and infrastructure implements it, so the source-code dependency runs against the flow of calls. DI merely delivers the implementation, and <T k="inversion-of-control">IoC</T> is the broader principle "the framework calls your code"; DI without DIP is possible if you inject a concrete class.
+
+</A>
+
+<A short l="s">
+
+DIP is an architectural principle, not a technique: it makes business rules independent of details, and <T k="clean-architecture">clean architecture</T> and <T k="ports-and-adapters">ports and adapters</T> are built on it. Ownership is inverted too: the interface lives in the client's module, otherwise you get an "interface for the sake of an interface" that inverts nothing. Martin himself notes that depending on stable concrete types like `string` is fine; what you invert are dependencies on volatile things: databases, external APIs, frameworks. The cost is indirection at every seam, so DIP is applied at module boundaries, not to every class.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+DIP is the D in SOLID. Martin states it in two parts:
+
+1. High-level modules should not depend on low-level modules. Both should depend on abstractions.
+2. Abstractions should not depend on details. Details should depend on abstractions.
+
+High level means business rules, such as `InvoiceService`. Low level means details: the database, email, a payment gateway.
+
+**Why**
+
+- Business logic can be tested with a stub instead of the real gateway.
+- Switching the database or provider does not touch the rules.
+
+**How to use**
+
+1. Declare the interface next to the business logic: `IPaymentGateway`.
+2. Make the class depend on the interface, not on a specific provider's client.
+3. Supply the implementation from outside — through the constructor.
+
+**Common mistake**
+
+Treating DIP and DI as the same thing. DIP is about the direction of dependencies, DI is about how an object gets passed in.
+
+**Takeaway:** rules depend on an abstraction, and details implement it.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+Without DIP, the code dependency follows the flow of calls: `InvoiceService` → `CardGatewayClient`. With DIP, `InvoiceService` calls `IPaymentGateway` and `CardGateway` implements it. The call goes the same way, but the source-code dependency points from the detail to the business rules.
+
+**Who owns the abstraction**
+
+The interface belongs to the client: it lives in the client's module and is named in the client's terms — `Charge(invoiceId, amount)`, not `PostJson(path, body)`. If the interface lives in the infrastructure assembly, the business module still references it, and nothing is inverted.
+
+**DIP, DI and IoC**
+
+| Concept | What it is |
+|---|---|
+| DIP | a principle: which way dependencies point |
+| DI | a technique: a dependency comes from outside |
+| IoC | a principle: the framework is in control, not your code |
+
+DI helps you follow DIP but does not guarantee it. How the ASP.NET Core container does this is covered in [Dependency injection](/sobes/en/aspnet/di/).
+
+**Pitfalls**
+
+- **Interface for the sake of an interface.** An `IOrderService` with a single implementation that mirrors all its methods and sits right next to it. It inverts nothing and only adds a hop.
+- **Leaky abstraction.** An `IRepository` that returns `IQueryable<T>` or `DbSet<T>` ties the client to EF Core.
+
+**Rule of thumb**
+
+The interface is declared by whoever uses it, with only the methods it needs.
+
+**Takeaway:** DIP decides whose module owns the abstraction, and DI merely delivers the implementation.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- The flow of calls and source-code dependencies are different graphs. An interface lets you flip any dependency arrow without changing the flow of calls. In "Clean Architecture" Martin calls this the real power of OO.
+- Martin stresses that not only the dependency is inverted but also the ownership of the interface. The client declares what it needs, and the server adapts.
+- Clean architecture and ports and adapters rest on this: the core declares ports, infrastructure implements them, and the composition root — the place where the object graph is assembled at startup — wires everything together.
+
+**Cost**
+
+- Every seam is an interface, a registration and an extra hop when navigating and debugging.
+- An abstraction extracted from a single implementation mirrors its shape, and a second implementation does not fit.
+
+**Trade-offs**
+
+- Stable versus volatile. Depending on `string`, `List<T>` and the rest of the BCL is fine. Invert dependencies on what changes or is non-deterministic: databases, external APIs, frameworks, time.
+- Concrete classes are fine inside a module. DIP belongs at boundaries: domain and infrastructure, module and module.
+
+**How to check in production**
+
+- <T k="architecture-test">Architecture tests</T> (NetArchTest, ArchUnitNET) enforce the rule "the domain does not reference infrastructure".
+- Project references in `.csproj`: if the domain project references EF Core or the infrastructure project, nothing is inverted.
+
+**Takeaway:** DIP is a tool for module boundaries, not for every class: the interface belongs to the client, details live outside.
+
+</A>
+
+<Ex title="Before: business rules depend on a detail">
+
+```csharp
+var service = new InvoiceService();
+Console.WriteLine(service.Pay(42)); // Invoice 42 paid
+
+public class InvoiceService
+{
+    // The policy creates and knows a specific provider's HTTP client
+    private readonly CardGatewayClient _client = new();
+
+    public string Pay(int invoiceId) =>
+        _client.PostJson("/charges", $$"""{"invoice":{{invoiceId}}}""") == 200
+            ? $"Invoice {invoiceId} paid"
+            : "Payment declined";
+}
+
+public class CardGatewayClient
+{
+    public int PostJson(string path, string body) => 200; // HTTP call to the provider
+}
+```
+
+</Ex>
+
+<Ex title="After: the interface belongs to the business rules">
+
+```csharp
+using Billing;
+using Infrastructure;
+
+// Composition root — the only place that knows both sides
+var service = new InvoiceService(new CardGateway());
+Console.WriteLine(service.Pay(42)); // Invoice 42 paid
+
+namespace Billing
+{
+    // The abstraction lives with the client and is named in its terms
+    public interface IPaymentGateway
+    {
+        bool Charge(int invoiceId, decimal amount);
+    }
+
+    public class InvoiceService(IPaymentGateway gateway)
+    {
+        public string Pay(int invoiceId) =>
+            gateway.Charge(invoiceId, 100m) ? $"Invoice {invoiceId} paid" : "Payment declined";
+    }
+}
+
+namespace Infrastructure
+{
+    // The detail depends on the business rules' abstraction, not the other way round
+    public class CardGateway : Billing.IPaymentGateway
+    {
+        public bool Charge(int invoiceId, decimal amount) => true; // HTTP call to the provider
+    }
+}
+```
+
+</Ex>
+
+<Next>
+
+- Which assembly should `IOrderRepository` live in? — The domain or application one, next to the client; the implementation goes in infrastructure.
+- Can you follow DIP without a container? — Yes, wire the graph by hand in `Program.cs`; a container only automates the wiring.
+- Is it DIP if a concrete class is injected? — No, that is DI without inversion; for stable dependencies that is fine.
+- Why an interface if there is only one implementation? — If it is a boundary with a volatile detail or a seam for tests; otherwise you do not need it.
+- What does DIP invert — the flow of calls or dependencies? — Source-code dependencies; the flow of calls stays the same.
+
+</Next>
+
+<Src>
+
+- [Architectural principles: Dependency inversion — .NET](https://learn.microsoft.com/dotnet/architecture/modern-web-apps-azure/architectural-principles#dependency-inversion)
+- [The Clean Architecture — Robert C. Martin](https://blog.cleancoder.com/uncle-bob/2012/08/13/the-clean-architecture.html)
+- [Inversion of Control Containers and the Dependency Injection pattern — Martin Fowler](https://martinfowler.com/articles/injection.html)
+
+</Src>
+
+</Q>
+
+<Q id="basics.solid.critique" level="s">
+
+## When does following SOLID hurt, and how do you make design decisions?
+
+<A short l="j">
+
+SOLID hurts when it is applied without a reason: an interface for every class, a dozen tiny classes instead of one clear one. A simple solution that is easy to change is usually better than a "flexible" one built in advance.
+
+</A>
+
+<A short l="m">
+
+Every principle buys flexibility at the cost of indirection: extra interfaces, classes and hops when reading code. If the axis of change is not confirmed, that is <T k="speculative-generality">speculative generality</T> — abstractions nobody extends but everybody reads. The working approach is to write simple code and extract an abstraction once a second implementation or real pain during changes appears, backed by tests.
+
+</A>
+
+<A short l="s">
+
+SOLID is a set of heuristics against specific pain — cascading changes, fragile hierarchies, needless rebuilds — and outside that pain it only adds <T k="accidental-complexity">accidental complexity</T>. Dan North boiled his critique down to "write simple code" and proposed <T k="cupid">CUPID</T>: properties code moves toward instead of rules you either comply with or not. A design decision is a bet: the likelihood of change, the cost of the abstraction now and the cost of refactoring later, given tests. That cost is what you explain to the team, rather than quoting a principle.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+SOLID is advice on making code easy to change. It is not free: every interface and new class is one more place to read.
+
+**When SOLID hurts**
+
+- An interface for every class, even though there is one implementation and nothing needs to swap it.
+- A class split into five small ones, so the logic of one operation has to be pieced together from five files.
+- "Extensibility" for requirements that do not exist.
+
+**How to use**
+
+1. Write the simple solution.
+2. Cover it with tests.
+3. When a second implementation appears or changes become painful, extract an abstraction.
+
+**Common mistake**
+
+Justifying complexity with "SOLID requires it". A principle is a means, not a goal: if it does not solve a concrete problem, it creates one.
+
+**Takeaway:** start simple, add abstractions as real needs appear.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+Every abstraction adds indirection. To understand a call you have to find the implementation, its container registration and possibly a decorator. This pays off only if changes really arrive along that axis.
+
+**Signs of overdoing it**
+
+- **Mirror interface.** An `IOrderService` for an `OrderService` with a single implementation, repeating all its methods.
+- **Fragmentation.** One operation is smeared across a `Handler`, `Validator`, `Mapper`, `Factory` and `Provider`, and you need to open ten files to understand it.
+- **Speculative generality.** Parameters, hooks and base classes "for the future" used by a single caller. That is Fowler's name for this smell in "Refactoring".
+
+**When to choose what**
+
+| Situation | Decision |
+|---|---|
+| Network, time, files, an external system | abstraction right away — it is a <T k="seam">seam</T> for tests |
+| One implementation inside a module | a concrete class |
+| A second implementation appeared | extract an interface after the fact |
+| The abstraction gets in the way of changes | inline the code and extract anew |
+
+**Rule of thumb**
+
+Start simple and refactor as the pain arrives. Extract an abstraction once you know at least two variants: then you can see what they share.
+
+**Takeaway:** an abstraction pays off only on a real axis of change; without one it is indirection with no benefit.
+
+</A>
+
+<A l="s">
+
+**Where the principles came from**
+
+Martin gathered these principles in the paper "Design Principles and Design Patterns" (2000); Michael Feathers later coined the SOLID acronym. They answered the pain of large C++ and Java systems, where changing one header triggered rebuilding and redeploying half the system.
+
+**Critique**
+
+- In the tongue-in-cheek talk "Why Every Element of SOLID is Wrong", Dan North called SRP "pointlessly vague" and offered one alternative for every principle — "write simple code".
+- He later proposed CUPID: Composable, Unix philosophy, Predictable, Idiomatic, Domain-based. These are properties, not rules: code does not "comply" with them, it moves closer to them.
+
+**Cost**
+
+- Accidental complexity, in Fred Brooks's terms, is complexity we add ourselves rather than the problem. Interfaces, factories and layers without a second implementation are its classic source.
+- Indirection hurts reading and debugging: call stacks through decorators and proxies, "Go to Implementation" with five results.
+
+**Trade-offs**
+
+- A decision is a bet: the likelihood of a change and its cost without an abstraction versus the cost of the abstraction now. Things that are expensive to change — a public API, a data format, module boundaries — are designed up front; the rest as needed.
+- Argue with the team in terms of cost, not principle: "the seam is here because the provider's API is unstable and without it the tests hit the network".
+- "Refactor as the pain arrives" only works with tests. Without them the postponed abstraction never comes.
+
+**How to check in production**
+
+- Interfaces with one implementation that are not swapped even in tests are candidates for removal.
+- File change frequency in `git log` shows the real axes of change. Abstractions where nothing changes do not pay off.
+
+**Takeaway:** principles are tools against specific pain; decisions are made on cost and likelihood of change, not on the letter of a principle.
+
+</A>
+
+<Ex title="Before: four types for one formula">
+
+```csharp
+var calculator = new DiscountCalculatorFactory().Create();
+Console.WriteLine(calculator.Calculate(new DiscountRequest(200))); // 20
+
+// One implementation, nobody swaps it — indirection with no benefit
+public interface IDiscountCalculator { int Calculate(DiscountRequest request); }
+public interface IDiscountCalculatorFactory { IDiscountCalculator Create(); }
+public record DiscountRequest(int Amount);
+
+public class DiscountCalculator : IDiscountCalculator
+{
+    public int Calculate(DiscountRequest request) => request.Amount / 10;
+}
+
+public class DiscountCalculatorFactory : IDiscountCalculatorFactory
+{
+    public IDiscountCalculator Create() => new DiscountCalculator();
+}
+```
+
+</Ex>
+
+<Ex title="After: start simple">
+
+```csharp
+Console.WriteLine(Discount.For(200)); // 20
+
+// A pure function: tested without stubs and readable at a glance.
+// An interface will appear when a second way to calculate does.
+public static class Discount
+{
+    public static int For(int amount) => amount / 10;
+}
+```
+
+</Ex>
+
+<Next>
+
+- Do you need an interface for a class with one implementation? — Only if it is a seam: an external system, a test substitute, a module boundary.
+- How do you convince a colleague who wants an interface for everything? — With cost: what the interface gives now, who swaps the implementation, what navigation costs.
+- What is CUPID? — Dan North's five properties: Composable, Unix philosophy, Predictable, Idiomatic, Domain-based.
+- When is it worth designing an abstraction up front? — When changing later is expensive: a public API, a storage format, boundaries between teams.
+- How do you remove a bad abstraction? — Inline the code back into the call sites, remove what each one does not need, and extract the abstraction anew.
+
+</Next>
+
+<Src>
+
+- [CUPID — for joyful coding — Dan North](https://dannorth.net/blog/cupid-for-joyful-coding/)
+- [CUPID — the back story — Dan North](https://dannorth.net/blog/cupid-the-back-story/)
+- [Yagni — Martin Fowler](https://martinfowler.com/bliki/Yagni.html)
+
+</Src>
+
+</Q>

@@ -1,0 +1,160 @@
+distributed-vcs:
+  term: Розподілена система контролю версій (DVCS)
+  def: >-
+    Система контролю версій, у якій кожен учасник має повну копію репозиторію з усією історією.
+    Коміти створюються локально, а із сервером та іншими копіями обмінюються окремими командами.
+    Приклади — Git і Mercurial; SVN, навпаки, централізована.
+  q: distributed version control system
+  docs: https://git-scm.com/book/en/v2/Getting-Started-About-Version-Control
+staging-area:
+  term: Індекс (staging area)
+  def: >-
+    Проміжна область між робочою копією й репозиторієм: у неї командою `git add` кладуть зміни, які
+    увійдуть у наступний коміт. Дає змогу закомітити лише частину правок.
+  q: git staging area index
+  docs: https://git-scm.com/book/en/v2/Git-Basics-Recording-Changes-to-the-Repository
+git-commit:
+  term: Коміт (commit)
+  def: >-
+    Зафіксований знімок усіх файлів проєкту разом з автором, датою, повідомленням і посиланням на
+    батьківський коміт. Ідентифікується хешем і після створення не змінюється.
+  q: git commit
+  docs: https://git-scm.com/docs/git-commit
+git-remote:
+  term: Віддалений репозиторій (remote)
+  def: >-
+    Іменоване посилання на іншу копію репозиторію, зазвичай на сервері: `origin` створюється під час
+    `git clone`. З ним обмінюються комітами командами `fetch`, `pull` і `push`.
+  q: git remote
+  docs: https://git-scm.com/book/en/v2/Git-Basics-Working-with-Remotes
+git-branch:
+  term: Гілка (branch)
+  def: >-
+    Рухомий вказівник на коміт. Під час нового коміту поточна гілка автоматично зсувається на нього,
+    тому створити гілку — означає записати один хеш, а не копіювати файли.
+  q: git branch
+  docs: https://git-scm.com/book/en/v2/Git-Branching-Branches-in-a-Nutshell
+remote-tracking-branch:
+  term: Гілка віддаленого відстеження (remote-tracking branch)
+  def: >-
+    Локальне посилання на кшталт `origin/main`, яке запам'ятовує, де була гілка на сервері під час
+    останнього `fetch`. У неї не комітять напряму: її оновлюють `fetch` і `pull`.
+  q: git remote-tracking branch
+  docs: https://git-scm.com/book/en/v2/Git-Branching-Remote-Branches
+fast-forward:
+  term: Fast-forward (перемотування вперед)
+  def: >-
+    Вид злиття, коли цільова гілка не містить нових комітів і Git просто зсуває її вказівник на
+    вершину гілки, що вливається. Коміт злиття не створюється.
+  q: git fast-forward merge
+  docs: https://git-scm.com/docs/git-merge#_fast_forward_merge
+git-rebase:
+  term: Rebase (перебазування)
+  def: >-
+    Перенесення комітів гілки на нову базу: Git заново застосовує кожен коміт поверх іншої гілки й
+    створює його копію з новим хешем. Робить історію лінійною, але переписує її.
+  q: git rebase
+  docs: https://git-scm.com/book/en/v2/Git-Branching-Rebasing
+force-with-lease:
+  term: git push --force-with-lease
+  def: >-
+    Примусове надсилання, яке перезаписує гілку на сервері, лише якщо вона вказує на той самий коміт,
+    що й ваша гілка віддаленого відстеження. Захищає від затирання чужих комітів після rebase.
+  q: git push force-with-lease
+  docs: https://git-scm.com/docs/git-push#Documentation/git-push.txt---force-with-lease
+pull-request:
+  term: Pull request (PR, merge request)
+  def: >-
+    Запит на злиття гілки в іншу гілку на платформі на кшталт GitHub, GitLab або Azure DevOps.
+    Навколо нього йдуть рев'ю, обговорення й перевірки CI; у GitLab він називається merge request.
+  q: pull request
+  docs: https://docs.github.com/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/about-pull-requests
+squash-merge:
+  term: Squash merge
+  def: >-
+    Спосіб злити pull request, за якого всі коміти гілки об'єднуються в один коміт у цільовій гілці.
+    Історія `main` виходить короткою, але проміжні коміти в неї не потрапляють.
+  q: GitHub squash and merge
+  docs: https://docs.github.com/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/about-merge-methods-on-github
+interactive-rebase:
+  term: Інтерактивний rebase (interactive rebase)
+  def: >-
+    `git rebase -i`: rebase, під час якого ви редагуєте список комітів — змінюєте порядок,
+    об'єднуєте (`squash`, `fixup`), правите повідомлення або видаляєте коміти. Слугує для чищення
+    своєї гілки перед pull request.
+  q: git interactive rebase
+  docs: https://git-scm.com/book/en/v2/Git-Tools-Rewriting-History
+cherry-pick:
+  term: Cherry-pick
+  def: >-
+    Команда `git cherry-pick`, яка застосовує зміни одного коміту поверх поточної гілки й створює
+    новий коміт з тією самою правкою. З ключем `-x` у повідомлення додається посилання на вихідний
+    коміт.
+  q: git cherry-pick
+  docs: https://git-scm.com/docs/git-cherry-pick
+git-flow:
+  term: Git Flow
+  def: >-
+    Модель розгалуження Вінсента Дріссена (2010): довгоживучі `main` і `develop`, гілки `feature/*`,
+    `release/*` і `hotfix/*`. Розрахована на версійовані продукти; для continuous delivery автор
+    радить простішу модель.
+  q: git flow branching model
+  docs: https://nvie.com/posts/a-successful-git-branching-model/
+github-flow:
+  term: GitHub Flow
+  def: >-
+    Проста модель розгалуження: коротка гілка від `main`, pull request з рев'ю й перевірками, злиття в
+    `main` і видалення гілки. `main` завжди готовий до викладання.
+  q: GitHub flow
+  docs: https://docs.github.com/get-started/using-github/github-flow
+trunk-based-development:
+  term: Trunk-based development (розробка в основній гілці)
+  def: >-
+    Модель, за якої всі розробники часто вливають невеликі зміни в одну гілку (trunk, зазвичай
+    `main`) і не тримають інших довгоживучих гілок розробки. Незавершене ховають за feature flags.
+  q: trunk based development
+  docs: https://trunkbaseddevelopment.com/
+git-object:
+  term: Об'єкт Git (blob, tree, commit, tag)
+  def: >-
+    Одиниця зберігання в базі `.git/objects`, що адресується хешем свого вмісту: blob — вміст файлу,
+    tree — каталог, commit — знімок з метаданими, tag — анотований тег. Об'єкти незмінні.
+  q: git objects blob tree commit
+  docs: https://git-scm.com/book/en/v2/Git-Internals-Git-Objects
+git-ref:
+  term: Посилання (ref) і HEAD
+  def: >-
+    Посилання — ім'я, що вказує на коміт: гілка, тег або гілка віддаленого відстеження. HEAD —
+    особливе посилання на поточну гілку або, у стані detached HEAD, просто на коміт.
+  q: git references HEAD
+  docs: https://git-scm.com/book/en/v2/Git-Internals-Git-References
+reflog:
+  term: Reflog (журнал посилань)
+  def: >-
+    Локальний журнал, у якому Git записує кожне переміщення HEAD і гілок. Через нього знаходять
+    коміти після `reset --hard` або видалення гілки; записи за замовчуванням живуть 90 днів,
+    недосяжні — 30.
+  q: git reflog
+  docs: https://git-scm.com/docs/git-reflog
+git-bisect:
+  term: git bisect
+  def: >-
+    Команда для двійкового пошуку коміту, що вніс помилку: ви позначаєте добру й погану версії, а Git
+    на кожному кроці ділить діапазон навпіл. `git bisect run` перевіряє коміти скриптом або тестом
+    автоматично.
+  q: git bisect run
+  docs: https://git-scm.com/docs/git-bisect
+git-filter-repo:
+  term: git filter-repo
+  def: >-
+    Інструмент для переписування всієї історії репозиторію: видаляє файли, замінює рядки, змінює
+    шляхи. Документація Git радить його замість `git filter-branch` з його численними підводними каменями, зокрема для видалення секретів.
+  q: git filter-repo
+  docs: https://github.com/newren/git-filter-repo
+git-lfs:
+  term: Git LFS (Large File Storage)
+  def: >-
+    Розширення Git для великих бінарних файлів: у репозиторії зберігається маленький текстовий
+    вказівник, а вміст — на окремому LFS-сервері й завантажується лише для потрібних версій.
+  q: Git LFS
+  docs: https://git-lfs.com/

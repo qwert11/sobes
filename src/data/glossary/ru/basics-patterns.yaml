@@ -1,0 +1,177 @@
+design-pattern:
+  term: Паттерн проектирования (design pattern)
+  def: >-
+    Именованное типовое решение часто встречающейся задачи проектирования: роли классов, связи
+    между ними и последствия. Это не готовый код, а схема, которую реализуют под свою задачу.
+  q: design pattern
+  wiki: Шаблон проектирования
+gang-of-four:
+  term: «Банда четырёх» (Gang of Four, GoF)
+  def: >-
+    Эрих Гамма, Ричард Хелм, Ральф Джонсон и Джон Влиссидес — авторы книги «Design Patterns»
+    (1994), где описаны 23 классических паттерна в трёх группах.
+  q: Gang of Four design patterns
+  wiki: Design Patterns
+creational-pattern:
+  term: Порождающий паттерн (creational pattern)
+  def: >-
+    Паттерн, который отделяет код, использующий объект, от решения, какой объект создать и как.
+    В GoF их пять: Abstract Factory, Builder, Factory Method, Prototype, Singleton.
+  q: creational design patterns
+  wiki: Порождающие шаблоны проектирования
+structural-pattern:
+  term: Структурный паттерн (structural pattern)
+  def: >-
+    Паттерн, который описывает, как собирать классы и объекты в более крупные структуры. В GoF их
+    семь: Adapter, Bridge, Composite, Decorator, Facade, Flyweight, Proxy.
+  q: structural design patterns
+  wiki: Структурные шаблоны проектирования
+behavioral-pattern:
+  term: Поведенческий паттерн (behavioral pattern)
+  def: >-
+    Паттерн, который распределяет обязанности между объектами и описывает их взаимодействие. В GoF
+    их одиннадцать, среди них Strategy, Observer, Command, Iterator, Template Method.
+  q: behavioral design patterns
+  wiki: Поведенческие шаблоны проектирования
+singleton-pattern:
+  term: Одиночка (Singleton)
+  def: >-
+    Порождающий паттерн: у класса ровно один экземпляр и глобальная точка доступа к нему. В .NET
+    «один экземпляр» обычно задают регистрацией `AddSingleton` в DI, а не статическим свойством.
+  q: singleton pattern C#
+  wiki: Одиночка (шаблон проектирования)
+factory-method:
+  term: Фабричный метод (Factory Method)
+  def: >-
+    Порождающий паттерн: базовый класс объявляет метод создания объекта, а подкласс решает, какой
+    конкретный класс вернуть.
+  q: factory method pattern
+  wiki: Фабричный метод (шаблон проектирования)
+abstract-factory:
+  term: Абстрактная фабрика (Abstract Factory)
+  def: >-
+    Порождающий паттерн: интерфейс с методами создания целого семейства согласованных объектов без
+    указания их конкретных классов. Пример в .NET — `DbProviderFactory`.
+  q: abstract factory pattern
+  docs: https://learn.microsoft.com/dotnet/api/system.data.common.dbproviderfactory
+builder-pattern:
+  term: Строитель (Builder)
+  def: >-
+    Порождающий паттерн: сложный объект собирается пошаговыми вызовами отдельного объекта-сборщика,
+    а итоговый метод `Build` проверяет данные и возвращает результат.
+  q: builder pattern C#
+  wiki: Строитель (шаблон проектирования)
+lazy-initialization:
+  term: Ленивая инициализация (lazy initialization)
+  def: >-
+    Создание объекта при первом обращении, а не заранее. В .NET для этого есть `Lazy<T>`: по
+    умолчанию он потокобезопасен и кеширует исключение фабрики.
+  q: Lazy<T> lazy initialization .NET
+  docs: https://learn.microsoft.com/dotnet/framework/performance/lazy-initialization
+adapter-pattern:
+  term: Адаптер (Adapter)
+  def: >-
+    Структурный паттерн: обёртка реализует интерфейс, который ждёт клиент, и переводит вызовы в API
+    другого объекта с несовместимым интерфейсом.
+  q: adapter pattern
+  wiki: Адаптер (шаблон проектирования)
+facade-pattern:
+  term: Фасад (Facade)
+  def: >-
+    Структурный паттерн: простой единый интерфейс к сложной подсистеме из нескольких объектов.
+    Клиент вызывает фасад и не знает о частях подсистемы.
+  q: facade pattern
+  wiki: Фасад (шаблон проектирования)
+proxy-pattern:
+  term: Заместитель (Proxy)
+  def: >-
+    Структурный паттерн: объект с тем же интерфейсом, что и реальный, управляет доступом к нему —
+    создаёт лениво, вызывает удалённо, проверяет права или кеширует.
+  q: proxy pattern
+  wiki: Заместитель (шаблон проектирования)
+delegating-handler:
+  term: DelegatingHandler
+  def: >-
+    Базовый класс обработчика сообщений `HttpClient`, который передаёт запрос следующему обработчику
+    через `base.SendAsync`. Из таких обработчиков собирают цепочку: логирование, повторы, заголовки.
+  q: DelegatingHandler HttpClient
+  docs: https://learn.microsoft.com/dotnet/api/system.net.http.delegatinghandler
+dynamic-proxy:
+  term: Динамический прокси (dynamic proxy)
+  def: >-
+    Тип-заместитель, сгенерированный во время выполнения, который перехватывает вызовы методов.
+    Так работают Castle DynamicProxy, моки Moq, ленивая загрузка EF Core и `DispatchProxy`.
+  q: Castle DynamicProxy
+  docs: https://learn.microsoft.com/dotnet/api/system.reflection.dispatchproxy
+strategy-pattern:
+  term: Стратегия (Strategy)
+  def: >-
+    Поведенческий паттерн: семейство взаимозаменяемых алгоритмов за общим интерфейсом, нужный
+    передаётся снаружи. В C# стратегией часто служит делегат или `IComparer<T>`.
+  q: strategy pattern C#
+  wiki: Стратегия (шаблон проектирования)
+observer-pattern:
+  term: Наблюдатель (Observer)
+  def: >-
+    Поведенческий паттерн: издатель оповещает всех подписчиков об изменении. В .NET это события
+    (`event`) и интерфейсы `IObservable<T>` и `IObserver<T>`.
+  q: observer design pattern .NET
+  docs: https://learn.microsoft.com/dotnet/standard/events/observer-design-pattern
+command-pattern:
+  term: Команда (Command)
+  def: >-
+    Поведенческий паттерн: запрос упакован в объект с данными, поэтому его можно передать, поставить
+    в очередь, залогировать или отменить.
+  q: command pattern
+  wiki: Команда (шаблон проектирования)
+chain-of-responsibility:
+  term: Цепочка обязанностей (Chain of Responsibility)
+  def: >-
+    Поведенческий паттерн: запрос проходит по цепочке обработчиков, и каждый решает, обработать его,
+    передать дальше или остановить. Пример в .NET — конвейер middleware ASP.NET Core.
+  q: chain of responsibility pattern
+  wiki: Цепочка обязанностей
+template-method:
+  term: Шаблонный метод (Template Method)
+  def: >-
+    Поведенческий паттерн: базовый класс задаёт скелет алгоритма в одном методе, а отдельные шаги
+    оставляет подклассам через виртуальные или абстрактные методы.
+  q: template method pattern
+  wiki: Шаблонный метод (шаблон проектирования)
+anti-pattern:
+  term: Антипаттерн (anti-pattern)
+  def: >-
+    Часто повторяемое решение, которое кажется разумным, но приносит больше вреда, чем пользы, и
+    для которого известна лучшая замена.
+  q: anti-pattern software
+  wiki: Антипаттерн
+god-object:
+  term: Божественный объект (God object)
+  def: >-
+    Антипаттерн: один класс знает и делает слишком много — проверки, расчёты, доступ к данным,
+    интеграции. Его меняют в каждой задаче, и он тянет за собой десятки зависимостей.
+  q: god object anti-pattern
+  wiki: Божественный объект
+primitive-obsession:
+  term: Примитивная одержимость (primitive obsession)
+  def: >-
+    Запах кода: понятия предметной области — email, деньги, идентификаторы — хранятся в `string`,
+    `decimal` и `int`. Проверки размазываются по коду; лечится рефакторингом Replace Primitive with
+    Object.
+  q: primitive obsession code smell
+  docs: https://refactoring.com/catalog/replacePrimitiveWithObject.html
+shotgun-surgery:
+  term: Стрельба дробью (shotgun surgery)
+  def: >-
+    Запах кода: одно логическое изменение требует мелких правок во многих классах. Лечится сбором
+    связанной логики в один модуль, например рефакторингами Move Function и Combine Functions into
+    Class.
+  q: shotgun surgery code smell
+  docs: https://refactoring.com/catalog/
+big-ball-of-mud:
+  term: Большой ком грязи (Big Ball of Mud)
+  def: >-
+    Система без различимой архитектуры, выросшая из сиюминутных решений. Описана Брайаном Футом и
+    Джозефом Йодером в 1997 году.
+  q: Big Ball of Mud Foote Yoder
+  docs: http://www.laputan.org/mud/

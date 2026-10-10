@@ -1,0 +1,873 @@
+---
+title: Design patterns
+description: GoF classification, Singleton, factories and Builder, Adapter, Decorator, Facade and Proxy, behavioral patterns in .NET, and anti-patterns.
+sidebar:
+  order: 3
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+What design patterns are, where they are already built into .NET, how similar patterns differ from each other, and which anti-patterns show up most often in real code. Interviewers don't check whether you know the catalog by heart — they check whether you can name the problem a pattern solves and what it costs.
+
+**Before this topic:** [SOLID and principles](/sobes/en/basics/solid/).
+
+<Q id="basics.pattern.what" level="j">
+
+## What are design patterns and how are they classified?
+
+<A short l="j">
+
+A <T k="design-pattern">design pattern</T> is a typical solution to a recurring design problem, described as class roles and the relationships between them rather than ready-made code. The <T k="gang-of-four">Gang of Four</T> (GoF) catalog splits 23 patterns into creational, structural and behavioral, and many are already built into .NET: `IEnumerable<T>`, for example, is the <T k="iterator">Iterator</T> pattern.
+
+</A>
+
+<A short l="m">
+
+A pattern is a named problem–solution pair with known consequences, and its main value is a shared vocabulary: saying "this is a decorator" explains the design without a class diagram. GoF groups patterns by purpose: <T k="creational-pattern">creational</T> ones create objects, <T k="structural-pattern">structural</T> ones compose them into larger structures, <T k="behavioral-pattern">behavioral</T> ones distribute responsibilities. Every pattern costs extra indirection, so you introduce it when the problem is already there, not for some hypothetical future.
+
+</A>
+
+<A short l="s">
+
+The GoF catalog (1994) was written for C++ and Smalltalk, and in modern C# several patterns have dissolved into the language: Strategy and Command are delegates, Iterator is `yield return`, Observer is `event`. Besides purpose, GoF classifies patterns by scope: class patterns (relationships through inheritance, fixed at compile time) and object patterns (through composition, changeable at run time). The book's cross-cutting principles are "program to an interface, not an implementation" and "favor object composition over class inheritance". In code review, naming a pattern is a way to discuss its consequences, not a justification for complexity.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+A design pattern describes a solution to a typical problem: what the problem is, which classes take part, how they relate, and what follows from that. It is not a library and not code to copy: you implement a pattern for your own problem every time.
+
+**Why**
+
+- Shared vocabulary: "wrap it in a decorator" is shorter than explaining the class diagram.
+- Proven solutions: you don't have to reinvent how to add behavior without changing a class.
+
+**How they are classified**
+
+The book "Design Patterns" (1994) by Gamma, Helm, Johnson and Vlissides — the "Gang of Four", GoF — describes 23 patterns in three groups:
+
+| Group | What it solves | Examples |
+|---|---|---|
+| Creational (5) | how to create objects | Singleton, Factory Method, Builder |
+| Structural (7) | how to compose objects into structures | Adapter, Decorator, Facade |
+| Behavioral (11) | how objects interact | Strategy, Observer, Iterator |
+
+**Common mistake**
+
+Learning patterns as code templates and sticking them everywhere. A pattern belongs where the problem it solves actually exists.
+
+**Takeaway:** a pattern is a named solution to a typical problem; what matters is the shared vocabulary, not the code.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+Every GoF pattern is described using the same template: intent, motivation, applicability, participants, consequences, implementation. Intent and consequences matter most: what the pattern solves and what you pay for it.
+
+**Where you meet them in .NET**
+
+| Pattern | Where in .NET |
+|---|---|
+| Builder | `StringBuilder`, `WebApplicationBuilder` |
+| Abstract Factory | `DbProviderFactory`: `CreateConnection`, `CreateCommand` |
+| Prototype | the `with` expression on a `record` |
+| Decorator | `BufferedStream`, `GZipStream` on top of `Stream` |
+| Iterator | `IEnumerable<T>`, `yield return` |
+| Observer | `event`, `IObservable<T>` |
+| Strategy | `IComparer<T>` in `List<T>.Sort` |
+
+**Pitfalls**
+
+- **Look-alike structures.** Adapter, Decorator and Proxy look the same — a wrapper around an object. They differ in intent, not in code.
+- **A name is not a pattern.** A static `Create` method is just a static factory method, not the GoF Factory Method: that one implies a subclass chooses the class of the object being created.
+
+**Rule of thumb**
+
+Problem first, pattern second. If you can't name the problem a pattern solves in this particular place, it doesn't belong there.
+
+**Takeaway:** GoF patterns are already all over the BCL; recognizing them matters more than writing them from scratch.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- GoF classifies patterns along two axes: purpose (creational, structural, behavioral) and scope (class or object).
+- Class-scope patterns — Factory Method, Template Method, Interpreter, the class version of Adapter — rely on inheritance and are fixed at compile time. The rest rely on composition and can change at run time.
+
+**Patterns and the language**
+
+Back in 1996 Peter Norvig showed that in dynamic languages 16 of the 23 patterns become simpler or disappear. In C# language features did the same: Strategy and Command are `Func<T>` and `Action`, Iterator is `yield return`, Observer is `event`, Prototype is `with`, a lazy singleton is `Lazy<T>`.
+
+**Trade-offs**
+
+- Every pattern adds types and indirection: code is harder to navigate and stack traces get longer. In return you get an extension point.
+- An extension point pays off only when it is used: a second implementation, a substitute in tests, frequent changes in the past.
+- GoF is not the only catalog: there are Fowler's enterprise application patterns (Repository, Unit of Work), enterprise integration patterns, and Microsoft's cloud design patterns (Retry, Circuit Breaker).
+
+**How to discuss it with the team**
+
+In review, a pattern name is shorthand for talking about consequences: "this is a decorator, so registration order matters". If you need to know the pattern to understand a class and the pattern gives nothing back, that is "pattern for the sake of pattern".
+
+**Takeaway:** a pattern is vocabulary for discussing design; in C# many GoF patterns became language features, and you pick them by their consequences, not from the catalog.
+
+</A>
+
+<Ex>
+
+```csharp
+using System.IO.Compression;
+
+// Iterator: yield return generates an IEnumerator<T>
+foreach (var n in Evens(6)) Console.Write($"{n} "); // 0 2 4
+Console.WriteLine();
+
+// Strategy: the comparison algorithm is passed in from outside
+var words = new List<string> { "ccc", "a", "bb" };
+words.Sort(Comparer<string>.Create((x, y) => x.Length.CompareTo(y.Length)));
+Console.WriteLine(string.Join(",", words)); // a,bb,ccc
+
+// Decorator: GZipStream adds compression to any Stream
+using var buffer = new MemoryStream();
+using (var gzip = new GZipStream(buffer, CompressionLevel.Optimal, leaveOpen: true))
+    gzip.Write(new byte[1000]);
+Console.WriteLine(buffer.Length < 1000); // True
+
+static IEnumerable<int> Evens(int max)
+{
+    for (var i = 0; i < max; i += 2) yield return i;
+}
+```
+
+</Ex>
+
+<Next>
+
+- How many patterns are in GoF and how are they grouped? — 23: 5 creational, 7 structural, 11 behavioral.
+- Name some patterns in the BCL. — `IEnumerable<T>` is Iterator, `StringBuilder` is Builder, `Stream` wrappers are Decorator, `event` is Observer.
+- How is a pattern different from an algorithm? — An algorithm is a sequence of steps; a pattern is a set of object roles and relationships.
+- How is a pattern different from an architecture style? — Scale: a pattern covers a few classes, a style such as layered architecture covers the whole application.
+- Which two principles does GoF put at the start of the book? — Program to an interface, and favor composition over inheritance.
+
+</Next>
+
+<Src>
+
+- [Design Patterns: Elements of Reusable Object-Oriented Software](https://www.oreilly.com/library/view/design-patterns-elements/0201633612/)
+- [Cloud design patterns — Azure Architecture Center](https://learn.microsoft.com/azure/architecture/patterns/)
+- [Peter Norvig: Design Patterns in Dynamic Languages](https://norvig.com/design-patterns/)
+
+</Src>
+
+</Q>
+
+<Q id="basics.pattern.creational" level="m">
+
+## Singleton, Factory and Builder: when to use which, and why is Singleton often called an anti-pattern?
+
+<A short l="j">
+
+<T k="singleton-pattern">Singleton</T> guarantees a single instance of a class, a <T k="factory-method">factory</T> hides choosing and creating the right class behind a method, and a <T k="builder-pattern">builder</T> assembles a complex object step by step, like `StringBuilder` or `WebApplicationBuilder`. A singleton with a static `Instance` property is called an anti-pattern because it is global state that is hard to replace in tests.
+
+</A>
+
+<A short l="m">
+
+Creational patterns separate the code that needs an object from the decision about which object to create and how. The classic Singleton combines "one instance" with "global access", and it's the second part that hurts: the dependency doesn't show in the constructor and the state is shared across all tests, so in .NET "one instance" is delegated to the container via `AddSingleton`. Factory Method moves the choice of class into a subclass, <T k="abstract-factory">Abstract Factory</T> creates families of matching objects, Builder handles step-by-step assembly; each costs one more type and more indirection.
+
+</A>
+
+<A short l="s">
+
+"One instance" is a lifetime decision, not a property of the class, so it moves to the <T k="composition-root">composition root</T> and the class becomes testable again. Thread-safe lazy initialization in C# is a `static readonly` field or <T k="lazy-initialization">`Lazy<T>`</T> in its default `ExecutionAndPublication` mode, but `Lazy<T>` caches an exception from the factory, so a failed initialization never retries. Factories in DI — a registration delegate, `IHttpClientFactory`, `IDbContextFactory<T>` — are needed when an object takes run-time parameters or must live shorter than its consumer. Builder pays off with many optional parts and validation in `Build()`; for five fields a `record` with `required` is enough.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+| Pattern | What it does | Example in .NET |
+|---|---|---|
+| Singleton | one instance per application | `AddSingleton` in DI |
+| Factory | creates an object and picks the class | `IHttpClientFactory.CreateClient()` |
+| Builder | assembles an object step by step | `StringBuilder`, `WebApplicationBuilder` |
+
+**Why**
+
+Code that needs an object shouldn't have to know how to build it: which class to pick, which parameters to pass, in what order to configure it.
+
+**How to use**
+
+- Need one shared object — register it in DI as a singleton instead of writing a static `Instance` property.
+- The class is picked by a condition — use a factory.
+- Many optional settings — use a builder with chained calls.
+
+**Common mistake**
+
+Writing a singleton with `static Instance` for a service that has dependencies. You can't replace it in a test, and all tests share the same state.
+
+**Takeaway:** Singleton is one instance, Factory is choosing the class, Builder is step-by-step assembly.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- **Singleton.** A private constructor and a static property. Thread-safe and lazy via `Lazy<T>`: by default its factory runs exactly once, even when threads race.
+- **Factory Method.** The base class declares a virtual creation method, and a subclass decides which object to return.
+- **Abstract Factory.** An interface with several creation methods for a family of matching objects: `DbProviderFactory` creates the connection, command and parameter of a single provider.
+- **Builder.** The object is assembled through method calls, and `Build()` validates the data and returns the result.
+
+**When to choose what**
+
+| Task | Solution |
+|---|---|
+| One instance per application | `AddSingleton` in DI |
+| Object with run-time parameters | factory delegate or factory interface |
+| Family of matching objects | Abstract Factory |
+| Many optional parts plus validation | Builder |
+
+**Pitfalls**
+
+- **Why Singleton is an anti-pattern.** A global access point hides the dependency, state survives between tests, and the class manages its own lifetime — an extra responsibility.
+- **A fluent API is not always a Builder.** Method chaining is an interface style. It's a Builder when there is a separate builder object and a final `Build()`.
+
+**Rule of thumb**
+
+Let the container decide lifetime, a factory handle creation with parameters, and a builder handle complex assembly.
+
+**Takeaway:** creational patterns separate "what I need" from "how to create it", and "one instance" in .NET is a registration, not a static.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- A `static readonly` field is initialized by the type constructor, and the CLR guarantees it runs once. But without an explicit static constructor the runtime chooses when initialization happens, so for real laziness you use `Lazy<T>`.
+- By default `Lazy<T>` runs in `ExecutionAndPublication` mode: the factory runs under a lock on a single thread. A factory exception is cached — every later `Value` throws the same exception. `PublicationOnly` doesn't cache exceptions but may create extra instances during a race.
+- `IHttpClientFactory` is a pooling factory: an `HttpClient` is created every time, while the `HttpMessageHandler` is reused and recreated on a timer, every two minutes by default.
+
+**Trade-offs**
+
+- **Static versus DI.** A static singleton is reachable from anywhere; DI makes the dependency visible and replaceable. Static is fine for immutable values with no dependencies: `Comparer<T>.Default`, `Array.Empty<T>()`.
+- **Your own factory.** The container already is a factory, and a factory interface per service is a useless layer. You need your own factory when the object depends on request data or has to live shorter than a long-lived consumer.
+- **Builder versus `record`.** A builder gives step-by-step validation and an immutable result, but doubles the number of types.
+
+**How to check in production**
+
+- A singleton with mutable state shows up as race conditions under load. In review, look for `static` fields holding mutable collections and for `Instance` properties.
+- A failed `Lazy<T>` initialization shows up as the same exception on every request until the process restarts.
+
+**Takeaway:** "one instance" is a composition root decision, a factory is for run-time creation, a builder is for complex assembly, and each comes at the price of indirection.
+
+</A>
+
+<Ex>
+
+```csharp
+// Singleton via Lazy<T>: the factory runs once, even from several threads
+Parallel.For(0, 8, i => { var config = Config.Instance; });
+Console.WriteLine(Config.Created); // 1
+
+// Builder: step-by-step assembly, validation in Build()
+var mail = new EmailBuilder().To("ann@example.com").Subject("Hi").Build();
+Console.WriteLine(mail); // Email { To = ann@example.com, Subject = Hi }
+
+public sealed class Config
+{
+    private static readonly Lazy<Config> instance = new(() => new Config());
+    public static int Created;
+    public static Config Instance => instance.Value;
+    private Config() => Interlocked.Increment(ref Created);
+}
+
+public record Email(string To, string Subject);
+
+public class EmailBuilder
+{
+    private string? to, subject;
+    public EmailBuilder To(string value) { to = value; return this; }
+    public EmailBuilder Subject(string value) { subject = value; return this; }
+    public Email Build() => new(to ?? throw new InvalidOperationException("To is required"), subject ?? "");
+}
+```
+
+</Ex>
+
+<Ex title="Factory Method">
+
+```csharp
+Exporter exporter = new CsvExporter();
+Console.WriteLine(exporter.Export([1, 2, 3])); // 1;2;3
+
+// The base class fixes the workflow, the subclass picks which object to create
+public abstract class Exporter
+{
+    public string Export(int[] rows) => CreateFormatter().Format(rows);
+    protected abstract IFormatter CreateFormatter(); // factory method
+}
+
+public class CsvExporter : Exporter
+{
+    protected override IFormatter CreateFormatter() => new CsvFormatter();
+}
+
+public interface IFormatter { string Format(int[] rows); }
+
+public class CsvFormatter : IFormatter
+{
+    public string Format(int[] rows) => string.Join(";", rows);
+}
+```
+
+</Ex>
+
+<Next>
+
+- How do you write a thread-safe lazy singleton in C#? — `Lazy<T>` in a static field, or simply a `static readonly` field.
+- Why is `AddSingleton` better than a static `Instance`? — The dependency is visible in the constructor and replaceable in tests, and the composition root sets the lifetime.
+- How does Factory Method differ from Abstract Factory? — The first is one virtual method with the choice made in a subclass; the second is an object with methods for a whole family.
+- Why `IHttpClientFactory` if you can just `new HttpClient()`? — It reuses and refreshes `HttpMessageHandler`: no socket exhaustion and no stale DNS.
+- What happens if the `Lazy<T>` factory throws? — In the default mode the exception is cached and rethrown on every access to `Value`.
+
+</Next>
+
+<Src>
+
+- [Lazy initialization](https://learn.microsoft.com/dotnet/framework/performance/lazy-initialization)
+- [`Lazy<T>` Class](https://learn.microsoft.com/dotnet/api/system.lazy-1)
+- [IHttpClientFactory with .NET](https://learn.microsoft.com/dotnet/core/extensions/httpclient-factory)
+
+</Src>
+
+</Q>
+
+<Q id="basics.pattern.structural" level="m">
+
+## Adapter, Decorator, Facade and Proxy: how do they differ?
+
+<A short l="j">
+
+All four wrap another object and differ in purpose: an <T k="adapter-pattern">adapter</T> converts someone else's interface into the one you need, a <T k="decorator-pattern">decorator</T> adds behavior and keeps the interface, a <T k="facade-pattern">facade</T> gives a simple entry point into a complex subsystem, and a <T k="proxy-pattern">proxy</T> controls access to an object. For example, `BufferedStream` is a decorator over `Stream`, while `StreamReader` is an adapter from a byte stream to reading text.
+
+</A>
+
+<A short l="m">
+
+Structurally these patterns look alike — an object holds a reference to another one and delegates calls to it — so you tell them apart by intent. An adapter reconciles incompatible interfaces; a decorator adds a responsibility behind the same interface and can be chained, like <T k="delegating-handler">`DelegatingHandler`</T> in `HttpClient`; a facade simplifies working with several objects of a subsystem. A proxy with the same interface decides when and how to reach the real object: lazily, remotely, after a permission check. The cost is an extra call layer and the risk of hiding important behavior, such as a database query, behind the wrapper.
+
+</A>
+
+<A short l="s">
+
+Intent also defines the contract: a decorator and a proxy must preserve the interface semantics, while an adapter and a facade introduce a new interface. In .NET proxies are usually generated at run time: <T k="dynamic-proxy">Castle DynamicProxy</T> in Moq and in EF Core lazy loading, `DispatchProxy` in the BCL; they need `virtual` members or interfaces, and they change behavior without the caller noticing. Decorators are handy for cross-cutting concerns, but order in the chain is part of the behavior: logging outside the retries and inside them writes different things. A facade is useful at a module boundary, but if everything goes through it, it turns into a class that knows about everything.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+All four patterns wrap another object. The difference is why.
+
+| Pattern | Why wrap | Example in .NET |
+|---|---|---|
+| Adapter | convert a foreign interface into yours | `StreamReader` over `Stream` |
+| Decorator | add behavior, same interface | `BufferedStream`, `GZipStream` |
+| Facade | simple entry into a complex subsystem | `DbContext` |
+| Proxy | control access, same interface | lazy loading in EF Core |
+
+**How to use**
+
+- Plugging in a library with an awkward API — write an adapter to your own interface.
+- Need logging or caching without changing the class — use a decorator.
+
+**Common mistake**
+
+Calling every wrapper a decorator. If the interface changes, it's an adapter. If the wrapper adds no behavior but decides whether to call the object at all, it's a proxy.
+
+**Takeaway:** an adapter changes the interface, a decorator adds behavior, a facade simplifies, a proxy controls access.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- **Adapter.** Implements the client's interface and translates calls into the API of the adapted object. In your own code it is usually a wrapper over an external service's SDK.
+- **Decorator.** Implements the same interface and receives it in the constructor, so decorators nest inside each other. `DelegatingHandler` is a decorator for `HttpMessageHandler`: it can do something before and after `base.SendAsync`.
+- **Facade.** Its own interface in front of several objects. `DbContext` hides the connection, change tracking and SQL generation, and its `Database` property returns a `DatabaseFacade` object for operations on the database itself.
+- **Proxy.** The same interface, but it decides whether and when to call the real object: lazy creation, remote call, permission check.
+
+**When to choose what**
+
+| Task | Pattern |
+|---|---|
+| A foreign API doesn't match your interface | Adapter |
+| Add logging, retries, caching | Decorator |
+| Hide five calls behind one | Facade |
+| Defer loading or call remotely | Proxy |
+
+**Pitfalls**
+
+- **A proxy hides the cost.** Accessing a lazily loaded navigation property is a database query, and in a loop you get N+1.
+- **Decorator order.** Logging outside the retries writes one entry, inside them — one entry per attempt.
+
+How to register a decorator in the built-in container is covered in [Dependency injection](/sobes/en/aspnet/di/).
+
+**Rule of thumb**
+
+State what the wrapper changes: the interface, the behavior, the complexity or the access — that gives you the name.
+
+**Takeaway:** the four patterns are built alike and are told apart by intent.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- A dynamic proxy is a type generated at run time with `System.Reflection.Emit`. Castle DynamicProxy creates a subclass that overrides `virtual` members, or an interface implementation. This is how Moq mocks and the lazy-loading proxies from `Microsoft.EntityFrameworkCore.Proxies` work.
+- `DispatchProxy` in the BCL creates a type that implements an interface and routes every call to `Invoke(MethodInfo, object[])`.
+- Run-time code generation isn't available under Native AOT, so these proxies don't work there.
+
+**Cost**
+
+- Every layer is one more call through an interface or a virtual method. Next to I/O it's invisible; in a hot loop it shows.
+- `DispatchProxy` allocates an argument array on every call and boxes value types.
+
+**Trade-offs**
+
+- A hand-written decorator is explicit and checked by the compiler, but you write one per interface. An intercepting proxy covers all interfaces, but its behavior isn't visible in the code.
+- Source generators are a third option: the wrapper is generated at build time, visible in the debugger and AOT-compatible.
+- A facade at a module boundary reduces coupling, but a fat facade gradually absorbs all the logic.
+
+**How to check in production**
+
+- Lazy loading shows up as a stream of small identical queries in the EF Core log for a single operation.
+- Types like `Castle.Proxies.OrderProxy` in an exception stack trace or in a dump tell you the call went through an interceptor.
+
+**Takeaway:** wrappers differ in intent and contract; a dynamic proxy is more powerful than a hand-written decorator, but hides behavior and doesn't work with AOT.
+
+</A>
+
+<Ex>
+
+```csharp
+INotifier notifier = new LoggingNotifier(new SmsAdapter(new LegacySmsClient()));
+notifier.Send("Order shipped");
+// log: Order shipped
+// SMS: ORDER SHIPPED
+
+public interface INotifier { void Send(string message); }
+
+// Someone else's class with an awkward API: we can't change it
+public class LegacySmsClient
+{
+    public void Transmit(string upperText) => Console.WriteLine($"SMS: {upperText}");
+}
+
+// Adapter: the INotifier interface on top of the foreign API
+public class SmsAdapter(LegacySmsClient client) : INotifier
+{
+    public void Send(string message) => client.Transmit(message.ToUpperInvariant());
+}
+
+// Decorator: same interface plus logging
+public class LoggingNotifier(INotifier inner) : INotifier
+{
+    public void Send(string message)
+    {
+        Console.WriteLine($"log: {message}");
+        inner.Send(message);
+    }
+}
+```
+
+</Ex>
+
+<Ex title="Dynamic proxy with DispatchProxy">
+
+```csharp
+using System.Reflection;
+
+var greeter = DispatchProxy.Create<IGreeter, LoggingProxy>();
+((LoggingProxy)(object)greeter).Target = new Greeter();
+Console.WriteLine(greeter.Greet("Ann"));
+// call Greet
+// Hello, Ann
+
+public interface IGreeter { string Greet(string name); }
+
+public class Greeter : IGreeter
+{
+    public string Greet(string name) => $"Hello, {name}";
+}
+
+// The proxy type is generated at run time; every call lands in Invoke
+public class LoggingProxy : DispatchProxy
+{
+    public IGreeter? Target { get; set; }
+
+    protected override object? Invoke(MethodInfo? method, object?[]? args)
+    {
+        Console.WriteLine($"call {method!.Name}");
+        return method.Invoke(Target, args);
+    }
+}
+```
+
+</Ex>
+
+<Next>
+
+- How does a decorator differ from a proxy if the interface is the same? — A decorator adds behavior; a proxy controls access: whether and when to call the object.
+- Why must properties be `virtual` for EF Core lazy loading? — The proxy is a generated subclass that overrides the navigation properties.
+- Where are the decorators in `HttpClient`? — `DelegatingHandler` in the handler chain: each one calls the next through `base.SendAsync`.
+- How does a facade differ from an adapter? — An adapter fits one interface to the expected one; a facade introduces a new simplified interface to several objects.
+- Why don't dynamic proxies work under Native AOT? — They generate types at run time, while AOT compiles everything ahead of time.
+
+</Next>
+
+<Src>
+
+- [Make HTTP requests using IHttpClientFactory: outgoing request middleware](https://learn.microsoft.com/aspnet/core/fundamentals/http-requests#outgoing-request-middleware)
+- [Lazy loading of related data — EF Core](https://learn.microsoft.com/ef/core/querying/related-data/lazy)
+- [DispatchProxy Class](https://learn.microsoft.com/dotnet/api/system.reflection.dispatchproxy)
+
+</Src>
+
+</Q>
+
+<Q id="basics.pattern.behavioral" level="m">
+
+## Strategy, Observer, Command, Chain of Responsibility and Template Method: where are they in everyday code?
+
+<A short l="j">
+
+<T k="strategy-pattern">Strategy</T> swaps an algorithm (`IComparer<T>` in `Sort`), <T k="observer-pattern">Observer</T> notifies subscribers (`event`), <T k="command-pattern">Command</T> wraps a request in an object, <T k="chain-of-responsibility">Chain of Responsibility</T> passes a request along links, like ASP.NET Core <T k="middleware">middleware</T>, and <T k="template-method">Template Method</T> fixes the steps of an algorithm and leaves some of them to a subclass. You use almost every one of them daily, just without naming them.
+
+</A>
+
+<A short l="m">
+
+All five answer the question "who decides what to do": for Strategy it's the injected object or `Func<T>` delegate, for Observer the subscribers (`event`, `IObservable<T>`), for Command the handler of a request object that can be queued and logged, as in CQRS. Chain of Responsibility is the middleware pipeline and `DelegatingHandler`; Template Method is a base class with hooks such as `BackgroundService.ExecuteAsync`. The cost is that control flow no longer reads top to bottom: to know what will happen, you need to know what was plugged in and who subscribed.
+
+</A>
+
+<A short l="s">
+
+In C# three of the five patterns have shrunk into language features: Strategy is `Func<T>`, Observer is `event`, Command without undo is `Action`; classes remain where you need state, several methods or serialization. Subscribing to an `event` keeps the subscriber alive through a strong reference, and a forgotten unsubscribe from a long-lived publisher is a classic memory leak. Template Method couples through inheritance and is less flexible than Strategy, but the base class guarantees the order of steps. Middleware is a variant of the chain where a link can both handle the request and pass it on, so registration order defines behavior.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+Behavioral patterns describe how objects share responsibilities and communicate.
+
+| Pattern | Idea | Where in .NET |
+|---|---|---|
+| Strategy | the algorithm is passed in from outside | `IComparer<T>`, lambdas in LINQ |
+| Observer | an object notifies subscribers | `event`, `IObservable<T>` |
+| Command | a request is an object | `ICommand` in WPF, command handlers |
+| Chain of Responsibility | a request passes through links in turn | ASP.NET Core middleware |
+| Template Method | algorithm skeleton in a base class | `BackgroundService.ExecuteAsync` |
+
+**How to use**
+
+- `list.Sort(comparer)` — you pass a comparison strategy.
+- `button.Click += OnClick` — you subscribe as an observer.
+- You inherit `BackgroundService` and write `ExecuteAsync` — you fill in a step of a template method.
+
+**Common mistake**
+
+Subscribing to an event of a long-lived object and never unsubscribing. The publisher holds a reference to the subscriber, and the garbage collector can't free it.
+
+**Takeaway:** Strategy is a swappable algorithm, Observer is notification, Command is a request as an object, Chain is a pipeline, Template Method is a skeleton with hooks.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- **Strategy.** An interface or delegate with one method; the context calls it without knowing the implementation.
+- **Observer.** An `event` is a list of delegates. `IObservable<T>` adds completion and error signals, plus unsubscribing through `IDisposable`.
+- **Command.** A request with its data is a separate object, executed by a handler. Queues and CQRS handlers are built on this; more in [Architecture styles](/sobes/en/arch/styles/).
+- **Chain of Responsibility.** A link receives the request and a reference to the next link and decides: handle it, pass it on, or short-circuit. Middleware works this way; more in [Hosting and the pipeline](/sobes/en/aspnet/hosting/).
+- **Template Method.** A non-virtual method calls virtual steps. `BackgroundService` implements start and stop and calls your `ExecuteAsync`.
+
+**When to choose what**
+
+| Task | Pattern |
+|---|---|
+| The algorithm changes with configuration | Strategy |
+| Several reactions to one event | Observer |
+| A request must be deferred, retried, logged | Command |
+| Sequential checks and handlers | Chain |
+| Common order of steps, different details | Template Method |
+
+**Pitfalls**
+
+- An exception in one `event` handler stops the remaining handlers from being called.
+- A template method with a dozen hooks makes the base class fragile: changing the order of steps breaks subclasses.
+
+**Rule of thumb**
+
+One operation — a delegate; several operations or state — an interface; a shared skeleton — a template method, when composition isn't enough.
+
+**Takeaway:** behavioral patterns decide who makes the decision, and in C# many of them are expressed with delegates.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- A field-like event compiles into a private delegate field and `add` and `remove` methods. They atomically swap the immutable multicast delegate using `Interlocked.CompareExchange`, and invocation walks a snapshot of the list, so unsubscribing during notification is safe.
+- A strategy lambda that captures variables means a closure allocation. A lambda without captures is cached by the compiler.
+- The middleware pipeline is built once at startup: each link wraps the next, and a request runs through a ready-made chain of delegates.
+
+**Cost**
+
+- A subscription holds the subscriber through a strong reference: an object subscribed to a singleton's event lives as long as the singleton.
+- A command object and a dispatcher add an allocation and an indirect call; finding handlers via reflection also adds startup time.
+
+**Trade-offs**
+
+- **Template Method versus Strategy.** Inheritance guarantees the order of steps; composition lets you change and test steps independently.
+- **`event` versus `IObservable<T>` and channels.** An event is synchronous and has no backpressure; for asynchronous data streams there are Rx and `System.Threading.Channels`.
+- **Your own dispatcher versus MediatR.** The library gives you a shared handler pipeline but hides the command-to-handler link from code navigation. Since version 13 it has a commercial license.
+
+**How to check in production**
+
+- A leak through events is visible in `dotnet-gcdump`: the subscriber's retention path goes through a delegate in the publisher's field.
+- Middleware order is pinned down with an integration test on `WebApplicationFactory`.
+
+**Takeaway:** behavioral patterns in .NET are mostly delegates and pipelines; their price is implicit control flow and strong references from subscriptions.
+
+</A>
+
+<Ex>
+
+```csharp
+// Strategy: the discount rule is passed as a delegate
+var checkout = new Checkout(price => price * 90 / 100);
+
+// Observer: subscribers learn about the payment without knowing about each other
+checkout.Paid += total => Console.WriteLine($"email: paid {total}");
+checkout.Paid += total => Console.WriteLine($"audit: {total}");
+
+checkout.Pay(200);
+// email: paid 180
+// audit: 180
+
+// Template Method: the order of steps is fixed in the base class
+new CsvReport().Print(); // header | csv rows | footer
+
+public class Checkout(Func<int, int> discount)
+{
+    public event Action<int>? Paid;
+    public void Pay(int price) => Paid?.Invoke(discount(price));
+}
+
+public abstract class Report
+{
+    public void Print() => Console.WriteLine($"header | {Body()} | footer");
+    protected abstract string Body(); // the step a subclass provides
+}
+
+public class CsvReport : Report
+{
+    protected override string Body() => "csv rows";
+}
+```
+
+</Ex>
+
+<Next>
+
+- How does Strategy differ from Template Method? — Strategy swaps the algorithm through composition at run time; Template Method does it through inheritance at compile time.
+- Why can an event cause a memory leak? — The publisher holds the subscriber through a delegate; without unsubscribing it lives as long as the publisher.
+- What does `IObservable<T>` offer beyond `event`? — Completion, errors, unsubscribing through `IDisposable`, and Rx operators.
+- Is middleware Chain of Responsibility? — Yes, a variant: a link can handle the request, pass it on, or short-circuit the chain.
+- Is MediatR an implementation of CQRS? — No, it's the Mediator pattern for delivering messages to handlers; CQRS is about separate read and write models.
+
+</Next>
+
+<Src>
+
+- [Observer design pattern](https://learn.microsoft.com/dotnet/standard/events/observer-design-pattern)
+- [Events (C# programming guide)](https://learn.microsoft.com/dotnet/csharp/programming-guide/events/)
+- [ASP.NET Core Middleware](https://learn.microsoft.com/aspnet/core/fundamentals/middleware/)
+
+</Src>
+
+</Q>
+
+<Q id="basics.pattern.anti-patterns" level="s">
+
+## Which anti-patterns are the most common and how do you get rid of them?
+
+<A short l="j">
+
+An <T k="anti-pattern">anti-pattern</T> is a frequently repeated solution that looks reasonable but does more harm than good. Typical examples are the <T k="god-object">God object</T>, a class that knows and does everything, magic numbers in code, and Service Locator instead of explicit dependencies; you get rid of them in small refactoring steps protected by tests.
+
+</A>
+
+<A short l="m">
+
+An anti-pattern differs from just bad code in that it recurs and has a known replacement. The most common ones are the God object, <T k="primitive-obsession">primitive obsession</T> (`string` and `decimal` instead of domain types), <T k="shotgun-surgery">Shotgun Surgery</T>, where one change requires edits in many classes, Service Locator, and "pattern for the sake of pattern". You find them by <T k="code-smell">code smells</T> from Fowler's catalog and remove them with small refactoring steps; fixing gets more expensive over time, so catching them in review is cheaper.
+
+</A>
+
+<A short l="s">
+
+An anti-pattern is a recurring design problem, and a code smell is the local symptom you notice it by: Large Class points to a God object, Speculative Generality to "pattern for the sake of pattern". Some labels are debatable: the anemic domain model is an anti-pattern for Fowler but a perfectly fine choice for a CRUD service without complex rules. The end stage is the <T k="big-ball-of-mud">Big Ball of Mud</T>, a system with no discernible structure, which Foote and Yoder call the de facto standard software architecture. The cure is not a rewrite but gradual refactoring with tests, plus rules that keep the problem from coming back: analyzers, architecture tests, review.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+An anti-pattern is a solution that is common and seems convenient, but over time makes code more expensive to change. It has a known replacement.
+
+**The most common ones**
+
+- **God object.** A single 3,000-line `OrderManager` does everything: validation, calculation, SQL, sending emails.
+- **Magic numbers.** `if (status == 3)` — only the author knows what 3 means.
+- **Copy-paste.** The same logic in five places, fixed in four of them.
+- **Service Locator.** `provider.GetService<T>()` inside methods instead of constructor parameters.
+
+**How to get rid of them**
+
+1. Cover the code with tests so refactoring doesn't break anything.
+2. Change things in small steps: extract a constant, extract a method, extract a class.
+
+**Common mistake**
+
+Rewriting everything from scratch. The old code holds knowledge about edge cases that the new code will lose.
+
+**Takeaway:** an anti-pattern is a familiar bad solution; you fix it in small steps protected by tests.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+A code smell is a visible symptom: a long function, a large class, a long parameter list. An anti-pattern is the diagnosis behind it. Martin Fowler collected the catalog of smells and the refactorings against them in "Refactoring"; the second edition came out in 2018.
+
+| Anti-pattern | Symptom | Refactoring |
+|---|---|---|
+| God object | Large Class, dozens of dependencies | Extract Class |
+| Magic numbers | literals in conditions | Replace Magic Literal |
+| Primitive obsession | `string` for email, `decimal` for money | Replace Primitive with Object |
+| Shotgun Surgery | one edit — many files | Move Function, Combine Functions into Class |
+| Pattern for the sake of pattern | Speculative Generality | Inline Class, Collapse Hierarchy |
+| Service Locator | `GetService` in business code | constructor parameter |
+
+**Pitfalls**
+
+- **The anemic model is a debatable label.** For CRUD without rules it's fine. It becomes a problem when the same checks are duplicated across services; more in [Architecture styles](/sobes/en/arch/styles/).
+- **The cure causes a new disease.** Split a God object into small meaningless classes and you get Shotgun Surgery.
+
+**Rule of thumb**
+
+Refactoring is a separate commit with no behavior change: small steps and green tests after each one.
+
+**Takeaway:** a smell is the symptom, an anti-pattern is the diagnosis, a refactoring from Fowler's catalog is the cure.
+
+</A>
+
+<A l="s">
+
+**How they appear**
+
+- Anti-patterns are rarely written on purpose. A God object grows because adding a method to an existing class is cheaper than inventing a new one: each decision is locally reasonable, the sum is not.
+- Big Ball of Mud (Foote and Yoder, 1997) is the result of deadline pressure, people turnover, and growth without refactoring.
+
+**Cost**
+
+- God objects and Shotgun Surgery make every change more expensive: more merge conflicts, more regressions, longer reviews.
+- Primitive obsession pushes validation to run time: an email is checked in ten places or in none.
+
+**Trade-offs**
+
+- Not every label is a verdict. An anemic model is acceptable for CRUD, and `TimeSpan.FromSeconds(30)` reads fine without a constant.
+- "Pattern for the sake of pattern" and YAGNI pull one way, DRY and extensibility the other. Introduce an abstraction on the second or third case, not the first.
+- A large refactoring is a project: you cut it into steps that can each ship on their own, for example using a Strangler Fig.
+
+**How to check in production**
+
+- Roslyn analyzers and SonarQube catch some smells: method complexity, duplication, magic numbers.
+- Change frequency per file in git history shows hotspots: a large file that changes in almost every commit is a God object candidate.
+- Architecture tests (NetArchTest, ArchUnitNET) pin down layer boundaries so the Big Ball of Mud doesn't come back.
+
+**Takeaway:** anti-patterns grow out of locally reasonable decisions; you catch them with metrics and review and cure them with gradual refactoring, not a rewrite.
+
+</A>
+
+<Ex>
+
+```csharp
+// Before: if (status == 3 && email.Contains('@')) — a magic number and a string instead of a type
+// After: a named state and a type validated on creation
+var email = Email.Parse("ann@example.com");
+Console.WriteLine(CanShip(email, OrderStatus.Paid)); // True
+
+try { Email.Parse("not-an-email"); }
+catch (ArgumentException e) { Console.WriteLine(e.Message); } // Invalid email
+
+static bool CanShip(Email email, OrderStatus status) => status == OrderStatus.Paid;
+
+public enum OrderStatus { New = 1, Reserved = 2, Paid = 3 }
+
+// Replace Primitive with Object: an invalid email can't be created
+public sealed record Email
+{
+    public string Value { get; }
+    private Email(string value) => Value = value;
+
+    public static Email Parse(string value) =>
+        value.Contains('@') ? new Email(value) : throw new ArgumentException("Invalid email");
+}
+```
+
+</Ex>
+
+<Next>
+
+- How is an anti-pattern different from a code smell? — A smell is a local symptom; an anti-pattern is the recurring bad solution behind it.
+- Why is Service Locator an anti-pattern? — It hides dependencies and moves errors to run time; details are in the "Dependency injection" topic.
+- How do you break up a God object? — Find groups of fields and methods that change together and move them into separate classes (Extract Class) in small steps.
+- Is an anemic model always bad? — No: for CRUD without invariants it's fine; it's bad when rules are duplicated across services.
+- When is a rewrite better than refactoring? — Rarely; more often the old system is replaced piece by piece with a Strangler Fig.
+
+</Next>
+
+<Src>
+
+- [Refactoring catalog — Martin Fowler](https://refactoring.com/catalog/)
+- [Big Ball of Mud — Brian Foote, Joseph Yoder](http://www.laputan.org/mud/)
+- [AnemicDomainModel — Martin Fowler](https://martinfowler.com/bliki/AnemicDomainModel.html)
+
+</Src>
+
+</Q>

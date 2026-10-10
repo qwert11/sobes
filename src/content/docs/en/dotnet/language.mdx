@@ -1149,7 +1149,7 @@ A pattern describes the shape of a value: a type (`is Order o`), properties (`{ 
 
 <A short l="s">
 
-The compiler folds all arms into a decision tree and does not repeat identical tests, and the evaluation order of subpatterns is not guaranteed. It checks exhaustiveness for finite sets of values but not for open hierarchies, so you need `_`, and C# 15 (preview) brings union types and `closed` hierarchies. `is null` does not call an overloaded `==`, which makes it a reliable `null` check. The trade-off is the expression problem: a `switch` over data is easy to extend with new operations, but every new case means editing every `switch`, while polymorphism is the other way round.
+The compiler folds all arms into a decision tree and does not repeat identical tests, and the evaluation order of subpatterns is not guaranteed. It checks exhaustiveness for finite sets of values but not for open hierarchies, so you need `_`, and C# 15 (.NET 11) brings union types; `closed` hierarchies are still a proposal not tied to a release. `is null` does not call an overloaded `==`, which makes it a reliable `null` check. The trade-off is the expression problem: a `switch` over data is easy to extend with new operations, but every new case means editing every `switch`, while polymorphism is the other way round.
 
 </A>
 
@@ -1226,7 +1226,7 @@ Check for `null` with `is null` and `is not null`: a pattern does not call a use
 
 **Trade-offs**
 
-- A class hierarchy is open: the compiler does not know all derived types, so `_` is required. C# 15 (preview, .NET 11) introduces `union` types and `closed` classes — for them exhaustiveness is checked without `_`.
+- A class hierarchy is open: the compiler does not know all derived types, so `_` is required. C# 15 (.NET 11) introduces `union` types — for them exhaustiveness is checked without `_`; `closed` classes with the same goal are only proposed so far.
 - Pattern matching is a functional style: data on one side, operations in a `switch`. Adding an operation is easy; adding a case means visiting every `switch`. Polymorphism is the opposite (the expression problem).
 - Property patterns nested four levels deep read worse than a couple of `if`s. Move complex conditions into `when` or a method.
 

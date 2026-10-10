@@ -1,0 +1,700 @@
+---
+title: OOP
+description: The four OOP principles and kinds of polymorphism, composition vs inheritance, cohesion and coupling, where OOP loses to the functional style.
+sidebar:
+  order: 1
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+The foundation of object-oriented design: the principles OOP rests on, why inheritance gets overused, how to judge the quality of dependencies between classes, and where objects are better replaced by functions and immutable data. Interviewers check this not by definitions but by how well you explain a design decision in code.
+
+**Before this topic:** [The C# language](/sobes/en/dotnet/language/).
+
+<Q id="basics.oop.pillars" level="j">
+
+## What principles is OOP built on?
+
+<A short l="j">
+
+Usually four are named: <T k="encapsulation">encapsulation</T> hides an object's state behind methods, <T k="abstraction">abstraction</T> keeps what matters, <T k="inheritance">inheritance</T> builds a new type on top of an existing one, and <T k="polymorphism">polymorphism</T> lets one piece of code work with objects of different types. That is why a method taking a `Shape` computes the area of both a circle and a rectangle without knowing how they are built.
+
+</A>
+
+<A short l="m">
+
+Encapsulation protects an object's invariants, abstraction defines a contract, inheritance reuses an implementation and creates a subtype, and polymorphism picks behavior by type. Polymorphism comes in three kinds: subtype (`virtual`/`override`, interfaces), <T k="parametric-polymorphism">parametric</T> (generics) and <T k="ad-hoc-polymorphism">ad hoc</T> (overloading). The key difference: the compiler picks an overload by static type, while the runtime picks an override by the object's actual type.
+
+</A>
+
+<A short l="s">
+
+The four pillars are a textbook scheme: Alan Kay, who coined the term, put messaging, hiding of state and late binding first, and inheritance was not part of his definition. Abstraction and encapsulation are two sides of one idea: what we show and what we hide. Polymorphism in C# is a virtual call, generics that the JIT specializes for value types, and overloading resolved at compile time. Each kind has its own cost: a virtual call blocks inlining, and generic specialization grows the amount of machine code.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+| Principle | Essence | In C# |
+|---|---|---|
+| Encapsulation | state is hidden and changes only through methods | `private` fields, properties with `private set` |
+| Abstraction | only the essential contract is visible | interface, abstract class |
+| Inheritance | a new class gets the base class members and can extend them | `class Circle : Shape` |
+| Polymorphism | one call, different behavior depending on type | `virtual`/`override`, interfaces |
+
+**Why**
+
+Code that works with the `Shape` abstraction does not change when a new shape appears. Encapsulation stops outside code from putting the object into an invalid state, such as a square with a negative side.
+
+**Common mistake**
+
+Calling "a private field plus public `get` and `set`" encapsulation. If the setter validates nothing, outside code still changes the state however it likes.
+
+**Takeaway:** encapsulation and abstraction hide details; inheritance and polymorphism let you work with different types through a shared contract.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+Polymorphism is the ability of one piece of code to work with different types. There are three kinds:
+
+| Kind | Mechanism in C# | When it is chosen |
+|---|---|---|
+| Subtype | `virtual`/`override`, interfaces | at run time, by object type |
+| Parametric | generics: `List<T>`, `Max<T>` | at compile time, one code for any `T` |
+| Ad hoc | method and operator overloading | at compile time, by static argument types |
+
+**Abstraction or encapsulation**
+
+- **Abstraction** answers "what does the object do": which operations the contract has.
+- **Encapsulation** answers "how is it hidden": fields are closed and invariants are checked in one place.
+
+**Pitfalls**
+
+- **Overloading is not virtual.** `object o = "x"; Format(o)` calls the `object` overload, not the `string` one: the choice is made by static type.
+- **Leaking mutable state.** A property returning the internal `List<T>` breaks encapsulation: the caller can modify it. Return `IReadOnlyList<T>` or a copy.
+- **Inheriting for code.** If a subtype cannot stand in for its base type, polymorphic code breaks — that is the Liskov substitution principle from [SOLID](/sobes/en/basics/solid/).
+
+**Rule of thumb**
+
+First decide which contract clients see, then hide everything else.
+
+**Takeaway:** polymorphism is subtype, parametric or ad hoc, and only the first is resolved at run time.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- **Subtypes.** A virtual call goes through the object's method table; an interface call goes through a lookup of the implementation for the concrete type. Details are in "The C# language".
+- **Generics.** The JIT generates one shared body for reference types and a separate one for each value type. That is why `List<int>` works without boxing.
+- **Overloading.** The compiler picks a method by overload resolution rules and emits a concrete call in IL. Nothing is chosen at run time.
+- **Encapsulation** is enforced by the compiler and the runtime, but it does not protect data: reflection and `UnsafeAccessor` (.NET 8+) read `private` fields.
+
+**Trade-offs**
+
+- Alan Kay's definition — messages, hidden state, late binding — shows that inheritance is not required for OOP. Go and Rust do without class inheritance.
+- A virtual call is flexible but blocks inlining. Generics over value types give direct calls, but every specialization is separate machine code.
+- C# has no built-in double dispatch, that is, choosing a method by the types of two objects. It is done with Visitor, `dynamic` or pattern matching on a pair of values.
+
+**How to check in production**
+
+BenchmarkDotNet with `[DisassemblyDiagnoser]` and `[MemoryDiagnoser]` shows virtual calls and boxing on a hot path.
+
+**Takeaway:** the "four pillars" are a handy scheme; a Senior is expected to know how the kinds of polymorphism differ and what each costs.
+
+</A>
+
+<Ex>
+
+```csharp
+Shape[] shapes = [new Rect(2, 3), new Square(2)];
+foreach (var shape in shapes)
+    Console.WriteLine(shape.Area());     // 6, 4: subtype polymorphism
+
+Console.WriteLine(Max(3, 7));            // 7: parametric — one code for any T
+Console.WriteLine(Format.Of(5));         // int 5: ad hoc — overload by argument type
+Console.WriteLine(Format.Of("x"));       // string x
+
+static T Max<T>(T a, T b) where T : IComparable<T> => a.CompareTo(b) >= 0 ? a : b;
+
+// Abstraction: what any shape can do, without details
+abstract class Shape { public abstract double Area(); }
+
+// Inheritance: Rect is a Shape with its own Area
+class Rect(double w, double h) : Shape { public override double Area() => w * h; }
+
+// Encapsulation: the field is hidden, the constructor checks the "side > 0" invariant
+class Square : Shape
+{
+    private readonly double _side;
+    public Square(double side)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(side);
+        _side = side;
+    }
+    public override double Area() => _side * _side;
+}
+
+static class Format
+{
+    public static string Of(int x) => $"int {x}";
+    public static string Of(string x) => $"string {x}";
+}
+```
+
+</Ex>
+
+<Next>
+
+- How is encapsulation different from data hiding? — Hiding is a means; the goal of encapsulation is to keep data and the rules for changing it in one place.
+- How is overloading different from overriding? — The compiler picks an overload by static types; the runtime picks an override by object type.
+- How is `private` in C# different from `private` in Delphi? — In Delphi it is visible to the whole unit; the equivalent of C#'s `private` there is `strict private`.
+- Can you write object-oriented code without class inheritance? — Yes: interfaces and composition; that is how Go and Rust work.
+- What is double dispatch? — Choosing a method by the types of two objects; in C#, Visitor or pattern matching on a tuple.
+
+</Next>
+
+<Src>
+
+- [Object-Oriented Programming (C#)](https://learn.microsoft.com/dotnet/csharp/fundamentals/tutorials/oop)
+- [Polymorphism — C# guide](https://learn.microsoft.com/dotnet/csharp/fundamentals/object-oriented/polymorphism)
+- [Member overloading — Framework Design Guidelines](https://learn.microsoft.com/dotnet/standard/design-guidelines/member-overloading)
+
+</Src>
+
+</Q>
+
+<Q id="basics.oop.composition" level="m">
+
+## Why "favor composition over inheritance", and when is inheritance still the right call?
+
+<A short l="j">
+
+<T k="composition">Composition</T> means an object holds another object in a field and uses it, while inheritance makes a class a kind of its base class. Inheritance ties a class tightly to its parent's implementation, so code reuse usually goes through composition, and you inherit when the subtype really "is a" base type.
+
+</A>
+
+<A short l="m">
+
+The principle comes from the Gang of Four (GoF) book: inheritance is "white-box" reuse — the subclass sees and depends on how the base class is built — while composition is "black-box" reuse through the public contract only. Hence the <T k="fragile-base-class">fragile base class problem</T>: a harmless change to the parent breaks subclasses. Inheritance fits a true subtype and classes designed for extension; the price of composition is hand-written <T k="delegation">delegation</T> of methods.
+
+</A>
+
+<A short l="s">
+
+Inheritance mixes two mechanisms: interface inheritance (a subtype, polymorphism) and implementation inheritance (code reuse). The first is safe; the second makes the base class's self-calls part of the contract, which is why Bloch says to either design and document a class for inheritance or prohibit it. The Framework Design Guidelines tell public libraries not to seal classes without a reason, while in application code the CA1852 analyzer suggests `sealed` for internal types with no subclasses. A practical stance for your own code: `sealed` by default, and openness as a deliberate decision with documented extension points.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **Inheritance** is an "is-a" relationship: `Dog : Animal`. The subclass gets everything the base class has.
+- **Composition** is a "has-a" relationship: `Car` holds an `Engine` in a field and calls its methods.
+
+**Why favor composition**
+
+- In C# there is one base class, but any number of component fields.
+- A component can be swapped: pass another object through the constructor, or a stub in a test.
+- Changes inside a component do not affect its user as long as its public contract stays the same.
+
+**When inheritance fits**
+
+- The subtype fully replaces the base type: `ArgumentNullException : ArgumentException`.
+- The framework expects a subclass: `ControllerBase`, `BackgroundService`, `Exception`.
+
+**Common mistake**
+
+Inheriting to get ready-made code: `class OrderList : List<Order>`. `Clear` and `RemoveAt` leak out, and you cannot intercept `Add` because `List<T>` methods are not virtual.
+
+**Takeaway:** inheritance is for "is-a", composition is for "uses".
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+| Aspect | Inheritance | Composition |
+|---|---|---|
+| When bound | at compile time, for good | when the object is created, can be swapped |
+| What is visible | `protected` members and the order of self-calls | only the public contract |
+| How many | one base class | any number of components |
+
+**Pitfalls**
+
+- **Fragile base class.** A subclass overrides `Add` and `AddRange`, but the base `AddRange` calls `Add` internally, so items are counted twice. The example below shows it.
+- **Square and rectangle.** `Square : Rectangle` breaks when code changes the width independently of the height: the subtype cannot stand in for the base type. That violates the Liskov substitution principle — <T k="liskov-substitution">LSP</T>, covered in [SOLID](/sobes/en/basics/solid/).
+- **Hiding with `new`.** If a base method is not virtual, `new` in the subclass does not replace it: a call through a base-type reference runs the old version.
+
+**When to choose what**
+
+- Reuse behavior — composition and delegation.
+- Need a subtype for polymorphism — implement an interface.
+- Extend a class designed for it — inheritance: `Collection<T>` with `protected virtual InsertItem`, not `List<T>`.
+
+**Rule of thumb**
+
+Inherit interfaces; reuse implementation through composition.
+
+**Takeaway:** inheritance couples you to the parent's implementation, composition only to its contract.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- **Interface inheritance** gives a subtype: the object can go wherever the base type is expected.
+- **Implementation inheritance** copies behavior along with its internal dependencies. Which base methods call which virtual ones is now part of the contract.
+- That is why Bloch ("Effective Java") says: design and document a class for inheritance, or else prohibit it. In C# that means `sealed`.
+
+**Cost**
+
+- Composition adds an object and an indirect call. It is usually negligible, and the JIT can inline a non-virtual call.
+- C# has no delegation syntax: forwarding methods are written by hand or generated by a source generator.
+
+**Trade-offs**
+
+- Framework Design Guidelines (for public libraries): do not seal a class without a reason; an unsealed class with no virtual members is cheap extensibility.
+- Application code usually has no subclasses. CA1852 suggests sealing `internal` types, and `sealed` helps the JIT devirtualize calls.
+- A <T k="decorator-pattern">decorator</T> adds behavior through composition, without a subclass for every combination.
+
+**How to check in production**
+
+- The Depth of Inheritance metric in Visual Studio and rule CA1501 (five or more levels by default) find deep hierarchies.
+- In code review, look for `protected` fields and chains of `base.` calls.
+
+**Takeaway:** a class open to inheritance is a public contract; if you did not design it for that, seal it.
+
+</A>
+
+<Ex>
+
+```csharp
+var inherited = new CountingBag();
+inherited.AddRange(["a", "b"]);
+Console.WriteLine(inherited.Added); // 4: the base AddRange calls Add itself
+
+var composed = new CountingWrapper(new Bag());
+composed.AddRange(["a", "b"]);
+Console.WriteLine(composed.Added);  // 2
+
+class Bag
+{
+    public List<string> Items { get; } = [];
+    public virtual void Add(string item) => Items.Add(item);
+    // Implementation detail: AddRange calls Add
+    public virtual void AddRange(string[] items) { foreach (var i in items) Add(i); }
+}
+
+// Inheritance: the result depends on how the base class is built
+class CountingBag : Bag
+{
+    public int Added { get; private set; }
+    public override void Add(string item) { Added++; base.Add(item); }
+    public override void AddRange(string[] items)
+    { Added += items.Length; base.AddRange(items); }
+}
+
+// Composition: depends only on the public contract of Bag
+class CountingWrapper(Bag inner)
+{
+    public int Added { get; private set; }
+    public void Add(string item) { Added++; inner.Add(item); }
+    public void AddRange(string[] items)
+    { Added += items.Length; inner.AddRange(items); }
+}
+```
+
+If the author of `Bag` rewrites `AddRange` without calling `Add`, `CountingBag` starts counting correctly, while `CountingWrapper` does not notice the change: that is what a fragile base class looks like.
+
+</Ex>
+
+<Next>
+
+- Why is `Square : Rectangle` a bad hierarchy? — A square cannot handle the sides changing independently, so the subtype cannot replace the base type (LSP).
+- Why not inherit from `List<T>`? — Its methods are not virtual and the whole API leaks out; `Collection<T>` exists for extension.
+- How is composition different from aggregation? — With composition the part lives and dies with its owner; with aggregation it exists independently.
+- How do you delegate without boilerplate? — Default interface methods, a source generator, or a decorator through DI.
+- When would you open a class for inheritance? — When it is a framework extension point, with documented `virtual` methods and their call order.
+
+</Next>
+
+<Src>
+
+- [Sealing — Framework Design Guidelines](https://learn.microsoft.com/dotnet/standard/design-guidelines/sealing)
+- [Designing for extensibility — Framework Design Guidelines](https://learn.microsoft.com/dotnet/standard/design-guidelines/designing-for-extensibility)
+- [CA1852: Seal internal types](https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca1852)
+
+</Src>
+
+</Q>
+
+<Q id="basics.oop.coupling-cohesion" level="m">
+
+## What are cohesion and coupling, and how do you assess them?
+
+<A short l="j">
+
+<T k="cohesion">Cohesion</T> shows how much the parts of one class work on a single task, and <T k="coupling">coupling</T> shows how much classes depend on each other. The goal is high cohesion and loose coupling, so a change touches one class instead of ten.
+
+</A>
+
+<A short l="m">
+
+Coupling comes in different strengths: from reading another class's internal state and shared global data down to passing only the values needed. It is loosened by the <T k="law-of-demeter">Law of Demeter</T> — talk only to your immediate "neighbors" — and by <T k="tell-dont-ask">Tell, Don't Ask</T>: ask an object to do something instead of pulling out its data. Warning signs are the <T k="feature-envy">Feature Envy</T> smell, `Utils` and `Manager` classes, and one requirement change touching five places; the price of the cure is more small classes and methods.
+
+</A>
+
+<A short l="s">
+
+Cohesion and coupling are two sides of one goal: a change should stay local. They are measured with metrics like Class Coupling in Visual Studio (rule CA1506), LCOM and Martin's instability, but git history is more accurate: files that always change together are coupled even if the code does not show it. A finer vocabulary is <T k="connascence">connascence</T>: strong forms are fine inside a class and dangerous between modules. The trade-off: every decoupling through an interface or event adds indirection, so break dependencies between modules, not inside them.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **Cohesion** — how much a class's members belong to one task. An `OrderService` that also sends emails and renders PDFs has low cohesion.
+- **Coupling** — how much a class knows about and depends on others. A class that creates `new SqlConnection(...)` itself is tightly coupled to SQL Server.
+
+**Why**
+
+With high cohesion and loose coupling a change stays in one class, and the class is easy to test on its own.
+
+**How to use**
+
+- One class, one task; data and the methods that work on it live together.
+- Dependencies come through the constructor as abstractions.
+- Pass a method only what it needs, not the whole object.
+
+**Common mistake**
+
+Assuming interfaces automatically loosen coupling. An interface that mirrors every implementation detail couples just as tightly.
+
+**Takeaway:** strong cohesion inside a class, loose coupling between classes.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+Classic kinds of coupling (Myers, Constantine), from strongest to weakest:
+
+| Kind | Example in C# |
+|---|---|
+| Content | reflection changes another class's `private` field |
+| Common | several classes write to a mutable `static` field |
+| Control | a flag changes behavior: `Save(order, sendEmail: true)` |
+| Stamp | the whole `Order` is passed when only `Id` is needed |
+| Data | only the needed values are passed |
+
+The worst cohesion is coincidental: `Utils`, `Helpers`. The best is functional: all members serve one task.
+
+**Law of Demeter and Tell, Don't Ask**
+
+- An object's method calls methods only on the object itself, its parameters, objects it creates, and the object's fields. `order.Customer.Address.City` breaks the rule: the code knows the whole structure.
+- LINQ chains and fluent builders are usually not counted as violations: they return the same type or new data rather than reaching into internals.
+- Tell, Don't Ask: instead of "read the balance, check it, write it back" — `wallet.TryWithdraw(amount)`.
+
+**Pitfalls**
+
+- Feature Envy: a method uses another class's data more than its own. It belongs in that class.
+- Shotgun surgery: one change requires edits in many classes — a sign of tight coupling.
+
+**Rule of thumb**
+
+Put behavior next to the data it changes.
+
+**Takeaway:** the weaker the kind of coupling and the shorter the call chains, the more local your changes.
+
+</A>
+
+<A l="s">
+
+**How to assess**
+
+| Metric | What it shows |
+|---|---|
+| Class Coupling (VS), CA1506 | number of unique types a type or method depends on; default threshold 95 for a type, 40 for a method |
+| LCOM (Chidamber, Kemerer) | how much a class's methods share its fields; growth means weak cohesion |
+| Ca, Ce and instability (Martin) | a module's incoming and outgoing dependencies, `I = Ce / (Ca + Ce)` |
+
+CA1506 is off by default; enable it in `.editorconfig`.
+
+**Connascence**
+
+Meilir Page-Jones described dependency as connascence: two elements are connascent if changing one requires changing the other. Weak forms are name and type; strong forms are parameter position, meaning of "magic" values, algorithm, and timing. The rule: the stronger the form, the closer together the elements should be.
+
+**Trade-offs**
+
+- Every interface and event loosens coupling at the cost of indirection: the code gets harder to read and debug.
+- DRY across modules creates coupling: a shared class starts changing for two different consumers.
+- Asynchronous communication removes temporal coupling, but not coupling to the data format.
+
+**How to check in production**
+
+- Git history analysis: files that change in the same commits are coupled in hidden ways.
+- Architecture tests (NetArchTest, ArchUnitNET) forbid dependencies between layers and modules in CI.
+
+**Takeaway:** metrics point at suspicious spots; the change history shows the real coupling.
+
+</A>
+
+<Ex>
+
+```csharp
+var customer = new Customer(new Wallet(100m));
+
+// Ask: the caller knows how Customer and Wallet are built and decides itself
+// if (customer.Wallet.Balance >= 30m) customer.Wallet.Balance -= 30m;
+
+// Tell: ask for an action; the rule lives next to the data
+Console.WriteLine(customer.TryPay(30m)); // True
+Console.WriteLine(customer.TryPay(80m)); // False: 70 left
+
+class Customer(Wallet wallet)
+{
+    // Law of Demeter: Customer talks only to its own field
+    public bool TryPay(decimal amount) => wallet.TryWithdraw(amount);
+}
+
+class Wallet(decimal balance)
+{
+    public decimal Balance { get; private set; } = balance;
+
+    public bool TryWithdraw(decimal amount)
+    {
+        if (amount <= 0 || amount > Balance) return false;
+        Balance -= amount;
+        return true;
+    }
+}
+```
+
+</Ex>
+
+<Next>
+
+- Does a LINQ chain violate the Law of Demeter? — No, it transforms data rather than walking the internal structure of objects.
+- What is wrong with a `bool` parameter on a public method? — It is control coupling: the caller drives the method's logic; two methods are better.
+- Which code smells point to low cohesion? — Divergent change (a class changes for different reasons), `Utils` and `Manager` classes.
+- Should Tell, Don't Ask eliminate all getters? — No, Fowler warns against that: querying data is fine; the rule is to keep decisions next to the data.
+- How do you spot hidden coupling? — From git history: files that often change together.
+
+</Next>
+
+<Src>
+
+- [Code metrics: class coupling](https://learn.microsoft.com/visualstudio/code-quality/code-metrics-class-coupling)
+- [CA1506: Avoid excessive class coupling](https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca1506)
+- [Martin Fowler: TellDontAsk](https://martinfowler.com/bliki/TellDontAsk.html)
+
+</Src>
+
+</Q>
+
+<Q id="basics.oop.design-critique" level="s">
+
+## Where is OOP not the best choice, and how is it combined with the functional style in C#?
+
+<A short l="j">
+
+OOP works well when an object has state and rules for changing it: an order, an account, a connection. For calculations and data transformations, <T k="pure-function">pure functions</T> over immutable data are simpler, so in C# data is often described with `record` and processed with LINQ and pattern matching.
+
+</A>
+
+<A short l="m">
+
+Objects suit entities with behavior and invariants; functions over immutable data suit calculations, pipelines and stateless rules. C# supports both styles: `record` and `with` give <T k="immutable-type">immutability</T> and value equality, lambdas and LINQ give higher-order functions, and `switch` expressions take variants apart. A common setup is "functional core, imperative shell": logic in pure functions, I/O at the edges; the price is copying instead of in-place updates.
+
+</A>
+
+<A short l="s">
+
+Choosing between objects and functions is the <T k="expression-problem">expression problem</T>: a class hierarchy easily accepts new types, but every new operation means editing all classes, and a `switch` over data is the opposite. So a stable set of variants with a growing set of operations (ASTs, events, commands) is easier to model with records and pattern matching, while an open set of types fits polymorphism. On a hot path both styles lose to a <T k="data-oriented-design">data-oriented approach</T>: arrays of structs without references and virtual calls. Immutability itself also costs allocations and GC pressure.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **Object style** — data and methods together; the object guards its own state.
+- **Functional style** — data is separate and immutable; functions take values and return new ones.
+- **Pure function** — the result depends only on the arguments, and there are no side effects: no writes to fields, files or a database.
+
+**Why**
+
+A pure function is easy to test: give input, check output, no mocks. Immutable data is safe to pass between threads.
+
+**How to use**
+
+- Data: `record Order(int Id, decimal Total)`, changes via `order with { Total = 0 }`.
+- Processing: LINQ `Where`, `Select`, `Sum`.
+- Choosing by kind of data: a `switch` expression.
+
+**Common mistake**
+
+Writing a "calculator" class with fields that must be set before calling `Calculate()`. The call order becomes a hidden rule; a function with parameters is simpler and more honest.
+
+**Takeaway:** objects for state with rules, functions for computations over data.
+
+</A>
+
+<A l="m">
+
+**When to choose what**
+
+| Task | Style |
+|---|---|
+| Entity with invariants: order, account | object with methods |
+| Calculation, transformation, validation | pure function over a `record` |
+| Collection processing pipeline | LINQ |
+| Handling a fixed set of variants | `switch` expression over records |
+
+**How it works**
+
+- `record` generates value equality, `ToString` and copying via `with`. Properties of a positional `record class` are `init`, so they cannot change after creation.
+- Mutable logic stays at the edges: a controller reads data, calls the pure core and saves the result. Gary Bernhardt called this functional core, imperative shell.
+
+**Anemic model**
+
+An <T k="anemic-domain-model">anemic model</T> is entities as "bags of properties" with all logic in services. That is not the functional style: the data is mutable and invariants are unprotected. See [Architecture styles](/sobes/en/arch/styles/) for details.
+
+**Pitfalls**
+
+- `with` makes a shallow copy: a `List<T>` inside the record stays shared between the copy and the original.
+- A `record` with a collection property compares the collection by reference, not by contents.
+
+**Rule of thumb**
+
+Entities with rules are classes, data and messages are records, computations are pure functions.
+
+**Takeaway:** C# lets you mix styles; what matters is keeping mutable state in a few explicit places.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+The expression problem (Wadler, 1998) is how to add both new data variants and new operations without editing existing code:
+
+| To add | Class hierarchy | `record` and `switch` |
+|---|---|---|
+| A new type | a new class, old code untouched | edit every `switch` |
+| A new operation | a new method in every class, or Visitor | a new function |
+
+<T k="visitor-pattern">Visitor</T> switches an OOP hierarchy into "functional" mode. Over an open hierarchy the C# compiler cannot prove a `switch` exhaustive, so a `_` arm is needed. Union types in C# 15 (.NET 11, November 2026) declare a closed set of variants with exhaustiveness checking.
+
+**Cost**
+
+- Immutability means copies: every `with` allocates a new object. `ImmutableList<T>` is tree-based, so indexing is O(log n).
+- A graph of small objects means references and memory scattered across the heap. On a hot path an array of structs, or separate arrays per field, is read sequentially and fits the CPU cache better.
+
+**Trade-offs**
+
+- The data-oriented approach gives up encapsulation for performance, so keep it to hot spots found by a profiler.
+- For data that is read often and changed rarely there is `FrozenDictionary` (.NET 8+): slower to build, faster to read.
+
+**How to check in production**
+
+- The cost of copies shows up in BenchmarkDotNet with `[MemoryDiagnoser]` and in the allocation rate in `dotnet-counters`.
+- Find hot paths with dotnet-trace or PerfView, not by eye.
+
+**Takeaway:** pick the style by the axis of change: growing types — polymorphism, growing operations — data and functions, every nanosecond counts — data-oriented.
+
+</A>
+
+<Ex>
+
+```csharp
+Shape[] shapes = [new Rect(2, 3), new Square(2)];
+
+// A new operation is a new function; the types stay unchanged
+Console.WriteLine(shapes.Sum(Area));                          // 10
+Console.WriteLine(string.Join(", ", shapes.Select(Name)));    // rect, square
+
+// Immutability: with creates a modified copy
+var wide = new Rect(2, 3) with { W = 4 };
+Console.WriteLine(wide);                                      // Rect { W = 4, H = 3 }
+Console.WriteLine(wide == new Rect(4, 3));                    // True: value equality
+
+// Pure functions: the result depends only on the argument
+static double Area(Shape s) => s switch
+{
+    Rect r => r.W * r.H,
+    Square q => q.Side * q.Side,
+    _ => throw new ArgumentOutOfRangeException(nameof(s)) // a new type means editing every switch
+};
+
+static string Name(Shape s) => s switch { Rect => "rect", Square => "square", _ => "?" };
+
+abstract record Shape;
+sealed record Rect(double W, double H) : Shape;
+sealed record Square(double Side) : Shape;
+```
+
+</Ex>
+
+<Ex l="s" title="Data-oriented: an array of objects vs an array of values">
+
+```csharp
+const int N = 1_000_000;
+
+// Object style: an array of references, each object separately on the heap
+var orders = new OrderObj[N];
+for (int i = 0; i < N; i++) orders[i] = new OrderObj(i, i % 7);
+
+// Data-oriented: the field the loop needs sits contiguously in its own array
+var prices = new decimal[N];
+for (int i = 0; i < N; i++) prices[i] = i % 7;
+
+decimal a = 0;
+foreach (var o in orders) a += o.Price; // follows a reference for each element
+decimal b = 0;
+foreach (var p in prices) b += p;       // sequential memory reads
+Console.WriteLine(a == b);              // True
+
+sealed record OrderObj(int Id, decimal Price);
+```
+
+The result is the same; only a measurement shows the speed difference — BenchmarkDotNet on a realistic data size.
+
+</Ex>
+
+<Next>
+
+- What is the expression problem? — You cannot make adding both types and operations easy at once: OOP eases the first, a `switch` over data the second.
+- Does `record` make an object immutable? — Positional properties of a `record class` are `init`, but collections inside stay mutable, and `with` copies shallowly.
+- How is an anemic model different from the functional style? — Its data is mutable and has no invariants, and the logic in services still mutates state.
+- When would you replace polymorphism with a `switch`? — When the set of variants is closed and the operations on it are many and growing.
+- What is functional core, imperative shell? — Logic in pure functions; I/O and state in a thin outer layer.
+
+</Next>
+
+<Src>
+
+- [Records — C# reference](https://learn.microsoft.com/dotnet/csharp/language-reference/builtin-types/record)
+- [Functional programming vs. imperative programming (LINQ to XML)](https://learn.microsoft.com/dotnet/standard/linq/functional-vs-imperative-programming)
+- [Pattern matching overview](https://learn.microsoft.com/dotnet/csharp/fundamentals/functional/pattern-matching)
+
+</Src>
+
+</Q>
