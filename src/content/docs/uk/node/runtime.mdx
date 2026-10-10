@@ -1,0 +1,696 @@
+---
+title: Рантайм Node.js
+description: Модулі CommonJS і ESM, npm і lock-файл, TypeScript без збирання, event loop і libuv, потоки даних і помилки, масштабування, профілювання та LTS.
+sidebar:
+  order: 1
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+Як влаштований Node.js під бекендом: модулі й пакети, event loop і libuv, потоки даних, помилки й зупинка, масштабування та діагностика. На співбесіді .NET-розробника тут перевіряють, чи розуміє він, чим один потік подій відрізняється від пулу потоків ASP.NET Core і чим це загрожує в продакшені.
+
+**Перед цією темою:** [JavaScript і TypeScript](/sobes/uk/front/js-ts/).
+
+<Q id="node.rt.modules" level="j">
+
+## Як влаштовані модулі й пакети в Node.js?
+
+<A short l="j">
+
+У Node.js дві системи модулів: <T k="node-commonjs">CommonJS</T> з `require` і `module.exports` та стандартні <T k="node-esm">ES-модулі</T> з `import` і `export`, а яка діє, вирішують розширення файлу (`.cjs`, `.mjs`) або поле `"type": "module"` у `package.json`. Залежності перелічують у `package.json`, npm ставить їх у `node_modules`, а точні версії фіксує <T k="node-package-lock">package-lock.json</T>.
+
+</A>
+
+<A short l="m">
+
+CommonJS завантажує модуль синхронно в момент виклику `require`, а ESM спершу будує граф імпортів, завантажує його асинхронно й тому підтримує top-level `await`. Версії залежностей у `package.json` задають <T k="semver">semver</T>-діапазонами на кшталт `^1.2.3`, тому без lock-файлу та `npm ci` дві збірки можуть отримати різні пакети. З Node 22.18 і 23.6 файли `.ts` запускаються напряму через <T k="node-type-stripping">type stripping</T>, але це лише стирання типів: без перевірки й без `enum`.
+
+</A>
+
+<A short l="s">
+
+Новий код пишуть на ESM: це стандарт мови, статичний граф і top-level `await`, а `require()` ES-модуля без прапорця з Node 22.12 зняв головний біль сумісності, якщо в модулі немає top-level `await`. Ціна двох систем — dual package hazard: пакет із двома збірками може завантажитися двічі, у CJS- та ESM-варіанті, з двома різними станами. Ланцюжок постачання тримають lock-файлом, `npm ci` та аудитом, а pnpm з ізольованим `node_modules` не дає використовувати <T k="node-phantom-dependency">фантомні залежності</T>.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+- **Модуль** — файл зі своєю областю видимості: назовні видно лише те, що він експортує.
+- **Пакет** — тека з `package.json`: ім'я, версія, залежності, скрипти.
+
+**Дві системи модулів**
+
+| | CommonJS | ES-модулі |
+|---|---|---|
+| Імпорт | `const fs = require('node:fs')` | `import fs from 'node:fs'` |
+| Експорт | `module.exports = { f }` | `export function f() {}` |
+| Коли діє | `.cjs` або немає `"type": "module"` | `.mjs` або `"type": "module"` |
+
+**Як користуватися**
+
+1. `npm install express` записує залежність у `package.json` і ставить пакет у `node_modules`.
+2. `package-lock.json` фіксує точні версії всього дерева — його комітять.
+3. У CI ставлять через `npm ci`: суворо за lock-файлом.
+
+**Типова помилка**
+
+Писати `require` в ES-модулі. Результат — `ReferenceError: require is not defined in ES module scope`.
+
+**Підсумок:** модуль підключають через `import` або `require`, пакети описує `package.json`, а точні версії — lock-файл.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+- **CommonJS.** `require` синхронно читає й виконує файл під час першого виклику та кешує результат. Експорт — звичайний об'єкт.
+- **ESM.** Завантажувач спершу розбирає всі `import` і будує граф, потім виконує модулі. Імпорти — живі прив'язки до експортів, а не копії.
+- **Тип файлу `.js`** визначає найближчий `package.json`. З Node 22.7 файл без поля `"type"`, але із синтаксисом `import`, розпізнається як ESM автоматично.
+
+**Версії та діапазони**
+
+| Запис | Що дозволяє |
+|---|---|
+| `^1.2.3` | від 1.2.3 до 2.0.0, не включно |
+| `~1.2.3` | від 1.2.3 до 1.3.0, не включно |
+| `^0.2.3` | від 0.2.3 до 0.3.0: у 0.x minor вважається ламким |
+| `1.2.3` | саме цю версію |
+
+**Пастки**
+
+- `npm install` підганяє lock-файл під `package.json`, а `npm ci` ставить суворо за lock і падає, якщо вони розходяться.
+- В ESM відносний імпорт пишуть із розширенням: `import './db.js'`, а не `'./db'`.
+- В ESM немає `__dirname` і `require`. Заміна — `import.meta.dirname` і `createRequire`.
+
+**Правило**
+
+Новий проєкт — `"type": "module"`, lock-файл у git, `npm ci` у CI.
+
+**Підсумок:** CommonJS завантажує синхронно за викликом, ESM — увесь граф заздалегідь, а версії тримає lock-файл, а не діапазони.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- `require()` ES-модуля працює без прапорця з Node 22.12 і 20.19, стабільний з 24.15 і 25.4. Якщо в графі є top-level `await`, буде `ERR_REQUIRE_ASYNC_MODULE`.
+- Поле `"exports"` у `package.json` задає публічні точки входу та умови `import` і `require`. Решта файлів пакета закриті для імпорту.
+- Type stripping увімкнений за замовчуванням з 22.18 і 23.6, стабільний з 24.12 і 25.2. Node замінює типи пробілами, `tsconfig.json` не читає й типи не перевіряє.
+- Не підтримуються `enum`, `namespace` з кодом і parameter properties — помилка `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`. Імпорт типів — лише через `import type`, розширення `.ts` в імпорті обов'язкове, файли в `node_modules` не обробляються.
+
+**Компроміси**
+
+| | npm | pnpm |
+|---|---|---|
+| `node_modules` | плаский: видно будь-який пакет дерева | ізольований: видно лише оголошені |
+| Диск | копія в кожному проєкті | спільне сховище й жорсткі посилання |
+| Install-скрипти залежностей | виконуються | з pnpm 10 за замовчуванням ні |
+
+TypeScript без збирання добрий для скриптів та інструментів. Для сервісу типи все одно перевіряють `tsc --noEmit` у CI, а прапорець `erasableSyntaxOnly` (TypeScript 5.8) забороняє синтаксис, який Node не зітре.
+
+**Як перевірити в продакшені**
+
+- `npm ls пакет` показує, звідки в дереві взялася версія. `overrides` у `package.json` піднімає вразливу транзитивну залежність.
+- `npm audit` у CI та заборона install-скриптів закривають типові атаки на ланцюжок постачання.
+
+**Підсумок:** ESM за замовчуванням, `require(esm)` для сумісності, lock-файл і суворий менеджер пакетів — проти сюрпризів у залежностях.
+
+</A>
+
+<Ex>
+
+```js
+// main.mjs — ES-модуль
+import { readFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url); // require всередині ESM — лише так
+const os = require('node:os');                  // CommonJS-модуль: завантаження синхронне
+
+console.log(typeof module, typeof __dirname);   // undefined undefined
+console.log(import.meta.filename.endsWith('main.mjs')); // true
+
+const source = await readFile(import.meta.filename, 'utf8'); // top-level await — лише в ESM
+console.log(source.length > 0, typeof os.cpus); // true function
+```
+
+</Ex>
+
+<Ex title="TypeScript без збирання">
+
+```ts
+// order.ts — запуск: node order.ts (Node 22.18+ або 23.6+)
+type Order = { id: number; total: number };
+
+function sum(orders: Order[]): number {
+  return orders.reduce((acc, o) => acc + o.total, 0);
+}
+
+console.log(sum([{ id: 1, total: 10 }, { id: 2, total: 5 }])); // 15
+
+// enum Status { New, Paid } — ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX
+const Status = { New: 'new', Paid: 'paid' } as const; // заміна enum без трансформації
+type Status = (typeof Status)[keyof typeof Status];
+const s: Status = Status.Paid;
+console.log(s); // paid
+```
+
+</Ex>
+
+<Next>
+
+- Чим `^1.2.3` відрізняється від `~1.2.3`? — Перший дозволяє нові minor і patch, другий — лише patch.
+- Навіщо комітити `package-lock.json`? — Щоб усі машини й CI ставили те саме дерево версій.
+- Чи можна викликати `require` для ES-модуля? — З Node 22.12 так, якщо в його графі немає top-level `await`.
+- Що таке фантомна залежність? — Імпорт пакета, якого немає у вашому `package.json`, але який npm підняв у плаский `node_modules`.
+- Чи перевіряє Node типи під час запуску `.ts`? — Ні, він лише стирає їх; перевірка — `tsc --noEmit`.
+
+</Next>
+
+<Src>
+
+- [Modules: ECMAScript modules — Node.js](https://nodejs.org/api/esm.html)
+- [Modules: TypeScript — Node.js](https://nodejs.org/api/typescript.html)
+- [package-lock.json — npm Docs](https://docs.npmjs.com/cli/configuring-npm/package-lock-json)
+
+</Src>
+
+</Q>
+
+<Q id="node.rt.event-loop" level="m">
+
+## Як Node.js обробляє тисячі з'єднань в одному потоці?
+
+<A short l="j">
+
+Увесь JavaScript у Node.js виконується в одному потоці, а очікування мережі й диска бере на себе бібліотека <T k="node-libuv">libuv</T>: поки база не відповіла, потік обслуговує інші запити. Коли операція завершується, її колбек потрапляє в чергу, і <T k="event-loop">event loop</T> його виконує, тому важке обчислення в обробнику гальмує всі запити одразу.
+
+</A>
+
+<A short l="m">
+
+<T k="node-v8">V8</T> виконує JavaScript, а libuv дає event loop: сокети він віддає неблокувальному вводу-виводу ОС, а файли, `dns.lookup`, частину crypto і zlib — своєму <T k="node-libuv-threadpool">пулу потоків</T>, за замовчуванням із 4 потоків. Цикл іде фазами — timers, poll, check, — а між колбеками виконує чергу `process.nextTick` і <T k="microtask">мікрозадачі</T> промісів. Ціна моделі — синхронна робота на 100 мс додає 100 мс затримки кожному запиту в черзі.
+
+</A>
+
+<A short l="s">
+
+Node.js — один потік подій і неблокувальний ввід-вивід, а ASP.NET Core виконує запити в пулі потоків і розкладає CPU-роботу по ядрах. На I/O-навантаженні модель Node дешева: з'єднання коштує пам'яті, а не потоку, перемикань контексту й блокувань немає. Вузькі місця — CPU в головному потоці, яке видно із <T k="node-event-loop-delay">затримки event loop</T>, і пул libuv, спільний для файлів, `dns.lookup` і `crypto.pbkdf2`. Ядра використовують кількома процесами, а не потоками.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+- **Node.js** — середовище виконання JavaScript поза браузером: рушій V8 плюс бібліотека libuv для вводу-виводу.
+- **Event loop** — цикл, який бере готові події та по одній викликає їхні колбеки. Подія — прийшов запит, база відповіла, спрацював таймер.
+
+**Як це працює на сервері**
+
+1. Прийшов запит — обробник надсилає запит до бази й на `await` повертає керування.
+2. Потік вільний і приймає наступні запити.
+3. База відповіла — продовження обробника потрапляє в чергу, і event loop його виконує.
+
+**Типова помилка**
+
+Синхронна робота в обробнику: `fs.readFileSync`, `JSON.parse` величезного рядка, важкий цикл. Поки вона триває, сервер не відповідає нікому.
+
+**Підсумок:** один потік тримає тисячі з'єднань, бо не чекає на ввід-вивід, а лише виконує колбеки.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+Основні фази одного витка циклу, по черзі:
+
+1. **timers** — колбеки `setTimeout` і `setInterval`, у яких сплив термін.
+2. **poll** — нові події вводу-виводу та їхні колбеки. Якщо робити нічого, цикл чекає тут.
+3. **check** — колбеки `setImmediate`.
+4. **close callbacks** — події `'close'`, наприклад у сокета.
+
+Після кожного колбека Node виконує всю чергу `process.nextTick`, потім усі мікрозадачі промісів.
+
+**Хто чекає на ввід-вивід**
+
+| Операція | Де чекає |
+|---|---|
+| Сокети: HTTP, TCP, драйвери БД | ОС: epoll, kqueue, IOCP |
+| `fs`, `dns.lookup`, `crypto.pbkdf2`, `zlib` | пул потоків libuv, 4 за замовчуванням |
+
+**Пастки**
+
+- Рекурсивний `process.nextTick` або нескінченний ланцюжок промісів не дають циклу дійти до вводу-виводу.
+- Порядок `setTimeout(fn, 0)` і `setImmediate` у головному модулі не визначений. У колбеку вводу-виводу `setImmediate` завжди перший.
+- Пул із 4 потоків: п'ятий `crypto.pbkdf2` чекає, поки звільниться потік.
+
+**Правило**
+
+Відкласти роботу — `setImmediate`, його й радить документація Node. Важке обчислення — геть із головного потоку.
+
+**Підсумок:** сокети чекає ОС, файли й crypto — пул libuv, а JavaScript виконується в одному потоці за фазами циклу.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- З libuv 1.45 (Node 20) таймери виконуються після фази poll, а не перед нею.
+- ES-модуль виконує асинхронний завантажувач, тому на верхньому рівні ES-модуля проміс спрацьовує раніше за `process.nextTick`. У CommonJS — навпаки.
+- `dns.lookup` викликає `getaddrinfo` у пулі, і його за замовчуванням використовують `http` і `net`. `dns.resolve*` іде через c-ares, повз пул.
+- Пул спільний на процес, максимум — 1024 потоки через `UV_THREADPOOL_SIZE`.
+
+**Компроміси**
+
+| | Node.js | ASP.NET Core |
+|---|---|---|
+| Де виконується код запиту | один потік event loop | потоки пулу .NET |
+| CPU-робота в запиті | затримує всі запити | займає один потік |
+| Ядра | один процес — одне ядро для JS | усі ядра в одному процесі |
+| Синхронний I/O | зупиняє сервер | призводить до голодування пулу |
+
+**Як перевірити в продакшені**
+
+- `perf_hooks.monitorEventLoopDelay()` дає гістограму затримки циклу. Зростання p99 до десятків мілісекунд — ознака блокування.
+- `performance.eventLoopUtilization()` — частка часу, коли цикл зайнятий. Близько до 1 — процес уперся в CPU.
+- Функцію, яка тримає потік, покаже CPU-профіль: `--cpu-prof` або DevTools.
+- Повільні файли й DNS за вільного CPU — привід збільшити `UV_THREADPOOL_SIZE` під час запуску процесу.
+
+**Підсумок:** модель Node виграє на очікуванні вводу-виводу й програє на CPU, тому затримку циклу міряють так само, як у .NET міряють пул потоків.
+
+</A>
+
+<Ex>
+
+```js
+// phases.cjs — CommonJS
+const fs = require('node:fs');
+
+fs.readFile(__filename, () => {                         // колбек вводу-виводу: фаза poll
+  setTimeout(() => console.log('timeout'), 0);          // 5: фаза timers, наступний виток
+  setImmediate(() => console.log('immediate'));         // 4: фаза check, одразу після poll
+  Promise.resolve().then(() => console.log('promise')); // 3: мікрозадача
+  process.nextTick(() => console.log('nextTick'));      // 2: раніше за проміси
+  console.log('poll callback');                         // 1
+});
+```
+
+Числа в коментарях — порядок виводу.
+
+</Ex>
+
+<Ex title="Блокування циклу й пул libuv">
+
+```js
+// delay.cjs — CommonJS
+const { monitorEventLoopDelay } = require('node:perf_hooks');
+const crypto = require('node:crypto');
+
+const histogram = monitorEventLoopDelay({ resolution: 10 });
+histogram.enable();
+setTimeout(() => {
+  const start = Date.now();
+  while (Date.now() - start < 200) {}               // синхронна робота на 200 мс
+}, 10);
+setTimeout(() => {
+  histogram.disable();
+  console.log(histogram.max / 1e6 > 150);           // true: цикл стояв ~200 мс
+}, 500);
+
+const start = Date.now();
+for (let i = 1; i <= 6; i++) {
+  crypto.pbkdf2('secret', 'salt', 500_000, 64, 'sha512', () => {
+    console.log(i, Date.now() - start);             // 1–4 приблизно разом, 5 і 6 — удвічі пізніше
+  });
+}
+```
+
+З `UV_THREADPOOL_SIZE=6` усі шість хешів завершуються приблизно одночасно.
+
+</Ex>
+
+<Next>
+
+- Що виконається раніше: `process.nextTick` чи `Promise.then`? — У CommonJS `nextTick`; в ES-модулі на верхньому рівні — проміс.
+- Які операції йдуть у пул libuv? — Файли, `dns.lookup`, `crypto.pbkdf2` і `scrypt`, асинхронний `zlib`; сокети — ні.
+- Навіщо `setImmediate`, якщо є `setTimeout(fn, 0)`? — Він виконується одразу після вводу-виводу поточного витка й не залежить від таймерів.
+- Як зрозуміти, що цикл блокується? — `monitorEventLoopDelay` і `eventLoopUtilization`, потім CPU-профіль.
+- Чим модель відрізняється від ASP.NET Core? — Там запити йдуть у пулі потоків на всіх ядрах; у Node — один потік JS на процес.
+
+</Next>
+
+<Src>
+
+- [The Node.js Event Loop — Node.js](https://nodejs.org/en/learn/asynchronous-work/event-loop-timers-and-nexttick)
+- [Don't Block the Event Loop (or the Worker Pool) — Node.js](https://nodejs.org/en/learn/asynchronous-work/dont-block-the-event-loop)
+- [Thread pool work scheduling — libuv](https://docs.libuv.org/en/v1.x/threadpool.html)
+
+</Src>
+
+</Q>
+
+<Q id="node.rt.streams-errors" level="m">
+
+## Як працювати з потоками даних і помилками в Node.js?
+
+<A short l="j">
+
+<T k="node-stream">Потік (stream)</T> обробляє дані частинами в міру надходження, а не завантажує все в пам'ять, тому файл на 5 ГБ копіюється зі сталими витратами пам'яті. Помилки в Node.js надходять трьома шляхами — виняток під час `await`, перший аргумент колбека й подія `'error'`, — і необроблена помилка валить процес.
+
+</A>
+
+<A short l="m">
+
+Потоки бувають Readable, Writable, Duplex і Transform, а з'єднують їх через `pipeline`: він дотримується <T k="backpressure">backpressure</T> і в разі помилки закриває всі ланки. У <T k="node-event-emitter">`EventEmitter`</T> подія `'error'` без слухача викидає виняток, а необроблені помилки доходять до `uncaughtException` і `unhandledRejection`, після яких процес має завершитися. Зупинку за <T k="sigterm">SIGTERM</T> пишуть явно: закрити сервер, дочекатися запитів, звільнити ресурси.
+
+</A>
+
+<A short l="s">
+
+`pipeline` — єдиний надійний спосіб з'єднувати потоки: `.pipe()` не передає помилки, і після збою лишаються відкриті дескриптори. Обробники <T k="node-uncaught-exception">uncaughtException</T> і `unhandledRejection` потрібні, щоб залогувати й завершитися: стан процесу після них невідомий, а відновлює сервіс оркестратор перезапуском. <T k="graceful-shutdown">Коректна зупинка</T> — за SIGTERM перестати приймати запити, дочекатися поточних із тайм-аутом і закрити пули БД. У контейнері Node запускають напряму, а не через `npm start`, інакше сигнал до нього не дійде.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+- **Потік (stream)** — об'єкт, через який дані йдуть порціями (chunks).
+- **Readable** — джерело: файл, тіло HTTP-запиту. **Writable** — приймач: файл, HTTP-відповідь. **Transform** — перетворює дорогою: стиснення, парсинг.
+
+**Як користуватися**
+
+- З'єднувати: `await pipeline(source, transform, destination)` з `node:stream/promises`.
+- Читати в коді: `for await (const chunk of stream)`.
+
+**Як ловити помилки**
+
+| Стиль API | Як ловити |
+|---|---|
+| проміси й `async` | `try`/`catch` навколо `await` |
+| колбек `(err, data)` | насамперед перевірити `err` |
+| `EventEmitter` і потоки | слухач `on('error')` |
+
+**Типова помилка**
+
+Читати великий файл через `fs.readFile`: він повністю потрапляє в пам'ять. Для великих даних — `fs.createReadStream` і `pipeline`.
+
+**Підсумок:** дані — потоками через `pipeline`, помилки — способом, що відповідає стилю API.
+
+</A>
+
+<A l="m">
+
+**Як влаштовано**
+
+- У потоку є внутрішній буфер розміром `highWaterMark`. `write()` повертає `false`, коли буфер Writable заповнений, і джерело має чекати на подію `'drain'`.
+- Це і є backpressure: повільний приймач гальмує швидке джерело, а не накопичує дані в пам'яті.
+- `pipeline` робить це сам. У разі помилки будь-якої ланки він знищує всі потоки й відхиляє проміс.
+
+**Коли що обирати**
+
+| Задача | Інструмент |
+|---|---|
+| З'єднати потоки | `pipeline` з `node:stream/promises` |
+| Прочитати потік у коді | `for await...of` |
+| Власне перетворення | `Transform` або async-генератор усередині `pipeline` |
+
+**Пастки**
+
+- **`.pipe()`** не передає помилку далі: збій джерела залишить приймач відкритим.
+- **`'error'` без слухача** в `EventEmitter` — виняток і падіння процесу.
+- **Ігнорувати `false` від `write()`** — буфер росте, доки не скінчиться пам'ять.
+- **`async`-слухач події.** Його відхилений проміс `EventEmitter` не ловить, і виходить unhandled rejection.
+
+**Правило**
+
+Потоки — лише через `pipeline`, у кожного довгоживучого `EventEmitter` — обробник `'error'`.
+
+**Підсумок:** `pipeline` дає backpressure і закриття всіх ланок у разі помилки, а `'error'` без слухача валить процес.
+
+</A>
+
+<A l="s">
+
+**Під капотом**
+
+- Виняток, що дійшов до event loop, — `uncaughtException`. За замовчуванням Node друкує стек і завершується з кодом 1.
+- Відхилений проміс без обробника з Node 15 за замовчуванням (`--unhandled-rejections=throw`) спричиняє подію `unhandledRejection`. Якщо слухача немає, він стає uncaught exception.
+- Документація Node прямо каже: продовжувати роботу після `uncaughtException` небезпечно.
+
+**Коректна зупинка**
+
+1. `docker stop` або Kubernetes надсилає SIGTERM, після терміну — SIGKILL.
+2. `server.close()` перестає приймати з'єднання. З Node 19 він одразу закриває keep-alive з'єднання, що простоюють.
+3. Активних запитів чекають із тайм-аутом, коротшим за термін оркестратора — у Kubernetes 30 секунд за замовчуванням.
+4. Закрити пули БД і клієнти брокерів, потім вийти з кодом 0.
+
+**Компроміси**
+
+Глобальний обробник легко перетворити на «глушилку» помилок, але процес із невідомим станом небезпечніший за впалий. Надійніше кілька екземплярів і швидкий перезапуск.
+
+**Як перевірити в продакшені**
+
+- Підписка на `SIGTERM` скасовує стандартне завершення: без `process.exit` процес житиме, доки його не вб'є SIGKILL.
+- Node не розрахований працювати як PID 1: у Docker його запускають із `--init` або через tini і командою `CMD ["node", "dist/main.js"]`, а не `npm start`.
+- Код виходу 137 у контейнера — SIGKILL: зупинка не вклалася в термін або спрацював OOM killer.
+
+**Підсумок:** помилки, не перехоплені на місці, логують і завершують процес, а зупинку за SIGTERM пишуть явно й із тайм-аутом.
+
+</A>
+
+<Ex>
+
+```js
+// pipe.mjs — ES-модуль
+import { pipeline } from 'node:stream/promises';
+import { Readable, Transform, Writable } from 'node:stream';
+
+const upper = () => new Transform({
+  transform(chunk, _encoding, callback) {
+    callback(null, chunk.toString().toUpperCase());
+  },
+});
+const collect = (parts) => new Writable({
+  write(chunk, _encoding, callback) { parts.push(chunk.toString()); callback(); },
+});
+
+const parts = [];
+await pipeline(Readable.from(['a', 'b', 'c']), upper(), collect(parts));
+console.log(parts.join(''));                 // ABC
+
+const broken = new Transform({
+  transform(_chunk, _encoding, callback) { callback(new Error('bad chunk')); },
+});
+const source = Readable.from(['x']);
+try {
+  await pipeline(source, broken, collect([]));
+} catch (err) {
+  console.log(err.message, source.destroyed); // bad chunk true: pipeline закрив і джерело
+}
+```
+
+</Ex>
+
+<Ex title="Помилки процесу й зупинка за SIGTERM">
+
+```js
+// server.mjs — ES-модуль
+import http from 'node:http';
+import { EventEmitter } from 'node:events';
+
+const bus = new EventEmitter();
+try {
+  bus.emit('error', new Error('nobody listens')); // 'error' без слухача — виняток
+} catch (err) {
+  console.log(err.message);                       // nobody listens
+}
+
+process.on('unhandledRejection', (reason) => {
+  console.error('unhandled rejection:', reason);  // залогувати й завершитися
+  process.exit(1);
+});
+
+const server = http.createServer((req, res) => res.end('ok'));
+server.listen(3000);
+
+process.once('SIGTERM', () => {                   // docker stop, Kubernetes
+  console.log('SIGTERM: draining');
+  server.close(() => process.exit(0));            // нових з'єднань немає, поточних чекаємо
+  setTimeout(() => process.exit(1), 10_000).unref(); // страховка від завислих запитів
+});
+```
+
+</Ex>
+
+<Next>
+
+- Що таке backpressure і як його дотримується `pipeline`? — Приймач гальмує джерело: `write()` повернув `false` — чекаємо на `'drain'`; `pipeline` робить це сам.
+- Чим `pipeline` кращий за `.pipe()`? — Передає помилки й знищує всі потоки, а з `node:stream/promises` його можна чекати через `await`.
+- Що буде, якщо в `EventEmitter` немає слухача `'error'`? — `emit('error')` викине виняток, і процес упаде.
+- Чи можна продовжувати роботу після `uncaughtException`? — Ні: залогувати й завершитися, перезапуск зробить оркестратор.
+- Чому контейнер із `npm start` довго зупиняється? — npm не передає SIGTERM процесу Node, і той отримує SIGKILL за тайм-аутом.
+
+</Next>
+
+<Src>
+
+- [Stream — Node.js](https://nodejs.org/api/stream.html)
+- [Backpressuring in Streams — Node.js](https://nodejs.org/en/learn/modules/backpressuring-in-streams)
+- [Process: Event 'uncaughtException' — Node.js](https://nodejs.org/api/process.html#event-uncaughtexception)
+
+</Src>
+
+</Q>
+
+<Q id="node.rt.scaling" level="s">
+
+## Як масштабувати й профілювати Node.js-сервіс?
+
+<A short l="j">
+
+Один процес Node.js виконує JavaScript на одному ядрі, тому сервіс масштабують кількома процесами за балансувальником, а важкі обчислення виносять у <T k="node-worker-threads">worker_threads</T>. Повільний код і витоки шукають профілювальником: `node --inspect` і Chrome DevTools.
+
+</A>
+
+<A short l="m">
+
+<T k="node-cluster">cluster</T> запускає кілька процесів на одному порту, worker_threads дають потоки з власним event loop для CPU-задач, а в Kubernetes зазвичай ставлять кілька подів по одному процесу. Витоки пам'яті шукають порівнянням <T k="node-heap-snapshot">heap snapshot</T>, гарячий код — CPU-профілем через `--cpu-prof` або <T k="node-inspector">інспектор</T>. У контейнері межа купи V8 має лишати запас під буфери й нативну пам'ять, інакше процес уб'є OOM killer.
+
+</A>
+
+<A short l="s">
+
+Стандарт для контейнерів — один процес Node на контейнер і горизонтальне масштабування: перезапуск, балансування й облік ресурсів робить оркестратор, а cluster усередині пода додає другий рівень керування. worker_threads беруть лише для CPU-роботи, і кожен воркер несе свій ізолят V8 з окремою купою. Купа — лише частина пам'яті процесу, тому `--max-old-space-size` ставлять нижче за ліміт cgroups із запасом. У продакшені — лише <T k="node-lts">LTS</T>: у жовтні 2026 це Node 24 і 22, а 28 жовтня LTS стає Node 26.
+
+</A>
+
+<A l="j">
+
+**Що це**
+
+- **Масштабування** — запуск кількох процесів, щоб задіяти всі ядра й машини.
+- **Профілювання** — вимірювання, на що йдуть CPU і пам'ять.
+
+**Як користуватися**
+
+- Кілька екземплярів за балансувальником: Nginx, Kubernetes Service.
+- Важке обчислення — у `worker_threads`, щоб не блокувати event loop.
+- `node --inspect app.js`, потім `chrome://inspect` у Chrome: вкладки Performance і Memory.
+
+**Типова помилка**
+
+Зберігати сесії або кеш у пам'яті процесу. За кількох екземплярів кожен бачить своє, тому спільний стан тримають у Redis або в базі.
+
+**Підсумок:** процесів — за кількістю ядер і машин, CPU-роботу — у воркери, а вузькі місця шукають профілювальником.
+
+</A>
+
+<A l="m">
+
+**Коли що обирати**
+
+| Спосіб | Коли |
+|---|---|
+| Кілька подів або контейнерів | за замовчуванням у Kubernetes і Docker |
+| `cluster` або PM2 | одна машина без оркестратора |
+| `worker_threads` | CPU-задача всередині процесу: хешування, парсинг, обробка зображень |
+
+**Як влаштовано**
+
+- **cluster.** Головний процес приймає з'єднання й роздає їх робочим процесам по колу (round-robin; на Windows — ні). Пам'ять у процесів не спільна.
+- **worker_threads.** Потоки в одному процесі, у кожного свій ізолят V8, купа й event loop. Дані передають через `postMessage` (копія або передача володіння) чи `SharedArrayBuffer`.
+- Документація Node прямо каже: воркери корисні для CPU-роботи й майже не допомагають із вводом-виводом.
+
+**Пастки**
+
+- Воркер на кожен запит — дорогий старт. Використовують пул воркерів, наприклад бібліотеку piscina.
+- Типові витоки: глобальний `Map` як кеш без обмеження, незакриті таймери, слухачі подій, яких ніхто не знімає. Останнє підсвічує `MaxListenersExceededWarning`.
+
+**Правило**
+
+Уперлися у ввід-вивід — більше екземплярів. Уперлися в CPU — воркери або окремий сервіс.
+
+**Підсумок:** процеси масштабують ввід-вивід, воркери — обчислення, а оркестратор робить роботу cluster краще за нього.
+
+</A>
+
+<A l="s">
+
+**Під капотом: пам'ять**
+
+- Node передає V8 ліміт пам'яті з урахуванням cgroups. За замовчуванням старе покоління купи отримує близько половини пам'яті контейнера, зі стелею в кілька гігабайтів.
+- Пам'ять процесу (RSS) — це купа плюс `Buffer` поза купою, код і стеки воркерів. Тому `--max-old-space-size` ставлять із запасом до ліміту контейнера. З Node 24.7 є `--max-old-space-size-percentage`.
+- Купа вперлася в ліміт — `FATAL ERROR: Reached heap limit` зі стеком. Контейнер уперся раніше — SIGKILL і код 137 без діагностики.
+
+**Як перевірити в продакшені**
+
+- `--heapsnapshot-near-heap-limit=2` пише знімки купи перед OOM, `--heapsnapshot-signal=SIGUSR2` — за сигналом. Знімок блокує потік і потребує пам'яті приблизно вдвічі більше за купу.
+- Два знімки порівнюють у DevTools (Memory → Comparison): шукають типи об'єктів, що ростуть, і ланцюжки утримання.
+- `kill -USR1 <pid>` вмикає інспектор у працюючого процесу. `--inspect` слухає `127.0.0.1:9229`, назовні його не відкривають.
+- Трейси й метрики — OpenTelemetry: SDK завантажують до застосунку (`--import` або `--require`). Бібліотеки публікують події через <T k="node-diagnostics-channel">`diagnostics_channel`</T>, без підміни модулів.
+
+**Компроміси: версії**
+
+- Node 24 — Active LTS до 20 жовтня 2026, потім maintenance до квітня 2028. Node 22 — maintenance до квітня 2027. Node 20 не підтримується з квітня 2026.
+- З Node 27 виходить одна мажорна версія на рік, у квітні, і кожна стає LTS у жовтні. Непарних Current-версій більше немає.
+
+**Підсумок:** масштабують процесами, пам'ять налаштовують під ліміт контейнера, витоки ловлять знімками купи, а версію беруть з LTS.
+
+</A>
+
+<Ex>
+
+```js
+// fib.mjs — ES-модуль: CPU-робота у worker_threads
+import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads';
+
+if (isMainThread) {
+  let ticks = 0;
+  const timer = setInterval(() => ticks++, 10);   // головний цикл продовжує працювати
+  const worker = new Worker(new URL(import.meta.url), { workerData: 38 });
+  worker.once('message', (result) => {
+    clearInterval(timer);
+    console.log(result, ticks > 10);              // 39088169 true
+  });
+} else {
+  const fib = (n) => (n < 2 ? n : fib(n - 1) + fib(n - 2)); // рахується в окремому потоці
+  parentPort.postMessage(fib(workerData));
+}
+```
+
+Якщо порахувати `fib(38)` у головному потоці, `setInterval` не спрацює жодного разу, доки обчислення не закінчиться.
+
+</Ex>
+
+<Next>
+
+- Чим `cluster` відрізняється від `worker_threads`? — cluster — процеси зі спільним портом і окремою пам'яттю; воркери — потоки в одному процесі з власними ізолятами.
+- Чи потрібен cluster у Kubernetes? — Зазвичай ні: масштабують подами, а оркестратор сам перезапускає й балансує.
+- Як знайти витік пам'яті? — Два-три heap snapshot під навантаженням, порівняння в DevTools, пошук об'єктів, що ростуть, і посилань, що їх утримують.
+- Чому контейнер убито з кодом 137, а `heap out of memory` у лозі немає? — Ліміт контейнера скінчився раніше за ліміт купи V8; зменшити `--max-old-space-size`.
+- Яку версію Node ставити в продакшен? — LTS: Active або Maintenance; на жовтень 2026 — Node 24, після 28 жовтня — і Node 26.
+
+</Next>
+
+<Src>
+
+- [Worker threads — Node.js](https://nodejs.org/api/worker_threads.html)
+- [Using Heap Snapshot — Node.js](https://nodejs.org/en/learn/diagnostics/memory/using-heap-snapshot)
+- [Node.js Releases](https://nodejs.org/en/about/previous-releases)
+
+</Src>
+
+</Q>

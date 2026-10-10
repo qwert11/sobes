@@ -1,0 +1,120 @@
+py-fastapi:
+  term: FastAPI
+  def: >-
+    A Python web framework for HTTP APIs built on Starlette and Pydantic. Parameters, bodies and
+    responses are described with type hints, and validation and OpenAPI docs are generated from
+    them.
+  docs: https://fastapi.tiangolo.com/
+py-type-hint:
+  term: Type hint
+  def: >-
+    A type annotation on a parameter, variable or return value: `item_id: int`, `-> dict`. The
+    interpreter does not enforce it, but mypy, IDEs and libraries such as FastAPI and Pydantic
+    read it.
+  q: Python type hints
+  docs: https://docs.python.org/3/library/typing.html
+py-pydantic:
+  term: Pydantic
+  def: >-
+    A library for data validation and serialization driven by type hints. Models inherit from
+    `BaseModel`; in version 2 the pydantic-core engine is written in Rust.
+  q: Pydantic v2 BaseModel
+  docs: https://docs.pydantic.dev/latest/concepts/models/
+py-starlette:
+  term: Starlette
+  def: >-
+    A lightweight ASGI framework: routing, middleware, requests and responses, WebSockets.
+    FastAPI inherits its application class and adds dependencies, validation and OpenAPI.
+  docs: https://starlette.dev/
+py-coroutine:
+  term: Coroutine
+  def: >-
+    A function declared with `async def`, and the object its call returns. Its code runs only
+    when the coroutine is awaited or wrapped in a task, and it can suspend at every `await`.
+  q: Python coroutine async def
+  docs: https://docs.python.org/3/library/asyncio-task.html#coroutines
+py-event-loop:
+  term: asyncio event loop
+  def: >-
+    The single-threaded asyncio scheduler: it runs ready tasks until their next `await`, then
+    asks the OS which I/O has completed. Started with `asyncio.run()`.
+  q: asyncio event loop
+  docs: https://docs.python.org/3/library/asyncio-eventloop.html
+py-asyncio-task:
+  term: asyncio Task
+  def: >-
+    A wrapper that schedules a coroutine on the event loop and runs it independently of the
+    caller. Created with `asyncio.create_task()`; the loop keeps only weak references to tasks.
+  q: asyncio create_task
+  docs: https://docs.python.org/3/library/asyncio-task.html#creating-tasks
+py-task-group:
+  term: TaskGroup
+  def: >-
+    An async context manager (Python 3.11+) that waits for every task started inside it. If one
+    fails, the rest are cancelled and the errors are collected into an `ExceptionGroup`.
+  q: asyncio TaskGroup
+  docs: https://docs.python.org/3/library/asyncio-task.html#task-groups
+py-cancelled-error:
+  term: CancelledError
+  def: >-
+    The exception `task.cancel()` throws into a coroutine at an `await`. It derives from
+    `BaseException`; after cleanup it must be re-raised, otherwise cancellation does not work.
+  q: asyncio CancelledError
+  docs: https://docs.python.org/3/library/asyncio-exceptions.html
+py-asgi:
+  term: ASGI
+  def: >-
+    Asynchronous Server Gateway Interface — the standard that connects an async web server to a
+    Python application. The application is a coroutine the server calls for each connection.
+  q: ASGI specification
+  docs: https://asgi.readthedocs.io/
+py-uvicorn:
+  term: Uvicorn
+  def: >-
+    An ASGI server for Python: it accepts HTTP connections and calls the application on its own
+    event loop. The `--workers` flag starts several processes.
+  docs: https://uvicorn.dev/
+py-depends:
+  term: Depends (FastAPI dependencies)
+  def: >-
+    The FastAPI mechanism that calls a dependency function before the endpoint and passes its
+    result as a parameter. The result is cached per request, and a dependency with `yield` runs
+    cleanup code after the response.
+  q: FastAPI Depends
+  docs: https://fastapi.tiangolo.com/tutorial/dependencies/
+py-lifespan:
+  term: Lifespan
+  def: >-
+    An async context manager of a FastAPI application: code before `yield` runs when the process
+    starts, code after it runs on shutdown. It replaces the deprecated startup and shutdown
+    events.
+  q: FastAPI lifespan
+  docs: https://fastapi.tiangolo.com/advanced/events/
+py-threadpool:
+  term: FastAPI thread pool
+  def: >-
+    The pool where FastAPI runs endpoints and dependencies declared with plain `def`. It is
+    provided by AnyIO and limited to 40 concurrent calls per process by default.
+  q: FastAPI def threadpool anyio
+  docs: https://fastapi.tiangolo.com/async/
+py-process-pool:
+  term: Process pool (ProcessPoolExecutor)
+  def: >-
+    An executor from `concurrent.futures` that runs functions in separate processes. Each process
+    has its own interpreter and its own GIL, and arguments and results travel through pickle.
+  q: Python ProcessPoolExecutor
+  docs: https://docs.python.org/3/library/concurrent.futures.html#processpoolexecutor
+py-pickle:
+  term: pickle
+  def: >-
+    The built-in format for serializing Python objects to bytes. `multiprocessing` uses it to
+    pass data between processes, which is why lambdas and local functions cannot be sent.
+  q: Python pickle
+  docs: https://docs.python.org/3/library/pickle.html
+py-dynamic-batching:
+  term: Dynamic batching
+  def: >-
+    An inference-server technique: requests that arrive at almost the same time are grouped into
+    one batch and go through the model in a single call. It raises GPU utilization at the cost of
+    a little latency.
+  q: dynamic batching model inference

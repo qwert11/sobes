@@ -1,0 +1,144 @@
+nest-module:
+  term: Модуль NestJS (@Module)
+  def: >-
+    Клас із декоратором `@Module()`, що об'єднує контролери й провайдери однієї області, імпортує
+    інші модулі й через `exports` вирішує, чим вони можуть користуватися. Застосунок — дерево модулів
+    від кореневого `AppModule`.
+  q: NestJS modules
+  docs: https://docs.nestjs.com/modules
+nest-provider:
+  term: Провайдер NestJS (provider)
+  def: >-
+    Усе, що DI-контейнер NestJS уміє створити й впровадити: сервіс, репозиторій, фабрика, значення.
+    Зазвичай це клас із `@Injectable()`, зареєстрований у `providers` модуля.
+  q: NestJS providers
+  docs: https://docs.nestjs.com/providers
+nest-decorator-metadata:
+  term: Метадані декораторів (emitDecoratorMetadata)
+  def: >-
+    Відомості про типи, які TypeScript зберігає для декорованих класів за прапорця
+    `emitDecoratorMetadata`, наприклад `design:paramtypes` — типи параметрів конструктора. NestJS
+    читає їх через `reflect-metadata` і за ними розуміє, що впроваджувати.
+  q: TypeScript emitDecoratorMetadata design:paramtypes
+  docs: https://www.typescriptlang.org/tsconfig/#emitDecoratorMetadata
+nest-injection-token:
+  term: Токен впровадження (injection token)
+  def: >-
+    Ключ, за яким контейнер NestJS знаходить провайдер, коли типу класу недостатньо: рядок,
+    `Symbol` або абстрактний клас. Реєструється як `{ provide: TOKEN, useClass: Impl }`,
+    впроваджується через `@Inject(TOKEN)`.
+  q: NestJS custom providers injection token
+  docs: https://docs.nestjs.com/fundamentals/custom-providers
+nest-injection-scope:
+  term: Область впровадження (injection scope)
+  def: >-
+    Час життя провайдера в NestJS: `DEFAULT` — один екземпляр на застосунок, `REQUEST` — на кожен
+    запит, `TRANSIENT` — власний екземпляр кожному споживачеві. Область `REQUEST` переходить на всіх,
+    хто залежить від такого провайдера.
+  q: NestJS injection scopes
+  docs: https://docs.nestjs.com/fundamentals/injection-scopes
+nest-platform-adapter:
+  term: Адаптер платформи (platform adapter)
+  def: >-
+    Шар, через який NestJS працює з HTTP-бібліотекою: `@nestjs/platform-express` (за замовчуванням)
+    або `@nestjs/platform-fastify`. Код на декораторах NestJS від вибору адаптера не залежить.
+  q: NestJS platform express fastify adapter
+  docs: https://docs.nestjs.com/techniques/performance
+nest-async-local-storage:
+  term: AsyncLocalStorage
+  def: >-
+    Клас Node.js з модуля `node:async_hooks`, який зберігає дані, доступні в усьому ланцюжку
+    асинхронних викликів одного запиту. Аналог `AsyncLocal<T>` у .NET; у NestJS через нього передають
+    користувача й id запиту без request scope.
+  q: Node.js AsyncLocalStorage
+  docs: https://nodejs.org/api/async_context.html
+nest-middleware:
+  term: Middleware у NestJS
+  def: >-
+    Функція або клас із `NestMiddleware`, що викликається до guards і обробника з об'єктами `req`,
+    `res` і `next`, як middleware Express. Не знає, який обробник виконається; підключається в методі
+    `configure` модуля.
+  q: NestJS middleware
+  docs: https://docs.nestjs.com/middleware
+nest-guard:
+  term: Guard (вартовий) у NestJS
+  def: >-
+    Клас із методом `canActivate`, який вирішує, чи пропускати запит до обробника. Бачить
+    `ExecutionContext` і метадані маршруту, тому в ньому роблять автентифікацію й перевірку ролей;
+    `false` дає відповідь 403.
+  q: NestJS guards
+  docs: https://docs.nestjs.com/guards
+nest-interceptor:
+  term: Interceptor (перехоплювач) у NestJS
+  def: >-
+    Клас із методом `intercept`, що виконує код до і після обробника та працює з його результатом як
+    із RxJS `Observable`. Застосовується для логування, заміру часу, кешу й перетворення відповіді.
+  q: NestJS interceptors
+  docs: https://docs.nestjs.com/interceptors
+nest-pipe:
+  term: Pipe у NestJS
+  def: >-
+    Клас із методом `transform`, що перевіряє або перетворює аргумент обробника до його виклику.
+    Вбудовані — `ValidationPipe`, `ParseIntPipe`; помилка в pipe дає відповідь 400.
+  q: NestJS pipes
+  docs: https://docs.nestjs.com/pipes
+nest-exception-filter:
+  term: Exception filter (фільтр винятків) у NestJS
+  def: >-
+    Клас із декоратором `@Catch()` і методом `catch`, що перетворює виняток на HTTP-відповідь.
+    Вбудований глобальний фільтр обробляє `HttpException`, а невідомі помилки перетворює на 500.
+  q: NestJS exception filters
+  docs: https://docs.nestjs.com/exception-filters
+prisma-schema:
+  term: Схема Prisma (schema.prisma)
+  def: >-
+    Файл мовою схем Prisma з джерелом даних, генераторами й моделями. З нього Prisma Migrate будує
+    SQL-міграції, а генератор — типізований клієнт.
+  q: Prisma schema
+  docs: https://www.prisma.io/docs/orm/v7/prisma-schema/overview
+prisma-migrate:
+  term: Prisma Migrate
+  def: >-
+    Інструмент міграцій Prisma: `prisma migrate dev` створює SQL-міграції за змінами схеми,
+    `prisma migrate deploy` застосовує готові міграції в CI і продакшені. Історія зберігається в
+    таблиці `_prisma_migrations`.
+  q: Prisma Migrate migrate dev deploy
+  docs: https://www.prisma.io/docs/orm/v7/prisma-migrate/workflows/development-and-production
+prisma-client:
+  term: Prisma Client
+  def: >-
+    Типізований клієнт бази, який `prisma generate` створює за схемою: методи `findMany`, `create`,
+    `update` для кожної моделі. Змін не відстежує — кожен виклик одразу виконує запит.
+  q: Prisma Client
+  docs: https://www.prisma.io/docs/orm/v7/prisma-client/queries/relation-queries
+prisma-driver-adapter:
+  term: Драйверний адаптер Prisma (driver adapter)
+  def: >-
+    Пакет, через який Prisma Client виконує запити звичайним драйвером бази, наприклад
+    `@prisma/adapter-pg` поверх `pg`. Із Prisma 7 адаптер обов'язковий, а пул з'єднань
+    налаштовується в драйвері.
+  q: Prisma driver adapters
+  docs: https://www.prisma.io/docs/orm/more/upgrade-guides/upgrading-versions/upgrading-to-prisma-7
+prisma-interactive-transaction:
+  term: Інтерактивна транзакція Prisma
+  def: >-
+    Виклик `prisma.$transaction(async (tx) => ...)`: усі запити через `tx` ідуть в одній транзакції,
+    а між ними можна виконувати свою логіку. Виняток відкочує транзакцію; за замовчуванням тайм-аут
+    5 секунд.
+  q: Prisma interactive transactions
+  docs: https://www.prisma.io/docs/orm/v7/prisma-client/queries/transactions
+nest-lifecycle-hooks:
+  term: Хуки життєвого циклу NestJS (lifecycle hooks)
+  def: >-
+    Методи провайдерів і модулів, які NestJS викликає під час старту (`onModuleInit`,
+    `onApplicationBootstrap`) і зупинки (`onModuleDestroy`, `beforeApplicationShutdown`,
+    `onApplicationShutdown`). Хуки зупинки за сигналом працюють лише після `enableShutdownHooks()`.
+  q: NestJS lifecycle events
+  docs: https://docs.nestjs.com/fundamentals/lifecycle-events
+nest-testing-module:
+  term: Тестовий модуль NestJS (Test.createTestingModule)
+  def: >-
+    API пакета `@nestjs/testing`, що збирає модуль застосунку для тесту й дає змогу підмінити
+    провайдери через `overrideProvider`. З нього створюють і повноцінний застосунок для e2e-тестів.
+  q: NestJS testing createTestingModule
+  docs: https://docs.nestjs.com/fundamentals/testing

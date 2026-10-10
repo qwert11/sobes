@@ -1,0 +1,137 @@
+py-pytest-fixture:
+  term: Фикстура pytest (fixture)
+  def: >-
+    Функция с декоратором `@pytest.fixture`, которая готовит данные или ресурс для теста. Тест
+    получает её результат параметром с тем же именем, а код после `yield` выполняется как
+    teardown.
+  q: pytest fixture scope yield
+  docs: https://docs.pytest.org/en/stable/how-to/fixtures.html
+py-assert-rewriting:
+  term: Assertion rewriting
+  def: >-
+    Переписывание инструкций `assert` при импорте тестовых модулей. Благодаря ему pytest при
+    падении показывает значения обеих сторон сравнения без специальных методов проверки.
+  q: pytest assertion rewriting
+  docs: https://docs.pytest.org/en/stable/how-to/assert.html
+py-conftest:
+  term: conftest.py
+  def: >-
+    Файл, фикстуры и хуки из которого pytest автоматически делает доступными всем тестам этого
+    каталога и вложенных, без импорта.
+  q: pytest conftest.py fixtures sharing
+  docs: https://docs.pytest.org/en/stable/reference/fixtures.html#conftest-py-sharing-fixtures-across-multiple-files
+py-monkeypatch:
+  term: monkeypatch
+  def: >-
+    Встроенная фикстура pytest для временной подмены атрибутов, элементов словарей и переменных
+    окружения. После теста всё возвращается как было.
+  q: pytest monkeypatch setattr setenv
+  docs: https://docs.pytest.org/en/stable/how-to/monkeypatch.html
+py-venv:
+  term: Виртуальное окружение (venv)
+  def: >-
+    Каталог со ссылкой на интерпретатор Python и собственным набором пакетов. Изолирует
+    зависимости одного проекта от системы и других проектов.
+  q: python venv virtual environment
+  docs: https://docs.python.org/3/library/venv.html
+py-pyproject-toml:
+  term: pyproject.toml
+  def: >-
+    Стандартный файл описания Python-проекта: метаданные и зависимости в таблице `[project]`
+    (PEP 621), система сборки и настройки инструментов в таблицах `[tool.*]`. Аналог `.csproj`.
+  q: pyproject.toml PEP 621
+  docs: https://packaging.python.org/en/latest/guides/writing-pyproject-toml/
+py-lock-file:
+  term: Lock-файл зависимостей
+  def: >-
+    Файл с точными версиями и хешами всех пакетов графа, включая транзитивные. В Python это
+    `uv.lock`, `poetry.lock`, закреплённый `requirements.txt` или стандартный `pylock.toml`
+    (PEP 751).
+  q: python lock file uv.lock pylock.toml
+  docs: https://docs.astral.sh/uv/concepts/projects/layout/#the-lockfile
+py-uv:
+  term: uv
+  def: >-
+    Менеджер пакетов и проектов Python от Astral, написанный на Rust. Создаёт окружения,
+    разрешает и закрепляет зависимости, ставит версии Python и запускает утилиты — заменяет pip,
+    venv, pip-tools и pipx.
+  q: astral uv python package manager
+  docs: https://docs.astral.sh/uv/
+py-ruff:
+  term: Ruff
+  def: >-
+    Линтер и форматтер Python от Astral, написанный на Rust. `ruff check` заменяет flake8, isort
+    и pyupgrade, `ruff format` — Black.
+  q: ruff linter formatter
+  docs: https://docs.astral.sh/ruff/
+py-sa-engine:
+  term: Engine (SQLAlchemy)
+  def: >-
+    Точка подключения SQLAlchemy к базе: знает диалект и драйвер, держит пул соединений. Создаётся
+    один раз на процесс через `create_engine`.
+  q: SQLAlchemy create_engine connection pool
+  docs: https://docs.sqlalchemy.org/en/21/core/engines.html
+py-sa-session:
+  term: Session (SQLAlchemy)
+  def: >-
+    Объект ORM SQLAlchemy для работы с объектами в рамках одной единицы работы: загружает их,
+    отслеживает изменения и сохраняет через flush и `commit()`. Аналог `DbContext`, не
+    потокобезопасна.
+  q: SQLAlchemy Session basics
+  docs: https://docs.sqlalchemy.org/en/21/orm/session_basics.html
+py-identity-map:
+  term: Identity map
+  def: >-
+    Словарь сессии «первичный ключ → объект»: одна строка базы представлена в сессии одним
+    объектом, а повторный `session.get` по тому же ключу не идёт в базу.
+  q: identity map pattern SQLAlchemy
+  docs: https://martinfowler.com/eaaCatalog/identityMap.html
+py-sa-core:
+  term: SQLAlchemy Core
+  def: >-
+    Нижний уровень SQLAlchemy: таблицы, выражения SQL (`select`, `insert`), соединения и
+    транзакции без объектов и отслеживания изменений. ORM построен поверх него.
+  q: SQLAlchemy Core vs ORM
+  docs: https://docs.sqlalchemy.org/en/21/core/
+py-alembic:
+  term: Alembic
+  def: >-
+    Инструмент миграций схемы для SQLAlchemy от тех же авторов. Хранит миграции Python-файлами,
+    а применённую версию — в таблице `alembic_version`.
+  q: Alembic migrations SQLAlchemy
+  docs: https://alembic.sqlalchemy.org/
+py-alembic-revision:
+  term: Ревизия Alembic
+  def: >-
+    Файл миграции с идентификатором `revision`, ссылкой на родителя `down_revision` и функциями
+    `upgrade()` и `downgrade()`. Ревизии образуют граф версий схемы.
+  q: alembic revision down_revision
+  docs: https://alembic.sqlalchemy.org/en/latest/tutorial.html
+py-autogenerate:
+  term: Autogenerate (Alembic)
+  def: >-
+    Режим `alembic revision --autogenerate`, который сравнивает `MetaData` моделей со схемой базы и
+    пишет черновик миграции. Не видит переименований и ограничений без имени.
+  q: alembic autogenerate limitations
+  docs: https://alembic.sqlalchemy.org/en/latest/autogenerate.html
+py-merge-revision:
+  term: Merge-ревизия
+  def: >-
+    Ревизия Alembic с двумя родителями в `down_revision`, которая сводит две ветки миграций в одну
+    head. Создаётся командой `alembic merge heads`.
+  q: alembic merge heads branches
+  docs: https://alembic.sqlalchemy.org/en/latest/branches.html
+py-naming-convention:
+  term: Naming convention (SQLAlchemy)
+  def: >-
+    Шаблоны имён индексов и ограничений в `MetaData(naming_convention=...)`. С ними каждое
+    ограничение получает предсказуемое имя, и Alembic может его изменить или удалить.
+  q: SQLAlchemy naming_convention constraints alembic
+  docs: https://alembic.sqlalchemy.org/en/latest/naming.html
+py-pydantic-settings:
+  term: pydantic-settings
+  def: >-
+    Пакет с классом `BaseSettings`: поля настроек заполняются из переменных окружения, `.env` и
+    файлов секретов, а типы проверяет Pydantic при создании объекта.
+  q: pydantic-settings BaseSettings
+  docs: https://pydantic.dev/docs/validation/latest/concepts/pydantic_settings/

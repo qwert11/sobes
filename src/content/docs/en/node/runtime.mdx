@@ -1,0 +1,696 @@
+---
+title: The Node.js runtime
+description: CommonJS and ESM modules, npm and the lockfile, TypeScript without a build, the event loop and libuv, streams and errors, scaling, profiling and LTS.
+sidebar:
+  order: 1
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+How Node.js works under a backend: modules and packages, the event loop and libuv, streams, errors and shutdown, scaling and diagnostics. In a .NET developer's interview this is where they check whether you understand how a single event thread differs from the ASP.NET Core thread pool and what that means in production.
+
+**Before this topic:** [JavaScript and TypeScript](/sobes/en/front/js-ts/).
+
+<Q id="node.rt.modules" level="j">
+
+## How do modules and packages work in Node.js?
+
+<A short l="j">
+
+Node.js has two module systems: <T k="node-commonjs">CommonJS</T> with `require` and `module.exports`, and standard <T k="node-esm">ES modules</T> with `import` and `export`; which one applies depends on the file extension (`.cjs`, `.mjs`) or the `"type": "module"` field in `package.json`. Dependencies are listed in `package.json`, npm installs them into `node_modules`, and <T k="node-package-lock">package-lock.json</T> pins the exact versions.
+
+</A>
+
+<A short l="m">
+
+CommonJS loads a module synchronously at the moment `require` is called, while ESM first builds the import graph, loads it asynchronously and therefore supports top-level `await`. Dependency versions in `package.json` are <T k="semver">semver</T> ranges like `^1.2.3`, so without a lockfile and `npm ci` two builds can get different packages. Since Node 22.18 and 23.6, `.ts` files run directly via <T k="node-type-stripping">type stripping</T>, but that only erases types: no type checking and no `enum`.
+
+</A>
+
+<A short l="s">
+
+New code is written as ESM: it is the language standard, with a static graph and top-level `await`, and unflagged `require()` of ES modules since Node 22.12 removed the main interop pain, as long as the module has no top-level `await`. The cost of two systems is the dual package hazard: a package that ships two builds can be loaded twice, as CJS and as ESM, with two separate states. The supply chain is kept in check with a lockfile, `npm ci` and audits, and pnpm's isolated `node_modules` prevents <T k="node-phantom-dependency">phantom dependencies</T>.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **Module** — a file with its own scope: only what it exports is visible outside.
+- **Package** — a folder with a `package.json`: name, version, dependencies, scripts.
+
+**Two module systems**
+
+| | CommonJS | ES modules |
+|---|---|---|
+| Import | `const fs = require('node:fs')` | `import fs from 'node:fs'` |
+| Export | `module.exports = { f }` | `export function f() {}` |
+| When it applies | `.cjs` or no `"type": "module"` | `.mjs` or `"type": "module"` |
+
+**How to use**
+
+1. `npm install express` adds the dependency to `package.json` and installs the package into `node_modules`.
+2. `package-lock.json` pins exact versions of the whole tree — commit it.
+3. CI installs with `npm ci`: strictly from the lockfile.
+
+**Common mistake**
+
+Using `require` in an ES module. The result is `ReferenceError: require is not defined in ES module scope`.
+
+**Takeaway:** modules are loaded with `import` or `require`, packages are described by `package.json`, and exact versions by the lockfile.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- **CommonJS.** `require` synchronously reads and runs the file on the first call and caches the result. The export is a plain object.
+- **ESM.** The loader first parses every `import` and builds the graph, then evaluates the modules. Imports are live bindings to exports, not copies.
+- **The type of a `.js` file** is set by the nearest `package.json`. Since Node 22.7, a file with no `"type"` field but with `import` syntax is detected as ESM automatically.
+
+**Versions and ranges**
+
+| Spec | What it allows |
+|---|---|
+| `^1.2.3` | from 1.2.3 up to, but not including, 2.0.0 |
+| `~1.2.3` | from 1.2.3 up to, but not including, 1.3.0 |
+| `^0.2.3` | from 0.2.3 up to 0.3.0: in 0.x a minor bump counts as breaking |
+| `1.2.3` | exactly this version |
+
+**Pitfalls**
+
+- `npm install` adjusts the lockfile to `package.json`, while `npm ci` installs strictly from the lockfile and fails if the two disagree.
+- In ESM, relative imports need the extension: `import './db.js'`, not `'./db'`.
+- ESM has no `__dirname` and no `require`. Use `import.meta.dirname` and `createRequire` instead.
+
+**Rule of thumb**
+
+New project — `"type": "module"`, the lockfile in git, `npm ci` in CI.
+
+**Takeaway:** CommonJS loads synchronously on call, ESM loads the whole graph up front, and versions are pinned by the lockfile, not by ranges.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- `require()` of an ES module works without a flag since Node 22.12 and 20.19 and is stable since 24.15 and 25.4. If the graph has top-level `await`, you get `ERR_REQUIRE_ASYNC_MODULE`.
+- The `"exports"` field in `package.json` defines the public entry points and the `import` and `require` conditions. All other files of the package are closed to imports.
+- Type stripping is on by default since 22.18 and 23.6 and stable since 24.12 and 25.2. Node replaces types with whitespace, ignores `tsconfig.json` and does not check types.
+- `enum`, `namespace` with runtime code and parameter properties are not supported — `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`. Type imports need `import type`, the `.ts` extension in imports is mandatory, and files under `node_modules` are not processed.
+
+**Trade-offs**
+
+| | npm | pnpm |
+|---|---|---|
+| `node_modules` | flat: any package in the tree is visible | isolated: only declared ones are visible |
+| Disk | a copy per project | a shared store and hard links |
+| Dependency install scripts | run | not run by default since pnpm 10 |
+
+TypeScript without a build is great for scripts and tooling. For a service you still check types with `tsc --noEmit` in CI, and the `erasableSyntaxOnly` option (TypeScript 5.8) forbids syntax Node cannot erase.
+
+**How to check in production**
+
+- `npm ls package` shows where a version came from in the tree. `overrides` in `package.json` bumps a vulnerable transitive dependency.
+- `npm audit` in CI and disabled install scripts close off the typical supply-chain attacks.
+
+**Takeaway:** ESM by default, `require(esm)` for interop, a lockfile and a strict package manager against surprises in dependencies.
+
+</A>
+
+<Ex>
+
+```js
+// main.mjs — an ES module
+import { readFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url); // the only way to get require inside ESM
+const os = require('node:os');                  // CommonJS module: loaded synchronously
+
+console.log(typeof module, typeof __dirname);   // undefined undefined
+console.log(import.meta.filename.endsWith('main.mjs')); // true
+
+const source = await readFile(import.meta.filename, 'utf8'); // top-level await — ESM only
+console.log(source.length > 0, typeof os.cpus); // true function
+```
+
+</Ex>
+
+<Ex title="TypeScript without a build">
+
+```ts
+// order.ts — run with: node order.ts (Node 22.18+ or 23.6+)
+type Order = { id: number; total: number };
+
+function sum(orders: Order[]): number {
+  return orders.reduce((acc, o) => acc + o.total, 0);
+}
+
+console.log(sum([{ id: 1, total: 10 }, { id: 2, total: 5 }])); // 15
+
+// enum Status { New, Paid } — ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX
+const Status = { New: 'new', Paid: 'paid' } as const; // enum replacement, no transform needed
+type Status = (typeof Status)[keyof typeof Status];
+const s: Status = Status.Paid;
+console.log(s); // paid
+```
+
+</Ex>
+
+<Next>
+
+- How does `^1.2.3` differ from `~1.2.3`? — The first allows new minor and patch versions, the second only patches.
+- Why commit `package-lock.json`? — So every machine and CI installs the same version tree.
+- Can you `require` an ES module? — Since Node 22.12, yes, if its graph has no top-level `await`.
+- What is a phantom dependency? — Importing a package that is not in your `package.json` but that npm hoisted into a flat `node_modules`.
+- Does Node check types when running `.ts`? — No, it only strips them; checking is `tsc --noEmit`.
+
+</Next>
+
+<Src>
+
+- [Modules: ECMAScript modules — Node.js](https://nodejs.org/api/esm.html)
+- [Modules: TypeScript — Node.js](https://nodejs.org/api/typescript.html)
+- [package-lock.json — npm Docs](https://docs.npmjs.com/cli/configuring-npm/package-lock-json)
+
+</Src>
+
+</Q>
+
+<Q id="node.rt.event-loop" level="m">
+
+## How does Node.js handle thousands of connections on one thread?
+
+<A short l="j">
+
+All JavaScript in Node.js runs on one thread, and waiting for the network and disk is handled by the <T k="node-libuv">libuv</T> library: while the database has not answered, the thread serves other requests. When an operation completes, its callback goes into a queue and the <T k="event-loop">event loop</T> runs it, which is why a heavy computation in a handler slows down every request at once.
+
+</A>
+
+<A short l="m">
+
+<T k="node-v8">V8</T> runs JavaScript, and libuv provides the event loop: sockets go to the OS's non-blocking I/O, while files, `dns.lookup`, some crypto and zlib go to libuv's own <T k="node-libuv-threadpool">thread pool</T>, 4 threads by default. The loop goes through phases — timers, poll, check — and between callbacks drains the `process.nextTick` queue and promise <T k="microtask">microtasks</T>. The cost of the model: 100 ms of synchronous work adds 100 ms of latency to every queued request.
+
+</A>
+
+<A short l="s">
+
+Node.js is a single event thread with non-blocking I/O, while ASP.NET Core runs requests on the thread pool and spreads CPU work across cores. Under I/O load the Node model is cheap: a connection costs memory, not a thread, and there are no context switches or locks. The bottlenecks are CPU on the main thread, visible as <T k="node-event-loop-delay">event loop delay</T>, and the libuv pool shared by files, `dns.lookup` and `crypto.pbkdf2`. Cores are used through multiple processes, not threads.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **Node.js** — a JavaScript runtime outside the browser: the V8 engine plus the libuv library for I/O.
+- **Event loop** — a loop that picks up ready events and calls their callbacks one at a time. An event is a request arriving, the database answering, a timer firing.
+
+**How it works on a server**
+
+1. A request arrives — the handler sends a query to the database and yields control at `await`.
+2. The thread is free and accepts the next requests.
+3. The database answers — the rest of the handler is queued, and the event loop runs it.
+
+**Common mistake**
+
+Synchronous work in a handler: `fs.readFileSync`, `JSON.parse` of a huge string, a heavy loop. While it runs, the server answers nobody.
+
+**Takeaway:** one thread holds thousands of connections because it never waits for I/O; it only runs callbacks.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+The main phases of one loop iteration, in order:
+
+1. **timers** — callbacks of `setTimeout` and `setInterval` whose time has come.
+2. **poll** — new I/O events and their callbacks. If there is nothing to do, the loop waits here.
+3. **check** — `setImmediate` callbacks.
+4. **close callbacks** — `'close'` events, for example on a socket.
+
+After each callback Node drains the whole `process.nextTick` queue, then all promise microtasks.
+
+**Who waits for I/O**
+
+| Operation | Where it waits |
+|---|---|
+| Sockets: HTTP, TCP, DB drivers | the OS: epoll, kqueue, IOCP |
+| `fs`, `dns.lookup`, `crypto.pbkdf2`, `zlib` | the libuv thread pool, 4 by default |
+
+**Pitfalls**
+
+- Recursive `process.nextTick` or an endless promise chain keeps the loop from ever reaching I/O.
+- The order of `setTimeout(fn, 0)` and `setImmediate` in the main module is not deterministic. Inside an I/O callback, `setImmediate` always goes first.
+- A pool of 4 threads: the fifth `crypto.pbkdf2` waits until a thread frees up.
+
+**Rule of thumb**
+
+To defer work, use `setImmediate` — the Node docs recommend it. Heavy computation goes off the main thread.
+
+**Takeaway:** the OS waits on sockets, the libuv pool on files and crypto, and JavaScript runs on one thread through the loop phases.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- Since libuv 1.45 (Node 20), timers run after the poll phase rather than before it.
+- ES modules are evaluated by an asynchronous loader, so at the top level of an ES module a promise fires before `process.nextTick`. In CommonJS it is the other way round.
+- `dns.lookup` calls `getaddrinfo` on the pool, and `http` and `net` use it by default. `dns.resolve*` goes through c-ares and bypasses the pool.
+- The pool is shared by the whole process, up to 1024 threads via `UV_THREADPOOL_SIZE`.
+
+**Trade-offs**
+
+| | Node.js | ASP.NET Core |
+|---|---|---|
+| Where request code runs | the single event loop thread | .NET thread pool threads |
+| CPU work in a request | delays every request | occupies one thread |
+| Cores | one process — one core for JS | all cores in one process |
+| Synchronous I/O | stalls the server | leads to thread pool starvation |
+
+**How to check in production**
+
+- `perf_hooks.monitorEventLoopDelay()` gives a histogram of loop delay. p99 rising to tens of milliseconds is a sign of blocking.
+- `performance.eventLoopUtilization()` is the share of time the loop is busy. Close to 1 means the process is CPU-bound.
+- A CPU profile shows the function holding the thread: `--cpu-prof` or DevTools.
+- Slow file and DNS operations with idle CPU are a reason to raise `UV_THREADPOOL_SIZE` at process start.
+
+**Takeaway:** the Node model wins on waiting for I/O and loses on CPU, so you measure loop delay the way you measure the thread pool in .NET.
+
+</A>
+
+<Ex>
+
+```js
+// phases.cjs — CommonJS
+const fs = require('node:fs');
+
+fs.readFile(__filename, () => {                         // I/O callback: poll phase
+  setTimeout(() => console.log('timeout'), 0);          // 5: timers phase, next iteration
+  setImmediate(() => console.log('immediate'));         // 4: check phase, right after poll
+  Promise.resolve().then(() => console.log('promise')); // 3: microtask
+  process.nextTick(() => console.log('nextTick'));      // 2: before promises
+  console.log('poll callback');                         // 1
+});
+```
+
+The numbers in the comments are the output order.
+
+</Ex>
+
+<Ex title="Blocking the loop and the libuv pool">
+
+```js
+// delay.cjs — CommonJS
+const { monitorEventLoopDelay } = require('node:perf_hooks');
+const crypto = require('node:crypto');
+
+const histogram = monitorEventLoopDelay({ resolution: 10 });
+histogram.enable();
+setTimeout(() => {
+  const start = Date.now();
+  while (Date.now() - start < 200) {}               // 200 ms of synchronous work
+}, 10);
+setTimeout(() => {
+  histogram.disable();
+  console.log(histogram.max / 1e6 > 150);           // true: the loop stalled for ~200 ms
+}, 500);
+
+const start = Date.now();
+for (let i = 1; i <= 6; i++) {
+  crypto.pbkdf2('secret', 'salt', 500_000, 64, 'sha512', () => {
+    console.log(i, Date.now() - start);             // 1–4 finish together, 5 and 6 about twice as late
+  });
+}
+```
+
+With `UV_THREADPOOL_SIZE=6`, all six hashes finish at roughly the same time.
+
+</Ex>
+
+<Next>
+
+- Which runs first: `process.nextTick` or `Promise.then`? — In CommonJS `nextTick`; at the top level of an ES module, the promise.
+- Which operations go to the libuv pool? — Files, `dns.lookup`, `crypto.pbkdf2` and `scrypt`, async `zlib`; sockets do not.
+- Why `setImmediate` if there is `setTimeout(fn, 0)`? — It runs right after the current iteration's I/O and does not depend on timers.
+- How do you tell the loop is blocked? — `monitorEventLoopDelay` and `eventLoopUtilization`, then a CPU profile.
+- How does the model differ from ASP.NET Core? — There, requests run on the thread pool across all cores; in Node, one JS thread per process.
+
+</Next>
+
+<Src>
+
+- [The Node.js Event Loop — Node.js](https://nodejs.org/en/learn/asynchronous-work/event-loop-timers-and-nexttick)
+- [Don't Block the Event Loop (or the Worker Pool) — Node.js](https://nodejs.org/en/learn/asynchronous-work/dont-block-the-event-loop)
+- [Thread pool work scheduling — libuv](https://docs.libuv.org/en/v1.x/threadpool.html)
+
+</Src>
+
+</Q>
+
+<Q id="node.rt.streams-errors" level="m">
+
+## How do you work with streams and errors in Node.js?
+
+<A short l="j">
+
+A <T k="node-stream">stream</T> processes data in chunks as it arrives instead of loading everything into memory, so a 5 GB file is copied with constant memory use. Errors in Node.js arrive in three ways — an exception at `await`, the first argument of a callback and an `'error'` event — and an unhandled one crashes the process.
+
+</A>
+
+<A short l="m">
+
+Streams are Readable, Writable, Duplex and Transform, and you connect them with `pipeline`: it respects <T k="backpressure">backpressure</T> and closes every stage on error. An `'error'` event on an <T k="node-event-emitter">`EventEmitter`</T> with no listener throws, and unhandled errors reach `uncaughtException` and `unhandledRejection`, after which the process should exit. Shutdown on <T k="sigterm">SIGTERM</T> is written explicitly: close the server, wait for in-flight requests, release resources.
+
+</A>
+
+<A short l="s">
+
+`pipeline` is the only reliable way to connect streams: `.pipe()` does not propagate errors and leaves open descriptors after a failure. Handlers for <T k="node-uncaught-exception">uncaughtException</T> and `unhandledRejection` exist to log and exit: the process state is unknown after them, and the orchestrator recovers the service by restarting it. <T k="graceful-shutdown">Graceful shutdown</T> means on SIGTERM stop accepting requests, wait for in-flight ones with a timeout and close DB pools. In a container Node is started directly, not through `npm start`, or the signal never reaches it.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **Stream** — an object through which data flows in portions (chunks).
+- **Readable** — a source: a file, an HTTP request body. **Writable** — a destination: a file, an HTTP response. **Transform** — changes data on the way: compression, parsing.
+
+**How to use**
+
+- Connect: `await pipeline(source, transform, destination)` from `node:stream/promises`.
+- Read in code: `for await (const chunk of stream)`.
+
+**How to catch errors**
+
+| API style | How to catch |
+|---|---|
+| promises and `async` | `try`/`catch` around `await` |
+| `(err, data)` callback | check `err` first |
+| `EventEmitter` and streams | an `on('error')` listener |
+
+**Common mistake**
+
+Reading a large file with `fs.readFile`: it lands in memory in full. For large data use `fs.createReadStream` and `pipeline`.
+
+**Takeaway:** data goes through streams and `pipeline`, errors are caught the way the API style dictates.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- A stream has an internal buffer of size `highWaterMark`. `write()` returns `false` when a Writable's buffer is full, and the source must wait for the `'drain'` event.
+- That is backpressure: a slow destination slows down a fast source instead of piling data up in memory.
+- `pipeline` does this for you. When any stage fails, it destroys all streams and rejects the promise.
+
+**When to choose what**
+
+| Task | Tool |
+|---|---|
+| Connect streams | `pipeline` from `node:stream/promises` |
+| Read a stream in code | `for await...of` |
+| Custom transformation | `Transform` or an async generator inside `pipeline` |
+
+**Pitfalls**
+
+- **`.pipe()`** does not forward errors: a failing source leaves the destination open.
+- **`'error'` with no listener** on an `EventEmitter` — an exception and a crashed process.
+- **Ignoring `false` from `write()`** — the buffer grows until memory runs out.
+- **An `async` event listener.** `EventEmitter` does not catch its rejected promise, and you get an unhandled rejection.
+
+**Rule of thumb**
+
+Streams only through `pipeline`; every long-lived `EventEmitter` gets an `'error'` handler.
+
+**Takeaway:** `pipeline` gives you backpressure and closes every stage on error, while `'error'` with no listener crashes the process.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- An exception that reaches the event loop is an `uncaughtException`. By default Node prints the stack and exits with code 1.
+- Since Node 15, a rejected promise with no handler by default (`--unhandled-rejections=throw`) emits `unhandledRejection`. If there is no listener, it becomes an uncaught exception.
+- The Node docs say it plainly: resuming normal operation after `uncaughtException` is not safe.
+
+**Graceful shutdown**
+
+1. `docker stop` or Kubernetes sends SIGTERM, and SIGKILL after a deadline.
+2. `server.close()` stops accepting connections. Since Node 19 it closes idle keep-alive connections right away.
+3. In-flight requests get a timeout shorter than the orchestrator's deadline — 30 seconds by default in Kubernetes.
+4. Close DB pools and broker clients, then exit with code 0.
+
+**Trade-offs**
+
+A global handler easily turns into an error silencer, but a process in an unknown state is more dangerous than a crashed one. Several instances and a fast restart are more reliable.
+
+**How to check in production**
+
+- Subscribing to `SIGTERM` removes the default exit: without `process.exit` the process lives on until SIGKILL.
+- Node is not designed to run as PID 1: in Docker start it with `--init` or via tini, and with `CMD ["node", "dist/main.js"]` rather than `npm start`.
+- Exit code 137 on a container means SIGKILL: shutdown missed the deadline or the OOM killer fired.
+
+**Takeaway:** errors not handled on the spot are logged and end the process, and shutdown on SIGTERM is written explicitly and with a timeout.
+
+</A>
+
+<Ex>
+
+```js
+// pipe.mjs — an ES module
+import { pipeline } from 'node:stream/promises';
+import { Readable, Transform, Writable } from 'node:stream';
+
+const upper = () => new Transform({
+  transform(chunk, _encoding, callback) {
+    callback(null, chunk.toString().toUpperCase());
+  },
+});
+const collect = (parts) => new Writable({
+  write(chunk, _encoding, callback) { parts.push(chunk.toString()); callback(); },
+});
+
+const parts = [];
+await pipeline(Readable.from(['a', 'b', 'c']), upper(), collect(parts));
+console.log(parts.join(''));                 // ABC
+
+const broken = new Transform({
+  transform(_chunk, _encoding, callback) { callback(new Error('bad chunk')); },
+});
+const source = Readable.from(['x']);
+try {
+  await pipeline(source, broken, collect([]));
+} catch (err) {
+  console.log(err.message, source.destroyed); // bad chunk true: pipeline closed the source too
+}
+```
+
+</Ex>
+
+<Ex title="Process errors and shutdown on SIGTERM">
+
+```js
+// server.mjs — an ES module
+import http from 'node:http';
+import { EventEmitter } from 'node:events';
+
+const bus = new EventEmitter();
+try {
+  bus.emit('error', new Error('nobody listens')); // 'error' with no listener throws
+} catch (err) {
+  console.log(err.message);                       // nobody listens
+}
+
+process.on('unhandledRejection', (reason) => {
+  console.error('unhandled rejection:', reason);  // log and exit
+  process.exit(1);
+});
+
+const server = http.createServer((req, res) => res.end('ok'));
+server.listen(3000);
+
+process.once('SIGTERM', () => {                   // docker stop, Kubernetes
+  console.log('SIGTERM: draining');
+  server.close(() => process.exit(0));            // no new connections, wait for current ones
+  setTimeout(() => process.exit(1), 10_000).unref(); // safety net against hung requests
+});
+```
+
+</Ex>
+
+<Next>
+
+- What is backpressure and how does `pipeline` respect it? — The destination slows the source: `write()` returned `false`, so wait for `'drain'`; `pipeline` does it for you.
+- Why is `pipeline` better than `.pipe()`? — It propagates errors and destroys every stream, and from `node:stream/promises` you can `await` it.
+- What happens if an `EventEmitter` has no `'error'` listener? — `emit('error')` throws and the process crashes.
+- Can you keep running after `uncaughtException`? — No: log and exit, the orchestrator restarts the process.
+- Why does a container with `npm start` take long to stop? — npm does not pass SIGTERM to the Node process, so it gets SIGKILL at the deadline.
+
+</Next>
+
+<Src>
+
+- [Stream — Node.js](https://nodejs.org/api/stream.html)
+- [Backpressuring in Streams — Node.js](https://nodejs.org/en/learn/modules/backpressuring-in-streams)
+- [Process: Event 'uncaughtException' — Node.js](https://nodejs.org/api/process.html#event-uncaughtexception)
+
+</Src>
+
+</Q>
+
+<Q id="node.rt.scaling" level="s">
+
+## How do you scale and profile a Node.js service?
+
+<A short l="j">
+
+One Node.js process runs JavaScript on one core, so a service is scaled with several processes behind a load balancer, and heavy computations move to <T k="node-worker-threads">worker_threads</T>. Slow code and leaks are found with a profiler: `node --inspect` and Chrome DevTools.
+
+</A>
+
+<A short l="m">
+
+<T k="node-cluster">cluster</T> starts several processes on one port, worker_threads give threads with their own event loop for CPU tasks, and in Kubernetes you usually run several pods with one process each. Memory leaks are found by comparing <T k="node-heap-snapshot">heap snapshots</T>, hot code with a CPU profile via `--cpu-prof` or the <T k="node-inspector">inspector</T>. In a container the V8 heap limit must leave room for buffers and native memory, or the OOM killer takes the process down.
+
+</A>
+
+<A short l="s">
+
+The container standard is one Node process per container and horizontal scaling: the orchestrator handles restarts, load balancing and resource accounting, and cluster inside a pod adds a second layer of management. worker_threads are only for CPU work, and each worker carries its own V8 isolate with a separate heap. The heap is only part of process memory, so `--max-old-space-size` is set below the cgroups limit with headroom. In production use only <T k="node-lts">LTS</T>: in October 2026 that is Node 24 and 22, and Node 26 becomes LTS on October 28.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **Scaling** — running several processes to use every core and machine.
+- **Profiling** — measuring where CPU and memory go.
+
+**How to use**
+
+- Several instances behind a load balancer: Nginx, a Kubernetes Service.
+- Heavy computation goes to `worker_threads` so it does not block the event loop.
+- `node --inspect app.js`, then `chrome://inspect` in Chrome: the Performance and Memory tabs.
+
+**Common mistake**
+
+Keeping sessions or a cache in process memory. With several instances each sees its own, so shared state lives in Redis or the database.
+
+**Takeaway:** processes per core and machine, CPU work in workers, and bottlenecks found with a profiler.
+
+</A>
+
+<A l="m">
+
+**When to choose what**
+
+| Option | When |
+|---|---|
+| Several pods or containers | the default in Kubernetes and Docker |
+| `cluster` or PM2 | a single machine without an orchestrator |
+| `worker_threads` | a CPU task inside the process: hashing, parsing, image processing |
+
+**How it works**
+
+- **cluster.** The primary process accepts connections and hands them to worker processes round-robin (except on Windows). Processes do not share memory.
+- **worker_threads.** Threads in one process, each with its own V8 isolate, heap and event loop. Data is passed via `postMessage` (a copy or a transfer) or `SharedArrayBuffer`.
+- The Node docs say it directly: workers help with CPU-intensive work and barely help with I/O.
+
+**Pitfalls**
+
+- A worker per request means an expensive start every time. Use a worker pool, for example the piscina library.
+- Typical leaks: a global `Map` used as an unbounded cache, timers never cleared, event listeners nobody removes. The last one triggers `MaxListenersExceededWarning`.
+
+**Rule of thumb**
+
+I/O-bound — more instances. CPU-bound — workers or a separate service.
+
+**Takeaway:** processes scale I/O, workers scale computation, and the orchestrator does cluster's job better than cluster.
+
+</A>
+
+<A l="s">
+
+**Under the hood: memory**
+
+- Node passes V8 a memory limit that accounts for cgroups. By default the old generation gets about half of the container's memory, capped at a few gigabytes.
+- Process memory (RSS) is the heap plus `Buffer` data outside the heap, code and worker stacks. So `--max-old-space-size` is set with headroom below the container limit. Since Node 24.7 there is also `--max-old-space-size-percentage`.
+- If the heap hits its limit — `FATAL ERROR: Reached heap limit` with a stack. If the container hits its limit first — SIGKILL and exit code 137 with no diagnostics.
+
+**How to check in production**
+
+- `--heapsnapshot-near-heap-limit=2` writes heap snapshots before an OOM, `--heapsnapshot-signal=SIGUSR2` on a signal. A snapshot blocks the thread and needs about twice the heap size in memory.
+- Two snapshots are compared in DevTools (Memory → Comparison): look for growing object types and retainer chains.
+- `kill -USR1 <pid>` turns on the inspector in a running process. `--inspect` listens on `127.0.0.1:9229`; never expose it.
+- Traces and metrics come from OpenTelemetry: the SDK is loaded before the app (`--import` or `--require`). Libraries publish events through <T k="node-diagnostics-channel">`diagnostics_channel`</T> without monkey-patching modules.
+
+**Trade-offs: versions**
+
+- Node 24 is Active LTS until October 20, 2026, then maintenance until April 2028. Node 22 is in maintenance until April 2027. Node 20 has been unsupported since April 2026.
+- Starting with Node 27 there is one major release a year, in April, and each becomes LTS in October. No more odd-numbered Current releases.
+
+**Takeaway:** scale with processes, size memory to the container limit, catch leaks with heap snapshots, and pick the version from LTS.
+
+</A>
+
+<Ex>
+
+```js
+// fib.mjs — an ES module: CPU work in worker_threads
+import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads';
+
+if (isMainThread) {
+  let ticks = 0;
+  const timer = setInterval(() => ticks++, 10);   // the main loop keeps running
+  const worker = new Worker(new URL(import.meta.url), { workerData: 38 });
+  worker.once('message', (result) => {
+    clearInterval(timer);
+    console.log(result, ticks > 10);              // 39088169 true
+  });
+} else {
+  const fib = (n) => (n < 2 ? n : fib(n - 1) + fib(n - 2)); // computed on a separate thread
+  parentPort.postMessage(fib(workerData));
+}
+```
+
+If you compute `fib(38)` on the main thread, `setInterval` does not fire even once until the computation ends.
+
+</Ex>
+
+<Next>
+
+- How does `cluster` differ from `worker_threads`? — cluster is processes with a shared port and separate memory; workers are threads in one process with their own isolates.
+- Do you need cluster in Kubernetes? — Usually not: scale with pods, and the orchestrator restarts and balances.
+- How do you find a memory leak? — Two or three heap snapshots under load, compare them in DevTools, look for growing objects and what retains them.
+- Why was the container killed with code 137 with no `heap out of memory` in the log? — The container limit ran out before the V8 heap limit; lower `--max-old-space-size`.
+- Which Node version goes to production? — LTS, Active or Maintenance; in October 2026 that is Node 24, and after October 28 also Node 26.
+
+</Next>
+
+<Src>
+
+- [Worker threads — Node.js](https://nodejs.org/api/worker_threads.html)
+- [Using Heap Snapshot — Node.js](https://nodejs.org/en/learn/diagnostics/memory/using-heap-snapshot)
+- [Node.js Releases](https://nodejs.org/en/about/previous-releases)
+
+</Src>
+
+</Q>

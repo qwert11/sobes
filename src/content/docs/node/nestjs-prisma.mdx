@@ -1,0 +1,842 @@
+---
+title: NestJS и Prisma
+description: Модули и DI в NestJS, конвейер запроса от middleware до exception filters, Prisma 7 и миграции, NestJS-сервис в продакшене.
+sidebar:
+  order: 2
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+Как устроен бэкенд на NestJS и Prisma глазами .NET-разработчика: модули и DI, путь запроса через guards, interceptors и pipes, работа с базой через Prisma 7 и подготовка сервиса к продакшену. NestJS во многом повторяет ASP.NET Core, поэтому на собеседовании ждут не только «как», но и «чем отличается».
+
+**Перед этой темой:** [Рантайм Node.js](/sobes/node/runtime/), [Внедрение зависимостей](/sobes/aspnet/di/).
+
+<Q id="node.nest.architecture" level="j">
+
+## Как устроено приложение на NestJS?
+
+<A short l="j">
+
+NestJS — фреймворк для серверных приложений на Node.js и TypeScript, где код разбит на <T k="nest-module">модули</T>: контроллеры принимают HTTP-запросы, а <T k="nest-provider">провайдеры</T> содержат логику и получают зависимости через конструктор. По сути это знакомая по ASP.NET Core схема «контроллеры, сервисы и <T k="dependency-injection">внедрение зависимостей</T>», только регистрация идёт декораторами `@Module()` и `@Injectable()`.
+
+</A>
+
+<A short l="m">
+
+Приложение — дерево модулей от корневого `AppModule`: модуль объявляет контроллеры и провайдеры, импортирует другие модули и экспортирует то, чем разрешает пользоваться. Типы параметров конструктора контейнер берёт из <T k="nest-decorator-metadata">метаданных декораторов</T>, поэтому интерфейс внедряют только через <T k="nest-injection-token">токен</T>. По умолчанию провайдер — singleton; <T k="nest-injection-scope">область</T> `REQUEST` даёт экземпляр на запрос, но делает request-scoped всю цепочку потребителей и стоит производительности.
+
+</A>
+
+<A short l="s">
+
+NestJS — слой структуры и DI поверх HTTP-библиотеки: запросы обрабатывает Express 5 или Fastify 5 через <T k="nest-platform-adapter">адаптер платформы</T>, а граф модулей и провайдеров создаётся целиком при старте. Плюс — ошибка в зависимостях роняет запуск, а не запрос; минус — DI держится на метаданных, которых нет у интерфейсов. Главные отличия от ASP.NET Core — singleton по умолчанию и инкапсуляция модулей, а контекст запроса передают через <T k="nest-async-local-storage">`AsyncLocalStorage`</T>, а не через request scope, который пересоздаёт цепочку на каждый запрос.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+NestJS — фреймворк для бэкенда на Node.js и TypeScript. Он задаёт структуру приложения и даёт DI-контейнер, а сам HTTP обрабатывает Express или Fastify.
+
+**Из чего состоит**
+
+- **Модуль** (`@Module()`) — группа связанных классов: контроллеры, провайдеры, импорты других модулей.
+- **Контроллер** (`@Controller('orders')`) — принимает запросы; `@Get(':id')` над методом задаёт маршрут.
+- **Провайдер** (`@Injectable()`) — сервис, репозиторий, клиент API. Контейнер создаёт его и передаёт в конструкторы.
+
+**Как пользоваться**
+
+1. Пометьте сервис `@Injectable()` и добавьте его в `providers` модуля.
+2. Попросите сервис параметром конструктора контроллера.
+3. В `main.ts` вызовите `NestFactory.create(AppModule)` и `app.listen(3000)`.
+
+**Частая ошибка**
+
+Забыть провайдер в `providers` или не экспортировать его из чужого модуля. Приложение не стартует: `Nest can't resolve dependencies of the OrdersController (?)`.
+
+**Итог:** модуль собирает контроллеры и провайдеры, а контейнер связывает их через конструкторы.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+1. `NestFactory.create(AppModule)` обходит дерево модулей по `imports`.
+2. Для каждого класса контейнер читает `design:paramtypes` — типы параметров конструктора, которые TypeScript записывает при `emitDecoratorMetadata`.
+3. Провайдеры создаются в порядке зависимостей и принадлежат своему модулю.
+4. Модуль видит свои провайдеры и то, что экспортируют импортированные модули.
+
+**Соответствие ASP.NET Core**
+
+| NestJS | ASP.NET Core |
+|---|---|
+| `main.ts`, `NestFactory.create` | `Program.cs`, `WebApplication.CreateBuilder` |
+| `@Module()` с `exports` | метод `AddOrders()`; инкапсуляции нет |
+| `@Controller()` | `[ApiController]` |
+| `providers: [OrdersService]` | `builder.Services.AddScoped<OrdersService>()` |
+| `DEFAULT`, `REQUEST`, `TRANSIENT` | Singleton, Scoped, Transient |
+| Express или Fastify | Kestrel |
+
+**Ловушки**
+
+- **Интерфейсы.** В рантайме их нет. Для интерфейса заводят токен (`Symbol` или строку): `{ provide: CLOCK, useClass: SystemClock }` и `@Inject(CLOCK)`. Другой вариант — абстрактный класс в роли токена.
+- **`import type`.** Тип, импортированный только как тип, стирается, и контейнер не узнаёт зависимость.
+- **Циклы.** Взаимозависимые модули требуют `forwardRef()`; обычно это знак, что общую часть пора вынести.
+
+**Правило**
+
+Модуль — на бизнес-область, наружу — только `exports`, интерфейсы — через токены.
+
+**Итог:** DI в NestJS держится на метаданных конструктора и границах модулей; чего нет в метаданных, то называют токеном.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- Декоратор на классе заставляет TypeScript сохранить типы параметров конструктора; NestJS читает их через `reflect-metadata`.
+- Граф строится, а singleton-провайдеры создаются при старте, до `listen`. Нет зависимости — процесс не стартует. В .NET без `ValidateOnBuild` такая ошибка всплывёт только на запросе.
+- HTTP обрабатывает адаптер: `@nestjs/platform-express` (Express 5, по умолчанию) или `@nestjs/platform-fastify` (Fastify 5). Код на декораторах переносим, код с `@Res()` и Express-middleware — нет.
+
+**Цена**
+
+- `REQUEST` «всплывает»: контроллер, зависящий от request-провайдера, тоже создаётся на каждый запрос вместе со всей цепочкой. Документация оценивает рост задержки примерно в 5% при аккуратном дизайне.
+- Request-провайдеры не получают хуков жизненного цикла.
+
+**Компромиссы**
+
+- Singleton по умолчанию естественен для Node.js: поток один, гонок в памяти нет. Но поле с данными запроса в singleton перетрут параллельные запросы между `await`.
+- Пользователя и корреляционный id передают через `AsyncLocalStorage` (например, библиотека `nestjs-cls`).
+- Express даёт огромную экосистему middleware, Fastify по бенчмаркам заметно быстрее, но со своими плагинами и объектами запроса.
+
+**Как проверить в проде**
+
+- Лог старта: `Please make sure that the argument X at index [0] is available in the Y module` указывает модуль и позицию параметра.
+- Цену `REQUEST` меряют нагрузочным тестом до и после.
+
+**Итог:** NestJS — DI и модули поверх Express или Fastify; граф проверяется при старте, всё singleton по умолчанию, а состояние запроса живёт в `AsyncLocalStorage`.
+
+</A>
+
+<Ex>
+
+```ts
+import { Controller, Get, Inject, Injectable, Module, Param } from '@nestjs/common';
+import { NestFactory } from '@nestjs/core';
+
+// Интерфейса в рантайме нет, поэтому для него нужен токен
+export interface Clock { now(): Date; }
+export const CLOCK = Symbol('CLOCK');
+
+@Injectable() // по умолчанию singleton на всё приложение
+export class OrdersService {
+  constructor(@Inject(CLOCK) private readonly clock: Clock) {}
+
+  find(id: number) {
+    return { id, checkedAt: this.clock.now().toISOString() };
+  }
+}
+
+@Controller('orders')
+export class OrdersController {
+  // Тип OrdersService попадает в метаданные design:paramtypes
+  constructor(private readonly orders: OrdersService) {}
+
+  @Get(':id')
+  find(@Param('id') id: string) {
+    return this.orders.find(Number(id)); // GET /orders/42 → { "id": 42, ... }
+  }
+}
+
+@Module({
+  controllers: [OrdersController],
+  providers: [OrdersService, { provide: CLOCK, useValue: { now: () => new Date() } }],
+  exports: [OrdersService], // без exports другие модули OrdersService не увидят
+})
+export class OrdersModule {}
+
+async function bootstrap() {
+  const app = await NestFactory.create(OrdersModule); // Express по умолчанию
+  await app.listen(3000);
+}
+void bootstrap();
+```
+
+</Ex>
+
+<Next>
+
+- Чем модуль NestJS отличается от регистраций в `builder.Services`? — Инкапсуляцией: провайдер виден только в своём модуле и у тех, кто импортирует модуль, если он в `exports`.
+- Как внедрить реализацию интерфейса? — Токеном: `{ provide: TOKEN, useClass: Impl }` и `@Inject(TOKEN)` или абстрактным классом как токеном.
+- Что такое динамический модуль? — Модуль, который настраивают при импорте: `ConfigModule.forRoot(options)`, аналог `AddXxx(options => ...)`.
+- Зачем `@Global()` и почему им не злоупотребляют? — Экспорты видны везде без импорта; это удобно для конфигурации, но размывает границы модулей.
+- Почему request scope замедляет приложение? — Он всплывает по цепочке: все потребители создаются заново на каждый запрос.
+
+</Next>
+
+<Src>
+
+- [Modules — NestJS](https://docs.nestjs.com/modules)
+- [Custom providers — NestJS](https://docs.nestjs.com/fundamentals/custom-providers)
+- [Injection scopes — NestJS](https://docs.nestjs.com/fundamentals/injection-scopes)
+
+</Src>
+
+</Q>
+
+<Q id="node.nest.pipeline" level="m">
+
+## Как обрабатывается запрос в NestJS: middleware, guards, interceptors, pipes, exception filters?
+
+<A short l="j">
+
+Запрос проходит цепочку: <T k="nest-middleware">middleware</T>, затем <T k="nest-guard">guards</T> решают, пускать ли его, <T k="nest-interceptor">interceptors</T> оборачивают обработчик, <T k="nest-pipe">pipes</T> проверяют и преобразуют аргументы, и только потом вызывается метод контроллера. Исключение на любом шаге превращают в ответ <T k="nest-exception-filter">exception filters</T>. Поэтому тело запроса проверяет `ValidationPipe` с <T k="dto">DTO</T>-классом, а права — guard.
+
+</A>
+
+<A short l="m">
+
+Порядок фиксирован: middleware, guards, interceptors до обработчика, pipes, обработчик, interceptors после, а при исключении — exception filters; внутри слоя сначала глобальные, потом контроллера, потом маршрута. Каждый слой знает больше предыдущего: middleware видит только запрос, guard — какой обработчик выполнится, interceptor — ещё и результат. Это похоже на фильтры ASP.NET Core, но валидация в NestJS явная: без `ValidationPipe` с `whitelist` лишние поля тела доходят до кода.
+
+</A>
+
+<A short l="s">
+
+Конвейер — точки расширения с растущим контекстом: guard отвечает 403 до разбора тела, pipe — 400 до вызова логики, interceptor владеет результатом и временем, filter превращает исключение в ответ. Глобальные элементы регистрируют провайдерами `APP_GUARD`, `APP_PIPE`, `APP_FILTER`, а не через `app.useGlobal...()`: так у них есть DI и они работают в e2e-тестах. Цена class-validator — рефлексия на каждый запрос и декораторы, дублирующие типы; в NestJS 12 появилась альтернатива — Standard Schema (Zod, Valibot) прямо в `@Body()`.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+Между приходом запроса и методом контроллера NestJS вызывает несколько видов обработчиков:
+
+| Элемент | Задача |
+|---|---|
+| Middleware | общая обработка: CORS, заголовки безопасности |
+| Guard | пускать ли запрос: аутентификация, роли |
+| Interceptor | код до и после обработчика: замер времени, кеш |
+| Pipe | проверка и преобразование аргументов |
+| Exception filter | превращение исключения в HTTP-ответ |
+
+**Как пользоваться**
+
+1. Опишите тело запроса DTO-классом с декораторами class-validator: `@IsEmail()`, `@IsInt()`, `@Min(1)`.
+2. Включите `ValidationPipe` глобально.
+3. Невалидное тело получит 400 со списком ошибок, метод контроллера не вызовется.
+
+**Частая ошибка**
+
+Описать DTO интерфейсом или `type`. В рантайме их нет, и `ValidationPipe` пропустит любое тело без проверки.
+
+**Итог:** guard решает «пускать ли», pipe — «корректны ли данные», filter — «как ответить на ошибку».
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+1. Middleware: глобальные, затем модульные. Обработчик ещё не выбран.
+2. Guards: глобальные → контроллера → маршрута. `false` превращается в 403.
+3. Interceptors до обработчика — в том же порядке.
+4. Pipes: глобальные → контроллера → маршрута → параметра.
+5. Метод контроллера.
+6. Interceptors после — в обратном порядке, от маршрута к глобальным.
+7. При исключении ищется filter: маршрута, затем контроллера, затем глобальный. Срабатывает только один.
+
+**ValidationPipe**
+
+- `whitelist` — удаляет поля без декораторов.
+- `forbidNonWhitelisted` — вместо удаления отвечает 400.
+- `transform` — превращает JSON в экземпляр DTO и приводит `:id` к `number`.
+
+**Сравнение с ASP.NET Core**
+
+| NestJS | ASP.NET Core |
+|---|---|
+| Guard | authorization filter, `[Authorize]` |
+| Interceptor | action и result filters |
+| `ValidationPipe` | model binding и автоматический 400 от `[ApiController]` |
+| Exception filter | exception filter, `IExceptionHandler` |
+
+**Ловушки**
+
+- `app.useGlobalGuards()` создаёт объект вне DI. Регистрируйте `{ provide: APP_GUARD, useClass: AuthGuard }`.
+- Без `whitelist` поле `isAdmin` из тела дойдёт до репозитория — mass assignment.
+
+**Итог:** запрос идёт middleware → guards → interceptors → pipes → обработчик → interceptors, а исключение ловит ближайший filter.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- Guards, interceptors и filters получают `ExecutionContext` или `ArgumentsHost` — обёртку над HTTP, WebSocket и микросервисами. Один guard работает для любого транспорта.
+- `ValidationPipe` берёт тип параметра из метаданных метода, создаёт экземпляр через class-transformer и проверяет его class-validator.
+- `next.handle()` в interceptor возвращает RxJS `Observable`. Interceptor может вовсе не вызывать обработчик — так `CacheInterceptor` отдаёт ответ из кеша.
+
+**Цена**
+
+- class-transformer и class-validator — рефлексия и аллокации на каждый запрос; на больших массивах в теле это заметно.
+- `enableImplicitConversion` приводит типы молча: строка `"false"` в query становится `true`.
+
+**Компромиссы**
+
+- class-validator: один DTO-класс для валидации и документации, но декораторы дублируют типы. Standard Schema (`StandardSchemaValidationPipe`, `@Body({ schema })`) выводит тип из схемы.
+- `@nestjs/swagger` строит <T k="openapi">OpenAPI</T> из контроллеров и DTO, а плагин CLI сам добавляет `@ApiProperty()`.
+- Один глобальный filter задаёт единый формат ошибок, например ProblemDetails.
+
+**Как проверить в проде**
+
+- Доля 400 и 403 по маршрутам показывает, где запросы отсекаются.
+- Время обработчика отделяют от всей цепочки interceptor-ом с замером или трассировкой.
+
+**Итог:** каждый слой видит больше предыдущего; глобальные элементы — провайдерами `APP_*`, валидация — с `whitelist`, а схемы без классов в NestJS 12 — через Standard Schema.
+
+</A>
+
+<Ex>
+
+```ts
+import {
+  Body, CanActivate, Controller, ExecutionContext, Injectable, Module, Post, UseGuards, ValidationPipe,
+} from '@nestjs/common';
+import { NestFactory } from '@nestjs/core';
+import { IsEmail, IsInt, Min } from 'class-validator';
+
+// DTO — класс: декораторы class-validator доживают до рантайма
+export class CreateOrderDto {
+  @IsEmail() email!: string;
+  @IsInt() @Min(1) quantity!: number;
+}
+
+@Injectable()
+export class ApiKeyGuard implements CanActivate {
+  canActivate(context: ExecutionContext): boolean {
+    const req = context.switchToHttp().getRequest<{ headers: Record<string, string | undefined> }>();
+    return req.headers['x-api-key'] === process.env.API_KEY; // false → 403 Forbidden
+  }
+}
+
+@Controller('orders')
+@UseGuards(ApiKeyGuard)
+export class OrdersController {
+  @Post()
+  create(@Body() dto: CreateOrderDto) {
+    return { ...dto, status: 'created' }; // сюда доходит только валидный DTO
+  }
+}
+
+@Module({ controllers: [OrdersController] })
+export class AppModule {}
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+  app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
+  await app.listen(3000);
+}
+void bootstrap();
+// POST /orders { "email": "x", "quantity": 0, "isAdmin": true } → 400:
+// property isAdmin should not exist, email must be an email, quantity must not be less than 1
+```
+
+</Ex>
+
+<Ex title="Interceptor и exception filter">
+
+```ts
+import {
+  ArgumentsHost, CallHandler, Catch, ExceptionFilter, ExecutionContext, Injectable, Logger, Module, NestInterceptor,
+} from '@nestjs/common';
+import { APP_FILTER, APP_INTERCEPTOR, HttpAdapterHost } from '@nestjs/core';
+import { Observable, tap } from 'rxjs';
+
+@Injectable()
+export class TimingInterceptor implements NestInterceptor {
+  private readonly logger = new Logger('Timing');
+
+  intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
+    const started = Date.now(); // до обработчика
+    return next.handle().pipe(
+      // после обработчика: OrdersController.find 12ms
+      tap(() => this.logger.log(`${context.getClass().name}.${context.getHandler().name} ${Date.now() - started}ms`)),
+    );
+  }
+}
+
+export class OrderNotFoundError extends Error {}
+
+// Доменная ошибка → 404: сервис ничего не знает про HTTP
+@Catch(OrderNotFoundError)
+export class OrderNotFoundFilter implements ExceptionFilter {
+  constructor(private readonly adapterHost: HttpAdapterHost) {}
+
+  catch(error: OrderNotFoundError, host: ArgumentsHost) {
+    const { httpAdapter } = this.adapterHost; // работает и с Express, и с Fastify
+    const body = { statusCode: 404, message: error.message };
+    httpAdapter.reply(host.switchToHttp().getResponse(), body, 404);
+  }
+}
+
+@Module({
+  providers: [
+    // Глобально и с DI: так они работают и в e2e-тестах
+    { provide: APP_INTERCEPTOR, useClass: TimingInterceptor },
+    { provide: APP_FILTER, useClass: OrderNotFoundFilter },
+  ],
+})
+export class CoreModule {}
+```
+
+</Ex>
+
+<Next>
+
+- Чем guard отличается от middleware? — Guard знает, какой обработчик выполнится (`ExecutionContext`, метаданные `@Roles()`), middleware — нет.
+- Почему DTO — класс, а не интерфейс? — Интерфейс стирается при компиляции, и `ValidationPipe` нечего проверять.
+- Как guard читает `@Roles('admin')`? — Через `Reflector.getAllAndOverride` по обработчику и классу.
+- Почему глобальный pipe из `main.ts` не работает в e2e-тесте? — Тест собирает приложение из модуля, `main.ts` не выполняется; нужен `APP_PIPE`.
+- Сработают ли два exception filter на одно исключение? — Нет, только ближайший: маршрута, затем контроллера, затем глобальный.
+
+</Next>
+
+<Src>
+
+- [Request lifecycle — NestJS](https://docs.nestjs.com/faq/request-lifecycle)
+- [Validation — NestJS](https://docs.nestjs.com/techniques/validation)
+- [OpenAPI (Swagger) — NestJS](https://docs.nestjs.com/openapi/introduction)
+
+</Src>
+
+</Q>
+
+<Q id="node.nest.prisma" level="m">
+
+## Как работать с базой через Prisma?
+
+<A short l="j">
+
+Prisma — <T k="orm">ORM</T> для Node.js и TypeScript: модели описывают в файле <T k="prisma-schema">`schema.prisma`</T>, по нему генерируется типизированный клиент, а <T k="prisma-migrate">Prisma Migrate</T> создаёт SQL-миграции. В коде пишут `prisma.user.findMany({ include: { orders: true } })` и получают объекты с точными типами — почти как в EF Core, но без отслеживания изменений.
+
+</A>
+
+<A short l="m">
+
+Источник правды — `schema.prisma`: `prisma migrate dev` пишет по ней SQL-миграцию, `prisma generate` создаёт <T k="prisma-client">клиент</T>, а в проде `prisma migrate deploy` только применяет готовые миграции. Клиент — построитель запросов без change tracker: каждый вызов — отдельный запрос, связи грузят `include` или `select`, а <T k="n-plus-one">N+1</T> появляется от `await` в цикле. В Prisma 7 клиент работает без Rust-движка и ходит в базу через <T k="prisma-driver-adapter">драйверный адаптер</T>, например `@prisma/adapter-pg`.
+
+</A>
+
+<A short l="s">
+
+Prisma — schema-first: модель живёт в собственном DSL, а клиент — сгенерированный код, поэтому типы точны до полей `select`, но любая правка схемы требует `generate`. В Prisma 7 Rust-движка нет: SQL строит TypeScript-клиент, соединения и пул держит драйвер, конфигурация CLI переехала в `prisma.config.ts`. Цена — нет unit of work и lazy loading, сложный SQL уходит в `$queryRaw` или TypedSQL, а длинные <T k="prisma-interactive-transaction">интерактивные транзакции</T> держат соединение пула. Prisma 8 на октябрь 2026 — release candidate, продакшен остаётся на 7.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+Prisma — ORM для Node.js и TypeScript. Модели описывают не классами, а в `schema.prisma` на собственном языке схем.
+
+**Как пользоваться**
+
+1. Опишите модели `User` и `Order` и связь между ними в `schema.prisma`.
+2. `npx prisma migrate dev --name init` — создать SQL-миграцию и применить её к локальной базе.
+3. `npx prisma generate` — сгенерировать клиент с типами под ваши модели.
+4. В коде: `prisma.user.findMany()`, `prisma.order.create({ data })`.
+
+**Связанные данные**
+
+- `include: { orders: true }` — загрузить связь целиком, как `Include` в EF Core.
+- `select: { email: true }` — взять только нужные поля, как проекция через `Select`.
+
+**Частая ошибка**
+
+Поправить `schema.prisma` и забыть `prisma generate`. Клиент не знает о новом поле, и TypeScript ругается, хотя столбец в базе уже есть.
+
+**Итог:** схема — источник правды, migrate меняет базу, generate — клиент.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+- `migrate dev` — только для разработки. Прогоняет историю миграций в теневой базе (shadow database), находит расхождения, пишет новую миграцию из изменений схемы и применяет её. При расхождении предлагает сбросить базу.
+- `migrate deploy` — для CI и прода: применяет неприменённые миграции, без теневой базы и сброса. Применённые записаны в таблице `_prisma_migrations`.
+- Seed с Prisma 7 запускают явно: `prisma db seed`.
+
+**Prisma и EF Core**
+
+| Задача | Prisma | EF Core |
+|---|---|---|
+| Модель | `schema.prisma` | классы и `DbContext` |
+| Новая миграция | `migrate dev` | `dotnet ef migrations add` |
+| Связи | `include`, `select` | `Include`, `Select` |
+| Изменение | `update()` сразу пишет в базу | трекер до `SaveChanges` |
+| Сырой SQL | `$queryRaw` по шаблону | `FromSql` с интерполяцией |
+
+**N+1**
+
+`include` даёт отдельный запрос на связь с `WHERE ... IN`, всего два запроса. Счётчики — `_count`, выборка по списку — `where: { id: { in: ids } }`. С preview-флагом `relationJoins` и `relationLoadStrategy: 'join'` связь грузится одним запросом с JOIN.
+
+**Транзакции**
+
+- Вложенная запись (`create` с `orders: { create: [...] }`) — родитель и дети атомарно.
+- `$transaction([a, b])` — независимые запросы, всё или ничего.
+- `$transaction(async (tx) => ...)` — логика между запросами; таймаут по умолчанию 5 с.
+
+**Ловушки**
+
+- `BigInt` из базы не сериализуется в JSON: `JSON.stringify` бросает `TypeError`.
+- Нарушение уникальности приходит как `PrismaClientKnownRequestError` с кодом `P2002`; его переводят в 409 в exception filter.
+
+**Итог:** `migrate dev` — для разработки, `deploy` — для прода, а N+1 лечат вложенным `select` и `_count`.
+
+</A>
+
+<A l="s">
+
+**Под капотом (Prisma 7)**
+
+- Генератор `prisma-client` вместо `prisma-client-js`: клиент генерируется в ваш код (`output` обязателен), а не в `node_modules`.
+- Rust-движка нет: запрос в SQL переводит TypeScript, выполняет драйвер — `pg` через `@prisma/adapter-pg`. Пул и таймауты задаются настройками драйвера, и их умолчания отличаются от Prisma 6.
+- `prisma.config.ts` хранит путь к схеме, миграциям и URL базы; `.env` CLI сам больше не читает.
+- `$use` удалён, сквозную логику пишут через Client Extensions (`$extends`).
+- Пакет — ESM; для CommonJS-проекта NestJS в генераторе ставят `moduleFormat = "cjs"`.
+
+**Цена**
+
+- Нет change tracker: агрегат сохраняют явными вызовами в транзакции.
+- Интерактивная транзакция держит соединение всё время колбэка; HTTP-вызов внутри неё исчерпывает пул.
+- `$queryRaw` с шаблонной строкой параметризует значения, `$queryRawUnsafe` со склейкой строк открывает SQL-инъекции.
+
+**Компромиссы**
+
+| ORM | Сильная сторона | Цена |
+|---|---|---|
+| Prisma | точные типы, миграции из коробки | кодогенерация, свой DSL |
+| TypeORM | сущности-классы с декораторами, ближе к EF Core | тип результата не учитывает `select` |
+| Drizzle | схема на TypeScript, SQL-подобный API без генерации | меньше абстракции над SQL |
+
+На октябрь 2026 тег `latest` пакета `prisma` указывает на RC 8-й версии, поэтому версию 7 фиксируют явно.
+
+**Как проверить в проде**
+
+- `log: ['query']` в `PrismaClient` показывает каждый SQL: N+1 видно по повторам.
+- `pg_stat_statements` показывает самые частые и дорогие запросы.
+
+**Итог:** Prisma 7 — типизированный построитель запросов поверх драйвера; платите явными транзакциями и сырым SQL там, где DSL не хватает.
+
+</A>
+
+<Ex title="schema.prisma">
+
+```prisma
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs" // только для CommonJS-проекта
+}
+
+datasource db {
+  provider = "postgresql" // URL — в prisma.config.ts
+}
+
+model User {
+  id     Int     @id @default(autoincrement())
+  email  String  @unique
+  orders Order[]
+}
+
+model Order {
+  id        Int      @id @default(autoincrement())
+  total     Decimal  @db.Decimal(12, 2)
+  createdAt DateTime @default(now())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+}
+```
+
+</Ex>
+
+<Ex title="PrismaService и запросы">
+
+```ts
+import { Injectable, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { PrismaPg } from '@prisma/adapter-pg';
+import { PrismaClient } from './generated/prisma/client';
+
+@Injectable() // singleton: один клиент и один пул соединений на процесс
+export class PrismaService extends PrismaClient implements OnModuleInit, OnApplicationShutdown {
+  constructor(config: ConfigService) {
+    super({ adapter: new PrismaPg({ connectionString: config.getOrThrow<string>('DATABASE_URL') }) });
+  }
+  async onModuleInit() { await this.$connect(); }            // база недоступна — старт падает
+  async onApplicationShutdown() { await this.$disconnect(); } // после закрытия HTTP-сервера
+}
+
+@Injectable()
+export class OrdersRepository {
+  constructor(private readonly prisma: PrismaService) {}
+
+  // N+1: один запрос за пользователями и ещё по одному на каждого
+  async countsSlow() {
+    const users = await this.prisma.user.findMany();
+    return Promise.all(users.map(async (u) =>
+      ({ email: u.email, orders: await this.prisma.order.count({ where: { userId: u.id } }) })));
+  }
+
+  // Без N+1: связь и счётчик в одном вызове клиента
+  async withOrders() {
+    return this.prisma.user.findMany({
+      select: { email: true, _count: { select: { orders: true } }, orders: { select: { id: true, total: true } } },
+    }); // тип результата: { email; _count: { orders }; orders: { id; total }[] }[]
+  }
+
+  // Интерактивная транзакция: оба запроса между BEGIN и COMMIT
+  async placeOrder(email: string, total: number) {
+    return this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.upsert({ where: { email }, create: { email }, update: {} });
+      return tx.order.create({ data: { userId: user.id, total } });
+    }, { timeout: 5_000 }); // по умолчанию тоже 5 с; дольше — откат
+  }
+}
+```
+
+</Ex>
+
+<Next>
+
+- Чем `migrate dev` отличается от `migrate deploy`? — Dev создаёт миграции через теневую базу и может предложить сброс; deploy только применяет готовые.
+- Как Prisma загружает `include`? — Отдельным запросом на связь с `IN`; с `relationJoins` — одним запросом с JOIN.
+- Как сделать оптимистическую блокировку? — Поле `version` и `updateMany` с `where: { id, version }`; `count` равен 0 — конфликт.
+- Почему `$queryRaw` безопасен, а `$queryRawUnsafe` нет? — Первый превращает подстановки шаблона в параметры, второй склеивает строку.
+- Что изменилось в Prisma 7? — Генератор `prisma-client`, драйверные адаптеры, нет Rust-движка, `prisma.config.ts`, ESM.
+
+</Next>
+
+<Src>
+
+- [Prisma schema overview](https://www.prisma.io/docs/orm/v7/prisma-schema/overview)
+- [Development and production — Prisma Migrate](https://www.prisma.io/docs/orm/v7/prisma-migrate/workflows/development-and-production)
+- [Upgrade to Prisma ORM 7](https://www.prisma.io/docs/orm/more/upgrade-guides/upgrading-versions/upgrading-to-prisma-7)
+
+</Src>
+
+</Q>
+
+<Q id="node.nest.production" level="s">
+
+## Как подготовить NestJS-сервис к продакшену?
+
+<A short l="j">
+
+Нужно проверять настройки при старте через `@nestjs/config`, писать <T k="structured-logging">структурные логи</T> в JSON через pino, отдать <T k="health-check">health check</T> через `@nestjs/terminus` и вызвать `app.enableShutdownHooks()`, чтобы при остановке закрылись соединения с базой. Поведение проверяют e2e-тестами на `@nestjs/testing`.
+
+</A>
+
+<A short l="m">
+
+Конфигурация — `ConfigModule.forRoot` со схемой: без `DATABASE_URL` процесс падает при старте, а не на первом запросе. Логи — `nestjs-pino`, JSON в stdout с id запроса. Terminus отдаёт liveness и readiness, проверяя базу через `PrismaHealthIndicator`, а по SIGTERM `enableShutdownHooks()` запускает <T k="nest-lifecycle-hooks">хуки остановки</T>. Цена — всё это включают руками: из коробки NestJS даёт консольный логгер и не слушает сигналы.
+
+</A>
+
+<A short l="s">
+
+Готовность к продакшену — это предсказуемый старт, наблюдаемость и <T k="graceful-shutdown">корректная остановка</T>. Конфиг проверяется схемой при старте, логи — pino в JSON, <T k="readiness-probe">readiness</T> проверяет базу, liveness — только процесс. При SIGTERM Terminus сначала держит паузу с 503 на health check, потом закрывается HTTP-сервер, и лишь затем Prisma отдаёт соединения; всё вместе должно уложиться в `terminationGracePeriodSeconds`. Производительность дают Fastify и кеш, а уверенность — e2e-тесты через <T k="nest-testing-module">`Test.createTestingModule`</T> на настоящем PostgreSQL.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+Продакшен-сервис стартует с проверенной конфигурацией, пишет понятные логи, сообщает о своём состоянии и корректно останавливается.
+
+**Как пользоваться**
+
+- **Конфигурация.** `ConfigModule.forRoot({ isGlobal: true })` читает `.env` и переменные окружения; значения берут через `config.getOrThrow('DATABASE_URL')`.
+- **Логи.** `nestjs-pino` пишет JSON с id запроса вместо текста в консоль.
+- **Health check.** `@nestjs/terminus`: эндпоинт проверяет базу и отвечает 200 или 503.
+- **Остановка.** `app.enableShutdownHooks()` в `main.ts`; без него хуки остановки при SIGTERM не вызываются.
+- **Тесты.** `@nestjs/testing` собирает модуль с подменёнными провайдерами.
+
+**Частая ошибка**
+
+Читать `process.env.X` по всему коду. Опечатка в имени переменной всплывёт в проде как `undefined` посреди запроса.
+
+**Итог:** проверенный конфиг, JSON-логи, health check и shutdown hooks — минимум для продакшена.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+1. **Конфигурация.** `validationSchema` проверяет переменные при старте. В NestJS 12 подходит любая Standard Schema, например Zod.
+2. **Логи.** `LoggerModule.forRoot()` логирует каждый запрос; `app.useLogger(app.get(Logger))` направляет туда и логи самого Nest, а `bufferLogs: true` придерживает логи старта до готовности pino.
+3. **Health checks.** Readiness проверяет базу через `PrismaHealthIndicator.pingCheck`, liveness — только то, что процесс отвечает. Подробнее о разнице — в теме [Наблюдаемость](/sobes/quality/observability/).
+4. **Остановка.** По SIGTERM: `onModuleDestroy` → `beforeApplicationShutdown` → закрытие HTTP-сервера → `onApplicationShutdown`.
+
+**Ловушки**
+
+- `app.useGlobalPipes()` из `main.ts` не попадает в e2e-тест: тест собирает приложение из модуля. Глобальные pipes, guards и filters регистрируют через `APP_PIPE`, `APP_GUARD`, `APP_FILTER`.
+- Shell-форма `CMD npm start` в Dockerfile: сигнал получает shell, а не Node. Нужна exec-форма `CMD ["node", "dist/main.js"]`.
+- На Windows сигналы поддерживаются ограниченно, остановку проверяют в Linux-контейнере.
+
+**Правило**
+
+Конфиг — со схемой, логи — pino в stdout, readiness — с базой, liveness — без неё, остановка — через shutdown hooks.
+
+**Итог:** NestJS даёт кирпичи, но валидацию конфига, логи, проверки и остановку включают явно.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- `enableShutdownHooks()` подписывается на сигналы процесса. Request-scoped провайдеры хуков не получают.
+- `onModuleDestroy` срабатывает до закрытия HTTP-сервера. Ресурсы, нужные запросам в полёте, — пул Prisma — закрывают в `onApplicationShutdown`.
+- `gracefulShutdownTimeoutMs` в `TerminusModule.forRoot` работает в `beforeApplicationShutdown`: health check уже отвечает 503, балансировщик убирает экземпляр, начатые запросы доделываются. Пауза плюс остановка должны быть меньше `terminationGracePeriodSeconds` (30 с по умолчанию).
+
+**Цена и производительность**
+
+- pino пишет JSON быстрее большинства логгеров; `pino-pretty` — только для разработки.
+- Fastify ускоряет роутинг и сериализацию, но Express-middleware и `@Res()` с API Express придётся переписать.
+- `CacheInterceptor` из `@nestjs/cache-manager` кеширует GET-ответы; при нескольких экземплярах нужен общий Redis.
+
+**Компромиссы**
+
+- Модульные тесты — `overrideProvider` с моками. E2E — `createNestApplication()` и supertest против PostgreSQL в Testcontainers после `prisma migrate deploy`: мок Prisma не поймает ошибку в SQL.
+- В NestJS 12 ESM-проекты по умолчанию используют Vitest, CommonJS — Jest.
+- Несколько сервисов — монорепо Nest CLI (`apps/`, `libs/`) или Nx.
+
+**Как проверить в проде**
+
+- `kill -TERM` на staging: в логах 503 от readiness, завершение запросов, отключение базы, код выхода 0.
+- Задержки и 5xx — по логам pino и трассировке через OpenTelemetry или новый `@nestjs/observe`.
+
+**Итог:** продакшен — это порядок остановки, проверяемый конфиг и тесты на настоящей базе, а не только код обработчиков.
+
+</A>
+
+<Ex title="main.ts и AppModule">
+
+```ts
+import { Controller, Get, Module, ValidationPipe } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { APP_PIPE, NestFactory } from '@nestjs/core';
+import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
+import { HealthCheck, HealthCheckService, PrismaHealthIndicator, TerminusModule } from '@nestjs/terminus';
+import { Logger, LoggerModule } from 'nestjs-pino';
+import { z } from 'zod';
+import { PrismaService } from './prisma.service';
+
+@Controller('health')
+export class HealthController {
+  constructor(private health: HealthCheckService, private db: PrismaHealthIndicator, private prisma: PrismaService) {}
+
+  @Get('live') // жив ли процесс — без внешних зависимостей
+  live() { return { status: 'ok' }; }
+
+  @Get('ready') @HealthCheck() // база недоступна или идёт остановка → 503
+  ready() { return this.health.check([() => this.db.pingCheck('database', this.prisma)]); }
+}
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({ // нет DATABASE_URL — процесс падает при старте
+      isGlobal: true,
+      validationSchema: z.object({ DATABASE_URL: z.url(), PORT: z.coerce.number().default(3000) }),
+    }),
+    LoggerModule.forRoot({ pinoHttp: { level: process.env.LOG_LEVEL ?? 'info' } }), // JSON в stdout
+    TerminusModule.forRoot({ gracefulShutdownTimeoutMs: 10_000 }), // 10 с отдаём 503 до остановки
+  ],
+  controllers: [HealthController],
+  providers: [PrismaService, { provide: APP_PIPE, useValue: new ValidationPipe({ whitelist: true, transform: true }) }],
+})
+export class AppModule {}
+
+async function bootstrap() {
+  const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter(), { bufferLogs: true });
+  app.useLogger(app.get(Logger)); // логи Nest тоже идут через pino
+  app.enableShutdownHooks();      // без этого SIGTERM не вызовет хуки остановки
+  await app.listen(process.env.PORT ?? 3000, '0.0.0.0'); // в контейнере слушаем все интерфейсы
+}
+void bootstrap();
+```
+
+</Ex>
+
+<Ex title="E2E-тест">
+
+```ts
+import { INestApplication } from '@nestjs/common';
+import { Test } from '@nestjs/testing';
+import request from 'supertest';
+import { afterAll, beforeAll, describe, it } from 'vitest';
+import { AppModule } from './app.module';
+import { PrismaService } from './prisma.service';
+
+describe('health (e2e)', () => {
+  let app: INestApplication;
+  const down = () => Promise.reject(new Error('connection refused'));
+
+  beforeAll(async () => {
+    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(PrismaService) // как ConfigureTestServices в WebApplicationFactory
+      .useValue({ $runCommandRaw: down, $queryRawUnsafe: down }) // база «лежит»
+      .compile();
+    app = moduleRef.createNestApplication(); // main.ts не выполняется: APP_PIPE есть, useGlobalPipes нет
+    await app.init();
+  });
+
+  afterAll(() => app.close());
+
+  it('liveness does not depend on the database', () =>
+    request(app.getHttpServer()).get('/health/live').expect(200));
+
+  it('readiness without the database → 503', () =>
+    request(app.getHttpServer()).get('/health/ready').expect(503));
+});
+```
+
+`PrismaHealthIndicator` пингует базу через `$runCommandRaw`, а для SQL-баз — через `$queryRawUnsafe('SELECT 1')`, поэтому мок подменяет оба метода.
+
+</Ex>
+
+<Next>
+
+- Почему `onModuleDestroy` — не лучшее место для `$disconnect()`? — Он вызывается до закрытия HTTP-сервера, и запросы в полёте останутся без базы.
+- Зачем `gracefulShutdownTimeoutMs`? — Чтобы балансировщик увидел 503 на readiness и перестал слать трафик до того, как процесс закроет сервер.
+- Как прокинуть id запроса во все логи? — `nestjs-pino` хранит логгер запроса в `AsyncLocalStorage`, и `PinoLogger` в любом сервисе пишет с этим id.
+- Почему readiness проверяет базу, а liveness нет? — Падение базы не лечится перезапуском; liveness с базой перезапустит все поды разом.
+- Как тестировать с настоящей базой? — Testcontainers поднимает PostgreSQL, `prisma migrate deploy` накатывает схему, `Test.createTestingModule` собирает приложение.
+
+</Next>
+
+<Src>
+
+- [Lifecycle events — NestJS](https://docs.nestjs.com/fundamentals/lifecycle-events)
+- [Health checks (Terminus) — NestJS](https://docs.nestjs.com/recipes/terminus)
+- [Configuration — NestJS](https://docs.nestjs.com/techniques/configuration)
+
+</Src>
+
+</Q>

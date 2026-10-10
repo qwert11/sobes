@@ -1,0 +1,835 @@
+---
+title: Data and tooling
+description: pytest and fixtures, environments and dependencies (venv, pyproject.toml, uv, ruff), SQLAlchemy 2, Alembic migrations and settings with pydantic-settings.
+sidebar:
+  order: 3
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+The tooling around Python code: tests with pytest, environments and dependencies, database access with SQLAlchemy 2, Alembic migrations and settings with pydantic-settings. Almost everything has a .NET counterpart — xUnit, NuGet, EF Core — and interviews focus on the differences.
+
+**Before this topic:** [The Python language](/sobes/en/python/language/), [EF Core](/sobes/en/db/ef-core/).
+
+<Q id="python.tool.pytest" level="j">
+
+## How do you write tests with pytest?
+
+<A short l="j">
+
+pytest is a test framework where a test is a plain `test_...` function with a bare `assert`, and on failure pytest itself shows which values did not match. Shared setup goes into <T k="py-pytest-fixture">fixtures</T> — functions whose result the test receives as a parameter with the same name.
+
+</A>
+
+<A short l="m">
+
+pytest collects `test_*.py` files and `test_*` functions, rewrites `assert` at import time (<T k="py-assert-rewriting">assertion rewriting</T>) and injects fixtures by parameter name — it is DI for tests. A fixture's lifetime is set by `scope`: `function` by default, `module`, `session`; shared fixtures live in <T k="py-conftest">conftest.py</T> and are visible without imports. The cost is implicitness: the only link to a fixture is the parameter name, and a wide scope shares state between tests.
+
+</A>
+
+<A short l="s">
+
+pytest builds a fixture graph from parameter names, caches each fixture within its scope and tears them down in reverse order through the code after `yield`, so a fixture replaces both a constructor with `Dispose` and xUnit's `IClassFixture`. Expensive resources such as the engine and schema become `session` fixtures, while data is isolated by a transaction rolled back after each test. Substitution goes through <T k="py-monkeypatch">monkeypatch</T> or `unittest.mock` with `autospec`, and you patch a name where the code under test looks it up. Tests run sequentially in one process by default; the pytest-xdist plugin adds parallelism.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+pytest is the most widely used test framework in Python. A test is a function named `test_...` in a `test_*.py` or `*_test.py` file, and the check is a plain `assert`.
+
+**How to use**
+
+1. Write a `test_parse_price` function containing `assert parse_price("$300") == 300`.
+2. Run `pytest` in the project root — it finds the tests itself.
+3. Check exceptions with a `with pytest.raises(ValueError):` block.
+4. One test over many inputs is <T k="parameterized-test">parametrization</T> with `@pytest.mark.parametrize`, like `[Theory]` in xUnit.
+5. Move setup into a fixture with `@pytest.fixture`. Built-in fixtures: `tmp_path` — a temporary directory, `monkeypatch` — temporary replacement of attributes and environment variables.
+
+**Common mistake**
+
+Naming the file `prices_tests.py` or the function `check_price`. pytest will not collect them and reports `no tests ran` — the test silently does not run.
+
+**Takeaway:** a pytest test is a `test_*` function with `assert`, and setup arrives as fixtures matched by parameter name.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- **Collection.** pytest looks for `test_*.py` files and, inside them, `test_*` functions and `Test*` classes without `__init__`.
+- **Assertion rewriting.** When importing test modules pytest rewrites `assert`, so the report shows both sides of the comparison. Methods like `Assert.Equal` are not needed.
+- **Fixtures.** pytest reads the test's parameter names, finds fixtures with those names and calls them, including through chains. Code after `yield` is the teardown.
+- **Scopes.** `scope` is how long the result lives: `function` (the default), `class`, `module`, `package`, `session`.
+- **conftest.py.** Its fixtures are available to tests in that directory and below without imports.
+
+**Compared with xUnit**
+
+| xUnit | pytest |
+|---|---|
+| `[Fact]` | a `test_*` function |
+| `[Theory]` and `[InlineData]` | `@pytest.mark.parametrize` |
+| constructor and `Dispose` | a fixture with `yield` |
+| `IClassFixture`, `ICollectionFixture` | a `module` or `session` fixture in `conftest.py` |
+
+**Pitfalls**
+
+- A wide fixture cannot depend on a narrow one: a `session` fixture using `monkeypatch` fails with `ScopeMismatch`.
+- A mutable object from a `module` fixture is shared: one test corrupts another's data.
+- `mock.patch("requests.get")` does not replace a name already imported via `from requests import get`. You patch where the code under test looks the name up.
+
+**Rule of thumb**
+
+Default to `function` scope. Go wider only for expensive and immutable things.
+
+**Takeaway:** pytest is DI for tests: fixtures are matched by name, and `scope` sets their lifetime.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- Fixtures form a graph. pytest creates each one on first request within its scope, caches it and tears it down in reverse order when the scope ends.
+- A fixture with `params=[...]` multiplies every test that depends on it — that is how one test suite runs against two databases.
+- `monkeypatch` and `mock.patch` change a module or class attribute and restore it in teardown. For `session` fixtures there is `pytest.MonkeyPatch.context()`.
+
+**Cost**
+
+- The only link to a fixture is the parameter name. `pytest --fixtures` shows where it comes from.
+- `autouse=True` applies a fixture to every test in its scope, invisibly to the reader — keep such fixtures minimal.
+
+**Trade-offs**
+
+- **Database.** The engine and schema are a `session` fixture, and the test session is `Session(bind=connection, join_transaction_mode="create_savepoint")` inside a transaction the fixture rolls back. It is faster than recreating the database, but the code's `commit()` becomes a savepoint.
+- **Mocks.** `create_autospec` checks signatures, while a bare `Mock` accepts any call and hides typos. The more mocks, the tighter the test is coupled to the implementation.
+- **Parallelism.** pytest-xdist (`-n auto`) runs several processes; shared resources are split by the `worker_id` fixture.
+
+**How to check in production**
+
+In CI use `strict = true` in the config (pytest 9+), a `--junitxml` report and `--durations=10` for the slowest tests. The pytest-randomly plugin finds tests that depend on execution order.
+
+**Takeaway:** fixtures are a graph with lifetimes: a narrow scope gives isolation, a wide one gives speed, and a per-test transaction rollback combines both.
+
+</A>
+
+<Ex>
+
+```python
+# test_prices.py — run with: pytest -v
+import pytest
+
+
+def parse_price(text: str) -> int:
+    digits = "".join(ch for ch in text if ch.isdigit())
+    if not digits:
+        raise ValueError(f"no price in {text!r}")
+    return int(digits)
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [("12 500 UAH", 12500), ("$300", 300)],
+    ids=["uah", "usd"],
+)
+def test_parse_price(text, expected):
+    assert parse_price(text) == expected  # two tests: [uah] and [usd]
+
+
+def test_parse_price_without_digits():
+    with pytest.raises(ValueError, match="no price"):
+        parse_price("negotiable")
+```
+
+</Ex>
+
+<Ex title="A scoped fixture and tmp_path">
+
+```python
+import json
+import sqlite3
+
+import pytest
+
+
+@pytest.fixture(scope="module")
+def db():
+    conn = sqlite3.connect(":memory:")  # one connection for all tests in the module
+    conn.execute("CREATE TABLE ads (id INTEGER PRIMARY KEY, price INTEGER)")
+    yield conn  # the tests run here
+    conn.close()  # teardown — after the module's last test
+
+
+def export_ads(conn, path):
+    rows = conn.execute("SELECT id, price FROM ads ORDER BY id").fetchall()
+    path.write_text(json.dumps(rows), encoding="utf-8")
+
+
+def test_export(db, tmp_path):  # tmp_path — a separate directory for each test
+    db.execute("INSERT INTO ads (price) VALUES (12500)")
+    out = tmp_path / "ads.json"
+    export_ads(db, out)
+    assert json.loads(out.read_text(encoding="utf-8")) == [[1, 12500]]
+```
+
+</Ex>
+
+<Ex title="monkeypatch and unittest.mock">
+
+```python
+from unittest.mock import create_autospec
+
+
+class AdSource:
+    def fetch(self, page: int) -> list[dict]:
+        raise RuntimeError("network is not allowed in tests")
+
+
+def count_cheap(source: AdSource, limit: int) -> int:
+    return sum(1 for ad in source.fetch(page=1) if ad["price"] <= limit)
+
+
+def test_with_monkeypatch(monkeypatch):
+    # replace the attribute for the duration of the test only
+    monkeypatch.setattr(AdSource, "fetch", lambda self, page: [{"price": 100}, {"price": 900}])
+    assert count_cheap(AdSource(), limit=500) == 1
+
+
+def test_with_mock():
+    source = create_autospec(AdSource, instance=True)  # same signatures as the real class
+    source.fetch.return_value = [{"price": 100}]
+    assert count_cheap(source, limit=500) == 1
+    source.fetch.assert_called_once_with(page=1)
+```
+
+</Ex>
+
+<Next>
+
+- How does pytest find tests? — `test_*.py` or `*_test.py` files, with `test_*` functions and `Test*` classes without `__init__`.
+- Why is a fixture better than `setUp`? — It is plugged in by name only where needed, composes with other fixtures and runs its own teardown after `yield`.
+- What happens if a `session` fixture requests `tmp_path`? — `ScopeMismatch`: a wide scope cannot depend on a narrow one; use `tmp_path_factory` instead.
+- Where do you patch a function with `mock.patch`? — In the module where the code under test looks it up, not where it is defined.
+- How do you run tests in parallel? — With the pytest-xdist plugin: `pytest -n auto`.
+
+</Next>
+
+<Src>
+
+- [How to use fixtures — pytest](https://docs.pytest.org/en/stable/how-to/fixtures.html)
+- [How to parametrize fixtures and test functions — pytest](https://docs.pytest.org/en/stable/how-to/parametrize.html)
+- [unittest.mock — Python documentation](https://docs.python.org/3/library/unittest.mock.html)
+
+</Src>
+
+</Q>
+
+<Q id="python.tool.packaging" level="m">
+
+## How do you manage environments and dependencies in a Python project?
+
+<A short l="j">
+
+A <T k="py-venv">virtual environment</T> (venv) is a separate folder with an interpreter and the packages of one project, so library versions of different projects do not conflict. Dependencies are declared in <T k="py-pyproject-toml">pyproject.toml</T> and today are most often installed with <T k="py-uv">uv</T>: `uv add sqlalchemy`, then `uv run pytest`.
+
+</A>
+
+<A short l="m">
+
+Unlike NuGet, Python packages are installed into the environment itself and the interpreter sees everything there, so each project gets its own `.venv`. Direct dependencies with version ranges go into the `[project]` table of `pyproject.toml` (PEP 621), while the exact versions of the whole graph are pinned by a <T k="py-lock-file">lock file</T>: `uv.lock`, `poetry.lock` or a pip-tools `requirements.txt`. There is no compiler, so in CI its job is done by <T k="py-ruff">ruff</T> and a <T k="py-type-checker">type checker</T> — mypy or pyright.
+
+</A>
+
+<A short l="s">
+
+The goal is reproducibility: the same package graph on a developer machine, in CI and in the Docker image. For an application that means a committed lock and `uv sync --locked` in CI, which fails if the lock has drifted from `pyproject.toml`; a library ships only broad ranges. In 2026 uv is the most common choice for new projects, but it is still 0.x, and in March 2026 OpenAI announced it was acquiring Astral, the company behind it. So teams lean on standards — PEP 621, PEP 735, `pylock.toml` from PEP 751 — to keep the tool replaceable.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **venv** — a folder, usually `.venv`, with a link to the interpreter and its own packages. An activated environment takes over `python` and `pip` in the terminal.
+- **pyproject.toml** — the project file: name, version, required Python version, dependencies, tool settings. The counterpart of `.csproj`.
+
+**Why**
+
+A global `pip install` puts the package into the whole system, and two projects needing different SQLAlchemy versions cannot coexist there. The system Python on Debian and Ubuntu refuses such installs outright: `externally-managed-environment`.
+
+**How to use**
+
+1. `uv init` creates `pyproject.toml`.
+2. `uv add sqlalchemy` adds a dependency and creates `.venv` and `uv.lock`.
+3. `uv run pytest` runs a command inside the project environment.
+4. `.venv` is not committed to git; `uv.lock` is.
+
+**Common mistake**
+
+Installing a package with `pip install` without adding it to `pyproject.toml`. The project will not run for a colleague or in CI.
+
+**Takeaway:** one environment per project, dependencies in `pyproject.toml`, exact versions in the lock file.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+| .NET | Python |
+|---|---|
+| `.csproj` with `PackageReference` | `pyproject.toml`, the `[project]` table |
+| `packages.lock.json` | `uv.lock`, `poetry.lock`, `requirements.txt` with `==` |
+| `dotnet restore` | `uv sync` |
+| analyzers and compiler warnings | ruff, mypy or pyright |
+
+- `dependencies` are direct dependencies with ranges. Development tools go into `[dependency-groups]` (PEP 735) and do not end up in the package.
+- The lock pins exact versions and hashes of all <T k="transitive-dependency">transitive dependencies</T>.
+- Before running, `uv run` updates the lock and syncs the environment itself.
+
+**When to choose what**
+
+| Tool | When |
+|---|---|
+| uv | a new project: environments, lock, Python versions, tools |
+| Poetry | the project already uses it; since 2.0 it understands `[project]` |
+| pip-tools | the minimum: `pip-compile` pins `requirements.in` into `requirements.txt` |
+
+**Pitfalls**
+
+- A `requirements.txt` with ranges is not a lock: a build a month later gets different packages.
+- `ruff check` is the linter, replacing flake8 and isort; `ruff format` is the formatter, replacing Black. CI needs both commands.
+- The interpreter does not check type annotations. Without mypy or pyright in CI, a type error survives until production.
+
+**Rule of thumb**
+
+For an application: ranges in `pyproject.toml`, the lock in git, `uv sync --locked` in CI.
+
+**Takeaway:** `pyproject.toml` is the `.csproj`, the lock file is `packages.lock.json`, and uv is `dotnet restore` plus `dotnet run` in one.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- uv is a single Rust binary. Its lock is universal: the graph is resolved for all platforms at once, so one `uv.lock` serves both Windows and a Linux image.
+- Packages live in a global cache and land in `.venv` as hard links or copies, which is why an environment is created in seconds.
+- `uv python install` installs the required interpreter version, and `uvx` runs a tool in a throwaway environment.
+
+**Cost**
+
+- `uv.lock` is uv's own format. uv can export the standard `pylock.toml` (PEP 751).
+- uv is still 0.x, and in March 2026 OpenAI announced it was acquiring Astral. The tools are promised to stay open source, but depending on a single vendor is a reason to stick to the standard `pyproject.toml` tables.
+
+**Trade-offs**
+
+- **Application or library.** An application needs a lock. A library needs broad ranges: a narrow range breaks dependency resolution for its consumers.
+- **Type strictness.** `mypy --strict` pays off on new code; on legacy code it is enabled module by module. Astral's ty is still in beta in 2026.
+- **Ruff rules.** A broad `select` catches more, but each ruff upgrade brings new warnings, so its version is pinned in the lock.
+
+**How to check in production**
+
+- CI: `uv sync --locked`, `ruff check`, `ruff format --check`, mypy, pytest.
+- The Docker image is built from the lock with `uv sync --locked --no-dev`, not with `pip install` over ranges.
+- pip-audit or Dependabot scan the lock file for vulnerable versions.
+
+**Takeaway:** reproducibility rests on the lock file and `--locked` in CI, while a standard `pyproject.toml` keeps you free to switch tools.
+
+</A>
+
+<Ex>
+
+```toml
+[project]
+name = "ads-parser"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [  # direct dependencies with version ranges
+    "sqlalchemy>=2.0",
+    "alembic>=1.16",
+    "psycopg[binary]>=3.2",
+    "pydantic-settings>=2.6",
+    "typer>=0.15",
+]
+
+[dependency-groups]
+dev = ["pytest>=9", "ruff", "mypy"]  # PEP 735: not included in the package
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]  # pycodestyle, pyflakes, isort, bugbear, pyupgrade
+
+[tool.mypy]
+strict = true
+
+[tool.pytest]  # native TOML table, pytest 9+
+testpaths = ["tests"]
+```
+
+</Ex>
+
+<Ex title="uv commands">
+
+```bash
+uv init ads-parser && cd ads-parser          # pyproject.toml, .python-version, src/, git
+uv add sqlalchemy alembic "psycopg[binary]"  # [project].dependencies, uv.lock and .venv
+uv add --dev pytest ruff mypy                # the dev group in [dependency-groups]
+uv run pytest                                # lock and sync happen automatically first
+
+# CI: fails if uv.lock does not match pyproject.toml
+uv sync --locked
+# error: The lockfile at `uv.lock` needs to be updated, but `--locked` was provided.
+uv run ruff check && uv run ruff format --check && uv run mypy src
+
+uv export --format pylock.toml -o pylock.toml  # the standard lock (PEP 751)
+```
+
+</Ex>
+
+<Next>
+
+- Why venv if there is `pip install --user`? — Packages are still shared by all of the user's projects, and versions conflict.
+- How does `uv sync --locked` differ from `--frozen`? — `--locked` fails if the lock is stale; `--frozen` uses the lock as is without checking it against `pyproject.toml`.
+- Does a library need a lock file? — It helps the library's own CI but is never passed to consumers; package metadata carries only ranges.
+- What does ruff replace? — The flake8 linters with plugins, isort and pyupgrade, and `ruff format` replaces Black.
+- Why mypy if the code runs anyway? — Python does not check annotations; without a check in CI only production finds the type error.
+
+</Next>
+
+<Src>
+
+- [Writing your pyproject.toml — Python Packaging User Guide](https://packaging.python.org/en/latest/guides/writing-pyproject-toml/)
+- [Locking and syncing — uv](https://docs.astral.sh/uv/concepts/projects/sync/)
+- [Ruff](https://docs.astral.sh/ruff/)
+
+</Src>
+
+</Q>
+
+<Q id="python.tool.sqlalchemy" level="m">
+
+## How do you work with a database through SQLAlchemy 2?
+
+<A short l="j">
+
+SQLAlchemy is Python's database library and the counterpart of EF Core: tables are described as classes with `Mapped[...]`, queries are built with `select()`, and objects are read and saved through a <T k="py-sa-session">`Session`</T>. The session accumulates changes and sends them to the database on `commit()`, like `SaveChanges`.
+
+</A>
+
+<A short l="m">
+
+An <T k="py-sa-engine">`Engine`</T> is a per-process connection pool, and a `Session` is a <T k="unit-of-work">unit of work</T> with an <T k="py-identity-map">identity map</T>: it tracks loaded objects and builds `INSERT` and `UPDATE` itself. Relationships are loaded <T k="lazy-loading">lazily</T> by default, with a separate query on first access, which is where <T k="n-plus-one">N+1</T> comes from; the fix is a `selectinload` or `joinedload` option in the query. The price of ORM convenience is per-object overhead, so bulk inserts and upserts are written in <T k="py-sa-core">Core</T>.
+
+</A>
+
+<A short l="s">
+
+SQLAlchemy 2 has two layers: Core generates SQL and works with connections, and the ORM on top of it adds the unit of work and the identity map. Unlike EF Core, lazy loading is on by default, and after `commit()` object attributes expire and are reloaded on next access. In async code such an implicit query fails with `MissingGreenlet`, so relationships are loaded <T k="eager-loading">eagerly</T>, and `lazy="raise"` turns N+1 from a silent slowdown into an error. The price of flexibility is more explicit decisions: transaction boundaries, loading strategy, when to drop down to Core.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+SQLAlchemy is an <T k="orm">ORM</T> for Python. Version 2.0 came out in 2023 and changed the API style; as of October 2026 the current version is 2.1.
+
+**How to use**
+
+1. Create an `Engine`: `create_engine("postgresql+psycopg://user:pass@host/db")`. There is one per application.
+2. Describe a model: a class derived from `DeclarativeBase` with fields declared as `Mapped[int]` and `mapped_column(...)`. The type `Mapped[str | None]` gives a nullable column.
+3. Open a session: `with Session(engine) as session:`.
+4. Read: `session.scalars(select(Ad).where(Ad.price > 1000))`.
+5. Write: `session.add(ad)`, then `session.commit()`.
+
+**Common mistake**
+
+Writing queries in the old `session.query(Ad).filter(...)` style. It still works but is considered legacy; new code uses `select()`.
+
+**Takeaway:** `Engine` is the connection, a model is a class with `Mapped`, `Session` works with objects, and `select()` builds queries.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+1. A `Session` takes a connection from the `Engine` pool on the first query and opens a transaction itself (autobegin).
+2. Loaded objects go into the identity map: one row is one object, and a repeated `session.get(Ad, 1)` does not hit the database.
+3. Changes accumulate. Before a query (autoflush) and on `commit()` the session flushes — it sends `INSERT`, `UPDATE` and `DELETE` in dependency order.
+4. After `commit()` object attributes expire and are reloaded on next access.
+
+**SQLAlchemy and EF Core**
+
+| SQLAlchemy | EF Core |
+|---|---|
+| `Session` | `DbContext` |
+| `session.commit()` | `SaveChanges()` |
+| `select(Ad).where(...)` | LINQ `Where` |
+| `joinedload` | `Include` |
+| `selectinload` | `Include` with `AsSplitQuery` |
+| lazy loading by default | only with `UseLazyLoadingProxies` |
+
+**Pitfalls**
+
+- **N+1.** Accessing `seller.ads` in a loop runs a query per seller. `selectinload` adds a second query with `IN`, `joinedload` uses a `JOIN`; for collections `selectinload` is the usual pick.
+- **`joinedload` on a collection** duplicates parent rows, so the result needs `.unique()`, otherwise you get `InvalidRequestError`.
+- **An application-wide session** bloats the identity map and keeps a transaction open. A session is per unit of work: a request, a job, a batch of listings.
+
+**Rule of thumb**
+
+One `Engine` per process, one `Session` per unit of work, `session.begin()` for an explicit transaction boundary, and the loading strategy in the query itself.
+
+**Takeaway:** a `Session` is a `DbContext` with an identity map, except that lazy loading is on by default.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- Core is the SQL layer: `Table`, `select()`, `insert()`, `Connection`. The ORM translates class-based queries into the same constructs, which is why `select()` is shared by both layers.
+- An `Engine` holds a `QueuePool`: 5 connections by default plus up to 10 overflow. `pool_pre_ping=True` checks a connection before handing it out.
+- `AsyncSession` runs on top of the same synchronous core via greenlet. In 2.1 greenlet is no longer installed by default, so you need the `sqlalchemy[asyncio]` extra.
+
+**Cost**
+
+- An ORM object costs more than a row: identity map, change history, events. Thousands of listings insert faster through Core: `session.execute(insert(Ad), rows)` or an upsert with `postgresql.insert(...).on_conflict_do_update(...)`.
+- An implicit query in async code — a lazy relationship or an expired attribute — fails with `MissingGreenlet`. That is why async code uses `expire_on_commit=False` and loads relationships eagerly.
+
+**Trade-offs**
+
+- `lazy="raise"` on a relationship or `raiseload("*")` in a query turns an accidental N+1 into an exception. It is stricter, but every query has to request its relationships.
+- `expire_on_commit=False` removes extra queries after a commit, but an object may show stale data.
+- A single `AsyncSession` is not safe for concurrent `asyncio.gather` tasks: each task gets its own session.
+
+**How to check in production**
+
+- `echo=True` or the `sqlalchemy.engine` logger show every SQL statement, and tests count queries with the `before_cursor_execute` event.
+- In PostgreSQL, `pg_stat_statements` reveals N+1 as thousands of identical short queries.
+- A `QueuePool limit ... reached` error is a sign of sessions that are never closed.
+
+**Takeaway:** the ORM is a convenient unit of work on top of Core; hot paths drop down to Core, and lazy loading is kept under control with `selectinload` and `raiseload`.
+
+</A>
+
+<Ex title="Models">
+
+```python
+from sqlalchemy import ForeignKey, create_engine, select
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class Seller(Base):
+    __tablename__ = "sellers"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str]  # NOT NULL: the type has no None
+    ads: Mapped[list["Ad"]] = relationship(back_populates="seller")
+
+
+class Ad(Base):
+    __tablename__ = "ads"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str]
+    price: Mapped[int | None]  # NULL allowed
+    seller_id: Mapped[int] = mapped_column(ForeignKey("sellers.id"))
+    seller: Mapped[Seller] = relationship(back_populates="ads")
+
+
+engine = create_engine("sqlite://")  # in the project: "postgresql+psycopg://..."
+Base.metadata.create_all(engine)  # in the project Alembic creates the schema
+```
+
+</Ex>
+
+<Ex title="Session, queries and loading relationships">
+
+```python
+# Continued: models and engine from the previous example
+from sqlalchemy.orm import selectinload
+
+with Session(engine) as session, session.begin():  # commit on exit, rollback on exception
+    session.add(
+        Seller(name="Olga", ads=[Ad(title="Bike", price=5000), Ad(title="Lamp", price=None)])
+    )
+
+with Session(engine) as session:
+    stmt = select(Ad).where(Ad.price > 1000).order_by(Ad.title)
+    print([ad.title for ad in session.scalars(stmt)])  # ['Bike']
+
+    stmt = select(Seller).options(selectinload(Seller.ads))  # 2 queries instead of 1 + N
+    for seller in session.scalars(stmt):
+        print(seller.name, [ad.title for ad in seller.ads])  # Olga ['Bike', 'Lamp']
+
+    seller = session.get(Seller, 1)  # already in the identity map — no query
+    seller.name = "Olga K."  # the change is tracked
+    session.commit()  # flush: UPDATE sellers SET name=... and COMMIT
+```
+
+</Ex>
+
+<Ex l="s" title="AsyncSession">
+
+```python
+# Models and imports from the previous examples; packages: sqlalchemy[asyncio], aiosqlite
+import asyncio
+
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+
+async def main() -> None:
+    engine = create_async_engine("sqlite+aiosqlite://")  # in a project: "postgresql+asyncpg://..."
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    new_session = async_sessionmaker(engine, expire_on_commit=False)
+    async with new_session() as session, session.begin():
+        session.add(Seller(name="Olga", ads=[Ad(title="Bike", price=5000)]))
+
+    async with new_session() as session:
+        stmt = select(Seller).options(selectinload(Seller.ads))  # relationships — eagerly only
+        seller = await session.scalar(stmt)
+        print([ad.title for ad in seller.ads])  # ['Bike']; without selectinload — MissingGreenlet
+    await engine.dispose()
+
+
+asyncio.run(main())
+```
+
+</Ex>
+
+<Next>
+
+- How does `session.flush()` differ from `commit()`? — flush sends SQL inside the current transaction; `commit()` flushes and commits the transaction.
+- Where does the extra `SELECT` after `commit()` come from? — `expire_on_commit=True`: attributes have expired and are reloaded on access.
+- `selectinload` or `joinedload`? — `selectinload` for collections, `joinedload` for many-to-one relationships.
+- What does `MissingGreenlet` mean? — Implicit I/O in async code: a lazy relationship or an expired attribute; load relationships eagerly.
+- When do you drop down to Core? — Bulk inserts and upserts, reporting queries — anywhere objects and change tracking are not needed.
+
+</Next>
+
+<Src>
+
+- [ORM Quick Start — SQLAlchemy 2.1](https://docs.sqlalchemy.org/en/21/orm/quickstart.html)
+- [Relationship Loading Techniques — SQLAlchemy 2.1](https://docs.sqlalchemy.org/en/21/orm/queryguide/relationships.html)
+- [Asynchronous I/O (asyncio) — SQLAlchemy 2.1](https://docs.sqlalchemy.org/en/21/orm/extensions/asyncio.html)
+
+</Src>
+
+</Q>
+
+<Q id="python.tool.migrations-config" level="s">
+
+## How do you handle migrations and configuration in production with Alembic and pydantic-settings?
+
+<A short l="j">
+
+<T k="py-alembic">Alembic</T> is the migration tool for SQLAlchemy, the counterpart of EF migrations: `alembic revision --autogenerate` creates a migration file from the difference between models and database, and `alembic upgrade head` applies it. Settings such as the connection string are read from environment variables and a `.env` file through <T k="py-pydantic-settings">pydantic-settings</T> rather than kept in code.
+
+</A>
+
+<A short l="m">
+
+An Alembic migration is a <T k="py-alembic-revision">revision</T>: a Python file with `upgrade()`, `downgrade()` and a link to the previous revision, while the database stores the applied version in the `alembic_version` table. <T k="py-autogenerate">Autogenerate</T> compares the models with the database but sees a column rename as a drop plus an add, so every migration is read in review. pydantic-settings assembles settings from the environment, `.env` and defaults, validates types at startup and keeps secrets in `SecretStr`.
+
+</A>
+
+<A short l="s">
+
+A migration is code that runs against production data, so autogenerate is only a draft: review it, name constraints via a <T k="py-naming-convention">naming convention</T>, and change data through an `sa.table()` snapshot rather than ORM models. Two development branches produce two head revisions, and `upgrade head` fails until a <T k="py-merge-revision">merge revision</T> joins them; CI checks for a single head and an empty `alembic check`. Schema changes follow <T k="expand-contract">expand/contract</T>, and settings are validated once at startup so a broken environment kills the process immediately rather than halfway through a crawl.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **A migration** is a file that moves the database schema to the next version: add a table, a column, an index.
+- **Alembic** is the migration tool from the SQLAlchemy authors. Migrations form a chain: each one knows the previous one.
+- **pydantic-settings** is a settings class whose fields are filled from environment variables and a `.env` file.
+
+**How to use**
+
+1. `alembic init migrations` creates the migrations directory and `env.py`.
+2. In `env.py` set `target_metadata = Base.metadata` — that is how Alembic sees the models.
+3. After changing a model, run `alembic revision --autogenerate -m "add price"`.
+4. Read the generated file and apply it: `alembic upgrade head`.
+5. In `env.py`, take the connection string from `Settings` instead of writing it into `alembic.ini`.
+
+**Common mistake**
+
+Committing a `.env` with a password. The repository gets a `.env.example` without secrets, and `.env` goes into `.gitignore`.
+
+**Takeaway:** the schema changes through Alembic migrations, and settings and secrets come from the environment.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+1. A revision is a file with `revision`, `down_revision`, `upgrade()` and `downgrade()`. The `down_revision` chain sets the order.
+2. `alembic upgrade head` reads the version from `alembic_version` and runs the missing revisions.
+3. Autogenerate compares `Base.metadata` with the database and writes a draft: `op.add_column`, `op.create_index`.
+
+**What autogenerate misses**
+
+| Change | What you get |
+|---|---|
+| Renaming a table or column | a drop and an add — the data is lost |
+| An unnamed constraint | not tracked |
+| `server_default` | not compared without `compare_server_default` |
+
+**How settings are read**
+
+Sources by descending priority: constructor arguments, environment variables, `.env`, the secrets directory, defaults. Variable names are case-insensitive, `env_prefix` separates your variables from everyone else's, and strings are coerced to the field types.
+
+**Pitfalls**
+
+- An unnamed constraint gets its name from the database, and autogenerate cannot generate its drop. Set a `naming_convention` on `MetaData`.
+- The default is `extra="forbid"`: an unknown line in `.env`, even someone else's without the prefix, fails startup with `ValidationError`.
+- A `downgrade()` with `drop_column` does not bring data back; it deletes it.
+
+**Rule of thumb**
+
+Read every generated migration and run `upgrade`, `downgrade` and `upgrade` again in CI.
+
+**Takeaway:** autogenerate writes a draft for a human to read, and settings are a typed class validated at startup.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- Revisions form a graph. Two branches from one revision give two heads, and `upgrade head` fails with `Multiple head revisions are present`. `alembic merge heads` creates a revision with two parents in `down_revision`.
+- DDL in PostgreSQL is transactional: by default the whole `upgrade` is one transaction. `CREATE INDEX CONCURRENTLY` is not allowed inside a transaction, so it is wrapped in `op.get_context().autocommit_block()`.
+- `alembic upgrade head --sql` prints the SQL without connecting — for review or manual application.
+
+**Trade-offs**
+
+- **Data in migrations.** Small fixes use `op.execute` over an `sa.table()` snapshot: six months later the ORM model will no longer match this revision's schema. A backfill of a large table is a separate batched job.
+- **Online changes.** A rename under load is expand/contract over several releases, covered in [Design and operations](/sobes/en/db/design/).
+- **When to run.** Alembic has no protection against concurrent runs, so migrations are applied as a separate deployment step, not on startup of every replica.
+
+**Secrets and CLI**
+
+- `SecretStr` masks the value in `repr` and logs; the real one comes from `get_secret_value()`.
+- In production secrets arrive as environment variables or files in `secrets_dir`, not from `.env`. The environment always wins over `.env`.
+- Typer CLI commands are functions with type annotations. Settings are read inside the command so that `--help` works without an environment.
+
+**How to check in production**
+
+- CI: a single head in `alembic heads`, an empty `alembic check`, an `upgrade` — `downgrade` — `upgrade` cycle.
+- Database version: `SELECT version_num FROM alembic_version` against the release's head.
+
+**Takeaway:** a migration is code for production data: review, named constraints, a single head; settings are validated at startup, and secrets come from the environment.
+
+</A>
+
+<Ex title="A migration with data and an index">
+
+```python
+"""add ads.price_uah
+
+Revision ID: b7e1f2a3c4d5
+Revises: 4c288caa5ad9
+"""
+
+import sqlalchemy as sa
+from alembic import op
+
+revision = "b7e1f2a3c4d5"
+down_revision = "4c288caa5ad9"
+
+# A table snapshot as of this migration, not the ORM model: the model will keep changing
+ads = sa.table("ads", sa.column("price", sa.Integer), sa.column("price_uah", sa.Integer))
+
+
+def upgrade() -> None:
+    op.add_column("ads", sa.Column("price_uah", sa.Integer(), nullable=True))  # expand
+    op.execute(ads.update().values(price_uah=ads.c.price))  # data; large tables — in batches
+    # PostgreSQL: CREATE INDEX CONCURRENTLY cannot run inside a transaction
+    with op.get_context().autocommit_block():
+        op.create_index("ix_ads_price_uah", "ads", ["price_uah"], postgresql_concurrently=True)
+
+
+def downgrade() -> None:
+    with op.get_context().autocommit_block():
+        op.drop_index("ix_ads_price_uah", table_name="ads", postgresql_concurrently=True)
+    op.drop_column("ads", "price_uah")
+```
+
+For PostgreSQL, `alembic upgrade head --sql` shows a `COMMIT` before `CREATE INDEX CONCURRENTLY` and a new transaction after it.
+
+</Ex>
+
+<Ex title="Settings and CLI">
+
+```python
+from typing import Annotated
+
+import typer
+from pydantic import SecretStr
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="PARSER_", env_file=".env")
+
+    db_url: SecretStr  # required: without it — ValidationError at startup
+    pages: int = 5  # PARSER_PAGES=10 → 10: the string from the environment is coerced to int
+
+
+app = typer.Typer()
+
+
+@app.command()
+def crawl(pages: Annotated[int | None, typer.Option(help="Override PARSER_PAGES")] = None) -> None:
+    settings = Settings()  # environment + .env, validated once when the command starts
+    typer.echo(f"pages={pages or settings.pages} db={settings.db_url}")
+
+
+if __name__ == "__main__":
+    app()
+
+# $ PARSER_DB_URL=postgresql+psycopg://app:pw@db/ads python cli.py --pages 2
+# pages=2 db=**********
+```
+
+</Ex>
+
+<Next>
+
+- Why did autogenerate turn a rename into a column drop? — It compares names only; renames are written by hand with `op.alter_column(..., new_column_name=...)`.
+- What do you do with two heads after merging branches? — `alembic merge heads`, plus a CI check that there is exactly one head.
+- Why not import ORM models in a migration? — The model reflects the current schema, the migration the schema at its own point in time; within months they diverge.
+- What is risky about `config.set_main_option("sqlalchemy.url", url)`? — The value goes through ConfigParser interpolation, so a `%` in the password must be doubled; it is simpler to create the engine in `env.py` from settings.
+- Which wins: an environment variable or `.env`? — The environment variable; `.env` is a fallback for development.
+
+</Next>
+
+<Src>
+
+- [Auto Generating Migrations — Alembic](https://alembic.sqlalchemy.org/en/latest/autogenerate.html)
+- [Working with Branches — Alembic](https://alembic.sqlalchemy.org/en/latest/branches.html)
+- [Settings Management — Pydantic](https://pydantic.dev/docs/validation/latest/concepts/pydantic_settings/)
+
+</Src>
+
+</Q>

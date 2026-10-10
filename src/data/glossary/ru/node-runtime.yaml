@@ -1,0 +1,133 @@
+node-commonjs:
+  term: CommonJS
+  def: >-
+    Исходная система модулей Node.js: импорт через `require()`, экспорт через `module.exports`.
+    Модуль загружается и выполняется синхронно при первом вызове `require`, результат кешируется.
+  q: Node.js CommonJS modules
+  docs: https://nodejs.org/api/modules.html
+node-esm:
+  term: ES-модули (ESM)
+  def: >-
+    Стандартная система модулей JavaScript: `import` и `export`. Граф импортов строится до
+    выполнения кода, загрузка асинхронная, поддерживается top-level `await`. В Node.js включается
+    расширением `.mjs` или полем `"type": "module"` в `package.json`.
+  q: Node.js ECMAScript modules
+  docs: https://nodejs.org/api/esm.html
+node-package-lock:
+  term: package-lock.json
+  def: >-
+    Lock-файл npm с точными версиями и контрольными суммами всего дерева зависимостей, включая
+    транзитивные. `npm ci` ставит строго по нему и падает, если он расходится с `package.json`.
+  q: npm package-lock.json npm ci
+  docs: https://docs.npmjs.com/cli/configuring-npm/package-lock-json
+node-type-stripping:
+  term: Type stripping (стирание типов)
+  def: >-
+    Встроенный в Node.js запуск файлов `.ts`: аннотации типов заменяются пробелами, код не
+    транспилируется и типы не проверяются. Включён по умолчанию с Node 22.18 и 23.6, стабилен с
+    24.12 и 25.2; `enum` и `namespace` с кодом не поддерживаются.
+  q: Node.js type stripping TypeScript
+  docs: https://nodejs.org/api/typescript.html
+node-phantom-dependency:
+  term: Фантомная зависимость (phantom dependency)
+  def: >-
+    Пакет, который код импортирует, хотя его нет в собственном `package.json`: он доступен только
+    потому, что npm поднял чужую транзитивную зависимость в плоский `node_modules`. Ломается при
+    обновлении того пакета, который её притащил.
+  q: phantom dependencies node_modules pnpm
+  docs: https://pnpm.io/motivation
+node-libuv:
+  term: libuv
+  def: >-
+    Кроссплатформенная библиотека асинхронного ввода-вывода на C, на которой построен Node.js. Даёт
+    event loop, неблокирующие сокеты через epoll, kqueue и IOCP, таймеры и пул потоков для файлов и
+    DNS.
+  q: libuv design overview
+  docs: https://docs.libuv.org/en/v1.x/design.html
+node-v8:
+  term: V8
+  def: >-
+    JavaScript-движок от Google, общий для Chrome и Node.js. Компилирует и выполняет JavaScript,
+    управляет кучей и сборкой мусора; ввод-вывод в нём нет, его даёт libuv.
+  q: V8 JavaScript engine
+  docs: https://v8.dev/
+node-libuv-threadpool:
+  term: Пул потоков libuv (UV_THREADPOOL_SIZE)
+  def: >-
+    Общий на процесс пул потоков, где libuv выполняет операции без неблокирующего API ОС: файлы,
+    `dns.lookup`, часть crypto и асинхронный zlib. По умолчанию 4 потока, максимум 1024, размер
+    задаёт переменная окружения `UV_THREADPOOL_SIZE`.
+  q: libuv threadpool UV_THREADPOOL_SIZE
+  docs: https://docs.libuv.org/en/v1.x/threadpool.html
+node-event-loop-delay:
+  term: Задержка event loop (event loop delay)
+  def: >-
+    Насколько позже запланированного цикл событий успевает выполнить колбэк. Рост задержки значит,
+    что главный поток занят синхронной работой; её измеряет `perf_hooks.monitorEventLoopDelay()`.
+  q: Node.js monitorEventLoopDelay event loop lag
+  docs: https://nodejs.org/api/perf_hooks.html
+node-stream:
+  term: Поток данных (stream)
+  def: >-
+    Объект Node.js для обработки данных порциями по мере поступления: Readable — источник, Writable —
+    приёмник, Duplex — и то и другое, Transform — преобразование по дороге. Соединяют потоки через
+    `pipeline`.
+  q: Node.js streams
+  docs: https://nodejs.org/api/stream.html
+node-event-emitter:
+  term: EventEmitter
+  def: >-
+    Базовый класс Node.js для объектов с событиями: `on` подписывает слушателя, `emit` синхронно
+    вызывает всех слушателей. Событие `'error'` без слушателя выбрасывается как исключение.
+  q: Node.js EventEmitter error event
+  docs: https://nodejs.org/api/events.html
+node-uncaught-exception:
+  term: uncaughtException
+  def: >-
+    Событие процесса Node.js для исключения, которое дошло до event loop необработанным. По
+    умолчанию Node печатает стек и завершается с кодом 1; продолжать работу после него небезопасно.
+  q: Node.js uncaughtException
+  docs: https://nodejs.org/api/process.html#event-uncaughtexception
+node-worker-threads:
+  term: worker_threads
+  def: >-
+    Модуль Node.js для потоков внутри процесса. У каждого воркера свой изолят V8, куча и event loop;
+    данные передают через `postMessage` или `SharedArrayBuffer`. Нужен для CPU-работы, а не для
+    ввода-вывода.
+  q: Node.js worker_threads
+  docs: https://nodejs.org/api/worker_threads.html
+node-cluster:
+  term: cluster
+  def: >-
+    Модуль Node.js, который запускает несколько процессов-копий приложения на одном порту: главный
+    процесс принимает соединения и раздаёт их рабочим. Память у процессов не общая.
+  q: Node.js cluster module
+  docs: https://nodejs.org/api/cluster.html
+node-heap-snapshot:
+  term: Снимок кучи (heap snapshot)
+  def: >-
+    Файл `.heapsnapshot` со всеми объектами кучи V8 и ссылками между ними. Два снимка сравнивают в
+    Chrome DevTools, чтобы найти растущие объекты и то, что их удерживает.
+  q: Node.js heap snapshot memory leak
+  docs: https://nodejs.org/en/learn/diagnostics/memory/using-heap-snapshot
+node-inspector:
+  term: Инспектор Node.js (--inspect)
+  def: >-
+    Встроенный протокол отладки и профилирования, к которому подключаются Chrome DevTools и VS Code.
+    Включается флагом `--inspect` и по умолчанию слушает `127.0.0.1:9229`.
+  q: Node.js --inspect debugging
+  docs: https://nodejs.org/en/learn/getting-started/debugging
+node-diagnostics-channel:
+  term: diagnostics_channel
+  def: >-
+    Модуль Node.js для публикации диагностических событий по именованным каналам. Библиотеки и
+    встроенные модули сообщают о запросах, а APM и OpenTelemetry подписываются без подмены кода.
+  q: Node.js diagnostics_channel
+  docs: https://nodejs.org/api/diagnostics_channel.html
+node-lts:
+  term: LTS Node.js
+  def: >-
+    Линия Node.js с долгой поддержкой: Active LTS, затем Maintenance, всего около 30 месяцев. До Node
+    26 LTS становились чётные версии; с Node 27 одна мажорная версия в год, и каждая становится LTS.
+  q: Node.js release schedule LTS
+  docs: https://nodejs.org/en/about/previous-releases

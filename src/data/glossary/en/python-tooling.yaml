@@ -1,0 +1,137 @@
+py-pytest-fixture:
+  term: pytest fixture
+  def: >-
+    A function decorated with `@pytest.fixture` that prepares data or a resource for a test. The
+    test receives its result as a parameter with the same name, and the code after `yield` runs as
+    teardown.
+  q: pytest fixture scope yield
+  docs: https://docs.pytest.org/en/stable/how-to/fixtures.html
+py-assert-rewriting:
+  term: Assertion rewriting
+  def: >-
+    Rewriting of `assert` statements when test modules are imported. Thanks to it, pytest shows the
+    values of both sides of a failed comparison without special assertion methods.
+  q: pytest assertion rewriting
+  docs: https://docs.pytest.org/en/stable/how-to/assert.html
+py-conftest:
+  term: conftest.py
+  def: >-
+    A file whose fixtures and hooks pytest automatically makes available to every test in that
+    directory and its subdirectories, without imports.
+  q: pytest conftest.py fixtures sharing
+  docs: https://docs.pytest.org/en/stable/reference/fixtures.html#conftest-py-sharing-fixtures-across-multiple-files
+py-monkeypatch:
+  term: monkeypatch
+  def: >-
+    A built-in pytest fixture for temporarily replacing attributes, dictionary items and
+    environment variables. Everything is restored after the test.
+  q: pytest monkeypatch setattr setenv
+  docs: https://docs.pytest.org/en/stable/how-to/monkeypatch.html
+py-venv:
+  term: Virtual environment (venv)
+  def: >-
+    A directory with a link to a Python interpreter and its own set of packages. It isolates one
+    project's dependencies from the system and from other projects.
+  q: python venv virtual environment
+  docs: https://docs.python.org/3/library/venv.html
+py-pyproject-toml:
+  term: pyproject.toml
+  def: >-
+    The standard Python project file: metadata and dependencies in the `[project]` table (PEP 621),
+    the build system and tool settings in `[tool.*]` tables. The counterpart of `.csproj`.
+  q: pyproject.toml PEP 621
+  docs: https://packaging.python.org/en/latest/guides/writing-pyproject-toml/
+py-lock-file:
+  term: Dependency lock file
+  def: >-
+    A file with exact versions and hashes of every package in the graph, transitive ones included.
+    In Python it is `uv.lock`, `poetry.lock`, a pinned `requirements.txt` or the standard
+    `pylock.toml` (PEP 751).
+  q: python lock file uv.lock pylock.toml
+  docs: https://docs.astral.sh/uv/concepts/projects/layout/#the-lockfile
+py-uv:
+  term: uv
+  def: >-
+    A Python package and project manager from Astral, written in Rust. It creates environments,
+    resolves and locks dependencies, installs Python versions and runs tools — replacing pip, venv,
+    pip-tools and pipx.
+  q: astral uv python package manager
+  docs: https://docs.astral.sh/uv/
+py-ruff:
+  term: Ruff
+  def: >-
+    A Python linter and formatter from Astral, written in Rust. `ruff check` replaces flake8, isort
+    and pyupgrade, and `ruff format` replaces Black.
+  q: ruff linter formatter
+  docs: https://docs.astral.sh/ruff/
+py-sa-engine:
+  term: Engine (SQLAlchemy)
+  def: >-
+    SQLAlchemy's entry point to a database: it knows the dialect and driver and holds the connection
+    pool. Created once per process with `create_engine`.
+  q: SQLAlchemy create_engine connection pool
+  docs: https://docs.sqlalchemy.org/en/21/core/engines.html
+py-sa-session:
+  term: Session (SQLAlchemy)
+  def: >-
+    The SQLAlchemy ORM object for working with objects within one unit of work: it loads them,
+    tracks changes and saves them through flush and `commit()`. The counterpart of `DbContext`; not
+    thread-safe.
+  q: SQLAlchemy Session basics
+  docs: https://docs.sqlalchemy.org/en/21/orm/session_basics.html
+py-identity-map:
+  term: Identity map
+  def: >-
+    The session's "primary key → object" dictionary: one database row is represented in the session
+    by one object, and a repeated `session.get` for the same key does not hit the database.
+  q: identity map pattern SQLAlchemy
+  docs: https://martinfowler.com/eaaCatalog/identityMap.html
+py-sa-core:
+  term: SQLAlchemy Core
+  def: >-
+    SQLAlchemy's lower layer: tables, SQL expressions (`select`, `insert`), connections and
+    transactions without objects or change tracking. The ORM is built on top of it.
+  q: SQLAlchemy Core vs ORM
+  docs: https://docs.sqlalchemy.org/en/21/core/
+py-alembic:
+  term: Alembic
+  def: >-
+    The schema migration tool for SQLAlchemy from the same authors. It stores migrations as Python
+    files and the applied version in the `alembic_version` table.
+  q: Alembic migrations SQLAlchemy
+  docs: https://alembic.sqlalchemy.org/
+py-alembic-revision:
+  term: Alembic revision
+  def: >-
+    A migration file with a `revision` identifier, a `down_revision` link to its parent and
+    `upgrade()` and `downgrade()` functions. Revisions form a graph of schema versions.
+  q: alembic revision down_revision
+  docs: https://alembic.sqlalchemy.org/en/latest/tutorial.html
+py-autogenerate:
+  term: Autogenerate (Alembic)
+  def: >-
+    The `alembic revision --autogenerate` mode, which compares the models' `MetaData` with the
+    database schema and writes a draft migration. It does not detect renames or unnamed constraints.
+  q: alembic autogenerate limitations
+  docs: https://alembic.sqlalchemy.org/en/latest/autogenerate.html
+py-merge-revision:
+  term: Merge revision
+  def: >-
+    An Alembic revision with two parents in `down_revision` that joins two migration branches into
+    a single head. Created with `alembic merge heads`.
+  q: alembic merge heads branches
+  docs: https://alembic.sqlalchemy.org/en/latest/branches.html
+py-naming-convention:
+  term: Naming convention (SQLAlchemy)
+  def: >-
+    Name templates for indexes and constraints in `MetaData(naming_convention=...)`. With them every
+    constraint gets a predictable name, so Alembic can alter or drop it.
+  q: SQLAlchemy naming_convention constraints alembic
+  docs: https://alembic.sqlalchemy.org/en/latest/naming.html
+py-pydantic-settings:
+  term: pydantic-settings
+  def: >-
+    A package with the `BaseSettings` class: settings fields are filled from environment variables,
+    `.env` and secret files, and Pydantic validates the types when the object is created.
+  q: pydantic-settings BaseSettings
+  docs: https://pydantic.dev/docs/validation/latest/concepts/pydantic_settings/

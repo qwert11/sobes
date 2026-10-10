@@ -1,0 +1,138 @@
+py-mutable:
+  term: Mutable object
+  def: >-
+    An object whose state can be changed in place: `list`, `dict`, `set`. Immutable ones (`int`, `str`, `tuple`, `frozenset`) produce a new object on every "edit". Mutability is defined by the type.
+  q: Python mutable immutable objects
+  docs: https://docs.python.org/3/glossary.html#term-mutable
+py-name-binding:
+  term: Name binding
+  def: >-
+    Assignment in Python binds a name to an object rather than putting a value into a slot. `b = a` gives the same object a second name; no copy is made.
+  q: Python naming and binding
+  docs: https://docs.python.org/3/reference/executionmodel.html#naming-and-binding
+py-call-by-sharing:
+  term: Pass by object reference (call by sharing)
+  def: >-
+    How Python passes arguments: a function parameter becomes another name for the same object. Changes to the object are visible to the caller; rebinding the parameter is not.
+  q: Python pass by object reference
+  docs: https://docs.python.org/3/faq/programming.html#how-do-i-write-a-function-with-output-parameters-call-by-reference
+py-hashable:
+  term: Hashable object
+  def: >-
+    An object whose hash never changes during its lifetime and that compares via `__eq__`. Only such objects can be `dict` keys and `set` elements.
+  q: Python hashable
+  docs: https://docs.python.org/3/glossary.html#term-hashable
+py-comprehension:
+  term: Comprehension
+  def: >-
+    An expression that builds a list, dict or set from an iterable with an optional filter: `[x * x for x in items if x > 0]`. The counterpart of LINQ `Select` and `Where`.
+  q: Python list comprehension
+  docs: https://docs.python.org/3/tutorial/datastructures.html#list-comprehensions
+py-shallow-copy:
+  term: Shallow copy
+  def: >-
+    A new container holding the same nested objects: `copy.copy`, `list(a)`, `a[:]`. A deep copy (`copy.deepcopy`) recursively copies the nested objects as well.
+  q: Python shallow vs deep copy
+  docs: https://docs.python.org/3/library/copy.html
+py-closure:
+  term: Closure
+  def: >-
+    A nested function together with the enclosing function's variables it uses. The variables live in cells (`__closure__`) for as long as the function lives; `nonlocal` lets you rebind them.
+  q: Python closure nonlocal
+  docs: https://docs.python.org/3/reference/executionmodel.html#resolution-of-names
+py-decorator:
+  term: Decorator
+  def: >-
+    A function that takes a function or class and returns a replacement. `@d` above `def f` equals `f = d(f)`; wrappers are built with `functools.wraps`.
+  q: Python decorator functools.wraps
+  docs: https://docs.python.org/3/glossary.html#term-decorator
+py-keyword-only:
+  term: Keyword-only parameter
+  def: >-
+    A parameter after `*` in a signature that can only be passed by name. Parameters before `/` (since Python 3.8) are the opposite: positional-only.
+  q: Python keyword-only positional-only parameters
+  docs: https://docs.python.org/3/tutorial/controlflow.html#special-parameters
+py-generator:
+  term: Generator
+  def: >-
+    A function with `yield`: calling it returns an iterator that runs the body in steps, up to the next `yield`. Values are produced lazily, one at a time.
+  q: Python generator yield
+  docs: https://docs.python.org/3/glossary.html#term-generator
+py-context-manager:
+  term: Context manager
+  def: >-
+    An object with `__enter__` and `__exit__` methods for the `with` statement. `__exit__` is called on any exit from the block, including an exception — the counterpart of `using` in C#.
+  q: Python context manager with statement
+  docs: https://docs.python.org/3/library/contextlib.html
+py-dataclass:
+  term: Data class (dataclass)
+  def: >-
+    A class decorated with `@dataclass`, for which Python generates `__init__`, `__repr__` and `__eq__` from the annotated fields. `frozen=True` and `slots=True` make it immutable and compact.
+  q: Python dataclasses
+  docs: https://docs.python.org/3/library/dataclasses.html
+py-type-checker:
+  term: Type checker
+  def: >-
+    A static analysis tool that checks type annotations without running the code: mypy, pyright. The interpreter itself does not check annotations.
+  q: mypy pyright static type checker
+  docs: https://mypy.readthedocs.io/en/stable/
+py-dunder-method:
+  term: Dunder method (special method)
+  def: >-
+    A method whose name is wrapped in double underscores and that the language itself calls: `__init__`, `__eq__`, `__len__`, `__iter__`. Through them a class supports operators and built-in functions.
+  q: Python special method names
+  docs: https://docs.python.org/3/reference/datamodel.html#special-method-names
+py-duck-typing:
+  term: Duck typing
+  def: >-
+    An object fits if it has the required methods and attributes, regardless of its type: "if it quacks like a duck, it is a duck". The default style of Python code.
+  q: Python duck typing
+  docs: https://docs.python.org/3/glossary.html#term-duck-typing
+py-protocol:
+  term: Protocol (typing.Protocol)
+  def: >-
+    An interface description for structural typing (PEP 544, Python 3.8): a class is compatible with a protocol if it has the required methods, with no explicit inheritance. Checked by mypy and pyright.
+  q: Python typing Protocol structural subtyping
+  docs: https://typing.python.org/en/latest/spec/protocol.html
+py-mro:
+  term: Method resolution order (MRO)
+  def: >-
+    The order of classes in which Python looks up an attribute under inheritance, available as `Cls.__mro__`. It is built by C3 linearization, and `super()` follows it.
+  q: Python method resolution order C3
+  docs: https://docs.python.org/3/howto/mro.html
+py-reference-counting:
+  term: Reference counting
+  def: >-
+    CPython's main memory management mechanism: every object has a reference count, and the object is freed as soon as the count drops to zero. Reference cycles are not freed this way.
+  q: CPython reference counting
+  docs: https://docs.python.org/3/glossary.html#term-reference-count
+py-cyclic-gc:
+  term: Cycle collector (cyclic GC)
+  def: >-
+    CPython's `gc` module: it complements reference counting and finds groups of objects that reference each other but are unreachable. It works by generations.
+  q: Python gc module cyclic garbage collector
+  docs: https://docs.python.org/3/library/gc.html
+py-interning:
+  term: Interning
+  def: >-
+    Keeping one object per value: CPython caches integers from −5 to 256 and interns some strings, and `sys.intern` does it explicitly. It is an implementation detail; do not rely on `is` for values.
+  q: Python sys.intern small integer cache
+  docs: https://docs.python.org/3/library/sys.html#sys.intern
+py-gil:
+  term: GIL (Global Interpreter Lock)
+  def: >-
+    CPython's global interpreter lock: only one thread executes bytecode at any moment. It is released on blocking I/O and inside C extensions.
+  q: Python GIL
+  docs: https://docs.python.org/3/glossary.html#term-global-interpreter-lock
+py-free-threading:
+  term: Free-threaded build (free threading)
+  def: >-
+    A CPython build without the GIL (PEP 703, `python3.13t` and later): threads run Python code in parallel. Experimental in 3.13, officially supported since 3.14, but not the default.
+  q: Python free-threaded build PEP 703
+  docs: https://docs.python.org/3/howto/free-threading-python.html
+py-c-extension:
+  term: C extension (extension module)
+  def: >-
+    A module written in C, C++ or Rust against the Python C API and loaded like a regular module. It runs outside the bytecode interpreter and can release the GIL — this is how NumPy and many ML libraries work.
+  q: Python C extension module
+  docs: https://docs.python.org/3/extending/extending.html

@@ -1,0 +1,120 @@
+py-fastapi:
+  term: FastAPI
+  def: >-
+    Вебфреймворк Python для HTTP API поверх Starlette і Pydantic. Параметри, тіло й відповідь
+    описуються анотаціями типів, а валідація та документація OpenAPI будуються за ними
+    автоматично.
+  docs: https://fastapi.tiangolo.com/
+py-type-hint:
+  term: Анотація типу (type hint)
+  def: >-
+    Зазначення типу параметра, змінної або результату функції: `item_id: int`, `-> dict`.
+    Інтерпретатор її не перевіряє, але її читають mypy, IDE та бібліотеки на кшталт FastAPI і
+    Pydantic.
+  q: Python type hints
+  docs: https://docs.python.org/3/library/typing.html
+py-pydantic:
+  term: Pydantic
+  def: >-
+    Бібліотека валідації та серіалізації даних за анотаціями типів. Модель успадковується від
+    `BaseModel`; у версії 2 ядро pydantic-core написане на Rust.
+  q: Pydantic v2 BaseModel
+  docs: https://docs.pydantic.dev/latest/concepts/models/
+py-starlette:
+  term: Starlette
+  def: >-
+    Легкий ASGI-фреймворк: маршрутизація, middleware, запити й відповіді, WebSocket. FastAPI
+    успадковує від нього клас застосунку й додає залежності, валідацію та OpenAPI.
+  docs: https://starlette.dev/
+py-coroutine:
+  term: Корутина (coroutine)
+  def: >-
+    Функція, оголошена через `async def`, і об'єкт, який повертає її виклик. Код виконується,
+    лише коли корутину чекають через `await` або обгортають у задачу; на кожному `await` вона
+    може призупинитися.
+  q: Python coroutine async def
+  docs: https://docs.python.org/3/library/asyncio-task.html#coroutines
+py-event-loop:
+  term: Цикл подій asyncio (event loop)
+  def: >-
+    Диспетчер asyncio в одному потоці: виконує готові задачі до їхнього наступного `await`, а
+    потім питає ОС, яке введення-виведення завершилося. Запускається через `asyncio.run()`.
+  q: asyncio event loop
+  docs: https://docs.python.org/3/library/asyncio-eventloop.html
+py-asyncio-task:
+  term: Задача asyncio (Task)
+  def: >-
+    Обгортка, яка ставить корутину в чергу циклу подій і виконує її незалежно від коду, що її
+    викликав. Створюється через `asyncio.create_task()`; цикл тримає на задачі лише слабкі
+    посилання.
+  q: asyncio create_task
+  docs: https://docs.python.org/3/library/asyncio-task.html#creating-tasks
+py-task-group:
+  term: TaskGroup
+  def: >-
+    Асинхронний контекстний менеджер Python 3.11+, який чекає всі запущені в ньому задачі.
+    Якщо одна падає, решта скасовуються, а помилки збираються в `ExceptionGroup`.
+  q: asyncio TaskGroup
+  docs: https://docs.python.org/3/library/asyncio-task.html#task-groups
+py-cancelled-error:
+  term: CancelledError
+  def: >-
+    Виняток, який `task.cancel()` кидає всередину корутини в точці `await`. Успадковує
+    `BaseException`; після очищення його треба прокинути далі, інакше скасування не спрацює.
+  q: asyncio CancelledError
+  docs: https://docs.python.org/3/library/asyncio-exceptions.html
+py-asgi:
+  term: ASGI
+  def: >-
+    Asynchronous Server Gateway Interface — стандарт зв'язку асинхронного вебсервера із
+    застосунком Python. Застосунок — корутина, яку сервер викликає на кожне з'єднання.
+  q: ASGI specification
+  docs: https://asgi.readthedocs.io/
+py-uvicorn:
+  term: Uvicorn
+  def: >-
+    ASGI-сервер для Python: приймає HTTP-з'єднання й викликає застосунок у своєму циклі подій.
+    Прапорець `--workers` запускає кілька процесів.
+  docs: https://uvicorn.dev/
+py-depends:
+  term: Depends (залежності FastAPI)
+  def: >-
+    Механізм FastAPI, який викликає функцію-залежність перед ендпоінтом і передає її результат
+    параметром. Результат кешується в межах запиту, а залежність із `yield` виконує код
+    очищення після відповіді.
+  q: FastAPI Depends
+  docs: https://fastapi.tiangolo.com/tutorial/dependencies/
+py-lifespan:
+  term: Lifespan
+  def: >-
+    Асинхронний контекстний менеджер застосунку FastAPI: код до `yield` виконується під час
+    старту процесу, після — під час зупинки. Замінює застарілі події startup і shutdown.
+  q: FastAPI lifespan
+  docs: https://fastapi.tiangolo.com/advanced/events/
+py-threadpool:
+  term: Пул потоків FastAPI
+  def: >-
+    Пул, у якому FastAPI виконує ендпоінти й залежності, оголошені через звичайний `def`.
+    Працює через AnyIO і за замовчуванням обмежений 40 одночасними викликами на процес.
+  q: FastAPI def threadpool anyio
+  docs: https://fastapi.tiangolo.com/async/
+py-process-pool:
+  term: Пул процесів (ProcessPoolExecutor)
+  def: >-
+    Виконавець із `concurrent.futures`, який запускає функції в окремих процесах. У кожного
+    процесу свій інтерпретатор і свій GIL, а аргументи й результати передаються через pickle.
+  q: Python ProcessPoolExecutor
+  docs: https://docs.python.org/3/library/concurrent.futures.html#processpoolexecutor
+py-pickle:
+  term: pickle
+  def: >-
+    Вбудований формат серіалізації об'єктів Python у байти. Через нього `multiprocessing`
+    передає дані між процесами, тому лямбди й локальні функції туди не передати.
+  q: Python pickle
+  docs: https://docs.python.org/3/library/pickle.html
+py-dynamic-batching:
+  term: Динамічний батчинг (dynamic batching)
+  def: >-
+    Прийом сервера інференсу: запити, що надійшли майже одночасно, збираються в одну пачку й
+    проходять через модель за один виклик. Підвищує завантаження GPU ціною невеликої затримки.
+  q: dynamic batching model inference

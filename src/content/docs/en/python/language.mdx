@@ -1,0 +1,708 @@
+---
+title: The Python language
+description: Built-in types and mutability, functions, decorators and generators, classes and typing, memory and the GIL.
+sidebar:
+  order: 1
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+How the language itself works: names and objects instead of variables as storage slots, functions as objects, classes with duck typing and annotations, memory and the GIL. This is the base you need to explain asyncio or how a Python service behaves under load; wherever Python differs from C#, the page says so.
+
+<Q id="python.lang.basics" level="j">
+
+## What built-in types does Python have, and how do mutable types differ from immutable ones?
+
+<A short l="j">
+
+The main built-in types are numbers (`int`, `float`), `bool`, `str`, `None` and the collections `list`, `tuple`, `dict` and `set`. <T k="py-mutable">Mutable</T> types (`list`, `dict`, `set`) change in place, while immutable ones (`int`, `str`, `tuple`) do not: every "edit" creates a new object, which is why a tuple can be a `dict` key but a list cannot.
+
+</A>
+
+<A short l="m">
+
+A variable in Python is a <T k="py-name-binding">name bound to an object</T>, not a slot holding a value: assignment copies the reference, not the object. Arguments are passed <T k="py-call-by-sharing">by object reference</T>: a function can mutate the list you pass in but cannot rebind the caller's name. So copies are made explicitly (`copy.copy`, `copy.deepcopy`), `is` checks whether it is the same object, and `==` checks whether the values are equal.
+
+</A>
+
+<A short l="s">
+
+Mutability is a property of the type, not of the variable: every value in Python is an object, and the only difference is whether the type has operations that change it in place. <T k="py-hashable">Hashability</T> depends on it: only an object whose hash never changes during its lifetime can be a `dict` key or a `set` element. That explains the classic bugs — a mutable default argument, a shared nested list after a shallow copy, `is` instead of `==` — and the rule: prefer immutable types for defaults and shared data. The cost of immutability is a new object for every change.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+| Type | Mutable | Example |
+|---|---|---|
+| `int`, `float`, `bool` | no | `42`, `3.14`, `True` |
+| `str`, `tuple` | no | `"text"`, `(1, "a")` |
+| `list` | yes | `[1, 2]` |
+| `dict` | yes | `{"id": 1}` |
+| `set` | yes | `{1, 2}` |
+
+`None` is the only object of its type, the equivalent of `null`.
+
+**How to use**
+
+- `list` — a sequence you are going to change.
+- `tuple` — a fixed-length record: coordinates, a pair of values.
+- `dict` — lookup by key; `set` — unique elements and a fast `x in s` check.
+- A <T k="py-comprehension">comprehension</T> builds a collection in a single expression: `[x * x for x in items if x > 0]`.
+
+**Common mistake**
+
+A mutable default argument: `def add(item, items=[])`. The list is created once and accumulates elements across calls. The right way is `items=None` and then `if items is None: items = []` inside.
+
+**Takeaway:** mutable types change in place, immutable ones produce a new object on every "edit".
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- **Names and objects.** `b = a` binds a second name to the same object. No copy is made, neither for a list nor for a number.
+- **Passing arguments.** The function receives a reference to the same object. `items.append(x)` changes the caller's list, while `items = [x]` only rebinds the local name.
+- **`is` and `==`.** `is` compares identity, `==` calls `__eq__` and compares values. `None` is compared with `is`.
+- **Copying.** `copy.copy`, `list(a)` and the slice `a[:]` give a <T k="py-shallow-copy">shallow copy</T>: a new outer container holding the same nested objects. `copy.deepcopy` copies recursively.
+
+**When to choose what**
+
+| Task | Type |
+|---|---|
+| A sequence that changes | `list` |
+| A fixed-length record, a composite key | `tuple` |
+| Lookup by key | `dict` |
+| Uniqueness, O(1) membership check | `set`, `frozenset` |
+
+**Pitfalls**
+
+- **A default value** is evaluated once, when `def` runs, so a `[]` or `{}` there is shared by all calls.
+- **`[[0] * 3] * 3`** is three references to one inner list: changing one row shows up in all of them.
+- **A tuple with something mutable inside.** In `t = ([1],)` you cannot replace `t[0]`, but `t[0].append(2)` works, and such a tuple is unhashable.
+
+**Rule of thumb**
+
+Defaults are immutable or `None`. If a function mutates an argument, its name should say so; otherwise it works on a copy.
+
+**Takeaway:** assignment and passing to a function never copy an object — copies are made explicitly.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- Every value is a heap object with a pointer to its type. A variable holds only a reference, so there are no value types in the C# sense: even `int` is an object.
+- The type defines mutability. `int` and `str` are immutable, so `x += 1` creates a new object and rebinds the name. For a `list` the same `+=` calls `__iadd__` and changes the list in place.
+- `dict` and `set` are hash tables. If a key could change, its hash would go stale and the element would get "lost". That is why `list`, `dict` and `set` are unhashable, while a `tuple` is hashable only if everything inside it is.
+
+**Cost**
+
+- Every "change" to an immutable object is a new allocation. Building a string with `+=` in a loop is quadratic in the worst case; `"".join(parts)` is linear.
+- A `list` stores references to objects, not the numbers themselves: a million distinct `int` values in a list are a million objects. For numeric data there are `array` and NumPy.
+- `deepcopy` walks the whole object graph and remembers what it has already copied — expensive for large structures.
+
+**Trade-offs**
+
+- Immutable objects are safe to share between functions and threads, but every change is a copy.
+- Immutable counterparts: `tuple`, `frozenset`, `@dataclass(frozen=True)`, `types.MappingProxyType`; since Python 3.15 there is a built-in `frozendict`.
+- A comprehension is faster than a loop with `append` and does not leak the loop variable, but three levels of nesting read worse than a plain loop.
+
+**How to check in production**
+
+A linter catches mutable defaults: rule B006 in Ruff (from flake8-bugbear). A shared nested object shows up in the debugger as the same `id()`.
+
+**Takeaway:** mutability is a property of the type, and it determines hashability, safe sharing and the cost of changes.
+
+</A>
+
+<Ex>
+
+```python
+import copy
+
+a = [1, 2]
+b = a                  # a second name for the same list
+b.append(3)
+print(a)               # [1, 2, 3]
+
+def add(items, x):
+    items.append(x)    # mutates the caller's object
+    items = [x]        # rebinds only the local name
+
+add(a, 4)
+print(a)               # [1, 2, 3, 4]
+
+grid = [[0], [0]]
+shallow, deep = copy.copy(grid), copy.deepcopy(grid)
+grid[0].append(1)
+print(shallow[0], deep[0])                 # [0, 1] [0]
+print([1, 2] == [1, 2], [1, 2] is [1, 2])  # True False
+print([x * x for x in range(5) if x % 2 == 0])  # [0, 4, 16]
+
+def bad(item, bucket=[]):  # the list is created once, at def time
+    bucket.append(item)
+    return bucket
+
+print(bad(1), bad(2))  # [1, 2] [1, 2]
+```
+
+</Ex>
+
+<Next>
+
+- Why can a `tuple` be a `dict` key but a `list` cannot? — A `tuple` is immutable and hashable as long as its contents are hashable.
+- What does `a = [[0] * 2] * 2; a[0][0] = 1; print(a)` print? — `[[1, 0], [1, 0]]`: both rows are the same list.
+- How does `x += 1` on an `int` differ from `+=` on a `list`? — For an `int` a new object is created; a `list` changes in place via `__iadd__`.
+- Why is `None` compared with `is`? — `None` is a single object, and `==` can be overridden in `__eq__`.
+- How does `copy.copy` differ from `copy.deepcopy`? — The first copies only the outer container, the second copies the whole graph, handling cycles.
+
+</Next>
+
+<Src>
+
+- [Data model — Objects, values and types](https://docs.python.org/3/reference/datamodel.html#objects-values-and-types)
+- [copy — Shallow and deep copy operations](https://docs.python.org/3/library/copy.html)
+- [Programming FAQ — Why are default values shared between objects?](https://docs.python.org/3/faq/programming.html#why-are-default-values-shared-between-objects)
+
+</Src>
+
+</Q>
+
+<Q id="python.lang.functions" level="m">
+
+## How do functions work in Python?
+
+<A short l="j">
+
+A function is declared with `def` and is itself an object: you can pass it as an argument, return it or store it, like a delegate in C#. `*args` collects extra positional arguments into a tuple, and `**kwargs` collects keyword arguments into a dict.
+
+</A>
+
+<A short l="m">
+
+A function is a first-class object, and <T k="py-closure">closures</T> and <T k="py-decorator">decorators</T> are built on that: a decorator takes a function and returns a wrapper, and `functools.wraps` keeps the original's name. Parameters before `/` are positional-only, parameters after `*` are <T k="py-keyword-only">keyword-only</T>. A function with `yield` becomes a <T k="py-generator">generator</T> and produces values lazily, while `with` and a <T k="py-context-manager">context manager</T> guarantee that a resource is released, like `using` in C#.
+
+</A>
+
+<A short l="s">
+
+Almost all the "magic" of functions is sugar over objects and protocols: `@d` is `f = d(f)`, `with` is calls to `__enter__` and `__exit__`, a generator is an object with a suspended execution frame. A closure holds cells for outer variables, not their values, which is why lambdas created in a loop all see the last value. The price of this flexibility is expensive calls: every decorator layer is one more Python function call, which shows on a hot path. Generators save memory in streaming processing but are single-use: a second pass over an exhausted generator silently yields nothing.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+A function is declared with `def` and returns a value with `return`; without it, it returns `None`. A function is an ordinary object: you can pass it to `sorted(users, key=get_age)`.
+
+**How to use**
+
+- A default value: `def connect(host, port=5432)`.
+- A call with names: `connect(port=6543, host="db")` — order does not matter.
+- `*args` collects extra positional arguments into a tuple, `**kwargs` collects keyword arguments into a dict.
+- Unpacking at the call site: `f(*items)` and `f(**options)`.
+- `lambda` is an anonymous single-expression function: `key=lambda u: u.age`.
+
+**Common mistake**
+
+Assigning to a global variable inside a function without `global`. The assignment makes the name local to the whole function, and reading it before that fails with `UnboundLocalError`.
+
+**Takeaway:** a function is an object, and `*args` and `**kwargs` make its signature flexible.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- **Parameters.** In `def f(a, /, b, *, c)`, `a` is positional-only, `b` can be passed either way, and `c` is keyword-only. Keyword-only parameters prevent mixed-up flags: `send(msg, retry=True)`.
+- **Scopes.** A name is looked up in the local, enclosing, global and built-in scopes (the LEGB rule). `nonlocal` and `global` let you rebind an outer name.
+- **Closure.** A nested function remembers the enclosing function's variables even after it returns.
+- **Decorator.** `@logged` above `def f` is the same as `f = logged(f)`. `functools.wraps` copies `__name__` and `__doc__` to the wrapper and sets `__wrapped__`.
+- **Generator.** Calling a function with `yield` does not run its body; it returns an iterator, and each `next()` runs to the next `yield`.
+- **Context manager.** `with` calls `__enter__`, and at the end `__exit__`, even on an exception. `@contextlib.contextmanager` builds a manager from a generator.
+
+**Pitfalls**
+
+- **Late binding.** The lambdas from `[lambda: i for i in range(3)]` all return `2`: a closure sees the variable, not its value. The fix is a default parameter: `lambda i=i: i`.
+- **An exhausted generator.** A second `for` over it runs zero times.
+- **A decorator without `wraps`.** In logs and traces every function is called `wrapper`.
+
+**Rule of thumb**
+
+Resources go through `with`, large data streams through generators, cross-cutting logic through decorators with `functools.wraps`.
+
+**Takeaway:** decorators, generators and `with` are sugar over function objects and protocols.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- A function object holds `__code__` (the bytecode), `__defaults__` and `__closure__` — a tuple of cells for captured variables. A cell is shared by all nested functions, so a `nonlocal` change in one is visible in another.
+- Default values are evaluated once, when `def` runs, and live in `__defaults__`.
+- A generator keeps its own frame with local variables and position. `yield` suspends the frame, `send()` resumes it and passes a value in — coroutines were historically built on this.
+- If `__exit__` returns a truthy value, the exception from the `with` block is suppressed.
+
+**Cost**
+
+- A Python function call is much more expensive than a method call in C#: the interpreter creates a frame and parses arguments, and there is no inlining like in the .NET JIT.
+- Every decorator layer adds a call and packing of `*args` and `**kwargs`.
+- A generator keeps one item in memory rather than the whole list — that is how you process files and result sets that do not fit in memory.
+
+**Trade-offs**
+
+- A decorator changes behaviour invisibly from the call site: `@retry` on a non-idempotent operation can repeat a charge.
+- Generators are lazy: an error in the source surfaces where the generator is consumed, not where it was created.
+- `contextlib.ExitStack` manages a variable number of resources. The async versions (`async with`, `asynccontextmanager`) are covered in [asyncio and FastAPI](/sobes/en/python/async-fastapi/).
+
+**How to check in production**
+
+`inspect.signature` and `__wrapped__` reveal the original function behind decorators. The number and cost of calls show up in `cProfile`, or in py-spy without restarting the process.
+
+**Takeaway:** the flexibility of Python functions rests on objects and protocols, and the price is expensive calls.
+
+</A>
+
+<Ex title="Closure, decorator and signature">
+
+```python
+import functools
+
+def counter():
+    count = 0
+    def inc():
+        nonlocal count     # rebind the outer function's variable
+        count += 1
+        return count
+    return inc
+
+c = counter()
+c()
+print(c())                 # 2
+
+def logged(func):
+    @functools.wraps(func)  # keep __name__, __doc__, __wrapped__
+    def wrapper(*args, **kwargs):
+        print(f"call {func.__name__} {args} {kwargs}")
+        return func(*args, **kwargs)
+    return wrapper
+
+@logged                    # same as scale = logged(scale)
+def scale(x, /, *, factor=2):  # x is positional-only, factor is keyword-only
+    return x * factor
+
+print(scale(3, factor=10))  # call scale (3,) {'factor': 10}, then 30
+print(scale.__name__)       # scale
+```
+
+</Ex>
+
+<Ex title="Generator and context manager">
+
+```python
+from contextlib import contextmanager
+
+def numbers(n):
+    for i in range(n):
+        print(f"yield {i}")
+        yield i            # pauses until the next next()
+
+gen = numbers(3)           # the body has not run yet
+print(next(gen))           # yield 0, then 0
+print(sum(gen))            # yield 1, yield 2, then 3
+
+@contextmanager
+def connection(name):
+    print(f"open {name}")
+    try:
+        yield name.upper()  # the value bound by as
+    finally:
+        print(f"close {name}")  # runs even on an exception
+
+with connection("db") as conn:
+    print(conn)            # open db, DB, close db
+```
+
+</Ex>
+
+<Next>
+
+- What does `[f() for f in [lambda: i for i in range(3)]]` return? — `[2, 2, 2]`: the closures see the variable, not its value at creation time.
+- How do you write a decorator with arguments, such as `@retry(times=3)`? — A function that returns a decorator: three levels of nesting.
+- How does `yield from` differ from a loop with `yield`? — It delegates to a subgenerator, forwarding `send()`, `throw()` and the return value.
+- How does a generator differ from an iterator? — A generator is an iterator that Python builds from a function with `yield`.
+- What happens if `__exit__` returns `True`? — The exception from the `with` block is suppressed.
+
+</Next>
+
+<Src>
+
+- [More on defining functions — Python tutorial](https://docs.python.org/3/tutorial/controlflow.html#more-on-defining-functions)
+- [functools.wraps](https://docs.python.org/3/library/functools.html#functools.wraps)
+- [contextlib — Utilities for with-statement contexts](https://docs.python.org/3/library/contextlib.html)
+
+</Src>
+
+</Q>
+
+<Q id="python.lang.oop-typing" level="m">
+
+## How do classes and typing work in Python?
+
+<A short l="j">
+
+A class is declared with `class`: the constructor is `__init__`, `self` is an explicit reference to the instance, and <T k="py-dataclass">`@dataclass`</T> generates `__init__`, `__repr__` and `__eq__` for data classes. The interpreter does not check type annotations like `x: int` — IDEs and <T k="py-type-checker">type checkers</T> such as mypy read them.
+
+</A>
+
+<A short l="m">
+
+An object's behaviour is defined by <T k="py-dunder-method">dunder methods</T>: `__eq__` for `==`, `__len__` for `len()`, `__iter__` for `for`, so your own class plugs into the language without interfaces. Python relies on <T k="py-duck-typing">duck typing</T>, and <T k="py-protocol">`typing.Protocol`</T> describes it for the type checker: a class fits if it has the required methods, without inheritance. Annotations do not affect execution, so their value lies in mypy or pyright in CI, not at runtime.
+
+</A>
+
+<A short l="s">
+
+Python's object model is dynamic: attributes live in `__dict__`, methods are looked up along the <T k="py-mro">MRO</T> on every access, and multiple inheritance is resolved by C3 linearization and cooperative `super()`. Typing is gradual and external: the runtime does not check annotations, but mypy or pyright in strict mode give guarantees close to C#, with nominal classes and structural `Protocol`s. Since 3.12 generics are written right in the signature: `def first[T](items: list[T]) -> T`. A trade-off of the same kind is `@dataclass(slots=True)`: less memory and faster access, but no dynamic attributes.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- A class is a template for objects, as in C#. You create an instance by calling the class, without `new`: `user = User("Ann")`.
+- `__init__` is the initializer; `self` is the first parameter of every instance method.
+- There are no access modifiers: `_name` is a convention meaning "internal".
+
+**How to use**
+
+- `@property` turns a method into a computed attribute: `circle.diameter` without parentheses, like a C# property.
+- `@classmethod` receives the class `cls` — that is how alternative constructors are written: `Rect.square(2)`.
+- `@staticmethod` receives neither `self` nor `cls`.
+- Annotations: `def total(items: list[float]) -> float`; "may be `None`" is `str | None` (since 3.10).
+
+**Common mistake**
+
+Declaring a mutable attribute at class level: `class Cart: items = []`. That list is shared by all instances; instance fields are set in `__init__`.
+
+**Takeaway:** a Python class looks like a C# class, but access relies on conventions and types are hints for tools.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- **Dunder methods.** Operators and built-in functions call special methods: `a + b` is `a.__add__(b)`, `len(x)` is `x.__len__()`. This is the counterpart of operator overloading and `IEquatable` in C#.
+- **Inheritance.** Multiple inheritance is allowed. The method lookup order is the MRO (`Cls.__mro__`), and `super()` calls the next class in it, not necessarily the parent.
+- **Duck typing and Protocol.** A function cares about an object's methods, not its type name. `Protocol` describes such a contract structurally: a class is compatible without inheritance.
+- **Annotations.** They are stored in `__annotations__`; mypy and pyright check them, not the interpreter.
+
+**When to choose what**
+
+| Task | Tool |
+|---|---|
+| Data with value equality | `@dataclass`, immutable — `frozen=True` |
+| A contract without inheritance | `typing.Protocol` |
+| Shared implementation, required methods | a base class, `abc.ABC` |
+| Validating external data | Pydantic — see [asyncio and FastAPI](/sobes/en/python/async-fastapi/) |
+
+**Pitfalls**
+
+- **`__eq__` without `__hash__`.** Defining `__eq__` makes the class unhashable: Python sets `__hash__ = None`. A `@dataclass` without `frozen=True` behaves the same way.
+- **`isinstance` with a Protocol** works only with `@runtime_checkable` and checks only that methods exist, not their signatures.
+- **`Optional[X]`** means "may be `None`", not "optional parameter". The modern spelling is `X | None`.
+
+**Rule of thumb**
+
+Annotate public functions fully and run mypy or pyright in CI. Data goes into `@dataclass`, contracts into `Protocol`.
+
+**Takeaway:** a class plugs into the language through dunder methods, and typing is an external layer checked by tools.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- Instance attributes live in the `__dict__` dictionary. `__slots__` or `@dataclass(slots=True)` (since 3.10) replace it with fixed slots: less memory and faster access, but no new attributes can be added.
+- `@property`, `@classmethod` and `@staticmethod` are descriptors: objects with `__get__` that intercept access to a class attribute.
+- The MRO is built by C3 linearization: a subclass comes before its bases, and the declared order of base classes is preserved. An inconsistent hierarchy raises `TypeError` when the class is declared.
+- Since 3.14 annotations are evaluated lazily (PEP 649): references to classes not yet declared no longer need quotes.
+
+**Compared with C#**
+
+| C# | Python |
+|---|---|
+| Nominal interfaces | `Protocol` is structural, `abc.ABC` is nominal |
+| Generics exist at runtime | parameters are erased: `list[int]` at runtime is just `list` |
+| `where T : IComparable<T>` | `def f[T: Comparable]` (PEP 695, 3.12+) |
+| The compiler rejects a type error | mypy or pyright finds it; the runtime lets it through |
+
+Before 3.12 type parameters were declared with `TypeVar` and `Generic[T]`. A type alias is `type Pair[T] = tuple[T, T]`; defaults for type parameters arrived in 3.13 (PEP 696).
+
+**Trade-offs**
+
+- Slots save memory on every object; across millions of small objects it is noticeable, but measure the gain (`tracemalloc`).
+- Deep hierarchies with `super()` along the MRO are hard to read. Composition and `Protocol` are usually simpler.
+
+**How to check in production**
+
+mypy `--strict` or pyright in `strict` mode in CI; `reveal_type(x)` shows the inferred type. At runtime types are checked only by explicit validation: Pydantic or `isinstance`.
+
+**Takeaway:** Python offers C#-level typing as an external tool on top of a dynamic object model — the guarantees hold exactly where the checker runs.
+
+</A>
+
+<Ex>
+
+```python
+from dataclasses import dataclass
+from typing import Protocol
+
+class Shape(Protocol):
+    def area(self) -> float: ...
+
+@dataclass(frozen=True, slots=True)
+class Rect:
+    w: float
+    h: float
+
+    def area(self) -> float:
+        return self.w * self.h
+
+class Circle:              # does not inherit Shape but matches its structure
+    def __init__(self, r: float) -> None:
+        self.r = r
+
+    @property
+    def diameter(self) -> float:  # computed attribute, no parentheses
+        return self.r * 2
+
+    def area(self) -> float:
+        return 3.14 * self.r ** 2
+
+def total(shapes: list[Shape]) -> float:
+    return sum(s.area() for s in shapes)
+
+print(Rect(2, 3), Rect(2, 3) == Rect(2, 3))  # Rect(w=2, h=3) True
+print(Circle(1).diameter)                    # 2
+print(total([Rect(2, 3), Circle(1)]))        # 9.14
+```
+
+</Ex>
+
+<Ex title="MRO and super()">
+
+```python
+class Base:
+    def save(self):
+        print("Base")
+
+class Audit(Base):
+    def save(self):
+        print("Audit")
+        super().save()     # the next class in the MRO, not necessarily the parent
+
+class Cache(Base):
+    def save(self):
+        print("Cache")
+        super().save()
+
+class Repo(Audit, Cache):
+    pass
+
+Repo().save()                              # Audit, Cache, Base
+print([c.__name__ for c in Repo.__mro__])  # ['Repo', 'Audit', 'Cache', 'Base', 'object']
+```
+
+</Ex>
+
+<Next>
+
+- How does `@classmethod` differ from `@staticmethod`? — The first receives the class `cls` and suits factories that work with inheritance; the second receives nothing.
+- Why can't you put an object with `__eq__` into a `set`? — Python resets `__hash__`; define it consistently with `__eq__` or use `frozen=True`.
+- How does `Protocol` differ from `abc.ABC`? — `Protocol` checks structure; `ABC` requires inheritance and prevents instantiation until abstract methods are implemented.
+- How does `super()` work with multiple inheritance? — It calls the next class in the instance's MRO, so every class in the chain must call `super()`.
+- What is `TypeVar`, and what replaced it in 3.12? — A type parameter for generics; 3.12 introduced the `def f[T]` and `class Box[T]` syntax.
+
+</Next>
+
+<Src>
+
+- [dataclasses — Data Classes](https://docs.python.org/3/library/dataclasses.html)
+- [typing — Support for type hints](https://docs.python.org/3/library/typing.html)
+- [Protocols and structural subtyping — mypy](https://mypy.readthedocs.io/en/stable/protocols.html)
+
+</Src>
+
+</Q>
+
+<Q id="python.lang.internals" level="s">
+
+## How does Python manage memory, and what is the GIL?
+
+<A short l="j">
+
+Python frees memory by itself: every object has a <T k="py-reference-counting">reference count</T>, and the object is deleted as soon as no references remain. The <T k="py-gil">GIL</T> is CPython's global interpreter lock: only one thread runs Python code at any moment, so threads do not speed up computation.
+
+</A>
+
+<A short l="m">
+
+CPython deletes an object the moment its reference count drops to zero, and a separate generational <T k="py-cyclic-gc">cycle collector</T> finds reference cycles. The GIL lets only one thread execute bytecode, so threads help while waiting on I/O, which releases the GIL, but not with computation. CPU-bound work is sped up with processes, NumPy or <T k="py-c-extension">C extensions</T> that release the GIL while they run.
+
+</A>
+
+<A short l="s">
+
+Reference counting gives deterministic deallocation but needs the counts protected from races — that is exactly the GIL's job, one lock for the whole interpreter. The <T k="py-free-threading">free-threaded build</T> (PEP 703) removes the GIL: experimental in 3.13, officially supported since 3.14, but still a separate build rather than the default in 3.15. The cost is a few percent on single-threaded code and the requirement that C extensions be marked as compatible, otherwise the GIL is turned back on. So the standard approach to CPU-bound work is still to move the hot loop into NumPy, a native extension or separate processes.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **Memory management.** You never free memory explicitly. Every object has a reference count: names, list elements, attributes. When it drops to zero, the object is deleted immediately.
+- **The GIL** (Global Interpreter Lock) is a lock in CPython, the standard Python implementation. Only one thread executes bytecode at any moment.
+
+**Why it matters**
+
+- Threads (`threading`) are useful for waiting: network, disk, database. While a thread waits, the GIL is free for others.
+- Threads do not speed up CPU-bound work. For that you use processes or C-backed libraries such as NumPy.
+
+**Common mistake**
+
+Running heavy computation in a `ThreadPoolExecutor` and expecting a speed-up proportional to the number of cores. With the GIL the time stays the same or even grows.
+
+**Takeaway:** reference counting frees memory, and the GIL lets only one thread at a time run Python code.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+1. Assignment, passing to a function and adding to a list increment an object's reference count; removing a reference decrements it.
+2. At zero, CPython immediately calls `__del__`, if there is one, and frees the memory.
+3. Reference counting does not free cycles (`a.peer = b`, `b.peer = a`). The `gc` module finds them: it periodically scans container objects across three generations and deletes unreachable groups.
+4. The thread holding the GIL hands it to waiting threads roughly every 5 ms (`sys.getswitchinterval()`) and always on blocking I/O.
+
+**When to choose what**
+
+| Workload | Solution |
+|---|---|
+| Waiting: HTTP, database, files | threads or asyncio |
+| Pure-Python computation | processes: `ProcessPoolExecutor` |
+| Numeric arrays | NumPy: the loop runs in C |
+| A heavy algorithmic core | a C extension, Cython, Rust via PyO3 |
+
+**Pitfalls**
+
+- **`is` for numbers and strings.** CPython caches integers from −5 to 256 and <T k="py-interning">interns</T> some strings, so `is` sometimes "works" for them. That is an implementation detail — compare values with `==`.
+- **The GIL does not make code thread-safe.** `counter += 1` is several bytecode instructions, and a thread can be switched out between them. You need a `threading.Lock`.
+- **Objects in a cycle** live until the collector runs, and when their `__del__` is called is unpredictable.
+
+**Rule of thumb**
+
+First find out what the task is bound by — waiting or CPU. A detailed comparison of threads, processes and asyncio is in [asyncio and FastAPI](/sobes/en/python/async-fastapi/).
+
+**Takeaway:** reference counting frees almost everything immediately, `gc` cleans up cycles, and the GIL limits the parallelism of Python code but not of I/O.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- Since 3.12 (PEP 683) `None`, `True`, small integers and other internal objects are immortal: their reference count never changes.
+- The GIL protects reference counts and the interpreter's internal structures with a single lock. That is cheap for single-threaded code and keeps C extensions simple.
+- The free-threaded build replaces the GIL with biased reference counting and per-object locks. Status: 3.13 — experimental, 3.14 — officially supported (PEP 779), 3.15 — still a separate `python3.15t` build. Importing a C extension that is not marked as supporting it turns the GIL back on.
+- The JIT compiler (PEP 744) arrived in 3.13 as experimental. Since 3.14 it ships in the official Windows and macOS builds, but you enable it manually (`PYTHON_JIT=1`), and it speeds code up by percent, not by multiples.
+
+**Cost**
+
+- Objects are heavy: `sys.getsizeof(1)` is 28 bytes, plus an 8-byte reference in a list. A NumPy array stores raw values contiguously.
+- The single-threaded overhead of the free-threaded build is, per the documentation, from about 1% to about 8% depending on the platform.
+- A pure-Python loop is often tens of times slower than its C# equivalent.
+
+**Trade-offs**
+
+- Processes bypass the GIL but pay for data serialization (pickle) and memory for an extra interpreter.
+- NumPy and many C extensions release the GIL inside heavy operations, so threads on top of them do scale.
+- `gc.freeze()` before `fork` removes existing objects from collector scans, so child processes share memory pages for longer.
+
+**How to check in production**
+
+- py-spy profiles a running process without a restart; the `--gil` flag keeps only threads holding the GIL.
+- `tracemalloc` shows where memory was allocated; `sys._is_gil_enabled()` (3.13+) tells whether the GIL is on.
+
+**Takeaway:** CPython pays for simple reference counting and the GIL with slow single-threaded code; you speed it up by moving the hot loop out of the interpreter, while free threading and the JIT so far change the picture only partly.
+
+</A>
+
+<Ex>
+
+```python
+import gc
+import sys
+
+data = []
+before = sys.getrefcount(data)
+alias = data                         # one more reference to the same object
+print(sys.getrefcount(data) - before)  # 1
+
+class Node:
+    def __init__(self):
+        self.peer = None
+
+a, b = Node(), Node()
+a.peer, b.peer = b, a                # a cycle: the counts never reach zero
+del a, b
+print(gc.collect() > 0)              # True: the cycle collector found the cycle
+
+print(int("256") is int("256"))      # True: small int cache from -5 to 256
+print(int("257") is int("257"))      # False: two different objects
+
+s1 = "".join(["py", "thon"])
+s2 = "".join(["py", "thon"])
+print(s1 == s2, s1 is s2)            # True False
+print(sys.intern(s1) is sys.intern(s2))  # True
+```
+
+</Ex>
+
+<Next>
+
+- Why does `counter += 1` across several threads lose increments even with the GIL? — It is several bytecode instructions, and a switch can happen between the read and the write.
+- When is an object that references itself freed? — Only when the cycle collector runs.
+- What changed about the GIL in Python 3.13–3.15? — The free-threaded build appeared: experimental in 3.13, officially supported since 3.14, but not the default.
+- Why is NumPy faster than a Python loop? — The loop runs in C over a contiguous array, without an object per element and without interpreter dispatch.
+- Does a thread release the GIL during `time.sleep` and a network call? — Yes, blocking calls release the GIL.
+
+</Next>
+
+<Src>
+
+- [gc — Garbage Collector interface](https://docs.python.org/3/library/gc.html)
+- [Python support for free threading](https://docs.python.org/3/howto/free-threading-python.html)
+- [PEP 703 — Making the Global Interpreter Lock Optional in CPython](https://peps.python.org/pep-0703/)
+
+</Src>
+
+</Q>

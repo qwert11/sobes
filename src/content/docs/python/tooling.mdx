@@ -1,0 +1,835 @@
+---
+title: Данные и инструменты
+description: pytest и фикстуры, окружения и зависимости (venv, pyproject.toml, uv, ruff), SQLAlchemy 2, миграции Alembic и настройки через pydantic-settings.
+sidebar:
+  order: 3
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+Инструменты вокруг кода на Python: тесты на pytest, окружения и зависимости, работа с базой через SQLAlchemy 2, миграции Alembic и настройки через pydantic-settings. Почти у всего есть аналог в .NET — xUnit, NuGet, EF Core, — и на собеседовании спрашивают именно о различиях.
+
+**Перед этой темой:** [Язык Python](/sobes/python/language/), [EF Core](/sobes/db/ef-core/).
+
+<Q id="python.tool.pytest" level="j">
+
+## Как писать тесты на pytest?
+
+<A short l="j">
+
+pytest — фреймворк тестов, в котором тест — обычная функция `test_...` с простым `assert`, а при падении pytest сам показывает, какие значения не совпали. Общую подготовку выносят в <T k="py-pytest-fixture">фикстуры</T> — функции, результат которых тест получает параметром с тем же именем.
+
+</A>
+
+<A short l="m">
+
+pytest находит файлы `test_*.py` и функции `test_*`, переписывает `assert` при импорте (<T k="py-assert-rewriting">assertion rewriting</T>) и внедряет фикстуры по именам параметров — это DI для тестов. Время жизни фикстуры задаёт `scope`: `function` по умолчанию, `module`, `session`; общие фикстуры кладут в <T k="py-conftest">conftest.py</T>, и они видны без импорта. Цена — неявность: связь с фикстурой видна только по имени параметра, а широкая область делит состояние между тестами.
+
+</A>
+
+<A short l="s">
+
+pytest строит граф фикстур по именам параметров, кеширует каждую в её области и закрывает в обратном порядке кодом после `yield`, так что фикстура заменяет и конструктор с `Dispose`, и `IClassFixture` из xUnit. Дорогие ресурсы, например engine и схему, делают `session`-фикстурой, а данные изолируют транзакцией, которую откатывают после каждого теста. Подмены — через <T k="py-monkeypatch">monkeypatch</T> или `unittest.mock` с `autospec`, причём патчат имя там, где его ищет тестируемый код. Тесты по умолчанию идут последовательно в одном процессе; параллельность даёт плагин pytest-xdist.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+pytest — самый распространённый фреймворк тестов в Python. Тест — функция с именем `test_...` в файле `test_*.py` или `*_test.py`, проверка — обычный `assert`.
+
+**Как пользоваться**
+
+1. Напишите функцию `test_parse_price`, а в ней `assert parse_price("$300") == 300`.
+2. Запустите `pytest` в корне проекта — он сам найдёт тесты.
+3. Исключение проверяйте блоком `with pytest.raises(ValueError):`.
+4. Один тест на много входов — <T k="parameterized-test">параметризация</T> `@pytest.mark.parametrize`, как `[Theory]` в xUnit.
+5. Подготовку выносите в фикстуру с `@pytest.fixture`. Готовые фикстуры: `tmp_path` — временный каталог, `monkeypatch` — временная подмена атрибутов и переменных окружения.
+
+**Частая ошибка**
+
+Назвать файл `prices_tests.py` или функцию `check_price`. pytest их не соберёт и напишет `no tests ran` — тест молча не выполняется.
+
+**Итог:** тест в pytest — функция `test_*` с `assert`, а подготовка приходит фикстурами по имени параметра.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+- **Сбор.** pytest ищет файлы `test_*.py`, в них — функции `test_*` и классы `Test*` без `__init__`.
+- **Assertion rewriting.** При импорте тестовых модулей pytest переписывает `assert`, поэтому в отчёте видны обе стороны сравнения. Методы вроде `Assert.Equal` не нужны.
+- **Фикстуры.** pytest читает имена параметров теста, находит фикстуры с такими именами и вызывает их, в том числе по цепочке. Код после `yield` — teardown.
+- **Области.** `scope` — сколько живёт результат: `function` (по умолчанию), `class`, `module`, `package`, `session`.
+- **conftest.py.** Фикстуры из него доступны тестам этого каталога и вложенных без импорта.
+
+**Сравнение с xUnit**
+
+| xUnit | pytest |
+|---|---|
+| `[Fact]` | функция `test_*` |
+| `[Theory]` и `[InlineData]` | `@pytest.mark.parametrize` |
+| конструктор и `Dispose` | фикстура с `yield` |
+| `IClassFixture`, `ICollectionFixture` | фикстура `module` или `session` в `conftest.py` |
+
+**Ловушки**
+
+- Широкая фикстура не может зависеть от узкой: `session`-фикстура с `monkeypatch` упадёт с `ScopeMismatch`.
+- Изменяемый объект из `module`-фикстуры общий: один тест портит данные другому.
+- `mock.patch("requests.get")` не подменит имя, уже импортированное через `from requests import get`. Патчат там, где имя ищет тестируемый код.
+
+**Правило**
+
+Область по умолчанию — `function`. Шире — только для дорогого и неизменяемого.
+
+**Итог:** pytest — это DI для тестов: фикстуры по именам, их время жизни задаёт `scope`.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- Фикстуры образуют граф. pytest создаёт каждую при первом запросе в её области, кеширует и закрывает в обратном порядке при выходе из области.
+- Фикстура с `params=[...]` размножает все зависящие от неё тесты — так один набор тестов гоняют на двух СУБД.
+- `monkeypatch` и `mock.patch` меняют атрибут модуля или класса и возвращают его в teardown. Для `session`-фикстур есть `pytest.MonkeyPatch.context()`.
+
+**Цена**
+
+- Связь с фикстурой — только имя параметра. Откуда она, показывает `pytest --fixtures`.
+- `autouse=True` применяет фикстуру ко всем тестам области незаметно для читателя — такие фикстуры держат минимальными.
+
+**Компромиссы**
+
+- **База.** Engine и схема — `session`-фикстура, а сессия теста — `Session(bind=connection, join_transaction_mode="create_savepoint")` внутри транзакции, которую фикстура откатывает. Быстрее пересоздания базы, но `commit()` кода становится точкой сохранения.
+- **Моки.** `create_autospec` проверяет сигнатуры, голый `Mock` принимает любой вызов и прячет опечатки. Чем больше моков, тем сильнее тест привязан к реализации.
+- **Параллельность.** pytest-xdist (`-n auto`) запускает несколько процессов, общие ресурсы разделяют по фикстуре `worker_id`.
+
+**Как проверить в проде**
+
+В CI — `strict = true` в настройках (pytest 9+), отчёт `--junitxml` и `--durations=10` для самых медленных тестов. Зависимость тестов от порядка находит плагин pytest-randomly.
+
+**Итог:** фикстуры — граф с временем жизни: узкая область даёт изоляцию, широкая — скорость, а откат транзакции на тест совмещает оба.
+
+</A>
+
+<Ex>
+
+```python
+# test_prices.py — запуск: pytest -v
+import pytest
+
+
+def parse_price(text: str) -> int:
+    digits = "".join(ch for ch in text if ch.isdigit())
+    if not digits:
+        raise ValueError(f"no price in {text!r}")
+    return int(digits)
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [("12 500 UAH", 12500), ("$300", 300)],
+    ids=["uah", "usd"],
+)
+def test_parse_price(text, expected):
+    assert parse_price(text) == expected  # два теста: [uah] и [usd]
+
+
+def test_parse_price_without_digits():
+    with pytest.raises(ValueError, match="no price"):
+        parse_price("negotiable")
+```
+
+</Ex>
+
+<Ex title="Фикстура с областью и tmp_path">
+
+```python
+import json
+import sqlite3
+
+import pytest
+
+
+@pytest.fixture(scope="module")
+def db():
+    conn = sqlite3.connect(":memory:")  # одно соединение на все тесты модуля
+    conn.execute("CREATE TABLE ads (id INTEGER PRIMARY KEY, price INTEGER)")
+    yield conn  # здесь выполняются тесты
+    conn.close()  # teardown — после последнего теста модуля
+
+
+def export_ads(conn, path):
+    rows = conn.execute("SELECT id, price FROM ads ORDER BY id").fetchall()
+    path.write_text(json.dumps(rows), encoding="utf-8")
+
+
+def test_export(db, tmp_path):  # tmp_path — свой каталог у каждого теста
+    db.execute("INSERT INTO ads (price) VALUES (12500)")
+    out = tmp_path / "ads.json"
+    export_ads(db, out)
+    assert json.loads(out.read_text(encoding="utf-8")) == [[1, 12500]]
+```
+
+</Ex>
+
+<Ex title="monkeypatch и unittest.mock">
+
+```python
+from unittest.mock import create_autospec
+
+
+class AdSource:
+    def fetch(self, page: int) -> list[dict]:
+        raise RuntimeError("network is not allowed in tests")
+
+
+def count_cheap(source: AdSource, limit: int) -> int:
+    return sum(1 for ad in source.fetch(page=1) if ad["price"] <= limit)
+
+
+def test_with_monkeypatch(monkeypatch):
+    # подмена атрибута только на время теста
+    monkeypatch.setattr(AdSource, "fetch", lambda self, page: [{"price": 100}, {"price": 900}])
+    assert count_cheap(AdSource(), limit=500) == 1
+
+
+def test_with_mock():
+    source = create_autospec(AdSource, instance=True)  # сигнатуры как у настоящего класса
+    source.fetch.return_value = [{"price": 100}]
+    assert count_cheap(source, limit=500) == 1
+    source.fetch.assert_called_once_with(page=1)
+```
+
+</Ex>
+
+<Next>
+
+- Как pytest находит тесты? — Файлы `test_*.py` или `*_test.py`, в них функции `test_*` и классы `Test*` без `__init__`.
+- Чем фикстура лучше `setUp`? — Подключается по имени только туда, где нужна, комбинируется с другими и сама делает teardown после `yield`.
+- Что будет, если `session`-фикстура попросит `tmp_path`? — `ScopeMismatch`: широкая область не зависит от узкой; для неё есть `tmp_path_factory`.
+- Где патчить функцию через `mock.patch`? — В модуле, где её ищет тестируемый код, а не там, где она объявлена.
+- Как запустить тесты параллельно? — Плагином pytest-xdist: `pytest -n auto`.
+
+</Next>
+
+<Src>
+
+- [How to use fixtures — pytest](https://docs.pytest.org/en/stable/how-to/fixtures.html)
+- [How to parametrize fixtures and test functions — pytest](https://docs.pytest.org/en/stable/how-to/parametrize.html)
+- [unittest.mock — документация Python](https://docs.python.org/3/library/unittest.mock.html)
+
+</Src>
+
+</Q>
+
+<Q id="python.tool.packaging" level="m">
+
+## Как управлять окружениями и зависимостями в Python-проекте?
+
+<A short l="j">
+
+<T k="py-venv">Виртуальное окружение</T> (venv) — отдельная папка с интерпретатором и пакетами одного проекта, чтобы версии библиотек разных проектов не конфликтовали. Зависимости описывают в <T k="py-pyproject-toml">pyproject.toml</T>, а ставят их сегодня чаще всего через <T k="py-uv">uv</T>: `uv add sqlalchemy`, затем `uv run pytest`.
+
+</A>
+
+<A short l="m">
+
+В отличие от NuGet, пакеты Python устанавливаются внутрь окружения, и интерпретатор видит всё, что там лежит, поэтому на проект — свой `.venv`. Прямые зависимости с диапазонами версий описывает таблица `[project]` в `pyproject.toml` (PEP 621), а точные версии всего графа фиксирует <T k="py-lock-file">lock-файл</T>: `uv.lock`, `poetry.lock` или `requirements.txt` от pip-tools. Компилятора нет, поэтому его работу в CI делают <T k="py-ruff">ruff</T> и <T k="py-type-checker">проверка типов</T> mypy или pyright.
+
+</A>
+
+<A short l="s">
+
+Цель — воспроизводимость: одинаковый граф пакетов у разработчика, в CI и в Docker-образе. У приложения это закоммиченный lock и `uv sync --locked` в CI, который падает, если lock разошёлся с `pyproject.toml`; у библиотеки — только широкие диапазоны. uv в 2026 году — самый частый выбор для новых проектов, но он ещё 0.x, а в марте 2026 года OpenAI объявила о покупке его разработчика Astral. Поэтому опираются на стандарты — PEP 621, PEP 735, `pylock.toml` из PEP 751, — чтобы инструмент можно было сменить.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+- **venv** — папка, обычно `.venv`, со ссылкой на интерпретатор и своими пакетами. Активированное окружение подменяет `python` и `pip` в терминале.
+- **pyproject.toml** — файл проекта: имя, версия, нужная версия Python, зависимости, настройки инструментов. Аналог `.csproj`.
+
+**Зачем**
+
+Глобальный `pip install` ставит пакет на всю систему, и два проекта с разными версиями SQLAlchemy там не уживутся. Системный Python в Debian и Ubuntu такую установку вообще запрещает: `externally-managed-environment`.
+
+**Как пользоваться**
+
+1. `uv init` создаёт `pyproject.toml`.
+2. `uv add sqlalchemy` добавляет зависимость, создаёт `.venv` и `uv.lock`.
+3. `uv run pytest` запускает команду внутри окружения проекта.
+4. `.venv` в git не коммитят, `uv.lock` — коммитят.
+
+**Частая ошибка**
+
+Поставить пакет через `pip install`, не записав его в `pyproject.toml`. У коллеги и в CI проект не запустится.
+
+**Итог:** на проект — своё окружение, зависимости — в `pyproject.toml`, точные версии — в lock-файле.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+| .NET | Python |
+|---|---|
+| `.csproj` с `PackageReference` | `pyproject.toml`, таблица `[project]` |
+| `packages.lock.json` | `uv.lock`, `poetry.lock`, `requirements.txt` с `==` |
+| `dotnet restore` | `uv sync` |
+| анализаторы и предупреждения компилятора | ruff, mypy или pyright |
+
+- `dependencies` — прямые зависимости с диапазонами. Инструменты разработки — в `[dependency-groups]` (PEP 735), в пакет они не попадают.
+- Lock фиксирует точные версии и хеши всех <T k="transitive-dependency">транзитивных зависимостей</T>.
+- `uv run` перед запуском сам обновляет lock и синхронизирует окружение.
+
+**Когда что выбирать**
+
+| Инструмент | Когда |
+|---|---|
+| uv | новый проект: окружения, lock, версии Python, утилиты |
+| Poetry | проект уже на нём; с версии 2.0 понимает `[project]` |
+| pip-tools | минимум: `pip-compile` закрепляет `requirements.in` в `requirements.txt` |
+
+**Ловушки**
+
+- `requirements.txt` с диапазонами — не lock: сборка через месяц получит другие пакеты.
+- `ruff check` — линтер, замена flake8 и isort; `ruff format` — форматтер, замена Black. В CI нужны обе команды.
+- Интерпретатор аннотации типов не проверяет. Без mypy или pyright в CI ошибка типа доживёт до продакшена.
+
+**Правило**
+
+Приложение: диапазоны в `pyproject.toml`, lock в git, `uv sync --locked` в CI.
+
+**Итог:** `pyproject.toml` — это `.csproj`, lock-файл — `packages.lock.json`, а uv — `dotnet restore` и `dotnet run` в одном.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- uv — один бинарник на Rust. Lock у него универсальный: граф разрешается сразу для всех платформ, и один `uv.lock` годится и для Windows, и для Linux-образа.
+- Пакеты лежат в глобальном кеше, а в `.venv` попадают жёсткими ссылками или копиями, поэтому окружение создаётся за секунды.
+- `uv python install` ставит нужную версию интерпретатора, `uvx` запускает утилиту во временном окружении.
+
+**Цена**
+
+- `uv.lock` — собственный формат uv. Стандартный `pylock.toml` (PEP 751) uv умеет экспортировать.
+- uv ещё 0.x, и в марте 2026 года OpenAI объявила о покупке Astral. Инструменты обещают оставить open source, но зависимость от одного вендора — довод держаться стандартных таблиц `pyproject.toml`.
+
+**Компромиссы**
+
+- **Приложение или библиотека.** Приложению нужен lock. Библиотеке — широкие диапазоны: узкий диапазон ломает потребителю разрешение зависимостей.
+- **Строгость типов.** `mypy --strict` окупается на новом коде, на старом её включают по модулям. ty от Astral в 2026 году ещё бета.
+- **Правила ruff.** Широкий `select` ловит больше, но обновление ruff приносит новые предупреждения, поэтому его версию закрепляют в lock.
+
+**Как проверить в проде**
+
+- CI: `uv sync --locked`, `ruff check`, `ruff format --check`, mypy, pytest.
+- Docker-образ собирают из lock командой `uv sync --locked --no-dev`, а не `pip install` по диапазонам.
+- pip-audit или Dependabot по lock-файлу находят уязвимые версии.
+
+**Итог:** воспроизводимость держится на lock-файле и `--locked` в CI, а стандартный `pyproject.toml` оставляет свободу сменить инструмент.
+
+</A>
+
+<Ex>
+
+```toml
+[project]
+name = "ads-parser"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [  # прямые зависимости с диапазонами версий
+    "sqlalchemy>=2.0",
+    "alembic>=1.16",
+    "psycopg[binary]>=3.2",
+    "pydantic-settings>=2.6",
+    "typer>=0.15",
+]
+
+[dependency-groups]
+dev = ["pytest>=9", "ruff", "mypy"]  # PEP 735: в пакет не попадают
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]  # pycodestyle, pyflakes, isort, bugbear, pyupgrade
+
+[tool.mypy]
+strict = true
+
+[tool.pytest]  # нативная TOML-таблица, pytest 9+
+testpaths = ["tests"]
+```
+
+</Ex>
+
+<Ex title="Команды uv">
+
+```bash
+uv init ads-parser && cd ads-parser          # pyproject.toml, .python-version, src/, git
+uv add sqlalchemy alembic "psycopg[binary]"  # [project].dependencies, uv.lock и .venv
+uv add --dev pytest ruff mypy                # группа dev в [dependency-groups]
+uv run pytest                                # перед запуском lock и sync — автоматически
+
+# CI: падает, если uv.lock не соответствует pyproject.toml
+uv sync --locked
+# error: The lockfile at `uv.lock` needs to be updated, but `--locked` was provided.
+uv run ruff check && uv run ruff format --check && uv run mypy src
+
+uv export --format pylock.toml -o pylock.toml  # стандартный lock (PEP 751)
+```
+
+</Ex>
+
+<Next>
+
+- Зачем venv, если есть `pip install --user`? — Пакеты всё равно общие для всех проектов пользователя, версии конфликтуют.
+- Чем `uv sync --locked` отличается от `--frozen`? — `--locked` падает, если lock устарел; `--frozen` берёт lock как есть, не сверяя с `pyproject.toml`.
+- Нужен ли lock-файл библиотеке? — Для её CI полезен, но потребителю не передаётся; в метаданных пакета — только диапазоны.
+- Что заменяет ruff? — Линтеры flake8 с плагинами, isort и pyupgrade, а `ruff format` — Black.
+- Почему mypy, если код и так запускается? — Python не проверяет аннотации; ошибку типа без проверки в CI найдёт только продакшен.
+
+</Next>
+
+<Src>
+
+- [Writing your pyproject.toml — Python Packaging User Guide](https://packaging.python.org/en/latest/guides/writing-pyproject-toml/)
+- [Locking and syncing — uv](https://docs.astral.sh/uv/concepts/projects/sync/)
+- [Ruff](https://docs.astral.sh/ruff/)
+
+</Src>
+
+</Q>
+
+<Q id="python.tool.sqlalchemy" level="m">
+
+## Как работать с базой через SQLAlchemy 2?
+
+<A short l="j">
+
+SQLAlchemy — библиотека для работы с базой в Python, аналог EF Core: таблицы описывают классами с `Mapped[...]`, запросы строят функцией `select()`, а объекты читают и сохраняют через <T k="py-sa-session">`Session`</T>. Сессия копит изменения и отправляет их в базу при `commit()`, как `SaveChanges`.
+
+</A>
+
+<A short l="m">
+
+<T k="py-sa-engine">`Engine`</T> — пул соединений на процесс, а `Session` — <T k="unit-of-work">единица работы</T> с <T k="py-identity-map">identity map</T>: она отслеживает загруженные объекты и сама строит `INSERT` и `UPDATE`. Связи по умолчанию грузятся <T k="lazy-loading">лениво</T>, отдельным запросом при первом обращении, отсюда <T k="n-plus-one">N+1</T>; лечится опцией `selectinload` или `joinedload` в запросе. Цена удобства ORM — накладные расходы на объекты, поэтому массовые вставки и upsert пишут на <T k="py-sa-core">Core</T>.
+
+</A>
+
+<A short l="s">
+
+SQLAlchemy 2 — два уровня: Core генерирует SQL и работает с соединениями, ORM поверх него даёт единицу работы и identity map. В отличие от EF Core, ленивая загрузка включена по умолчанию, а после `commit()` атрибуты объектов истекают и перечитываются следующим обращением. В async-коде такой неявный запрос падает с `MissingGreenlet`, поэтому связи грузят <T k="eager-loading">жадно</T>, а `lazy="raise"` превращает N+1 из тихого замедления в ошибку. Цена гибкости — больше явных решений: границы транзакций, стратегия загрузки, когда спускаться на Core.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+SQLAlchemy — <T k="orm">ORM</T> для Python. Версия 2.0 вышла в 2023 году и поменяла стиль API, в октябре 2026 года актуальна 2.1.
+
+**Как пользоваться**
+
+1. Создайте `Engine`: `create_engine("postgresql+psycopg://user:pass@host/db")`. Он один на приложение.
+2. Опишите модель: класс от `DeclarativeBase`, поля — `Mapped[int]` и `mapped_column(...)`. Тип `Mapped[str | None]` даёт колонку, допускающую `NULL`.
+3. Откройте сессию: `with Session(engine) as session:`.
+4. Читайте: `session.scalars(select(Ad).where(Ad.price > 1000))`.
+5. Пишите: `session.add(ad)`, затем `session.commit()`.
+
+**Частая ошибка**
+
+Писать запросы в старом стиле `session.query(Ad).filter(...)`. Он ещё работает, но считается legacy; новый код пишут через `select()`.
+
+**Итог:** `Engine` — подключение, модель — класс с `Mapped`, `Session` — работа с объектами, `select()` — запросы.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+1. `Session` берёт соединение из пула `Engine` при первом запросе и сама открывает транзакцию (autobegin).
+2. Загруженные объекты попадают в identity map: одна строка — один объект, повторный `session.get(Ad, 1)` в базу не ходит.
+3. Изменения копятся. Перед запросом (autoflush) и при `commit()` сессия делает flush — отправляет `INSERT`, `UPDATE` и `DELETE` в порядке зависимостей.
+4. После `commit()` атрибуты объектов истекают и перечитываются при следующем обращении.
+
+**SQLAlchemy и EF Core**
+
+| SQLAlchemy | EF Core |
+|---|---|
+| `Session` | `DbContext` |
+| `session.commit()` | `SaveChanges()` |
+| `select(Ad).where(...)` | LINQ `Where` |
+| `joinedload` | `Include` |
+| `selectinload` | `Include` и `AsSplitQuery` |
+| ленивая загрузка по умолчанию | только с `UseLazyLoadingProxies` |
+
+**Ловушки**
+
+- **N+1.** Обращение к `seller.ads` в цикле — запрос на каждого продавца. `selectinload` даёт второй запрос с `IN`, `joinedload` — `JOIN`; для коллекций обычно берут `selectinload`.
+- **`joinedload` коллекции** дублирует строки родителя, поэтому результат требует `.unique()`, иначе `InvalidRequestError`.
+- **Сессия на всё приложение** растит identity map и держит транзакцию открытой. Сессия — на единицу работы: запрос, задачу, пачку объявлений.
+
+**Правило**
+
+Один `Engine` на процесс, одна `Session` на единицу работы, `session.begin()` для явной границы транзакции, стратегия загрузки — в самом запросе.
+
+**Итог:** `Session` — это `DbContext` с identity map, но ленивая загрузка в нём включена по умолчанию.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- Core — уровень SQL: `Table`, `select()`, `insert()`, `Connection`. ORM переводит запросы к классам в те же конструкции, поэтому `select()` общий для обоих уровней.
+- `Engine` держит `QueuePool`: по умолчанию 5 соединений и ещё до 10 сверх них. `pool_pre_ping=True` проверяет соединение перед выдачей.
+- `AsyncSession` работает поверх того же синхронного ядра через greenlet. В 2.1 greenlet не ставится по умолчанию, нужен пакет `sqlalchemy[asyncio]`.
+
+**Цена**
+
+- ORM-объект дороже строки: identity map, история изменений, события. Тысячи объявлений быстрее вставить через Core: `session.execute(insert(Ad), rows)` или upsert `postgresql.insert(...).on_conflict_do_update(...)`.
+- Неявный запрос в async-коде — ленивая связь или истёкший атрибут — падает с `MissingGreenlet`. Поэтому там берут `expire_on_commit=False` и грузят связи жадно.
+
+**Компромиссы**
+
+- `lazy="raise"` на связи или `raiseload("*")` в запросе делают случайный N+1 исключением. Строже, но каждый запрос сам заказывает связи.
+- `expire_on_commit=False` убирает лишние запросы после коммита, но объект может показывать устаревшие данные.
+- Одна `AsyncSession` не годится для параллельных задач `asyncio.gather`: каждой задаче — своя сессия.
+
+**Как проверить в проде**
+
+- `echo=True` или логгер `sqlalchemy.engine` показывают каждый SQL, а в тестах число запросов считают событием `before_cursor_execute`.
+- В PostgreSQL `pg_stat_statements` выдаёт N+1 тысячами одинаковых коротких запросов.
+- Ошибка `QueuePool limit ... reached` — признак сессий, которые не закрываются.
+
+**Итог:** ORM — удобная единица работы поверх Core; в горячих местах спускаются на Core, а ленивую загрузку держат под контролем через `selectinload` и `raiseload`.
+
+</A>
+
+<Ex title="Модели">
+
+```python
+from sqlalchemy import ForeignKey, create_engine, select
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class Seller(Base):
+    __tablename__ = "sellers"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str]  # NOT NULL: тип без None
+    ads: Mapped[list["Ad"]] = relationship(back_populates="seller")
+
+
+class Ad(Base):
+    __tablename__ = "ads"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str]
+    price: Mapped[int | None]  # NULL разрешён
+    seller_id: Mapped[int] = mapped_column(ForeignKey("sellers.id"))
+    seller: Mapped[Seller] = relationship(back_populates="ads")
+
+
+engine = create_engine("sqlite://")  # в проекте: "postgresql+psycopg://..."
+Base.metadata.create_all(engine)  # в проекте схему создаёт Alembic
+```
+
+</Ex>
+
+<Ex title="Сессия, запросы и загрузка связей">
+
+```python
+# Продолжение: модели и engine из предыдущего примера
+from sqlalchemy.orm import selectinload
+
+with Session(engine) as session, session.begin():  # commit на выходе, rollback при исключении
+    session.add(
+        Seller(name="Olga", ads=[Ad(title="Bike", price=5000), Ad(title="Lamp", price=None)])
+    )
+
+with Session(engine) as session:
+    stmt = select(Ad).where(Ad.price > 1000).order_by(Ad.title)
+    print([ad.title for ad in session.scalars(stmt)])  # ['Bike']
+
+    stmt = select(Seller).options(selectinload(Seller.ads))  # 2 запроса вместо 1 + N
+    for seller in session.scalars(stmt):
+        print(seller.name, [ad.title for ad in seller.ads])  # Olga ['Bike', 'Lamp']
+
+    seller = session.get(Seller, 1)  # объект уже в identity map — без запроса
+    seller.name = "Olga K."  # изменение отслеживается
+    session.commit()  # flush: UPDATE sellers SET name=... и COMMIT
+```
+
+</Ex>
+
+<Ex l="s" title="AsyncSession">
+
+```python
+# Модели и импорты из предыдущих примеров; пакеты: sqlalchemy[asyncio], aiosqlite
+import asyncio
+
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+
+async def main() -> None:
+    engine = create_async_engine("sqlite+aiosqlite://")  # в проекте: "postgresql+asyncpg://..."
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    new_session = async_sessionmaker(engine, expire_on_commit=False)
+    async with new_session() as session, session.begin():
+        session.add(Seller(name="Olga", ads=[Ad(title="Bike", price=5000)]))
+
+    async with new_session() as session:
+        stmt = select(Seller).options(selectinload(Seller.ads))  # связи — только жадно
+        seller = await session.scalar(stmt)
+        print([ad.title for ad in seller.ads])  # ['Bike']; без selectinload — MissingGreenlet
+    await engine.dispose()
+
+
+asyncio.run(main())
+```
+
+</Ex>
+
+<Next>
+
+- Чем `session.flush()` отличается от `commit()`? — flush отправляет SQL внутри текущей транзакции, `commit()` делает flush и фиксирует транзакцию.
+- Откуда лишний `SELECT` после `commit()`? — `expire_on_commit=True`: атрибуты истекли и перечитываются при обращении.
+- `selectinload` или `joinedload`? — Для коллекций — `selectinload`, для связи «многие к одному» — `joinedload`.
+- Что значит `MissingGreenlet`? — Неявный ввод-вывод в async-коде: ленивая связь или истёкший атрибут; связи грузят жадно.
+- Когда спускаться на Core? — Массовые вставки и upsert, отчётные запросы — всё, где объекты и отслеживание не нужны.
+
+</Next>
+
+<Src>
+
+- [ORM Quick Start — SQLAlchemy 2.1](https://docs.sqlalchemy.org/en/21/orm/quickstart.html)
+- [Relationship Loading Techniques — SQLAlchemy 2.1](https://docs.sqlalchemy.org/en/21/orm/queryguide/relationships.html)
+- [Asynchronous I/O (asyncio) — SQLAlchemy 2.1](https://docs.sqlalchemy.org/en/21/orm/extensions/asyncio.html)
+
+</Src>
+
+</Q>
+
+<Q id="python.tool.migrations-config" level="s">
+
+## Как вести миграции и конфигурацию в продакшене: Alembic и pydantic-settings?
+
+<A short l="j">
+
+<T k="py-alembic">Alembic</T> — инструмент миграций для SQLAlchemy, аналог EF-миграций: `alembic revision --autogenerate` создаёт файл миграции по разнице моделей и базы, `alembic upgrade head` применяет его. Настройки вроде строки подключения читают из переменных окружения и файла `.env` через <T k="py-pydantic-settings">pydantic-settings</T>, а не хранят в коде.
+
+</A>
+
+<A short l="m">
+
+Миграция Alembic — <T k="py-alembic-revision">ревизия</T>: Python-файл с `upgrade()`, `downgrade()` и ссылкой на предыдущую ревизию, а применённую версию база хранит в таблице `alembic_version`. <T k="py-autogenerate">Autogenerate</T> сравнивает модели с базой, но переименование колонки видит как удаление и добавление, поэтому каждую миграцию читают на ревью. pydantic-settings собирает настройки из окружения, `.env` и значений по умолчанию и проверяет типы при старте, а секреты держит в `SecretStr`.
+
+</A>
+
+<A short l="s">
+
+Миграция — код, который выполняется на продакшен-данных, поэтому autogenerate — только черновик: ревью, имена ограничений через <T k="py-naming-convention">naming convention</T>, данные — через снимок `sa.table()`, а не через ORM-модели. Две ветки разработки дают две head-ревизии, и `upgrade head` падает, пока их не сведёт <T k="py-merge-revision">merge-ревизия</T>; CI проверяет одну head и пустой `alembic check`. Схему меняют по <T k="expand-contract">expand/contract</T>, а настройки валидируют один раз при старте, чтобы неверное окружение роняло процесс сразу, а не посреди обхода.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+- **Миграция** — файл, который переводит схему базы на следующую версию: добавить таблицу, колонку, индекс.
+- **Alembic** — инструмент миграций от авторов SQLAlchemy. Миграции образуют цепочку: каждая знает предыдущую.
+- **pydantic-settings** — класс настроек, поля которого заполняются из переменных окружения и файла `.env`.
+
+**Как пользоваться**
+
+1. `alembic init migrations` создаёт каталог миграций и `env.py`.
+2. В `env.py` укажите `target_metadata = Base.metadata` — так Alembic видит модели.
+3. Изменили модель — выполните `alembic revision --autogenerate -m "add price"`.
+4. Прочитайте сгенерированный файл и примените его: `alembic upgrade head`.
+5. Строку подключения в `env.py` берите из `Settings`, а не пишите в `alembic.ini`.
+
+**Частая ошибка**
+
+Закоммитить `.env` с паролем. В репозиторий кладут `.env.example` без секретов, а `.env` добавляют в `.gitignore`.
+
+**Итог:** схему меняют миграциями Alembic, а настройки и секреты приходят из окружения.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+1. Ревизия — файл с `revision`, `down_revision`, `upgrade()` и `downgrade()`. Цепочка `down_revision` задаёт порядок.
+2. `alembic upgrade head` читает версию из `alembic_version` и выполняет недостающие ревизии.
+3. Autogenerate сравнивает `Base.metadata` с базой и пишет черновик: `op.add_column`, `op.create_index`.
+
+**Чего autogenerate не видит**
+
+| Изменение | Что получится |
+|---|---|
+| Переименование таблицы или колонки | удаление и добавление — данные пропадут |
+| Ограничение без имени | не отслеживается |
+| `server_default` | не сравнивается без `compare_server_default` |
+
+**Как читаются настройки**
+
+Источники по убыванию приоритета: аргументы конструктора, переменные окружения, `.env`, каталог секретов, значения по умолчанию. Имена переменных нечувствительны к регистру, `env_prefix` отделяет свои переменные от чужих, строки приводятся к типам полей.
+
+**Ловушки**
+
+- Ограничению без имени имя даёт база, и autogenerate не сгенерирует его удаление. Задайте `naming_convention` в `MetaData`.
+- По умолчанию `extra="forbid"`: неизвестная строка в `.env`, даже чужая без префикса, роняет старт с `ValidationError`.
+- `downgrade()` с `drop_column` не возвращает данные, а удаляет их.
+
+**Правило**
+
+Каждую сгенерированную миграцию читают и прогоняют в CI `upgrade`, `downgrade` и снова `upgrade`.
+
+**Итог:** autogenerate пишет черновик, который читает человек, а настройки — типизированный класс, проверенный при старте.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- Ревизии образуют граф. Две ветки от одной ревизии дают две head, и `upgrade head` падает с `Multiple head revisions are present`. `alembic merge heads` создаёт ревизию с двумя родителями в `down_revision`.
+- DDL в PostgreSQL транзакционный: по умолчанию весь `upgrade` — одна транзакция. `CREATE INDEX CONCURRENTLY` в транзакции запрещён, его оборачивают в `op.get_context().autocommit_block()`.
+- `alembic upgrade head --sql` выводит SQL без подключения — для ревью или ручного применения.
+
+**Компромиссы**
+
+- **Данные в миграциях.** Небольшие правки — `op.execute` над снимком `sa.table()`: ORM-модель через полгода не совпадёт со схемой этой ревизии. Backfill большой таблицы — отдельной задачей пакетами.
+- **Онлайн-изменения.** Переименование под нагрузкой — expand/contract на несколько релизов, подробно в теме [Проектирование и эксплуатация](/sobes/db/design/).
+- **Запуск.** Защиты от одновременного запуска у Alembic нет, поэтому миграции применяют отдельным шагом деплоя, а не при старте каждой реплики.
+
+**Секреты и CLI**
+
+- `SecretStr` скрывает значение в `repr` и логах, настоящее — через `get_secret_value()`.
+- В продакшене секреты приходят переменными окружения или файлами из `secrets_dir`, а не из `.env`. Окружение всегда приоритетнее `.env`.
+- Команды CLI на Typer — функции с аннотациями типов. Настройки читают внутри команды, чтобы `--help` работал без окружения.
+
+**Как проверить в проде**
+
+- CI: одна head в `alembic heads`, пустой `alembic check`, цикл `upgrade` — `downgrade` — `upgrade`.
+- Версия базы: `SELECT version_num FROM alembic_version` против head релиза.
+
+**Итог:** миграция — код для продакшен-данных: ревью, именованные ограничения, одна head; настройки проверяются при старте, секреты приходят из окружения.
+
+</A>
+
+<Ex title="Миграция с данными и индексом">
+
+```python
+"""add ads.price_uah
+
+Revision ID: b7e1f2a3c4d5
+Revises: 4c288caa5ad9
+"""
+
+import sqlalchemy as sa
+from alembic import op
+
+revision = "b7e1f2a3c4d5"
+down_revision = "4c288caa5ad9"
+
+# Снимок таблицы на момент миграции, а не импорт ORM-модели: модель будет меняться дальше
+ads = sa.table("ads", sa.column("price", sa.Integer), sa.column("price_uah", sa.Integer))
+
+
+def upgrade() -> None:
+    op.add_column("ads", sa.Column("price_uah", sa.Integer(), nullable=True))  # expand
+    op.execute(ads.update().values(price_uah=ads.c.price))  # данные; большие таблицы — пакетами
+    # PostgreSQL: CREATE INDEX CONCURRENTLY нельзя выполнять внутри транзакции
+    with op.get_context().autocommit_block():
+        op.create_index("ix_ads_price_uah", "ads", ["price_uah"], postgresql_concurrently=True)
+
+
+def downgrade() -> None:
+    with op.get_context().autocommit_block():
+        op.drop_index("ix_ads_price_uah", table_name="ads", postgresql_concurrently=True)
+    op.drop_column("ads", "price_uah")
+```
+
+`alembic upgrade head --sql` для PostgreSQL покажет `COMMIT` перед `CREATE INDEX CONCURRENTLY` и новую транзакцию после него.
+
+</Ex>
+
+<Ex title="Настройки и CLI">
+
+```python
+from typing import Annotated
+
+import typer
+from pydantic import SecretStr
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="PARSER_", env_file=".env")
+
+    db_url: SecretStr  # обязательна: без неё — ValidationError при старте
+    pages: int = 5  # PARSER_PAGES=10 → 10: строка из окружения приводится к int
+
+
+app = typer.Typer()
+
+
+@app.command()
+def crawl(pages: Annotated[int | None, typer.Option(help="Override PARSER_PAGES")] = None) -> None:
+    settings = Settings()  # окружение + .env, проверка один раз при запуске команды
+    typer.echo(f"pages={pages or settings.pages} db={settings.db_url}")
+
+
+if __name__ == "__main__":
+    app()
+
+# $ PARSER_DB_URL=postgresql+psycopg://app:pw@db/ads python cli.py --pages 2
+# pages=2 db=**********
+```
+
+</Ex>
+
+<Next>
+
+- Почему autogenerate превратил переименование в удаление колонки? — Он сравнивает только имена; переименование пишут руками через `op.alter_column(..., new_column_name=...)`.
+- Что делать с двумя head после слияния веток? — `alembic merge heads`, а в CI — проверка, что head одна.
+- Почему в миграции нельзя импортировать ORM-модели? — Модель отражает текущую схему, а миграция — схему на свой момент; через полгода они разойдутся.
+- Чем опасен `config.set_main_option("sqlalchemy.url", url)`? — Значение проходит интерполяцию ConfigParser: `%` в пароле нужно удваивать; проще создать engine в `env.py` из настроек.
+- Что приоритетнее: переменная окружения или `.env`? — Переменная окружения; `.env` — запасной источник для разработки.
+
+</Next>
+
+<Src>
+
+- [Auto Generating Migrations — Alembic](https://alembic.sqlalchemy.org/en/latest/autogenerate.html)
+- [Working with Branches — Alembic](https://alembic.sqlalchemy.org/en/latest/branches.html)
+- [Settings Management — Pydantic](https://pydantic.dev/docs/validation/latest/concepts/pydantic_settings/)
+
+</Src>
+
+</Q>

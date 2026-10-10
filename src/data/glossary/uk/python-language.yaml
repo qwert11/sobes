@@ -1,0 +1,138 @@
+py-mutable:
+  term: Змінюваний об'єкт (mutable)
+  def: >-
+    Об'єкт, стан якого можна змінити на місці: `list`, `dict`, `set`. Незмінні (`int`, `str`, `tuple`, `frozenset`) за кожної «правки» дають новий об'єкт. Змінюваність задається типом.
+  q: Python mutable immutable objects
+  docs: https://docs.python.org/3/glossary.html#term-mutable
+py-name-binding:
+  term: Зв'язування імені (name binding)
+  def: >-
+    Присвоєння в Python прив'язує ім'я до об'єкта, а не кладе значення в комірку. `b = a` дає друге ім'я тому самому об'єкту, копія не створюється.
+  q: Python naming and binding
+  docs: https://docs.python.org/3/reference/executionmodel.html#naming-and-binding
+py-call-by-sharing:
+  term: Передача за посиланням на об'єкт (call by sharing)
+  def: >-
+    Спосіб передачі аргументів у Python: параметр функції стає ще одним ім'ям того самого об'єкта. Зміни об'єкта видно тому, хто викликав, а переприв'язку параметра — ні.
+  q: Python pass by object reference
+  docs: https://docs.python.org/3/faq/programming.html#how-do-i-write-a-function-with-output-parameters-call-by-reference
+py-hashable:
+  term: Хешований об'єкт (hashable)
+  def: >-
+    Об'єкт, хеш якого не змінюється за час життя і який порівнюється через `__eq__`. Лише такі об'єкти можуть бути ключами `dict` і елементами `set`.
+  q: Python hashable
+  docs: https://docs.python.org/3/glossary.html#term-hashable
+py-comprehension:
+  term: Генератор колекції (comprehension)
+  def: >-
+    Вираз, який будує список, словник або множину з ітерованого об'єкта з фільтром: `[x * x for x in items if x > 0]`. Аналог `Select` і `Where` з LINQ.
+  q: Python list comprehension
+  docs: https://docs.python.org/3/tutorial/datastructures.html#list-comprehensions
+py-shallow-copy:
+  term: Поверхнева копія (shallow copy)
+  def: >-
+    Новий контейнер з тими самими вкладеними об'єктами: `copy.copy`, `list(a)`, `a[:]`. Глибока копія (`copy.deepcopy`) рекурсивно копіює й вкладені об'єкти.
+  q: Python shallow vs deep copy
+  docs: https://docs.python.org/3/library/copy.html
+py-closure:
+  term: Замикання (closure)
+  def: >-
+    Вкладена функція разом зі змінними охопної функції, які вона використовує. Змінні зберігаються в комірках (`__closure__`) і живуть, поки жива функція; переприв'язати їх можна через `nonlocal`.
+  q: Python closure nonlocal
+  docs: https://docs.python.org/3/reference/executionmodel.html#resolution-of-names
+py-decorator:
+  term: Декоратор (decorator)
+  def: >-
+    Функція, яка приймає функцію або клас і повертає заміну. Запис `@d` над `def f` дорівнює `f = d(f)`; обгортку оформлюють через `functools.wraps`.
+  q: Python decorator functools.wraps
+  docs: https://docs.python.org/3/glossary.html#term-decorator
+py-keyword-only:
+  term: Лише іменований параметр (keyword-only)
+  def: >-
+    Параметр після `*` у сигнатурі, який можна передати лише за іменем. Параметри до `/` (із Python 3.8) — навпаки, лише позиційні.
+  q: Python keyword-only positional-only parameters
+  docs: https://docs.python.org/3/tutorial/controlflow.html#special-parameters
+py-generator:
+  term: Генератор (generator)
+  def: >-
+    Функція з `yield`: її виклик повертає ітератор, який виконує тіло частинами, до чергового `yield`. Значення обчислюються ліниво, по одному.
+  q: Python generator yield
+  docs: https://docs.python.org/3/glossary.html#term-generator
+py-context-manager:
+  term: Контекстний менеджер (context manager)
+  def: >-
+    Об'єкт з методами `__enter__` і `__exit__` для оператора `with`. `__exit__` викликається за будь-якого виходу з блоку, зокрема через виняток, — аналог `using` у C#.
+  q: Python context manager with statement
+  docs: https://docs.python.org/3/library/contextlib.html
+py-dataclass:
+  term: Клас даних (dataclass)
+  def: >-
+    Клас з декоратором `@dataclass`, для якого Python генерує `__init__`, `__repr__` і `__eq__` за анотованими полями. Параметри `frozen=True` і `slots=True` роблять його незмінним і компактним.
+  q: Python dataclasses
+  docs: https://docs.python.org/3/library/dataclasses.html
+py-type-checker:
+  term: Перевіряльник типів (type checker)
+  def: >-
+    Інструмент статичного аналізу, який перевіряє анотації типів без запуску коду: mypy, pyright. Сам інтерпретатор анотації не перевіряє.
+  q: mypy pyright static type checker
+  docs: https://mypy.readthedocs.io/en/stable/
+py-dunder-method:
+  term: Dunder-метод (special method)
+  def: >-
+    Метод з іменем у подвійних підкресленнях, який викликає сама мова: `__init__`, `__eq__`, `__len__`, `__iter__`. Через них клас підтримує оператори й вбудовані функції.
+  q: Python special method names
+  docs: https://docs.python.org/3/reference/datamodel.html#special-method-names
+py-duck-typing:
+  term: Качина типізація (duck typing)
+  def: >-
+    Об'єкт підходить, якщо має потрібні методи й атрибути, незалежно від його типу: «якщо крякає як качка — це качка». Основний стиль Python-коду.
+  q: Python duck typing
+  docs: https://docs.python.org/3/glossary.html#term-duck-typing
+py-protocol:
+  term: Протокол (typing.Protocol)
+  def: >-
+    Опис інтерфейсу для структурної типізації (PEP 544, Python 3.8): клас сумісний з протоколом, якщо має потрібні методи, без явного успадкування. Перевіряється mypy і pyright.
+  q: Python typing Protocol structural subtyping
+  docs: https://typing.python.org/en/latest/spec/protocol.html
+py-mro:
+  term: Порядок розв'язання методів (MRO)
+  def: >-
+    Порядок класів, у якому Python шукає атрибут під час успадкування; доступний як `Cls.__mro__`. Будується C3-лінеаризацією, за ним же працює `super()`.
+  q: Python method resolution order C3
+  docs: https://docs.python.org/3/howto/mro.html
+py-reference-counting:
+  term: Підрахунок посилань (reference counting)
+  def: >-
+    Основний механізм керування пам'яттю CPython: кожен об'єкт має лічильник посилань, і об'єкт звільняється одразу, щойно той падає до нуля. Цикли посилань так не звільняються.
+  q: CPython reference counting
+  docs: https://docs.python.org/3/glossary.html#term-reference-count
+py-cyclic-gc:
+  term: Циклічний збирач сміття (cyclic GC)
+  def: >-
+    Модуль `gc` у CPython: доповнює підрахунок посилань і знаходить групи об'єктів, які посилаються один на одного, але недосяжні. Працює за поколіннями.
+  q: Python gc module cyclic garbage collector
+  docs: https://docs.python.org/3/library/gc.html
+py-interning:
+  term: Інтернування (interning)
+  def: >-
+    Зберігання одного об'єкта на кожне значення: CPython кешує цілі від −5 до 256 та інтернує частину рядків, `sys.intern` робить це явно. Це деталь реалізації, покладатися на `is` для значень не можна.
+  q: Python sys.intern small integer cache
+  docs: https://docs.python.org/3/library/sys.html#sys.intern
+py-gil:
+  term: GIL (Global Interpreter Lock)
+  def: >-
+    Глобальне блокування інтерпретатора CPython: у кожен момент байт-код виконує лише один потік. Відпускається на блокувальному введенні-виведенні та в C-розширеннях.
+  q: Python GIL
+  docs: https://docs.python.org/3/glossary.html#term-global-interpreter-lock
+py-free-threading:
+  term: Free-threaded збірка (free threading)
+  def: >-
+    Збірка CPython без GIL (PEP 703, `python3.13t` і новіші): потоки виконують Python-код паралельно. Експериментальна в 3.13, офіційно підтримується з 3.14, але не типова.
+  q: Python free-threaded build PEP 703
+  docs: https://docs.python.org/3/howto/free-threading-python.html
+py-c-extension:
+  term: C-розширення (extension module)
+  def: >-
+    Модуль, написаний на C, C++ або Rust з використанням C API Python і завантажуваний як звичайний модуль. Працює без інтерпретатора байт-коду й може відпускати GIL — так влаштовані NumPy і багато ML-бібліотек.
+  q: Python C extension module
+  docs: https://docs.python.org/3/extending/extending.html

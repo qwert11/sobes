@@ -68,6 +68,14 @@ export default defineConfig({
           items: [{ autogenerate: { directory: 'delphi' } }],
         },
         {
+          label: 'Python',
+          items: [{ autogenerate: { directory: 'python' } }],
+        },
+        {
+          label: 'Node.js',
+          items: [{ autogenerate: { directory: 'node' } }],
+        },
+        {
           label: 'Основа',
           translations: { uk: 'Основа', en: 'Fundamentals' },
           items: [{ autogenerate: { directory: 'basics' } }],

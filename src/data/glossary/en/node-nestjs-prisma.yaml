@@ -1,0 +1,145 @@
+nest-module:
+  term: NestJS module (@Module)
+  def: >-
+    A class decorated with `@Module()` that groups the controllers and providers of one area, imports
+    other modules and decides through `exports` what they may use. An application is a tree of
+    modules rooted at `AppModule`.
+  q: NestJS modules
+  docs: https://docs.nestjs.com/modules
+nest-provider:
+  term: NestJS provider
+  def: >-
+    Anything the NestJS DI container can create and inject: a service, repository, factory or value.
+    Usually a class with `@Injectable()` registered in a module's `providers`.
+  q: NestJS providers
+  docs: https://docs.nestjs.com/providers
+nest-decorator-metadata:
+  term: Decorator metadata (emitDecoratorMetadata)
+  def: >-
+    Type information TypeScript stores for decorated classes when `emitDecoratorMetadata` is on, such
+    as `design:paramtypes` — the constructor parameter types. NestJS reads it through
+    `reflect-metadata` to work out what to inject.
+  q: TypeScript emitDecoratorMetadata design:paramtypes
+  docs: https://www.typescriptlang.org/tsconfig/#emitDecoratorMetadata
+nest-injection-token:
+  term: Injection token
+  def: >-
+    A key the NestJS container uses to find a provider when a class type isn't enough: a string, a
+    `Symbol` or an abstract class. Registered as `{ provide: TOKEN, useClass: Impl }` and injected
+    with `@Inject(TOKEN)`.
+  q: NestJS custom providers injection token
+  docs: https://docs.nestjs.com/fundamentals/custom-providers
+nest-injection-scope:
+  term: Injection scope
+  def: >-
+    A provider's lifetime in NestJS: `DEFAULT` — one instance per application, `REQUEST` — one per
+    request, `TRANSIENT` — a dedicated instance for each consumer. The `REQUEST` scope spreads to
+    everything that depends on such a provider.
+  q: NestJS injection scopes
+  docs: https://docs.nestjs.com/fundamentals/injection-scopes
+nest-platform-adapter:
+  term: Platform adapter
+  def: >-
+    The layer through which NestJS works with an HTTP library: `@nestjs/platform-express` (the
+    default) or `@nestjs/platform-fastify`. Decorator-based NestJS code doesn't depend on the choice.
+  q: NestJS platform express fastify adapter
+  docs: https://docs.nestjs.com/techniques/performance
+nest-async-local-storage:
+  term: AsyncLocalStorage
+  def: >-
+    A Node.js class from `node:async_hooks` that stores data available throughout the chain of
+    asynchronous calls of one request. The counterpart of `AsyncLocal<T>` in .NET; NestJS apps use it
+    to pass the user and request id without request scope.
+  q: Node.js AsyncLocalStorage
+  docs: https://nodejs.org/api/async_context.html
+nest-middleware:
+  term: Middleware in NestJS
+  def: >-
+    A function or a class implementing `NestMiddleware` that runs before guards and the handler with
+    `req`, `res` and `next`, like Express middleware. It doesn't know which handler will run and is
+    wired up in a module's `configure` method.
+  q: NestJS middleware
+  docs: https://docs.nestjs.com/middleware
+nest-guard:
+  term: Guard in NestJS
+  def: >-
+    A class with a `canActivate` method that decides whether a request reaches the handler. It sees
+    the `ExecutionContext` and route metadata, so authentication and role checks live there; `false`
+    results in a 403.
+  q: NestJS guards
+  docs: https://docs.nestjs.com/guards
+nest-interceptor:
+  term: Interceptor in NestJS
+  def: >-
+    A class with an `intercept` method that runs code before and after the handler and works with its
+    result as an RxJS `Observable`. Used for logging, timing, caching and reshaping responses.
+  q: NestJS interceptors
+  docs: https://docs.nestjs.com/interceptors
+nest-pipe:
+  term: Pipe in NestJS
+  def: >-
+    A class with a `transform` method that validates or transforms a handler argument before the call.
+    Built-in ones include `ValidationPipe` and `ParseIntPipe`; a failing pipe produces a 400.
+  q: NestJS pipes
+  docs: https://docs.nestjs.com/pipes
+nest-exception-filter:
+  term: Exception filter in NestJS
+  def: >-
+    A class with the `@Catch()` decorator and a `catch` method that turns an exception into an HTTP
+    response. The built-in global filter handles `HttpException` and turns unknown errors into a 500.
+  q: NestJS exception filters
+  docs: https://docs.nestjs.com/exception-filters
+prisma-schema:
+  term: Prisma schema (schema.prisma)
+  def: >-
+    A file in the Prisma schema language with the data source, generators and models. Prisma Migrate
+    builds SQL migrations from it, and the generator builds a typed client.
+  q: Prisma schema
+  docs: https://www.prisma.io/docs/orm/v7/prisma-schema/overview
+prisma-migrate:
+  term: Prisma Migrate
+  def: >-
+    Prisma's migration tool: `prisma migrate dev` creates SQL migrations from schema changes, and
+    `prisma migrate deploy` applies ready-made migrations in CI and production. History is kept in the
+    `_prisma_migrations` table.
+  q: Prisma Migrate migrate dev deploy
+  docs: https://www.prisma.io/docs/orm/v7/prisma-migrate/workflows/development-and-production
+prisma-client:
+  term: Prisma Client
+  def: >-
+    A typed database client that `prisma generate` builds from the schema: `findMany`, `create`,
+    `update` and other methods for each model. It doesn't track changes — every call runs a query
+    right away.
+  q: Prisma Client
+  docs: https://www.prisma.io/docs/orm/v7/prisma-client/queries/relation-queries
+prisma-driver-adapter:
+  term: Prisma driver adapter
+  def: >-
+    A package through which Prisma Client runs queries with a regular database driver, for example
+    `@prisma/adapter-pg` on top of `pg`. Since Prisma 7 an adapter is required, and the connection
+    pool is configured in the driver.
+  q: Prisma driver adapters
+  docs: https://www.prisma.io/docs/orm/more/upgrade-guides/upgrading-versions/upgrading-to-prisma-7
+prisma-interactive-transaction:
+  term: Prisma interactive transaction
+  def: >-
+    A `prisma.$transaction(async (tx) => ...)` call: every query through `tx` runs in one transaction,
+    and you can run your own logic between them. An exception rolls it back; the default timeout is
+    5 seconds.
+  q: Prisma interactive transactions
+  docs: https://www.prisma.io/docs/orm/v7/prisma-client/queries/transactions
+nest-lifecycle-hooks:
+  term: NestJS lifecycle hooks
+  def: >-
+    Methods on providers and modules that NestJS calls at startup (`onModuleInit`,
+    `onApplicationBootstrap`) and shutdown (`onModuleDestroy`, `beforeApplicationShutdown`,
+    `onApplicationShutdown`). Signal-triggered shutdown hooks only run after `enableShutdownHooks()`.
+  q: NestJS lifecycle events
+  docs: https://docs.nestjs.com/fundamentals/lifecycle-events
+nest-testing-module:
+  term: NestJS testing module (Test.createTestingModule)
+  def: >-
+    The `@nestjs/testing` API that builds an application module for a test and lets you replace
+    providers with `overrideProvider`. A full application for e2e tests is created from it as well.
+  q: NestJS testing createTestingModule
+  docs: https://docs.nestjs.com/fundamentals/testing

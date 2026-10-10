@@ -1,0 +1,716 @@
+---
+title: asyncio и FastAPI
+description: REST-сервис на FastAPI, event loop и корутины asyncio, зависимости и lifespan, выбор между потоками, процессами и asyncio.
+sidebar:
+  order: 2
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+Как написать HTTP-сервис на FastAPI, как asyncio переключает корутины в одном потоке и чем это отличается от async/await в C#, где выполняются эндпоинты и как выбрать между потоками, процессами и asyncio. На собеседовании по Python-бэкенду это ядро практических вопросов.
+
+**Перед этой темой:** [Язык Python](/sobes/python/language/), [Асинхронность в .NET](/sobes/dotnet/async/).
+
+<Q id="python.async.fastapi-basics" level="j">
+
+## Как написать простой REST-сервис на FastAPI?
+
+<A short l="j">
+
+<T k="py-fastapi">FastAPI</T> — веб-фреймворк, в котором эндпоинт — обычная функция с декоратором вроде `@app.get("/items/{item_id}")`, а параметры и тело запроса описываются <T k="py-type-hint">аннотациями типов</T>. По ним FastAPI сам разбирает и проверяет запрос, а на неверные данные отвечает 422 без единой строки кода проверки.
+
+</A>
+
+<A short l="m">
+
+Источник каждого параметра FastAPI выводит из сигнатуры: имя из шаблона пути — path-параметр, простой тип — query, модель <T k="py-pydantic">Pydantic</T> — JSON-тело. Та же сигнатура даёт валидацию, документацию <T k="openapi">OpenAPI</T> на `/docs` и схему ответа, если указан возвращаемый тип. Цена — неявные правила: `list[str]` без `Query()` станет телом, а не query-параметром.
+
+</A>
+
+<A short l="s">
+
+FastAPI — слой над <T k="py-starlette">Starlette</T> и Pydantic, в котором сигнатура функции — единственный источник правды для разбора запроса, валидации, сериализации ответа и OpenAPI-схемы. По духу это Minimal API, только контракт строится из аннотаций Python при старте приложения. Плюс — документация и сгенерированные клиенты не расходятся с кодом; минус — валидация стоит CPU на каждом запросе. Возвращаемый тип ещё и фильтрует поля ответа: это защита от утечки данных и одновременно источник «пропавших» полей.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+FastAPI — фреймворк для HTTP API на Python. Эндпоинт — функция с декоратором, который задаёт метод и путь: `@app.get("/items/{item_id}")`.
+
+**Как пользоваться**
+
+1. Параметр с именем из пути (`item_id`) — path-параметр.
+2. Параметр простого типа, которого нет в пути, — query: `?currency=USD`. Значение по умолчанию делает его необязательным.
+3. Параметр-модель Pydantic — JSON-тело запроса.
+4. Код ответа задают в декораторе (`status_code=201`), ошибку — исключением `HTTPException(status_code=404)`.
+
+Пакет ставят командой `pip install "fastapi[standard]"`, запускают `fastapi dev main.py`, документация открывается на `/docs`.
+
+**Частая ошибка**
+
+Проверять типы вручную. Если объявлено `item_id: int`, а пришло `abc`, FastAPI сам ответит 422 с описанием ошибки.
+
+**Итог:** сигнатура функции описывает запрос, а FastAPI по ней разбирает, проверяет и документирует его.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+1. При старте FastAPI читает сигнатуры функций и строит для каждого маршрута модель параметров.
+2. На запрос он достаёт значения из пути, строки запроса, заголовков и тела и проверяет их через Pydantic.
+3. Ошибки валидации собираются в ответ 422: где поле (`loc`) и что не так (`msg`).
+4. Результат сериализуется в JSON. Если указан возвращаемый тип или `response_model`, ответ проверяется и фильтруется по этой модели.
+
+**Откуда берётся параметр**
+
+| Объявление | Источник |
+|---|---|
+| имя есть в шаблоне пути | путь |
+| `int`, `str`, `bool` и другие простые типы | строка запроса |
+| модель Pydantic | JSON-тело |
+| `Query()`, `Header()`, `Body()` в `Annotated` | указан явно |
+
+**Ловушки**
+
+- **Списки.** `list[str]` без `Query()` считается телом, а не query-параметром.
+- **Мягкая валидация.** По умолчанию Pydantic приводит типы: строка `"2"` станет числом `2`. Нужна строгость — `Field(strict=True)` или `ConfigDict(strict=True)`.
+- **`Content-Type`.** С FastAPI 0.132 JSON-тело без заголовка `Content-Type: application/json` отклоняется с 422.
+
+**Правило**
+
+Контракт описывайте типами и моделями, а не ручными проверками: тогда валидация, документация и код не расходятся.
+
+**Итог:** FastAPI выводит источник, тип и проверки каждого параметра из сигнатуры функции.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- Класс `FastAPI` наследует `Starlette`: маршрутизация, middleware и работа с HTTP — оттуда. FastAPI добавляет разбор параметров, зависимости и OpenAPI.
+- Схемы параметров и ответов строятся один раз при старте. На запросе работает валидация в pydantic-core — ядре Pydantic на Rust.
+- С FastAPI 0.130 ответ с Pydantic-моделью или объявленным возвращаемым типом сериализуется в JSON прямо в Rust-ядре Pydantic.
+- Документ OpenAPI 3.1 отдаётся на `/openapi.json`, интерфейсы — на `/docs` (Swagger UI) и `/redoc`.
+
+**Цена**
+
+- Разбор и валидация тела выполняются на каждом запросе. Огромный JSON заметно нагружает CPU процесса.
+- Модель ответа — вторая проверка: данные валидируются на выходе ещё раз.
+
+**Компромиссы**
+
+- Возвращаемый тип — защита от утечки: поля, которых нет в модели ответа, например `password_hash`, в JSON не попадут. Но та же фильтрация молча теряет поля, если модель забыли обновить.
+- Отдельные модели входа и выхода (`ItemCreate`, `ItemOut`) — то же, что разные DTO запроса и ответа в ASP.NET Core.
+- Публичную документацию в проде часто отключают: `FastAPI(docs_url=None, redoc_url=None)`.
+
+**Как проверить в проде**
+
+- Контракт фиксируют тестом: `TestClient` получает `/openapi.json` и сравнивает со снимком, поэтому поломка API видна в CI.
+- Всплеск 422 в метриках — клиенты шлют не то, что ожидает схема.
+
+**Итог:** FastAPI превращает сигнатуру в контракт API; платят за это валидацией на каждом запросе и дисциплиной в моделях ответа.
+
+</A>
+
+<Ex>
+
+```python
+# pip install "fastapi[standard]"; запуск: fastapi dev main.py
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, Field
+
+app = FastAPI()
+
+class Item(BaseModel):                 # модель тела запроса
+    name: str
+    price: float = Field(gt=0)         # проверка: цена больше нуля
+
+items: dict[int, Item] = {}
+
+@app.post("/items", status_code=201)
+async def create_item(item: Item) -> dict:       # тело — модель Pydantic
+    item_id = len(items) + 1
+    items[item_id] = item
+    return {"id": item_id, **item.model_dump()}
+
+@app.get("/items/{item_id}")
+async def read_item(item_id: int, currency: str = "UAH") -> dict:  # path и query
+    if item_id not in items:
+        raise HTTPException(status_code=404, detail="Item not found")
+    return {"name": items[item_id].name, "currency": currency}
+
+# POST /items {"name": "Tea", "price": 42} → 201 {"id": 1, "name": "Tea", "price": 42.0}
+# GET /items/1?currency=USD → 200 {"name": "Tea", "currency": "USD"}
+# GET /items/abc → 422: item_id не число;  GET /items/2 → 404 {"detail": "Item not found"}
+```
+
+</Ex>
+
+<Next>
+
+- Как сделать query-параметр обязательным? — Не задавать значение по умолчанию.
+- Что вернёт FastAPI, если в теле нет обязательного поля? — 422 со списком ошибок: `loc`, `msg`, `type`.
+- Зачем указывать возвращаемый тип эндпоинта? — Он проверяет и фильтрует ответ и попадает в OpenAPI-схему.
+- Как принять список в query-параметре? — `Annotated[list[str], Query()]`, иначе список считается телом.
+- Где посмотреть и проверить API без Postman? — На `/docs`: Swagger UI строится из той же схемы.
+
+</Next>
+
+<Src>
+
+- [FastAPI: First Steps](https://fastapi.tiangolo.com/tutorial/first-steps/)
+- [FastAPI: Request Body](https://fastapi.tiangolo.com/tutorial/body/)
+- [FastAPI: Response Model — Return Type](https://fastapi.tiangolo.com/tutorial/response-model/)
+
+</Src>
+
+</Q>
+
+<Q id="python.async.asyncio" level="m">
+
+## Как работает asyncio и чем он отличается от async/await в C#?
+
+<A short l="j">
+
+<T k="py-coroutine">Корутина</T> — функция `async def`, которая умеет приостанавливаться на `await`, а <T k="py-event-loop">цикл событий</T> asyncio переключается между корутинами в одном потоке, пока они ждут сеть или диск. Поэтому одна программа обслуживает тысячи соединений, но любой блокирующий вызов вроде `time.sleep` останавливает их все.
+
+</A>
+
+<A short l="m">
+
+asyncio — кооперативная многозадачность в одном потоке: цикл событий выполняет корутину до `await` на незавершённой операции и переключается на другую. В отличие от C#, где `Task` стартует сразу, корутина ничего не делает, пока её не ждут или не обернут в <T k="py-asyncio-task">задачу</T>, а несколько операций запускают вместе через `asyncio.gather` или <T k="py-task-group">`TaskGroup`</T>. Цена — блокирующий вызов внутри `async def` замораживает весь цикл, а не один поток пула.
+
+</A>
+
+<A short l="s">
+
+Модель asyncio — один поток, явные точки переключения и отмена через исключение: `task.cancel()` бросает <T k="py-cancelled-error">`CancelledError`</T> в точке `await`, и токен, как в C#, передавать не нужно. Отсюда сильные стороны — код между двумя `await` не прерывается другими задачами, а задачи дешевле потоков — и слабые: CPU-работа и синхронные библиотеки блокируют всех. С Python 3.11 структурную конкурентность дают `TaskGroup` и `asyncio.timeout`: в новом коде их предпочитают `gather` и `wait_for`. Цена ошибки высока: потерянная задача или проглоченная отмена ломают остановку сервиса.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+- **Корутина** — функция `async def`. Её вызов не выполняет код, а создаёт объект, который нужно дождаться через `await`.
+- **Цикл событий** — диспетчер в одном потоке: пока одна корутина ждёт ответа сети, он выполняет другую.
+- `asyncio.run(main())` создаёт цикл, выполняет `main` и закрывает цикл.
+
+**Как пользоваться**
+
+1. `await` пишут только внутри `async def`.
+2. Чтобы операции шли одновременно, запускают их вместе: `await asyncio.gather(a(), b())` или через `TaskGroup`.
+3. Пауза — `await asyncio.sleep(1)`, а не `time.sleep(1)`.
+
+**Частая ошибка**
+
+Вызвать блокирующую функцию (`time.sleep`, `requests.get`) внутри `async def`. Поток один, поэтому встанут все корутины.
+
+**Итог:** asyncio переключает корутины в одном потоке на каждом `await`, поэтому блокировать этот поток нельзя.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+1. `asyncio.create_task(coro)` ставит корутину в очередь цикла. Без задачи или `await` корутина не начнёт работу.
+2. Задача выполняется до `await` на незавершённой операции, затем цикл берёт следующую готовую.
+3. Когда ввод-вывод завершился, цикл возобновляет ждущую задачу с того же места.
+
+**Сравнение с C#**
+
+| Признак | asyncio | C# |
+|---|---|---|
+| Где выполняется | один поток цикла | продолжения в пуле потоков |
+| Запуск | корутина ленивая | `Task` стартует при вызове |
+| Ждать несколько | `gather`, `TaskGroup` | `Task.WhenAll` |
+| Таймаут | `asyncio.timeout()` | `CancelAfter`, `WaitAsync` |
+| Отмена | `task.cancel()` | `CancellationToken` |
+| Блокирующий вызов | стоит весь цикл | занят один поток пула |
+
+**Ловушки**
+
+- **Потерянная задача.** Цикл держит на задачи только слабые ссылки: задачу без сохранённой ссылки сборщик мусора может удалить до завершения.
+- **`gather` при ошибке** отдаёт первое исключение, а остальные задачи продолжают работать. `TaskGroup` отменяет оставшиеся и собирает ошибки в `ExceptionGroup`, который ловят через `except*`.
+- **Проглоченная отмена.** `CancelledError` наследует `BaseException`. Поймали его ради очистки — пробросьте дальше через `raise`.
+
+**Правило**
+
+Конкурентность — через `TaskGroup` и `asyncio.timeout` (3.11+), блокирующий код — через `asyncio.to_thread`.
+
+**Итог:** корутина ленива и выполняется в потоке цикла, поэтому задачи нужно явно запускать, хранить и не блокировать.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- Задача продвигает корутину методом `send()`. Дойдя до незавершённого `Future`, корутина отдаёт его задаче, та подписывается на завершение и возвращает управление циклу.
+- Кадр корутины хранит локальные переменные сам. Компилятор не генерирует отдельный класс, как state machine в C#.
+- Итерация цикла: выполнить готовые колбэки, спросить ОС о готовом вводе-выводе (epoll в Linux, IOCP через `ProactorEventLoop` в Windows), запланировать продолжения.
+- `cancel()` не прерывает поток, а бросает `CancelledError` при следующем возобновлении. Счётчик `cancelling()` и метод `uncancel()` (3.11) помогают `TaskGroup` и `timeout` отличить свою отмену от внешней.
+
+**Цена**
+
+- Задача — объект в куче без собственного стека, поэтому десятки тысяч задач — норма.
+- Код между `await` выполняется монопольно: разбор JSON на 200 мс задерживает все запросы процесса на 200 мс.
+
+**Компромиссы**
+
+- Гонок внутри участка без `await` нет, но состояние, которое читают до `await` и меняют после, требует `asyncio.Lock`.
+- Синхронный мир — драйверы, SDK — подключается через `to_thread`, то есть через обычные потоки со всеми их ограничениями.
+
+**Как проверить в проде**
+
+- Режим отладки (`PYTHONASYNCIODEBUG=1` или `asyncio.run(main(), debug=True)`) логирует колбэки дольше 100 мс — так находят блокирующие вызовы.
+- С Python 3.14 `python -m asyncio ps PID` и `pstree PID` показывают задачи живого процесса и кто кого ждёт.
+- `Task exception was never retrieved` в логе — задачу запустили и не дождались.
+
+**Итог:** asyncio — один поток с явными точками переключения; его надёжность держится на структурной конкурентности, честной отмене и отсутствии блокирующих вызовов.
+
+</A>
+
+<Ex>
+
+```python
+import asyncio
+import time
+
+async def fetch(name: str, delay: float) -> str:
+    await asyncio.sleep(delay)              # отдаёт управление циклу событий
+    return name
+
+async def main() -> None:
+    start = time.perf_counter()
+    async with asyncio.TaskGroup() as tg:   # Python 3.11+
+        a = tg.create_task(fetch("a", 1))
+        b = tg.create_task(fetch("b", 1))
+    print(a.result(), b.result(), round(time.perf_counter() - start, 1))  # a b 1.0
+
+    try:
+        async with asyncio.timeout(0.5):    # Python 3.11+
+            await fetch("slow", 2)
+    except TimeoutError:
+        print("timeout")                    # timeout
+
+    start = time.perf_counter()
+    await asyncio.gather(asyncio.to_thread(time.sleep, 1), fetch("c", 1))
+    print(round(time.perf_counter() - start, 1))  # 1.0: блокирующий sleep ушёл в поток
+
+asyncio.run(main())
+```
+
+Если вызвать `time.sleep(1)` прямо в корутине, `gather` из последнего блока займёт 2 секунды: цикл стоит, пока поток спит.
+
+</Ex>
+
+<Ex title="Отмена задачи">
+
+```python
+import asyncio
+
+async def worker() -> None:
+    try:
+        await asyncio.sleep(10)
+    except asyncio.CancelledError:
+        print("cleanup")            # освобождаем ресурсы
+        raise                       # и обязательно пробрасываем дальше
+
+async def main() -> None:
+    task = asyncio.create_task(worker())
+    await asyncio.sleep(0.1)        # даём задаче начать работу
+    task.cancel()                   # CancelledError возникнет в точке await
+    try:
+        await task
+    except asyncio.CancelledError:
+        print(task.cancelled())     # True
+
+asyncio.run(main())
+```
+
+</Ex>
+
+<Next>
+
+- Что будет, если вызвать `async def`-функцию без `await`? — Создастся объект корутины, код не выполнится, Python предупредит `coroutine ... was never awaited`.
+- Чем `gather` отличается от `TaskGroup` при ошибке? — `gather` не отменяет остальные задачи, `TaskGroup` отменяет и поднимает `ExceptionGroup`.
+- Как вызвать синхронную библиотеку из async-кода? — `await asyncio.to_thread(func, *args)`.
+- Почему нельзя проглатывать `CancelledError`? — `TaskGroup`, `timeout` и остановка сервиса ждут, что отменённая задача завершится.
+- Бывают ли гонки в однопоточном asyncio? — Да, если состояние читают до `await`, а меняют после; нужен `asyncio.Lock`.
+
+</Next>
+
+<Src>
+
+- [Coroutines and Tasks](https://docs.python.org/3/library/asyncio-task.html)
+- [Developing with asyncio](https://docs.python.org/3/library/asyncio-dev.html)
+- [asyncio Exceptions](https://docs.python.org/3/library/asyncio-exceptions.html)
+
+</Src>
+
+</Q>
+
+<Q id="python.async.fastapi" level="m">
+
+## Как устроен FastAPI?
+
+<A short l="j">
+
+FastAPI работает внутри <T k="py-asgi">ASGI</T>-сервера <T k="py-uvicorn">Uvicorn</T>: сервер принимает HTTP-запросы, а FastAPI находит нужную функцию, проверяет данные и подставляет <T k="py-depends">зависимости</T> из `Depends`. Функции `async def` выполняются в цикле событий, а обычные `def` — в <T k="py-threadpool">пуле потоков</T>, поэтому синхронный код пишут в `def`.
+
+</A>
+
+<A short l="m">
+
+Uvicorn по протоколу ASGI вызывает приложение на каждый запрос, FastAPI сопоставляет маршрут, решает граф `Depends`, валидирует вход и сериализует ответ. Эндпоинт `async def` выполняется прямо в цикле событий, `def` — в пуле потоков AnyIO на 40 потоков, поэтому блокирующий код безопасен только в `def`. Общие ресурсы создают в <T k="py-lifespan">lifespan</T>, а масштабируют процессами `--workers`, и у каждого процесса своя копия этих ресурсов.
+
+</A>
+
+<A short l="s">
+
+FastAPI — это Starlette плюс слой, который по сигнатурам строит граф зависимостей и схемы Pydantic. В отличие от <T k="dependency-injection">DI</T>-контейнера ASP.NET Core, `Depends` — не регистрация типов, а вызов функций на каждый запрос с кешем в пределах запроса: «singleton» живёт в lifespan, «scoped» — зависимость с `yield`. Главный риск в проде — выбор между `async def` и `def`: блокирующий вызов в первом останавливает весь процесс, а второй упирается в 40 потоков. Масштаб — процессы, и каждый грузит свою копию ресурсов из lifespan, что для модели на GPU означает N копий в видеопамяти.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+Приложение FastAPI запускает ASGI-сервер Uvicorn. Сервер держит соединения, FastAPI обрабатывает запросы.
+
+**Как пользоваться**
+
+- **Зависимости.** Общий код — сессию БД, текущего пользователя — пишут функцией и подключают параметром `Annotated[Session, Depends(get_db)]`. FastAPI вызовет её на каждый запрос.
+- **`async def` или `def`.** Внутри только `await`-вызовы — `async def`. Синхронная библиотека (`requests`, драйвер БД без async) — `def`, FastAPI выполнит его в пуле потоков.
+- **Запуск.** `fastapi dev main.py` — разработка с перезагрузкой, `fastapi run main.py` — прод.
+- **Ошибки.** `raise HTTPException(status_code=404, detail="...")` превращается в JSON `{"detail": "..."}`.
+
+**Частая ошибка**
+
+`requests.get` внутри `async def`. Пока идёт запрос, сервер не отвечает никому.
+
+**Итог:** Uvicorn принимает запросы, FastAPI вызывает функции и зависимости, а `async def` или `def` решает, где они выполняются.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+1. Uvicorn принимает запрос и вызывает ASGI-приложение в своём цикле событий.
+2. FastAPI находит маршрут и решает зависимости. Каждая вызывается один раз на запрос, даже если нужна нескольким.
+3. Параметры проходят валидацию Pydantic v2; ошибка — 422.
+4. Эндпоинт и зависимости `async def` вызываются в цикле, `def` — в пуле потоков AnyIO.
+5. После отправки ответа выполняется код после `yield` в зависимостях.
+
+**Сравнение с ASP.NET Core**
+
+| ASP.NET Core | FastAPI |
+|---|---|
+| регистрация в `builder.Services` | нет: зависимость — функция в сигнатуре |
+| Scoped с `Dispose` | зависимость с `yield` и `finally` |
+| Singleton, `IHostedService` | объект из lifespan |
+| `ConfigureTestServices` в тестах | `app.dependency_overrides` |
+| исключения и `ProblemDetails` | `HTTPException`, `@app.exception_handler` |
+
+**Ловушки**
+
+- **Пул потоков не резиновый.** `def`-эндпоинты и зависимости делят 40 потоков: если все ждут медленный сервис, новые запросы стоят в очереди.
+- **Lifespan в каждом воркере.** `--workers 4` — четыре пула соединений и четыре копии модели в памяти.
+- **`except` без `raise`** в зависимости с `yield` прячет исключение эндпоинта от FastAPI.
+
+**Правило**
+
+`async def` — когда все вызовы асинхронные, `def` — когда есть блокирующие, тяжёлые вычисления — вне процесса веб-сервера.
+
+**Итог:** FastAPI вызывает функции и зависимости по сигнатурам, а где они выполняются, решает `async def` или `def`.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- Маршрут — `APIRoute`: при старте он строит дерево зависимостей и модели Pydantic для параметров и ответа.
+- Функции `def` уходят в `run_in_threadpool` Starlette, то есть в `anyio.to_thread.run_sync` с общим лимитом 40 потоков на процесс.
+- `uvicorn --workers N` или `fastapi run --workers N` — менеджер процессов: каждый воркер импортирует приложение, выполняет lifespan и слушает общий порт.
+
+**Цена**
+
+- `def` — переход в поток и обратно на каждый вызов. Документация FastAPI прямо советует тривиальные функции без блокирующего ввода-вывода объявлять `async def`.
+- 40 потоков — потолок одновременных синхронных вызовов в процессе. Его поднимают через `anyio.to_thread.current_default_thread_limiter().total_tokens` в lifespan.
+- Воркеры не делят память: кеши, пулы соединений и модели множатся на N.
+
+**Компромиссы**
+
+- Воркеры дают параллелизм по CPU, но в Kubernetes обычно запускают один процесс на контейнер и масштабируют репликами.
+- Зависимость с `yield` по умолчанию закрывается после отправки ответа. С FastAPI 0.121 `Depends(get_db, scope="function")` закрывает её сразу после эндпоинта — например, чтобы раньше вернуть соединение в пул.
+
+**Как проверить в проде**
+
+- Задержка растёт, а CPU низкий — блокирующий вызов в `async def` или исчерпанный пул потоков для `def`.
+- `py-spy dump --pid PID` показывает стеки всех потоков: видно, что держит поток цикла.
+
+**Итог:** FastAPI — Starlette с графом зависимостей по сигнатурам; производительность решают выбор `async def` или `def`, лимит пула потоков и число процессов.
+
+</A>
+
+<Ex>
+
+```python
+from contextlib import asynccontextmanager
+from typing import Annotated
+from fastapi import Depends, FastAPI, Request
+
+class Model:                            # дорогой объект: один на процесс
+    def predict(self, text: str) -> str:
+        return text.upper()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    app.state.model = Model()           # до первого запроса
+    yield
+    app.state.model = None              # при остановке сервера
+
+app = FastAPI(lifespan=lifespan)
+
+async def get_model(request: Request) -> Model:
+    return request.app.state.model
+
+async def get_session():
+    session = {"open": True}            # например, сессия БД
+    try:
+        yield session                   # отдаём зависимость эндпоинту
+    finally:
+        session["open"] = False         # закрываем после ответа
+
+@app.get("/predict")
+async def predict(
+    text: str,
+    model: Annotated[Model, Depends(get_model)],
+    session: Annotated[dict, Depends(get_session)],
+) -> dict:
+    return {"result": model.predict(text), "session": session["open"]}
+# GET /predict?text=hi → {"result": "HI", "session": true}
+```
+
+В тесте модель подменяют без правки кода: `app.dependency_overrides[get_model] = lambda: FakeModel()`.
+
+</Ex>
+
+<Next>
+
+- Почему `def`-эндпоинт не блокирует сервер, а `async def` с `time.sleep` блокирует? — `def` уходит в пул потоков, `async def` выполняется в потоке цикла.
+- Сколько раз вызовется зависимость, которая нужна двум другим? — Один раз за запрос; `Depends(dep, use_cache=False)` отключает кеш.
+- Как подменить зависимость в тесте? — `app.dependency_overrides[get_db] = fake_get_db`.
+- Почему lifespan не срабатывает в тесте? — `TestClient` запускает его только в блоке `with TestClient(app) as client:`.
+- Что заменило `@app.on_event("startup")`? — Параметр `lifespan`; события startup и shutdown устарели.
+
+</Next>
+
+<Src>
+
+- [FastAPI: Concurrency and async / await](https://fastapi.tiangolo.com/async/)
+- [FastAPI: Dependencies](https://fastapi.tiangolo.com/tutorial/dependencies/)
+- [FastAPI: Lifespan Events](https://fastapi.tiangolo.com/advanced/events/)
+
+</Src>
+
+</Q>
+
+<Q id="python.async.concurrency" level="s">
+
+## Потоки, процессы или asyncio: что выбрать для разных задач?
+
+<A short l="j">
+
+Для задач, которые ждут сеть или диск (<T k="io-bound">I/O-bound</T>), подходят asyncio или потоки, а для вычислений (<T k="cpu-bound">CPU-bound</T>) — процессы, потому что <T k="py-gil">GIL</T> не даёт потокам Python считать одновременно. Поэтому парсинг тысячи страниц — asyncio, а обработка большого массива на чистом Python — `ProcessPoolExecutor`.
+
+</A>
+
+<A short l="m">
+
+Выбор определяет, чего ждёт задача: ввод-вывод — asyncio, если есть async-библиотека, иначе потоки через `asyncio.to_thread`; вычисления на чистом Python — <T k="py-process-pool">пул процессов</T>, где у каждого процесса свой интерпретатор и свой GIL. Из async-кода оба пула вызывают через `run_in_executor`, чтобы не блокировать цикл. Цена процессов — запуск, память и сериализация аргументов и результатов через <T k="py-pickle">pickle</T>, поэтому в процесс отдают крупные куски работы.
+
+</A>
+
+<A short l="s">
+
+Решение принимают по профилю: где тратится время — в ожидании, в байткоде Python или в C-коде, который отпускает GIL, как NumPy и PyTorch. Для I/O asyncio масштабируется дешевле потоков, для чистого Python нужны процессы, а нативные вычисления неплохо идут и в потоках. Тяжёлый ML-инференс на GPU — отдельный случай: модель держит один процесс на GPU, запросы стоят в ограниченной очереди, а воркер собирает их в пачки — <T k="py-dynamic-batching">динамический батчинг</T>. Free-threaded сборка CPython меняет картину для потоков, но пока это осознанный выбор, а не умолчание.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+- **I/O-bound** — задача ждёт сеть, диск или базу. Процессор простаивает.
+- **CPU-bound** — задача считает: парсинг, сжатие, математика.
+- **GIL** — блокировка в CPython: байткод Python в процессе выполняет один поток за раз.
+
+**Когда что выбирать**
+
+| Задача | Инструмент |
+|---|---|
+| много HTTP-запросов, есть async-библиотека | asyncio |
+| блокирующая библиотека без async | потоки: `ThreadPoolExecutor`, `asyncio.to_thread` |
+| вычисления на чистом Python | процессы: `ProcessPoolExecutor` |
+
+**Частая ошибка**
+
+Ускорять вычисления потоками. В обычной сборке CPython из-за GIL четыре потока считают не быстрее одного.
+
+**Итог:** ждём — asyncio или потоки, считаем на Python — процессы.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+- Поток, который ждёт ввод-вывод, отпускает GIL, поэтому потоки годятся для блокирующего I/O. Пул `asyncio.to_thread` по умолчанию — `min(32, число CPU + 4)` потоков.
+- Процесс — отдельный интерпретатор со своей памятью и своим GIL. Аргументы и результат передаются через pickle, поэтому функция должна быть объявлена на уровне модуля.
+- Из async-кода: `await asyncio.to_thread(f, x)` — поток, `await loop.run_in_executor(pool, f, x)` — любой пул, включая процессы.
+
+**Ловушки**
+
+- **Способ запуска процесса.** В Windows и macOS это `spawn`: дочерний процесс заново импортирует модуль, поэтому код запуска прячут под `if __name__ == "__main__":`. В Linux с Python 3.14 по умолчанию `forkserver` вместо `fork`.
+- **Большие данные.** Массив на гигабайт в аргументе — это сериализация и копия. Помогают `multiprocessing.shared_memory` или передача пути к файлу.
+- **Мелкие задачи.** Если вызов короче накладных расходов на pickle, процессы только замедляют. Задачи укрупняют, например `chunksize` в `pool.map`.
+- **Пул на каждый запрос.** Пул процессов создают один раз при старте, а не в эндпоинте.
+
+**Правило**
+
+I/O с async-клиентом — asyncio, I/O с синхронным клиентом — `to_thread`, CPU на чистом Python — пул процессов, созданный один раз.
+
+**Итог:** потоки и asyncio делят один GIL и годятся для ожидания, процессы дают настоящий параллелизм ценой сериализации.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- Многие C-расширения отпускают GIL на время тяжёлой работы, например NumPy и PyTorch во многих операциях. Такой код масштабируется и в потоках.
+- GPU — общий ресурс со своей очередью команд. Параллельные вызовы модели из разных потоков не ускоряют инференс, а конкурируют за видеопамять.
+
+**Инференс на GPU за HTTP**
+
+1. **Один процесс на GPU.** Модель загружается в lifespan один раз; несколько `--workers` — несколько копий весов в видеопамяти.
+2. **Очередь.** Эндпоинт кладёт запрос в ограниченную `asyncio.Queue` и ждёт `Future`. Очередь полна — сразу 503, а не бесконечный рост задержки.
+3. **Батчинг.** Одна задача-воркер забирает из очереди до N запросов и запускает модель на пачке через `to_thread`, чтобы цикл событий продолжал принимать запросы.
+
+**Компромиссы**
+
+- Размер пачки — пропускная способность против задержки: GPU загружен лучше, но первый запрос в пачке ждёт остальных.
+- Серверы инференса вроде NVIDIA Triton и vLLM умеют батчинг сами. Свой код оправдан, пока модель одна и логика простая.
+- Free-threaded CPython (экспериментальный в 3.13, официально поддерживается с 3.14 отдельной сборкой) позволяет потокам считать параллельно, но требует поддержки от C-расширений. Подробнее — в теме [Язык Python](/sobes/python/language/).
+
+**Как проверить в проде**
+
+- Одно ядро загружено на 100 %, остальные простаивают — код упирается в GIL.
+- Утилизация GPU в `nvidia-smi` низкая при растущей очереди — пачки слишком мелкие или подготовка данных блокирует цикл.
+- `py-spy dump --pid PID` показывает стеки всех потоков: видно, кто занят и кто ждёт.
+
+**Итог:** модель конкурентности выбирают по тому, где тратится время, а GPU обслуживает один процесс с очередью и батчингом.
+
+</A>
+
+<Ex>
+
+```python
+import asyncio
+import time
+from concurrent.futures import ProcessPoolExecutor
+
+def cpu_heavy(n: int) -> int:           # чистый Python: держит GIL всё время
+    return sum(i * i for i in range(n))
+
+def blocking_io() -> str:               # библиотека без async API
+    time.sleep(0.5)                     # на ожидании GIL отпускается
+    return "done"
+
+async def main() -> None:
+    loop = asyncio.get_running_loop()
+    with ProcessPoolExecutor(max_workers=2) as pool:
+        results = await asyncio.gather(
+            loop.run_in_executor(pool, cpu_heavy, 5_000_000),  # отдельный процесс
+            loop.run_in_executor(pool, cpu_heavy, 5_000_000),  # и свой GIL
+            asyncio.to_thread(blocking_io),                    # поток из пула цикла
+        )
+    print(results[2])                   # done
+
+if __name__ == "__main__":              # обязательно при spawn (Windows, macOS)
+    asyncio.run(main())
+```
+
+</Ex>
+
+<Ex l="s" title="Очередь и батчинг для GPU">
+
+```python
+import asyncio
+
+queue: asyncio.Queue = asyncio.Queue(maxsize=100)  # ограничена: обратное давление
+
+def run_model(batch: list[str]) -> list[str]:  # инференс на GPU, блокирующий вызов
+    return [text.upper() for text in batch]
+
+async def gpu_worker(max_batch: int = 8) -> None:
+    while True:
+        batch = [await queue.get()]             # ждём первый запрос
+        while len(batch) < max_batch and not queue.empty():
+            batch.append(queue.get_nowait())    # добираем накопившиеся
+        results = await asyncio.to_thread(run_model, [t for t, _ in batch])
+        for (_, future), result in zip(batch, results):
+            if not future.done():               # клиент мог отменить запрос
+                future.set_result(result)
+
+async def infer(text: str) -> str:              # вызывается из эндпоинта
+    future = asyncio.get_running_loop().create_future()
+    await queue.put((text, future))
+    return await future
+
+async def main() -> None:
+    worker = asyncio.create_task(gpu_worker())  # единственный, кто трогает GPU
+    print(await asyncio.gather(infer("a"), infer("b"), infer("c")))  # ['A', 'B', 'C']
+    worker.cancel()
+
+asyncio.run(main())
+```
+
+В сервисе воркер запускают в lifespan, а ошибку модели передают ожидающим через `future.set_exception`.
+
+</Ex>
+
+<Next>
+
+- Почему потоки ускоряют скачивание, но не вычисления? — На ожидании ввода-вывода GIL отпускается, а байткод Python выполняет один поток за раз.
+- Что нельзя передать в `ProcessPoolExecutor`? — То, что не сериализуется pickle: лямбды, локальные функции, открытые соединения.
+- Зачем `if __name__ == "__main__":` при работе с процессами? — При `spawn` дочерний процесс импортирует модуль заново и без проверки снова запустит пул.
+- Почему для модели на GPU не ставят `--workers 4`? — Каждый воркер загрузит свою копию весов в видеопамять.
+- Чем `asyncio.to_thread` отличается от `run_in_executor`? — `to_thread` всегда использует пул потоков цикла и передаёт контекстные переменные; `run_in_executor` принимает любой исполнитель.
+
+</Next>
+
+<Src>
+
+- [concurrent.futures — Launching parallel tasks](https://docs.python.org/3/library/concurrent.futures.html)
+- [multiprocessing — Process-based parallelism](https://docs.python.org/3/library/multiprocessing.html)
+- [Python support for free threading](https://docs.python.org/3/howto/free-threading-python.html)
+
+</Src>
+
+</Q>

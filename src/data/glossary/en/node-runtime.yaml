@@ -1,0 +1,135 @@
+node-commonjs:
+  term: CommonJS
+  def: >-
+    The original Node.js module system: import with `require()`, export with `module.exports`. A
+    module is loaded and run synchronously on the first `require` call, and the result is cached.
+  q: Node.js CommonJS modules
+  docs: https://nodejs.org/api/modules.html
+node-esm:
+  term: ES modules (ESM)
+  def: >-
+    The standard JavaScript module system: `import` and `export`. The import graph is built before
+    any code runs, loading is asynchronous, and top-level `await` is supported. In Node.js it is
+    enabled by the `.mjs` extension or `"type": "module"` in `package.json`.
+  q: Node.js ECMAScript modules
+  docs: https://nodejs.org/api/esm.html
+node-package-lock:
+  term: package-lock.json
+  def: >-
+    npm's lockfile with exact versions and integrity hashes of the whole dependency tree, transitive
+    dependencies included. `npm ci` installs strictly from it and fails if it disagrees with
+    `package.json`.
+  q: npm package-lock.json npm ci
+  docs: https://docs.npmjs.com/cli/configuring-npm/package-lock-json
+node-type-stripping:
+  term: Type stripping
+  def: >-
+    Built-in Node.js support for running `.ts` files: type annotations are replaced with whitespace,
+    nothing is transpiled and types are not checked. On by default since Node 22.18 and 23.6, stable
+    since 24.12 and 25.2; `enum` and `namespace` with runtime code are not supported.
+  q: Node.js type stripping TypeScript
+  docs: https://nodejs.org/api/typescript.html
+node-phantom-dependency:
+  term: Phantom dependency
+  def: >-
+    A package your code imports even though it is not in your own `package.json`: it is reachable
+    only because npm hoisted someone else's transitive dependency into a flat `node_modules`. It
+    breaks when the package that pulled it in is updated.
+  q: phantom dependencies node_modules pnpm
+  docs: https://pnpm.io/motivation
+node-libuv:
+  term: libuv
+  def: >-
+    The cross-platform asynchronous I/O library in C that Node.js is built on. It provides the event
+    loop, non-blocking sockets via epoll, kqueue and IOCP, timers, and a thread pool for files and
+    DNS.
+  q: libuv design overview
+  docs: https://docs.libuv.org/en/v1.x/design.html
+node-v8:
+  term: V8
+  def: >-
+    Google's JavaScript engine, shared by Chrome and Node.js. It compiles and runs JavaScript and
+    manages the heap and garbage collection; it has no I/O of its own — libuv provides that.
+  q: V8 JavaScript engine
+  docs: https://v8.dev/
+node-libuv-threadpool:
+  term: libuv thread pool (UV_THREADPOOL_SIZE)
+  def: >-
+    A process-wide thread pool where libuv runs operations that have no non-blocking OS API: files,
+    `dns.lookup`, some crypto and async zlib. 4 threads by default, at most 1024, sized with the
+    `UV_THREADPOOL_SIZE` environment variable.
+  q: libuv threadpool UV_THREADPOOL_SIZE
+  docs: https://docs.libuv.org/en/v1.x/threadpool.html
+node-event-loop-delay:
+  term: Event loop delay
+  def: >-
+    How much later than scheduled the event loop gets to run a callback. Growing delay means the main
+    thread is busy with synchronous work; it is measured with `perf_hooks.monitorEventLoopDelay()`.
+  q: Node.js monitorEventLoopDelay event loop lag
+  docs: https://nodejs.org/api/perf_hooks.html
+node-stream:
+  term: Stream
+  def: >-
+    A Node.js object for processing data in chunks as it arrives: Readable is a source, Writable a
+    destination, Duplex both, Transform changes data on the way. Streams are connected with
+    `pipeline`.
+  q: Node.js streams
+  docs: https://nodejs.org/api/stream.html
+node-event-emitter:
+  term: EventEmitter
+  def: >-
+    The Node.js base class for objects with events: `on` subscribes a listener, `emit` calls all
+    listeners synchronously. An `'error'` event with no listener is thrown as an exception.
+  q: Node.js EventEmitter error event
+  docs: https://nodejs.org/api/events.html
+node-uncaught-exception:
+  term: uncaughtException
+  def: >-
+    The Node.js process event for an exception that reached the event loop unhandled. By default Node
+    prints the stack and exits with code 1; resuming normal operation after it is not safe.
+  q: Node.js uncaughtException
+  docs: https://nodejs.org/api/process.html#event-uncaughtexception
+node-worker-threads:
+  term: worker_threads
+  def: >-
+    The Node.js module for threads inside a process. Each worker has its own V8 isolate, heap and
+    event loop; data is passed via `postMessage` or `SharedArrayBuffer`. Meant for CPU work, not
+    I/O.
+  q: Node.js worker_threads
+  docs: https://nodejs.org/api/worker_threads.html
+node-cluster:
+  term: cluster
+  def: >-
+    The Node.js module that starts several copies of the app as processes on one port: the primary
+    process accepts connections and hands them to workers. Processes do not share memory.
+  q: Node.js cluster module
+  docs: https://nodejs.org/api/cluster.html
+node-heap-snapshot:
+  term: Heap snapshot
+  def: >-
+    A `.heapsnapshot` file with every object in the V8 heap and the references between them. Two
+    snapshots are compared in Chrome DevTools to find growing objects and what retains them.
+  q: Node.js heap snapshot memory leak
+  docs: https://nodejs.org/en/learn/diagnostics/memory/using-heap-snapshot
+node-inspector:
+  term: Node.js inspector (--inspect)
+  def: >-
+    The built-in debugging and profiling protocol that Chrome DevTools and VS Code attach to. Enabled
+    with the `--inspect` flag; by default it listens on `127.0.0.1:9229`.
+  q: Node.js --inspect debugging
+  docs: https://nodejs.org/en/learn/getting-started/debugging
+node-diagnostics-channel:
+  term: diagnostics_channel
+  def: >-
+    The Node.js module for publishing diagnostic events on named channels. Libraries and built-in
+    modules report requests, and APM tools and OpenTelemetry subscribe without patching code.
+  q: Node.js diagnostics_channel
+  docs: https://nodejs.org/api/diagnostics_channel.html
+node-lts:
+  term: Node.js LTS
+  def: >-
+    A Node.js release line with long-term support: Active LTS, then Maintenance, about 30 months in
+    total. Up to Node 26, even-numbered versions became LTS; from Node 27 there is one major release
+    a year, and each becomes LTS.
+  q: Node.js release schedule LTS
+  docs: https://nodejs.org/en/about/previous-releases
