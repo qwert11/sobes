@@ -49,6 +49,11 @@ export default defineConfig({
           items: [{ autogenerate: { directory: 'security' } }],
         },
         {
+          label: 'Интеграции и архитектура',
+          translations: { uk: 'Інтеграції та архітектура', en: 'Integrations and architecture' },
+          items: [{ autogenerate: { directory: 'arch' } }],
+        },
+        {
           label: 'Глоссарий',
           translations: { uk: 'Глосарій', en: 'Glossary' },
           slug: 'glossary',

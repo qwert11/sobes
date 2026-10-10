@@ -1,0 +1,175 @@
+layered-architecture:
+  term: Слоёная архитектура (layered, n-tier)
+  def: >-
+    Код делится на горизонтальные слои: представление, бизнес-логика, доступ к данным. Каждый слой
+    обращается только к нижнему, поэтому бизнес-логика зависит от слоя данных.
+  q: layered architecture n-layer
+  docs: https://learn.microsoft.com/dotnet/architecture/modern-web-apps-azure/common-web-application-architectures
+  wiki: Многоуровневая архитектура
+clean-architecture:
+  term: Чистая архитектура (clean architecture)
+  def: >-
+    Стиль, в котором доменное ядро находится в центре, а все зависимости в исходном коде направлены
+    к нему. Инфраструктура и UI подключаются снаружи через интерфейсы, объявленные в ядре. Близкие
+    варианты — гексагональная и onion-архитектура.
+  q: clean architecture ASP.NET Core
+  docs: https://learn.microsoft.com/dotnet/architecture/modern-web-apps-azure/common-web-application-architectures#clean-architecture
+ports-and-adapters:
+  term: Порты и адаптеры (гексагональная архитектура)
+  def: >-
+    Стиль Алистера Кокберна: приложение общается с внешним миром только через порты — интерфейсы,
+    которые оно само объявляет. Адаптер реализует порт под конкретную технологию: контроллер,
+    репозиторий на EF Core, SMTP-клиент.
+  q: hexagonal architecture ports and adapters
+  docs: https://alistair.cockburn.us/hexagonal-architecture/
+anemic-domain-model:
+  term: Анемичная модель предметной области (anemic domain model)
+  def: >-
+    Модель, в которой сущности — только данные со свойствами, а вся логика и проверки живут в
+    сервисах. Фаулер считает её антипаттерном; она не связана с выбором слоёной или чистой
+    архитектуры.
+  q: anemic domain model
+  docs: https://martinfowler.com/bliki/AnemicDomainModel.html
+microservices:
+  term: Микросервисы (microservices)
+  def: >-
+    Архитектурный стиль, в котором система состоит из небольших сервисов. Каждый владеет своими
+    данными, выпускается независимо и общается с другими по сети.
+  q: microservices architecture style
+  docs: https://learn.microsoft.com/azure/architecture/guide/architecture-styles/microservices
+  wiki: Микросервисная архитектура
+modular-monolith:
+  term: Модульный монолит (modular monolith)
+  def: >-
+    Одно развёртываемое приложение, код которого разбит на модули по бизнес-возможностям. Модуль
+    открывает другим только публичный контракт и владеет своими данными.
+  q: modular monolith .NET
+conways-law:
+  term: Закон Конвея (Conway's law)
+  def: >-
+    Наблюдение Мелвина Конвея (1968): организации проектируют системы, структура которых копирует
+    структуру коммуникаций в самой организации. Поэтому границы сервисов обычно совпадают с
+    границами команд.
+  q: Conway's law
+  docs: https://martinfowler.com/bliki/ConwaysLaw.html
+  wiki: Закон Конвея
+distributed-monolith:
+  term: Распределённый монолит (distributed monolith)
+  def: >-
+    Система из формально отдельных сервисов, которые нельзя выпускать независимо: они делят базу,
+    вызывают друг друга синхронными цепочками и меняются вместе. Сочетает минусы монолита и
+    микросервисов.
+  q: distributed monolith anti-pattern
+architecture-test:
+  term: Тест архитектуры (architecture test)
+  def: >-
+    Автоматический тест, который проверяет правила зависимостей в коде: например, что домен не
+    ссылается на EF Core, а один модуль не обращается к внутренностям другого. В .NET их пишут на
+    NetArchTest или ArchUnitNET.
+  q: .NET architecture tests NetArchTest ArchUnitNET
+ddd:
+  term: DDD (Domain-Driven Design)
+  def: >-
+    Предметно-ориентированное проектирование — подход Эрика Эванса (2003), в котором код строят
+    вокруг модели бизнеса и языка его экспертов. Делится на стратегический (границы контекстов) и
+    тактический (агрегаты, value objects, события) уровни.
+  q: domain-driven design
+  docs: https://learn.microsoft.com/dotnet/architecture/microservices/microservice-ddd-cqrs-patterns/ddd-oriented-microservice
+  wiki: Проблемно-ориентированное проектирование
+ubiquitous-language:
+  term: Единый язык (ubiquitous language)
+  def: >-
+    Общий словарь разработчиков и экспертов предметной области внутри одного ограниченного
+    контекста. Одни и те же слова звучат в разговорах, требованиях, именах классов и методов.
+  q: ubiquitous language DDD
+  docs: https://martinfowler.com/bliki/UbiquitousLanguage.html
+bounded-context:
+  term: Ограниченный контекст (bounded context)
+  def: >-
+    Граница, внутри которой у модели и её терминов одно значение. «Товар» на складе и в каталоге —
+    разные модели в разных контекстах; контекст — естественный кандидат в модуль или сервис.
+  q: bounded context DDD
+  docs: https://martinfowler.com/bliki/BoundedContext.html
+aggregate:
+  term: Агрегат (aggregate)
+  def: >-
+    Группа связанных объектов, которую меняют как единое целое через корень. Агрегат — граница
+    консистентности: его инварианты выполняются после каждой транзакции.
+  q: DDD aggregate
+  docs: https://martinfowler.com/bliki/DDD_Aggregate.html
+value-object:
+  term: Объект-значение (value object)
+  def: >-
+    Объект без собственной идентичности, который определяется значениями полей: `Money`, `Address`,
+    `DateRange`. Неизменяемый и сравнивается по значению; в C# его удобно делать `record`.
+  q: DDD value object C#
+  docs: https://learn.microsoft.com/dotnet/architecture/microservices/microservice-ddd-cqrs-patterns/implement-value-objects
+domain-event:
+  term: Доменное событие (domain event)
+  def: >-
+    Объект, который описывает значимый для бизнеса факт в прошедшем времени: `OrderSubmitted`.
+    Другие части системы реагируют на него, не связываясь с источником напрямую.
+  q: DDD domain events
+  docs: https://learn.microsoft.com/dotnet/architecture/microservices/microservice-ddd-cqrs-patterns/domain-events-design-implementation
+cqrs:
+  term: CQRS (Command Query Responsibility Segregation)
+  def: >-
+    Разделение модели записи (команды меняют состояние) и модели чтения (запросы возвращают данные).
+    Модели могут жить в одной базе или в разных.
+  q: CQRS pattern
+  docs: https://learn.microsoft.com/azure/architecture/patterns/cqrs
+event-sourcing:
+  term: Event sourcing
+  def: >-
+    Хранение состояния как последовательности событий, а не как текущего снимка. Текущее
+    состояние получают, проигрывая события по порядку.
+  q: event sourcing pattern
+  docs: https://learn.microsoft.com/azure/architecture/patterns/event-sourcing
+read-model:
+  term: Модель чтения (read model)
+  def: >-
+    Данные, подготовленные под конкретные запросы: плоские таблицы, документы, кеш. В CQRS их
+    обновляют по событиям или изменениям модели записи, поэтому они могут отставать.
+  q: CQRS read model projection
+  docs: https://learn.microsoft.com/azure/architecture/patterns/cqrs
+event-store:
+  term: Хранилище событий (event store)
+  def: >-
+    База для event sourcing: только дописывает события в потоки, хранит номер версии потока и
+    отклоняет запись, если ожидаемая версия не совпала. Примеры — KurrentDB (бывшая EventStoreDB),
+    Marten поверх PostgreSQL.
+  q: event store database
+event-snapshot:
+  term: Снапшот (snapshot) в event sourcing
+  def: >-
+    Сохранённое состояние агрегата на определённой версии потока. Агрегат загружают из снапшота и
+    дочитывают только более поздние события, а не весь поток.
+  q: event sourcing snapshot
+strangler-fig:
+  term: Strangler fig («фикус-душитель»)
+  def: >-
+    Паттерн постепенной замены системы: новый код встаёт рядом со старым и забирает функции по
+    одной, пока старую систему не станет можно отключить. Название дал Мартин Фаулер.
+  q: strangler fig pattern
+  docs: https://learn.microsoft.com/azure/architecture/patterns/strangler-fig
+yarp:
+  term: YARP (Yet Another Reverse Proxy)
+  def: >-
+    Библиотека Microsoft для построения обратного прокси на ASP.NET Core (пакет `Yarp.ReverseProxy`).
+    Используется для шлюзов API и для поэтапного переноса ASP.NET-приложений на ASP.NET Core.
+  q: YARP reverse proxy
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/servers/yarp/yarp-overview
+characterization-test:
+  term: Характеризующий тест (characterization test)
+  def: >-
+    Тест, который фиксирует фактическое поведение существующего кода, а не требуемое. Термин
+    Майкла Фэзерса; такие тесты страхуют рефакторинг и перенос legacy.
+  q: characterization test legacy code
+feature-toggle:
+  term: Feature toggle (флаг функциональности)
+  def: >-
+    Переключатель в конфигурации, который включает или выключает ветку кода без нового
+    развёртывания: для части пользователей, по проценту или полностью. В .NET есть библиотека
+    `Microsoft.FeatureManagement`.
+  q: feature toggles feature flags
+  docs: https://martinfowler.com/articles/feature-toggles.html

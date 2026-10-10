@@ -1,0 +1,161 @@
+non-functional-requirements:
+  term: Нефункціональні вимоги
+  def: >-
+    Вимоги не до того, що система робить, а до того, як: навантаження, затримка, доступність,
+    узгодженість, безпека, термін зберігання даних. Саме вони визначають архітектуру.
+  q: non-functional requirements system design
+  wiki: Нефункціональні вимоги
+
+back-of-envelope:
+  term: Оцінка на серветці (back-of-the-envelope)
+  def: >-
+    Швидкий розрахунок порядку величин за припущеннями: запити на секунду, обсяг даних, трафік,
+    пам'ять під кеш. Потрібна точність до порядку, а не до відсотка.
+  q: back of the envelope estimation system design
+
+rps:
+  term: RPS (requests per second)
+  def: >-
+    Кількість запитів на секунду — основна міра навантаження на сервіс. Рахують середнє й пік: пік
+    зазвичай у кілька разів вищий за середнє.
+  q: requests per second RPS throughput
+
+slo:
+  term: SLO (service level objective)
+  def: >-
+    Цільове значення показника якості сервісу, наприклад «99,9% запитів успішні» або «p99 менше
+    300 мс». SLA — договірне зобов'язання перед клієнтом, зазвичай м'якше за внутрішній SLO.
+  q: service level objective SLO SLI SLA
+  docs: https://learn.microsoft.com/azure/well-architected/reliability/metrics
+
+horizontal-scaling:
+  term: Горизонтальне масштабування (scale out)
+  def: >-
+    Зростання пропускної здатності через додавання екземплярів сервісу, а не посилення одного
+    сервера (вертикальне, scale up). Вимагає, щоб екземпляри не зберігали стан у себе.
+  q: horizontal vs vertical scaling
+  docs: https://learn.microsoft.com/azure/architecture/best-practices/auto-scaling
+
+load-balancer:
+  term: Балансувальник навантаження (load balancer)
+  def: >-
+    Компонент, що розподіляє вхідний трафік між екземплярами сервісу й виключає несправні. L4
+    працює з TCP/UDP-з'єднаннями, L7 — з HTTP-запитами.
+  q: load balancer layer 4 vs layer 7
+  docs: https://learn.microsoft.com/azure/architecture/guide/technology-choices/load-balancing-overview
+
+stateless-service:
+  term: Stateless-сервіс
+  def: >-
+    Сервіс, який не зберігає стан між запитами у своїй пам'яті: сесії, кошики й файли лежать у
+    зовнішньому сховищі. Будь-який екземпляр може обробити будь-який запит.
+  q: stateless service horizontal scaling
+
+cdn:
+  term: CDN (content delivery network)
+  def: >-
+    Мережа серверів у точках присутності по всьому світу, яка кешує й віддає статику та кешовані
+    відповіді поруч із користувачем. Знімає навантаження з джерела й скорочує затримку.
+  q: content delivery network CDN
+  docs: https://learn.microsoft.com/azure/cdn/cdn-overview
+
+queue-based-load-leveling:
+  term: Згладжування навантаження чергою (queue-based load leveling)
+  def: >-
+    Патерн, за якого запити кладуть у чергу, а обробники розбирають її зі сталою швидкістю. Пік
+    перетворюється на зростання черги й затримку, а не на перевантаження сервісу.
+  q: queue-based load leveling pattern
+  docs: https://learn.microsoft.com/azure/architecture/patterns/queue-based-load-leveling
+
+cap-theorem:
+  term: Теорема CAP
+  def: >-
+    Твердження Brewer, доведене Gilbert і Lynch 2002 року: під час мережевого розділення
+    розподілена система не може водночас зберегти лінеаризовність (C) і відповідь кожного
+    робочого вузла (A).
+  q: CAP theorem Gilbert Lynch
+  wiki: Теорема CAP
+
+linearizability:
+  term: Лінеаризовність (linearizability)
+  def: >-
+    Найсильніша гарантія узгодженості одного об'єкта: система поводиться як одна копія, і
+    завершений запис бачать усі наступні читання. Саме це C у теоремі CAP.
+  q: linearizability consistency model
+  wiki: Лінеаризовність
+
+pacelc:
+  term: PACELC
+  def: >-
+    Розширення CAP від Daniel Abadi (2010–2012): під час розділення (P) система обирає між
+    доступністю (A) та узгодженістю (C), інакше (E) — між затримкою (L) та узгодженістю (C).
+  q: PACELC theorem Abadi
+  docs: https://www.cs.umd.edu/~abadi/papers/abadi-pacelc.pdf
+
+quorum:
+  term: Кворум (quorum)
+  def: >-
+    Мінімальна кількість реплік, яка має підтвердити запис (W) або відповісти на читання (R).
+    Якщо W + R більше за кількість реплік N, читання перетинається хоча б з однією свіжою реплікою.
+  q: quorum reads writes W R N replication
+
+read-your-writes:
+  term: Read-your-writes
+  def: >-
+    Сесійна гарантія: користувач завжди бачить власні записи, навіть якщо інші клієнти поки що
+    читають стару версію з репліки, що відстає.
+  q: read your writes consistency guarantee
+
+backends-for-frontends:
+  term: Backends for Frontends (BFF)
+  def: >-
+    Патерн Сема Ньюмена: окремий бекенд під кожен тип клієнта — веб, мобільний застосунок, — який
+    агрегує виклики сервісів і форматує відповіді під цього клієнта. Ним володіє команда клієнта.
+  q: backends for frontends pattern
+  docs: https://learn.microsoft.com/azure/architecture/patterns/backends-for-frontends
+
+single-point-of-failure:
+  term: Єдина точка відмови (single point of failure)
+  def: >-
+    Компонент, відмова якого зупиняє всю систему: єдиний екземпляр шлюзу, бази чи балансувальника.
+    Усувається резервуванням у різних зонах відмови.
+  q: single point of failure
+  wiki: Єдина точка відмови
+
+service-mesh:
+  term: Service mesh
+  def: >-
+    Інфраструктурний шар для викликів між сервісами: проксі поруч із кожним сервісом (sidecar)
+    додає mTLS, повтори, балансування й телеметрію без зміни коду. Приклади — Istio, Linkerd.
+  q: service mesh Istio Linkerd
+  docs: https://learn.microsoft.com/azure/aks/istio-about
+
+delivery-receipt:
+  term: Звіт про доставку (delivery receipt, DLR)
+  def: >-
+    Асинхронне сповіщення від SMS-центру про фінальний статус повідомлення: доставлено, сплив
+    термін, не доставлено. У SMPP надходить операцією deliver_sm; формат тексту залежить від SMSC.
+  q: SMPP delivery receipt deliver_sm DLR
+
+smpp:
+  term: SMPP (Short Message Peer-to-Peer)
+  def: >-
+    Протокол поверх TCP для обміну SMS між застосунком (ESME) і SMS-центром оператора чи
+    агрегатора. Повідомлення надсилають операцією submit_sm, статуси отримують через deliver_sm.
+  q: SMPP protocol 3.4
+  docs: https://smpp.org/SMPP_v3_4_Issue1_2.pdf
+
+token-bucket:
+  term: Token bucket (кошик токенів)
+  def: >-
+    Алгоритм обмеження швидкості: кошик поповнюється токенами зі сталою швидкістю, кожна операція
+    забирає токен. Допускає короткі сплески до розміру кошика, а в середньому тримає задану
+    швидкість.
+  q: token bucket rate limiting algorithm
+
+failover:
+  term: Failover (перемикання на резерв)
+  def: >-
+    Автоматичне перенесення навантаження з компонента чи провайдера, що відмовив, на резервний.
+    Рішення зазвичай ухвалюють за часткою помилок, таймаутами або перевірками здоров'я.
+  q: failover high availability

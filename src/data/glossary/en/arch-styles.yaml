@@ -1,0 +1,178 @@
+layered-architecture:
+  term: Layered architecture (n-tier)
+  def: >-
+    Code is split into horizontal layers: presentation, business logic, data access. Each layer
+    calls only the one below it, so business logic depends on the data layer.
+  q: layered architecture n-layer
+  docs: https://learn.microsoft.com/dotnet/architecture/modern-web-apps-azure/common-web-application-architectures
+  wiki: Multitier architecture
+clean-architecture:
+  term: Clean architecture
+  def: >-
+    A style where the domain core sits in the center and every source-code dependency points
+    toward it. Infrastructure and UI plug in from outside through interfaces declared in the core.
+    Hexagonal and onion architecture are close variants.
+  q: clean architecture ASP.NET Core
+  docs: https://learn.microsoft.com/dotnet/architecture/modern-web-apps-azure/common-web-application-architectures#clean-architecture
+ports-and-adapters:
+  term: Ports and adapters (hexagonal architecture)
+  def: >-
+    Alistair Cockburn's style: the application talks to the outside world only through ports —
+    interfaces it declares itself. An adapter implements a port for a specific technology: a
+    controller, an EF Core repository, an SMTP client.
+  q: hexagonal architecture ports and adapters
+  docs: https://alistair.cockburn.us/hexagonal-architecture/
+anemic-domain-model:
+  term: Anemic domain model
+  def: >-
+    A model where entities are just data with properties and all logic and checks live in
+    services. Fowler calls it an anti-pattern; it is unrelated to choosing a layered or clean
+    architecture.
+  q: anemic domain model
+  docs: https://martinfowler.com/bliki/AnemicDomainModel.html
+microservices:
+  term: Microservices
+  def: >-
+    An architecture style where the system consists of small services. Each owns its data, is
+    released independently and talks to the others over the network.
+  q: microservices architecture style
+  docs: https://learn.microsoft.com/azure/architecture/guide/architecture-styles/microservices
+  wiki: Microservices
+modular-monolith:
+  term: Modular monolith
+  def: >-
+    A single deployable application whose code is split into modules by business capability. A
+    module exposes only a public contract to others and owns its data.
+  q: modular monolith .NET
+conways-law:
+  term: Conway's law
+  def: >-
+    Melvin Conway's observation (1968): organizations design systems whose structure copies the
+    organization's own communication structure. That is why service boundaries usually match team
+    boundaries.
+  q: Conway's law
+  docs: https://martinfowler.com/bliki/ConwaysLaw.html
+  wiki: Conway's law
+distributed-monolith:
+  term: Distributed monolith
+  def: >-
+    A system of formally separate services that cannot be released independently: they share a
+    database, call each other in synchronous chains and change together. It combines the downsides
+    of a monolith and of microservices.
+  q: distributed monolith anti-pattern
+architecture-test:
+  term: Architecture test
+  def: >-
+    An automated test that checks dependency rules in code: for example, that the domain does not
+    reference EF Core and one module does not reach into another's internals. In .NET they are
+    written with NetArchTest or ArchUnitNET.
+  q: .NET architecture tests NetArchTest ArchUnitNET
+ddd:
+  term: DDD (Domain-Driven Design)
+  def: >-
+    Eric Evans's approach (2003) where code is built around a model of the business and the
+    language of its experts. It has a strategic level (context boundaries) and a tactical level
+    (aggregates, value objects, events).
+  q: domain-driven design
+  docs: https://learn.microsoft.com/dotnet/architecture/microservices/microservice-ddd-cqrs-patterns/ddd-oriented-microservice
+  wiki: Domain-driven design
+ubiquitous-language:
+  term: Ubiquitous language
+  def: >-
+    A shared vocabulary of developers and domain experts within one bounded context. The same words
+    appear in conversations, requirements, class names and method names.
+  q: ubiquitous language DDD
+  docs: https://martinfowler.com/bliki/UbiquitousLanguage.html
+bounded-context:
+  term: Bounded context
+  def: >-
+    A boundary inside which a model and its terms have one meaning. A "product" in the warehouse and
+    in the catalog are different models in different contexts; a context is a natural candidate
+    for a module or a service.
+  q: bounded context DDD
+  docs: https://martinfowler.com/bliki/BoundedContext.html
+aggregate:
+  term: Aggregate
+  def: >-
+    A cluster of related objects changed as a single unit through its root. An aggregate is a
+    consistency boundary: its invariants hold after every transaction.
+  q: DDD aggregate
+  docs: https://martinfowler.com/bliki/DDD_Aggregate.html
+value-object:
+  term: Value object
+  def: >-
+    An object without its own identity, defined by the values of its fields: `Money`, `Address`,
+    `DateRange`. It is immutable and compared by value; in C# a `record` fits it well.
+  q: DDD value object C#
+  docs: https://learn.microsoft.com/dotnet/architecture/microservices/microservice-ddd-cqrs-patterns/implement-value-objects
+domain-event:
+  term: Domain event
+  def: >-
+    An object describing a business-relevant fact in the past tense: `OrderSubmitted`. Other parts
+    of the system react to it without coupling to its source directly.
+  q: DDD domain events
+  docs: https://learn.microsoft.com/dotnet/architecture/microservices/microservice-ddd-cqrs-patterns/domain-events-design-implementation
+cqrs:
+  term: CQRS (Command Query Responsibility Segregation)
+  def: >-
+    Separating the write model (commands change state) from the read model (queries return data).
+    The models can live in one database or in different ones.
+  q: CQRS pattern
+  docs: https://learn.microsoft.com/azure/architecture/patterns/cqrs
+  wiki: Command Query Responsibility Segregation
+event-sourcing:
+  term: Event sourcing
+  def: >-
+    Storing state as a sequence of events rather than as a current snapshot. The current state is
+    obtained by replaying the events in order.
+  q: event sourcing pattern
+  docs: https://learn.microsoft.com/azure/architecture/patterns/event-sourcing
+read-model:
+  term: Read model
+  def: >-
+    Data shaped for specific queries: flat tables, documents, a cache. In CQRS it is updated from
+    events or changes in the write model, so it may lag behind.
+  q: CQRS read model projection
+  docs: https://learn.microsoft.com/azure/architecture/patterns/cqrs
+event-store:
+  term: Event store
+  def: >-
+    A database for event sourcing: it only appends events to streams, tracks each stream's version
+    and rejects a write if the expected version does not match. Examples are KurrentDB (formerly
+    EventStoreDB) and Marten on top of PostgreSQL.
+  q: event store database
+event-snapshot:
+  term: Snapshot (event sourcing)
+  def: >-
+    A saved state of an aggregate at a given stream version. The aggregate is loaded from the
+    snapshot plus only the later events instead of the whole stream.
+  q: event sourcing snapshot
+strangler-fig:
+  term: Strangler fig
+  def: >-
+    A pattern for replacing a system gradually: new code grows next to the old one and takes over
+    features one by one until the old system can be switched off. The name comes from Martin
+    Fowler.
+  q: strangler fig pattern
+  docs: https://learn.microsoft.com/azure/architecture/patterns/strangler-fig
+yarp:
+  term: YARP (Yet Another Reverse Proxy)
+  def: >-
+    Microsoft's library for building a reverse proxy on ASP.NET Core (the `Yarp.ReverseProxy`
+    package). Used for API gateways and for migrating ASP.NET apps to ASP.NET Core step by step.
+  q: YARP reverse proxy
+  docs: https://learn.microsoft.com/aspnet/core/fundamentals/servers/yarp/yarp-overview
+characterization-test:
+  term: Characterization test
+  def: >-
+    A test that pins down the actual behavior of existing code rather than the required one. The
+    term is Michael Feathers's; such tests protect refactoring and legacy migration.
+  q: characterization test legacy code
+  wiki: Characterization test
+feature-toggle:
+  term: Feature toggle (feature flag)
+  def: >-
+    A configuration switch that turns a code path on or off without a new deployment: for some
+    users, by percentage or entirely. .NET has the `Microsoft.FeatureManagement` library.
+  q: feature toggles feature flags
+  docs: https://martinfowler.com/articles/feature-toggles.html

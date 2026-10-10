@@ -1,0 +1,176 @@
+message-broker:
+  term: Брокер сообщений (message broker)
+  def: >-
+    Промежуточный сервер, который принимает сообщения от отправителей, хранит их и доставляет
+    получателям. Отправителю не нужно, чтобы получатель был доступен в момент отправки. Примеры —
+    RabbitMQ, Apache Kafka, Azure Service Bus.
+  q: message broker
+  wiki: Брокер сообщений
+temporal-coupling:
+  term: Связанность по времени (temporal coupling)
+  def: >-
+    Зависимость, при которой системы должны работать одновременно, чтобы взаимодействие удалось.
+    Синхронный вызов связывает по времени, обмен через очередь или файлы — нет.
+  q: temporal coupling integration
+file-transfer-integration:
+  term: Файловый обмен (file transfer)
+  def: >-
+    Стиль интеграции, при котором одна система выгружает данные в файл, а другая забирает и
+    загружает его — через общую папку, SFTP или AS2. Прост и подходит для больших пакетов, но
+    данные устаревают до следующей выгрузки.
+  q: file transfer integration pattern
+  docs: https://www.enterpriseintegrationpatterns.com/patterns/messaging/FileTransferIntegration.html
+shared-database:
+  term: Общая база данных (shared database)
+  def: >-
+    Стиль интеграции, при котором несколько систем читают и пишут одни и те же таблицы. Данные
+    всегда свежие, но схема становится общим контрактом, который нельзя менять без всех участников.
+  q: shared database integration pattern
+  docs: https://www.enterpriseintegrationpatterns.com/patterns/messaging/SharedDataBaseIntegration.html
+async-request-reply:
+  term: Асинхронный запрос-ответ (asynchronous request-reply)
+  def: >-
+    Паттерн для долгих операций по HTTP: сервер сразу отвечает 202 Accepted с адресом статуса, а
+    клиент опрашивает его или получает уведомление, когда результат готов.
+  q: asynchronous request-reply pattern
+  docs: https://learn.microsoft.com/azure/architecture/patterns/async-request-reply
+grpc:
+  term: gRPC
+  def: >-
+    Фреймворк удалённого вызова процедур поверх HTTP/2. Контракт описывается в файле `.proto`, по
+    нему генерируются сервер и клиент, сообщения кодируются в Protobuf. Поддерживает потоковую
+    передачу в обе стороны и дедлайны.
+  q: gRPC ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/grpc/
+protobuf:
+  term: Protocol Buffers (Protobuf)
+  def: >-
+    Бинарный формат сериализации от Google: схема описывается в `.proto`, а каждое поле
+    кодируется номером и типом. Сообщения компактнее JSON, но без схемы их не прочитать.
+  q: Protocol Buffers proto3
+  docs: https://protobuf.dev/
+soap:
+  term: SOAP
+  def: >-
+    Протокол обмена XML-сообщениями (конвертами) с контрактом в WSDL. Используется в WCF и
+    корпоративных системах; набор стандартов WS-* добавляет безопасность, надёжную доставку и
+    транзакции.
+  q: SOAP web service
+  wiki: SOAP
+grpc-web:
+  term: gRPC-Web
+  def: >-
+    Вариант протокола gRPC, который работает из браузера по HTTP/1.1 и HTTP/2. Поддерживает только
+    unary-вызовы и потоки от сервера; в ASP.NET Core включается пакетом `Grpc.AspNetCore.Web`.
+  q: gRPC-Web ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/grpc/grpcweb
+corewcf:
+  term: CoreWCF
+  def: >-
+    Порт серверной части WCF на современный .NET, проект .NET Foundation с поддержкой Microsoft.
+    Нужен для переноса существующих SOAP-сервисов; для новых Microsoft советует gRPC.
+  q: CoreWCF
+  docs: https://github.com/CoreWCF/CoreWCF
+transient-fault:
+  term: Временный сбой (transient fault)
+  def: >-
+    Ошибка, которая проходит сама через короткое время: обрыв сети, перезапуск сервиса, ответ 503
+    или 429. Такие ошибки имеет смысл повторять с паузой.
+  q: transient fault handling
+  docs: https://learn.microsoft.com/azure/architecture/best-practices/transient-faults
+http-client-factory:
+  term: IHttpClientFactory
+  def: >-
+    Фабрика `HttpClient` в .NET: переиспользует обработчики соединений, следит за их временем жизни
+    и позволяет настроить именованных и типизированных клиентов с цепочкой обработчиков, например
+    resilience.
+  q: IHttpClientFactory .NET
+  docs: https://learn.microsoft.com/dotnet/core/extensions/httpclient-factory
+exponential-backoff:
+  term: Экспоненциальная задержка (exponential backoff)
+  def: >-
+    Пауза между повторами, которая растёт в разы с каждой попыткой: 1, 2, 4, 8 секунд. Даёт
+    перегруженному сервису время восстановиться.
+  q: exponential backoff retry
+retry-jitter:
+  term: Jitter (случайный разброс задержки)
+  def: >-
+    Случайная добавка к паузе между повторами. Без неё клиенты, упавшие одновременно, повторяют
+    тоже одновременно и бьют восстановившийся сервис синхронной волной.
+  q: retry backoff jitter
+circuit-breaker:
+  term: Circuit breaker (автоматический выключатель)
+  def: >-
+    Стратегия, которая после доли ошибок перестаёт вызывать зависимость и сразу отклоняет вызовы, а
+    через паузу пропускает пробный. Три состояния — closed, open, half-open.
+  q: circuit breaker pattern
+  docs: https://learn.microsoft.com/azure/architecture/patterns/circuit-breaker
+bulkhead:
+  term: Bulkhead (переборка)
+  def: >-
+    Изоляция ресурсов по зависимостям: ограничение числа одновременных вызовов одной зависимости,
+    чтобы её зависание не забрало все потоки и соединения. В Polly v8 — ограничитель конкурентности.
+  q: bulkhead pattern
+  docs: https://learn.microsoft.com/azure/architecture/patterns/bulkhead
+retry-storm:
+  term: Шторм повторов (retry storm)
+  def: >-
+    Лавина запросов, когда повторы на нескольких уровнях перемножаются или все клиенты повторяют
+    одновременно. Добивает и без того перегруженный сервис.
+  q: retry storm
+idempotency-key:
+  term: Ключ идемпотентности (idempotency key)
+  def: >-
+    Уникальный ключ, который клиент передаёт с запросом, обычно заголовком `Idempotency-Key`. Сервер
+    сохраняет результат первой обработки и на повтор с тем же ключом возвращает его, не выполняя
+    операцию снова.
+  q: Idempotency-Key header
+  docs: https://datatracker.ietf.org/doc/draft-ietf-httpapi-idempotency-key-header/
+message-deduplication:
+  term: Дедупликация сообщений
+  def: >-
+    Отбрасывание повторно доставленных сообщений по их id или бизнес-ключу. Обычно это таблица
+    обработанных id с уникальным ключом, которая пополняется в одной транзакции с изменением данных.
+  q: idempotent consumer message deduplication
+edi:
+  term: EDI (electronic data interchange)
+  def: >-
+    Электронный обмен стандартными документами между компаниями — заказами, уведомлениями об
+    отгрузке, счетами — в машиночитаемом формате, обычно через EDI-провайдера.
+  q: EDI electronic data interchange
+  wiki: Electronic data interchange
+anti-corruption-layer:
+  term: Anti-corruption layer (предохранительный слой)
+  def: >-
+    Слой-переводчик между своей моделью и внешней или legacy-системой. Он преобразует чужие модели,
+    коды и ошибки, чтобы они не расползались по вашему коду.
+  q: anti-corruption layer pattern
+  docs: https://learn.microsoft.com/azure/architecture/patterns/anti-corruption-layer
+as2:
+  term: AS2 (Applicability Statement 2)
+  def: >-
+    Протокол передачи EDI-документов по HTTP с подписью и шифрованием S/MIME и подписанной
+    квитанцией о доставке MDN. Описан в RFC 4130.
+  q: AS2 protocol EDI
+  docs: https://www.rfc-editor.org/rfc/rfc4130
+reconciliation:
+  term: Сверка (reconciliation)
+  def: >-
+    Периодическое сравнение данных двух систем: количество, суммы и номера документов за период.
+    Находит то, что потерялось или задвоилось, несмотря на квитанции и повторы.
+  q: data reconciliation integration
+esb:
+  term: Интеграционная шина (ESB)
+  def: >-
+    Центральная платформа интеграции с адаптерами, маршрутизацией и преобразованием сообщений
+    между системами, например BizTalk Server. Сокращает число связей точка-точка, но становится
+    центральной зависимостью.
+  q: enterprise service bus
+  wiki: Сервисная шина предприятия
+canonical-data-model:
+  term: Каноническая модель данных
+  def: >-
+    Общий формат сообщений, в который каждая система переводит свои данные. Вместо маппинга каждой
+    пары систем нужен один маппинг на систему.
+  q: canonical data model integration pattern
+  docs: https://www.enterpriseintegrationpatterns.com/patterns/messaging/CanonicalDataModel.html

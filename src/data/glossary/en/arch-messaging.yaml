@@ -1,0 +1,174 @@
+event-log:
+  term: Event log (commit log)
+  def: >-
+    An ordered journal where records are only appended and are not deleted when read. Each
+    reader keeps its own position and can replay history within the retention period. Kafka
+    topics work this way.
+  q: Kafka distributed commit log
+  docs: https://kafka.apache.org/intro
+point-to-point:
+  term: Point-to-point
+  def: >-
+    A messaging model where each message in a queue goes to exactly one of the competing
+    consumers. It's how work is spread across instances of a service.
+  q: point-to-point messaging queue competing consumers
+topic-partition:
+  term: Partition
+  def: >-
+    A slice of a Kafka topic — a separate ordered log on one of the brokers. Record order is
+    guaranteed only within a partition, and in a consumer group each partition is read by one
+    consumer.
+  q: Kafka topic partition
+  docs: https://kafka.apache.org/intro
+retention:
+  term: Retention
+  def: >-
+    The policy by which a broker removes old log data: by time (`retention.ms`, 7 days by
+    default), by size, or by per-key compaction. Reading never deletes data.
+  q: Kafka retention.ms cleanup.policy
+consumer-group:
+  term: Consumer group
+  def: >-
+    A set of Kafka consumers sharing a `group.id` that read a topic together. Partitions are
+    split among the members, and the read position belongs to the group.
+  q: Kafka consumer group
+  docs: https://docs.confluent.io/kafka/design/consumer-design.html
+consumer-offset:
+  term: Offset
+  def: >-
+    The number of a record within a Kafka partition. A consumer group commits the offset of
+    the next unread record to the internal `__consumer_offsets` topic and resumes from it
+    after a restart.
+  q: Kafka consumer offset commit
+rebalance:
+  term: Rebalance
+  def: >-
+    Reassignment of partitions among consumer group members when a member joins, leaves or
+    stops responding. Records processed but not committed before the rebalance are delivered
+    again.
+  q: Kafka consumer group rebalance
+in-sync-replicas:
+  term: In-sync replicas (ISR)
+  def: >-
+    Partition replicas that are caught up with the leader. With `acks=all` a write is
+    acknowledged once all ISR have it, and `min.insync.replicas` sets the minimum number
+    required.
+  q: Kafka in-sync replicas min.insync.replicas
+kraft:
+  term: KRaft
+  def: >-
+    Kafka's built-in Raft-based consensus protocol that controllers use to store cluster
+    metadata. Since Kafka 4.0 it's the only mode; ZooKeeper is no longer used.
+  q: Kafka KRaft mode
+  docs: https://kafka.apache.org/blog/2025/03/18/apache-kafka-4.0.0-release-announcement/
+log-compaction:
+  term: Log compaction
+  def: >-
+    A Kafka topic retention policy (`cleanup.policy=compact`) that keeps the latest record for
+    each key. A record with a key and an empty value (a tombstone) deletes the key.
+  q: Kafka log compaction
+at-most-once:
+  term: At-most-once
+  def: >-
+    A delivery guarantee where a message is never processed twice but may be lost. You get it
+    by acknowledging a message before processing it.
+  q: at-most-once delivery semantics
+exactly-once:
+  term: Exactly-once
+  def: >-
+    A guarantee that each message is processed exactly one time. Kafka achieves it with the
+    idempotent producer and transactions, but only for records inside Kafka; for external
+    systems it's replaced by at-least-once plus deduplication.
+  q: Kafka exactly-once semantics
+idempotent-producer:
+  term: Idempotent producer
+  def: >-
+    A Kafka producer mode (`enable.idempotence=true`) where the broker drops resends based on
+    the producer id and sequence number. It removes duplicates from retries and preserves
+    order; it's off by default in `Confluent.Kafka`.
+  q: Kafka idempotent producer enable.idempotence
+dead-letter-queue:
+  term: Dead letter queue (DLQ)
+  def: >-
+    A separate queue or topic for messages that couldn't be processed after all attempts. It
+    keeps a poison message from blocking the stream and preserves it for investigation.
+  q: dead letter queue
+  docs: https://learn.microsoft.com/azure/service-bus-messaging/service-bus-dead-letter-queues
+dual-write:
+  term: Dual write
+  def: >-
+    Writing one change to two systems without a shared transaction, such as a database and a
+    broker. A failure between the writes makes them diverge: the event is lost or describes a
+    change that was rolled back.
+  q: dual write problem microservices
+transactional-outbox:
+  term: Transactional outbox
+  def: >-
+    A pattern where an event is saved to an outbox table in the same local transaction as the
+    business data, and a separate process (the relay) later publishes it to the broker. It
+    gives at-least-once delivery without a distributed transaction.
+  q: transactional outbox pattern
+  docs: https://microservices.io/patterns/data/transactional-outbox.html
+inbox-pattern:
+  term: Inbox (idempotent consumer)
+  def: >-
+    A receiver-side deduplication pattern: the id of a processed message is stored in a table
+    in the same transaction as the changes, and a repeat with the same id is skipped.
+  q: idempotent consumer inbox pattern
+  docs: https://learn.microsoft.com/azure/architecture/patterns/idempotent-consumer
+debezium:
+  term: Debezium
+  def: >-
+    An open source CDC platform built on Kafka Connect: it reads the database transaction log
+    and publishes row changes to Kafka. The Outbox Event Router turns outbox rows into events.
+  q: Debezium outbox event router
+  docs: https://debezium.io/documentation/reference/stable/transformations/outbox-event-router.html
+eventual-consistency:
+  term: Eventual consistency
+  def: >-
+    A model where data on different nodes or services may diverge for a while but converges
+    once all changes are delivered. It's the price of giving up distributed transactions.
+  q: eventual consistency
+  wiki: Eventual consistency
+saga:
+  term: Saga
+  def: >-
+    A way to run a business operation across several services as a chain of local
+    transactions. If a step fails, completed steps are undone with compensating actions.
+  q: saga pattern microservices
+  docs: https://learn.microsoft.com/azure/architecture/patterns/saga
+compensating-transaction:
+  term: Compensating transaction
+  def: >-
+    An operation that undoes the business effect of an already committed step, such as a
+    refund after a charge. It's not a rollback but a new action, and its result is visible.
+  q: compensating transaction pattern
+  docs: https://learn.microsoft.com/azure/architecture/patterns/compensating-transaction
+choreography:
+  term: Choreography
+  def: >-
+    A way to coordinate a saga without a central controller: each service reacts to other
+    services' events and publishes its own. Simple for short chains, but nobody sees the whole
+    process.
+  q: saga choreography vs orchestration
+orchestration:
+  term: Orchestration
+  def: >-
+    A way to coordinate a saga where an orchestrator stores its state, sends commands to the
+    participants and triggers compensations on failure.
+  q: saga orchestration
+pivot-transaction:
+  term: Pivot transaction
+  def: >-
+    The saga step after which no compensations run: the remaining steps are only retried until
+    they succeed, so they must be idempotent.
+  q: saga pivot transaction retryable compensable
+  docs: https://learn.microsoft.com/azure/architecture/patterns/saga
+two-phase-commit:
+  term: Two-phase commit (2PC)
+  def: >-
+    A distributed transaction protocol: the coordinator first asks all participants whether
+    they're ready, then sends commit or rollback. Participants hold locks until the
+    coordinator decides.
+  q: two-phase commit protocol
+  wiki: Two-phase commit protocol

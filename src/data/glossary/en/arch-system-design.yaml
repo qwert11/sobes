@@ -1,0 +1,165 @@
+non-functional-requirements:
+  term: Non-functional requirements
+  def: >-
+    Requirements about how the system works rather than what it does: load, latency, availability,
+    consistency, security, data retention. They are what drives the architecture.
+  q: non-functional requirements system design
+  wiki: Non-functional requirement
+
+back-of-envelope:
+  term: Back-of-the-envelope estimate
+  def: >-
+    A quick order-of-magnitude calculation from assumptions: requests per second, data volume,
+    traffic, cache memory. The goal is the right order of magnitude, not a precise percentage.
+  q: back of the envelope estimation system design
+
+rps:
+  term: RPS (requests per second)
+  def: >-
+    The number of requests per second — the main measure of load on a service. Both the average and
+    the peak matter; the peak is usually several times the average.
+  q: requests per second RPS throughput
+
+slo:
+  term: SLO (service level objective)
+  def: >-
+    A target value for a service quality indicator, such as "99.9% of requests succeed" or "p99
+    under 300 ms". An SLA is a contractual commitment to customers, usually looser than the
+    internal SLO.
+  q: service level objective SLO SLI SLA
+  docs: https://learn.microsoft.com/azure/well-architected/reliability/metrics
+
+horizontal-scaling:
+  term: Horizontal scaling (scale out)
+  def: >-
+    Increasing throughput by adding service instances rather than making one server bigger
+    (vertical scaling, scale up). It requires instances that keep no local state.
+  q: horizontal vs vertical scaling
+  docs: https://learn.microsoft.com/azure/architecture/best-practices/auto-scaling
+
+load-balancer:
+  term: Load balancer
+  def: >-
+    A component that spreads incoming traffic across service instances and takes unhealthy ones out
+    of rotation. L4 works with TCP/UDP connections, L7 with HTTP requests.
+  q: load balancer layer 4 vs layer 7
+  docs: https://learn.microsoft.com/azure/architecture/guide/technology-choices/load-balancing-overview
+
+stateless-service:
+  term: Stateless service
+  def: >-
+    A service that keeps no state between requests in its own memory: sessions, carts and files
+    live in external storage. Any instance can handle any request.
+  q: stateless service horizontal scaling
+
+cdn:
+  term: CDN (content delivery network)
+  def: >-
+    A network of servers in points of presence worldwide that caches and serves static assets and
+    cacheable responses close to the user. It offloads the origin and cuts latency.
+  q: content delivery network CDN
+  docs: https://learn.microsoft.com/azure/cdn/cdn-overview
+
+queue-based-load-leveling:
+  term: Queue-based load leveling
+  def: >-
+    A pattern where requests go into a queue and workers drain it at a steady rate. A peak turns
+    into queue growth and latency instead of an overloaded service.
+  q: queue-based load leveling pattern
+  docs: https://learn.microsoft.com/azure/architecture/patterns/queue-based-load-leveling
+
+cap-theorem:
+  term: CAP theorem
+  def: >-
+    Brewer's conjecture, proved by Gilbert and Lynch in 2002: during a network partition a
+    distributed system cannot keep both linearizability (C) and a response from every non-failing
+    node (A).
+  q: CAP theorem Gilbert Lynch
+  wiki: CAP theorem
+
+linearizability:
+  term: Linearizability
+  def: >-
+    The strongest consistency guarantee for a single object: the system behaves like one copy, and
+    every read after a completed write sees it. This is the C in the CAP theorem.
+  q: linearizability consistency model
+  wiki: Linearizability
+
+pacelc:
+  term: PACELC
+  def: >-
+    Daniel Abadi's extension of CAP (2010–2012): if there is a partition (P), the system trades
+    availability (A) against consistency (C); else (E), latency (L) against consistency (C).
+  q: PACELC theorem Abadi
+  docs: https://www.cs.umd.edu/~abadi/papers/abadi-pacelc.pdf
+  wiki: PACELC design principle
+
+quorum:
+  term: Quorum
+  def: >-
+    The minimum number of replicas that must acknowledge a write (W) or answer a read (R). When
+    W + R exceeds the number of replicas N, a read overlaps with at least one up-to-date replica.
+  q: quorum reads writes W R N replication
+
+read-your-writes:
+  term: Read-your-writes
+  def: >-
+    A session guarantee: a user always sees their own writes, even while other clients may still
+    read an older version from a lagging replica.
+  q: read your writes consistency guarantee
+
+backends-for-frontends:
+  term: Backends for Frontends (BFF)
+  def: >-
+    Sam Newman's pattern: a separate backend for each client type — web, mobile app — that
+    aggregates service calls and shapes responses for that client. It is owned by the client's team.
+  q: backends for frontends pattern
+  docs: https://learn.microsoft.com/azure/architecture/patterns/backends-for-frontends
+
+single-point-of-failure:
+  term: Single point of failure
+  def: >-
+    A component whose failure stops the whole system: a single gateway, database or load balancer
+    instance. It is removed by redundancy across failure zones.
+  q: single point of failure
+  wiki: Single point of failure
+
+service-mesh:
+  term: Service mesh
+  def: >-
+    An infrastructure layer for service-to-service calls: a proxy next to each service (sidecar)
+    adds mTLS, retries, load balancing and telemetry without code changes. Examples are Istio and
+    Linkerd.
+  q: service mesh Istio Linkerd
+  docs: https://learn.microsoft.com/azure/aks/istio-about
+
+delivery-receipt:
+  term: Delivery receipt (DLR)
+  def: >-
+    An asynchronous notification from the SMS centre about a message's final status: delivered,
+    expired, undeliverable. In SMPP it arrives as a deliver_sm operation; the text format is
+    SMSC-specific.
+  q: SMPP delivery receipt deliver_sm DLR
+
+smpp:
+  term: SMPP (Short Message Peer-to-Peer)
+  def: >-
+    A protocol over TCP for exchanging SMS between an application (ESME) and an operator's or
+    aggregator's SMS centre. Messages are sent with submit_sm, statuses come back via deliver_sm.
+  q: SMPP protocol 3.4
+  docs: https://smpp.org/SMPP_v3_4_Issue1_2.pdf
+
+token-bucket:
+  term: Token bucket
+  def: >-
+    A rate-limiting algorithm: the bucket refills with tokens at a constant rate and each operation
+    takes one. It allows short bursts up to the bucket size while holding the average rate.
+  q: token bucket rate limiting algorithm
+  wiki: Token bucket
+
+failover:
+  term: Failover
+  def: >-
+    Automatically moving load from a failed component or provider to a standby one. The decision is
+    usually based on error rate, timeouts or health checks.
+  q: failover high availability

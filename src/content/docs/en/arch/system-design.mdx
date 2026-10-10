@@ -1,0 +1,771 @@
+---
+title: System design
+description: How to approach a design problem, scaling a web system, CAP and consistency, API Gateway, and a bulk notification service.
+sidebar:
+  order: 4
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+A system design round tests not your knowledge of a particular technology but your ability to turn a vague problem into a diagram backed by numbers and to name its weak spots honestly. This page covers how to structure the answer, scaling techniques, choosing a consistency level, where an API Gateway fits, and a walkthrough of the classic bulk-notification problem.
+
+**Before this topic:** [Queues and Kafka](/sobes/en/arch/messaging/), [Architecture styles](/sobes/en/arch/styles/).
+
+<Q id="arch.sd.approach" level="j">
+
+## How do you approach a system design problem in an interview?
+
+<A short l="j">
+
+System design is an open-ended problem: in 45–60 minutes you design a system from a vague prompt such as "build a URL shortener". You solve it step by step — requirements, load estimate, API and data, diagram, bottlenecks — and the interviewer grades your reasoning, not a "correct" answer.
+
+</A>
+
+<A short l="m">
+
+The solution starts with <T k="non-functional-requirements">non-functional requirements</T>: how many users, what latency, which matters more — availability or consistency. A <T k="back-of-envelope">back-of-the-envelope estimate</T> turns them into <T k="rps">RPS</T>, data volume and traffic, and the numbers drive the design: is one database enough, do you need a cache, sharding, a queue. The classic mistake is drawing microservices and Kafka right away without knowing whether that load needs them.
+
+</A>
+
+<A short l="s">
+
+The interviewer watches how you handle uncertainty: you state assumptions out loud, derive the architecture from numbers and name the cost of every decision. So you first agree on scope and <T k="slo">SLOs</T>, then build the simplest design that works, and only then go deep on one or two bottlenecks the interviewer picks. A strong answer ends with what breaks first at ten times the load and how you would see it in production.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+System design means designing a whole system: components, data and how they connect. The prompt is deliberately vague: "design a chat app" or "a URL shortener".
+
+**How to use**
+
+An order for a 45-minute interview:
+
+1. **Requirements** (5–10 min). What the system does and for how many users.
+2. **Load estimate** (3–5 min). Requests per second and data per year.
+3. **API and data model** (5 min). Main endpoints and tables.
+4. **Diagram** (10–15 min). Client, load balancer, services, database, cache, queue.
+5. **Bottlenecks** (10–15 min). What breaks under load and how to fix it.
+6. **Wrap-up** (3–5 min). A short recap of the design and its weak spots.
+
+**Common mistake**
+
+Drawing in silence. The interviewer grades your reasoning, so say every decision out loud.
+
+**Takeaway:** requirements and numbers first, then the diagram, then the bottlenecks.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+1. **Functional requirements.** 3–5 core scenarios: "create a short link", "follow it". Everything else is explicitly out of scope.
+2. **Non-functional requirements.** Number of users, read/write ratio, acceptable latency (p99), availability, consistency, retention.
+3. **Load estimate.** Average and peak RPS, data volume per year, egress traffic. Order-of-magnitude accuracy is enough.
+4. **API.** 2–4 endpoints with parameters and responses: `POST /links`, `GET /{code}`.
+5. **Data model.** Entities, keys and access patterns — they decide the storage choice.
+6. **High-level diagram.** The request path from client to database and back.
+7. **Bottlenecks.** Hot keys, a single database, synchronous calls to external systems.
+
+**Pitfalls**
+
+- Starting with technology ("let's use Kafka") instead of requirements.
+- Designing for a billion users when there are a thousand: the interviewer will ask why.
+- Getting stuck in one component and never showing the whole system.
+
+**Rule of thumb**
+
+Every box on the diagram is justified by a requirement or a number from the estimate.
+
+**Takeaway:** requirements give numbers, numbers give the design, the design gives bottlenecks to discuss.
+
+</A>
+
+<A l="s">
+
+**What is actually assessed**
+
+- **Handling uncertainty.** State assumptions out loud and write them on the board: "10M daily users, 100:1 read/write ratio".
+- **Reasoning from numbers.** One database with a cache handles 2K read RPS; 200K it does not. The architecture follows from the estimate, not from fashion.
+- **Depth on demand.** The interviewer chooses where to dig: storage, failures, consistency. Be ready for any direction.
+
+**Cost**
+
+Every component on the diagram is latency, money and one more point of failure. A queue smooths peaks but adds asynchrony and redelivery. A cache takes load off but needs invalidation.
+
+**Trade-offs**
+
+Say explicitly what you sacrifice: consistency for availability, freshness for latency, simplicity for scale. "It depends on the requirements" only counts if you continue with "…and here is on which".
+
+**How to check in production**
+
+Finish with observability: which metrics and SLOs show the system is coping (p99, queue depth, error rate), and what breaks first when load grows tenfold.
+
+**Takeaway:** at senior level they grade not the diagram but the chain "requirement → number → decision → cost" and your ability to defend it.
+
+</A>
+
+<Ex title="Back-of-the-envelope: URL shortener">
+
+```text
+Assumptions: 100M new links per month, 100:1 read/write ratio,
+             ~500 bytes per link, peak = 5 × average. A day ≈ 86,400 s ≈ 10^5 s.
+
+1. Writes:     100M / 30 / 86,400 s        ≈ 40 RPS,     peak ≈ 200 RPS
+2. Reads:      40 RPS × 100                ≈ 4,000 RPS,  peak ≈ 20,000 RPS
+3. Data:       100M × 500 bytes            ≈ 50 GB per month ≈ 600 GB per year
+4. Cache:      20% of the month's links
+               100M × 0.2 × 500 bytes      ≈ 10 GB — fits in one node's memory
+5. Conclusion: one database handles writes, a cache in front handles reads;
+               ≈ 3 TB after 5 years — think about sharding by then
+```
+
+</Ex>
+
+<Next>
+
+- How do you estimate RPS from the number of users? — Daily active users × requests per user / 86,400; peak is 2–10 times the average.
+- What if the interviewer gives no numbers? — Propose your own assumptions out loud and ask them to confirm.
+- How do functional and non-functional requirements differ? — The former say what the system does, the latter with which qualities: latency, availability, volume.
+- Why p99 rather than average latency? — The average hides the slow tail, and one user in a hundred sees it.
+- When do you stop adding detail? — When the design works end to end; the interviewer picks where to go deeper.
+
+</Next>
+
+<Src>
+
+- [Capacity planning — Azure Well-Architected Framework](https://learn.microsoft.com/azure/well-architected/performance-efficiency/capacity-planning)
+- [Designing Data-Intensive Applications — Martin Kleppmann](https://dataintensive.net/)
+
+</Src>
+
+</Q>
+
+<Q id="arch.sd.scaling" level="m">
+
+## How do you scale a web system?
+
+<A short l="j">
+
+Vertical scaling means a bigger server; <T k="horizontal-scaling">horizontal scaling</T> means more servers behind a <T k="load-balancer">load balancer</T>. Horizontal scaling has almost no ceiling, but it requires services that keep no state in their own memory: sessions and files move to shared storage.
+
+</A>
+
+<A short l="m">
+
+First you make services <T k="stateless-service">stateless</T>: the session goes to Redis or into the token, files go to object storage, and then you just add instances behind an L4 or L7 load balancer. Reads are offloaded by caching at several levels — a <T k="cdn">CDN</T>, an application cache, database replicas — while writes hit a single primary that only sharding can scale further. Peaks that need not be processed immediately go into a queue, and workers drain it at a steady rate.
+
+</A>
+
+<A short l="s">
+
+Scaling is a hunt for the next bottleneck: stateless services scale almost linearly, so the limit is almost always in the state — the database, the cache, an external provider. Reads are cheapest to scale with caches and replicas at the cost of stale data; writes with <T k="sharding">sharding</T> at the cost of cross-shard queries and transactions. <T k="queue-based-load-leveling">Queue-based load leveling</T> turns a peak into latency, while unbounded autoscaling just moves the peak to the database. Measure each layer separately: RPS per instance, cache hit ratio, replica lag, queue depth.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+| Approach | How | Limit |
+|---|---|---|
+| Vertical | a bigger server: more CPU and memory | the largest machine, downtime on replacement |
+| Horizontal | more servers behind a load balancer | almost none, but services must be stateless |
+
+**Why stateless**
+
+The load balancer sends one user's requests to different servers. If the cart lives in server A's memory, server B does not have it.
+
+**How to use**
+
+- Put the session in a distributed cache (Redis) or in the token.
+- Put uploaded files in object storage (Azure Blob Storage, S3).
+- Put static assets on a CDN, closer to the user.
+
+**Common mistake**
+
+Turning on sticky sessions instead of moving state out. When a server dies, its users lose their sessions, and load is spread unevenly.
+
+**Takeaway:** horizontal scaling starts with moving state out of the service.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+Layers along the request path:
+
+1. **CDN** serves static assets and cacheable responses from a point of presence near the user.
+2. **An L4 load balancer** spreads TCP connections by IP and port without looking into HTTP. **L7** sees the path, headers and cookies, routes by URL and terminates TLS.
+3. **Stateless services** — N identical instances autoscaled on CPU or RPS.
+4. **Cache**, in-memory and distributed — details in [Background jobs and caching](/sobes/en/aspnet/background-caching/).
+5. **Database.** Read replicas serve queries that tolerate lag; sharding comes in when writes no longer fit. Details in [Design and operations](/sobes/en/db/design/).
+6. **Queue** for work that can happen later: emails, reports, integrations.
+
+**When to choose what**
+
+| Bottleneck | Solution |
+|---|---|
+| service CPU | more instances |
+| database reads | cache, then replicas |
+| database writes | partitioning, then sharding |
+| short peaks | a queue and background workers |
+
+**Pitfalls**
+
+- **Replica lag.** A user saves their profile and does not see the change. Read your own data from the primary right after a write.
+- **Database connections.** 50 instances × a pool of 100 connections means up to 5,000 connections to one server.
+
+**Rule of thumb**
+
+Scale what the metrics show is saturated. Sharding comes last: it is the most expensive to build.
+
+**Takeaway:** services scale by copying, reads by caches and replicas, writes by shards, peaks by queues.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- **System throughput** equals the throughput of the narrowest shared resource. A shared database, a global lock or a single external provider caps the system no matter how many instances you run.
+- **L4 vs L7.** L4 is cheaper and protocol-agnostic but blind to requests: a long-lived HTTP/2 or WebSocket connection stays on one server. L7 parses HTTP, balances individual requests and health-checks an endpoint. In Azure these are Load Balancer (L4), Application Gateway (regional L7) and Front Door (global L7 with a CDN).
+- **The shard key** is chosen so that almost every operation lives in one shard: a store, a customer, a region.
+
+**Cost**
+
+- Cache — stale data, invalidation, and a cache stampede when many entries expire at once.
+- Replicas — lag: asynchronous replication serves old data, synchronous replication adds write latency.
+- Queue — processing delay, redelivery, and the need for idempotent handlers.
+
+**Trade-offs**
+
+Autoscaling services without a concurrency limit pushes the peak onto the database: 10 instances instead of 2 means five times as many concurrent queries. So a queue absorbs the peak, and the number of workers is capped by what the database or provider can take.
+
+**How to check in production**
+
+Each layer has its own metric: RPS and p99 per instance, cache hit ratio, replica lag, queue depth and age of the oldest message, database connection count. Prove capacity with a load test before the peak, not during it.
+
+**Takeaway:** scaling is removing bottlenecks one by one; every step buys throughput with consistency, latency or complexity.
+
+</A>
+
+<Ex title="Diagram and instance count">
+
+```text
+User
+  → CDN: static assets and cacheable GETs
+  → L7 load balancer: TLS, path-based routing, health checks
+  → API × N instances: stateless, session in Redis
+      → Redis: cache and sessions
+      → database: primary for writes + replicas for reads
+      → queue → workers × M: emails, reports, integrations
+
+How many API instances:
+  peak 6,000 RPS; per the load test one instance handles ~800 RPS at normal p99
+  6,000 / 800 ≈ 8, plus headroom for a zone failure and deployments → 10–12
+```
+
+</Ex>
+
+<Next>
+
+- Where do you keep the session when scaling horizontally? — In a distributed cache or in the token itself, never in instance memory.
+- How does an L4 load balancer differ from L7? — L4 sees TCP/UDP connections, L7 sees HTTP requests, paths and headers.
+- Why can autoscaling take the database down? — More instances mean more concurrent queries and connections to it.
+- How do you read your own data right after a write when you have replicas? — Read from the primary for a while after the write, or wait until the replica catches up to that version.
+- When do you need a queue? — When the work can be deferred and the peak exceeds the workers' steady throughput.
+
+</Next>
+
+<Src>
+
+- [Queue-Based Load Leveling pattern](https://learn.microsoft.com/azure/architecture/patterns/queue-based-load-leveling)
+- [Load-balancing options — Azure Architecture Center](https://learn.microsoft.com/azure/architecture/guide/technology-choices/load-balancing-overview)
+- [Autoscaling best practices](https://learn.microsoft.com/azure/architecture/best-practices/auto-scaling)
+
+</Src>
+
+</Q>
+
+<Q id="arch.sd.consistency" level="m">
+
+## What are CAP, PACELC and eventual consistency, and how do they affect design?
+
+<A short l="j">
+
+The <T k="cap-theorem">CAP theorem</T> says that when the network between nodes breaks, a distributed system has to choose: answer every request (availability) or answer only with up-to-date data (consistency). <T k="eventual-consistency">Eventual consistency</T> means replicas may diverge for a while, but once writes stop they converge to the same value.
+
+</A>
+
+<A short l="m">
+
+CAP (Brewer's conjecture, proved by Gilbert and Lynch in 2002) states that during a network partition you cannot keep both <T k="linearizability">linearizability</T> and a response from every non-failing node. "Pick two of three" is a simplification: you do not get to choose partitions, so the only choice is between C and A while the fault lasts. <T k="pacelc">PACELC</T> (Abadi) adds that even without faults you trade latency against consistency — and that choice shapes replica and <T k="quorum">quorum</T> settings every day.
+
+</A>
+
+<A short l="s">
+
+CAP is narrow: linearizability versus availability during a network partition, which is why "CP" and "AP" labels on databases explain little. It is more practical to pick a consistency level per operation: a payment — a linearizable write through a leader and refusal during a partition; a cart — availability and conflict merging; a feed — eventual with <T k="read-your-writes">read-your-writes</T> for the author. The price of strong consistency is coordination latency on every operation, not just unavailability during rare partitions.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+Data is stored in several copies — replicas — on different servers. While a copy catches up with the primary, clients may see different values.
+
+- **Consistency (C)** — every read sees the latest write.
+- **Availability (A)** — every working node answers requests.
+- **Partition tolerance (P)** — the system keeps running when the network between nodes is cut.
+
+**How it shows up**
+
+The link between data centres goes down. A node can refuse the request and keep C, or answer with what it knows and keep A — possibly with stale data.
+
+**Common mistake**
+
+Saying "we choose CA". Networks fail whether we like it or not, so a distributed system only chooses between C and A for the duration of the outage.
+
+**Takeaway:** when the network splits, the system either refuses or answers with possibly stale data.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- **CAP.** C here means linearizability: the system behaves like a single copy, and every read after a completed write sees it. A means every request to a non-failing node gets a response.
+- **PACELC.** If there is a partition (P), choose between A and C; else (E), between latency (L) and C. According to Abadi, Dynamo, Cassandra and Riak are PA/EL by default, while HBase and VoltDB are PC/EC.
+- **Eventual consistency.** Replicas converge once new writes stop. There is no bound on how long that takes.
+- **Read-your-writes.** The author sees their own changes immediately, even if others do not yet.
+- **Quorum.** N replicas; a write waits for W acknowledgements, a read queries R replicas. With `W + R > N` a read touches at least one replica that has the latest write.
+
+**When to choose what**
+
+| Operation | Choice |
+|---|---|
+| Payment, stock deduction | linearizability: write through a leader or a transaction, refuse during a partition |
+| Shopping cart | availability: always accept an add, merge conflicts |
+| Feed, view counter | eventual, read-your-writes for the author |
+
+**Pitfalls**
+
+- Assuming eventual means "almost instant". Under load replica lag is seconds or more.
+- Expecting linearizability from a quorum. With concurrent writes and failures mid-write you do not get it.
+
+**Rule of thumb**
+
+Choose the consistency level per operation, not for the whole system.
+
+**Takeaway:** CAP is about behaviour during a partition; PACELC is about the everyday cost of consistency.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- Gilbert and Lynch's proof covers a single object in an asynchronous network. It says nothing about transactions, latency or partial availability.
+- Kleppmann, in "Designing Data-Intensive Applications", advises against labelling databases CP or AP: the definitions are too narrow, and real systems are tuned differently for different operations.
+- Abadi stresses that without partitions CAP does not prevent full ACID together with high availability. Systems weaken consistency in normal operation for latency, that is, because of ELC.
+- Even with `W + R > N`, Dynamo-style systems are not linearizable: concurrent writes, sloppy quorums and partially applied writes get in the way.
+
+**Cost**
+
+- Linearizability needs coordination: a write waits for the leader or a majority of replicas. Across regions that is tens of milliseconds on every operation.
+- Eventual consistency shifts work to the application: conflict resolution (last-write-wins silently loses data, merging is harder), idempotency, compensations.
+
+**Trade-offs**
+
+Session guarantees — read-your-writes, monotonic reads — are a cheap middle ground: a user sees a consistent picture of their own actions without global coordination. In Azure Cosmos DB this is the Session level, which is the default; there are five levels in total: Strong, Bounded staleness, Session, Consistent prefix, Eventual.
+
+**How to check in production**
+
+Replica lag and convergence time are metrics with alerts. Anomalies are found with fault-injection tests in the spirit of Jepsen: partition the network and check the operation history for broken guarantees.
+
+**Takeaway:** consistency is a spectrum, not a switch; choose it per operation, paying latency for strong guarantees and application complexity for weak ones.
+
+</A>
+
+<Ex title="Quorums and behaviour during a partition">
+
+```text
+N = 3 replicas
+
+W = 2, R = 2  →  W + R = 4 > 3: a read touches a replica with the latest write;
+                 survives losing 1 replica for both reads and writes
+W = 3, R = 1  →  fast reads, but writes stall if any replica is lost
+W = 1, R = 1  →  minimal latency, eventual: a read may return old data
+
+Partition: node A sees only itself, nodes B and C see each other
+  choose C: A rejects writes (no quorum), B and C keep working
+  choose A: A accepts the write; after the network heals — conflict resolution
+```
+
+</Ex>
+
+<Next>
+
+- What is linearizability in plain words? — The system behaves like a single copy: every read after a completed write sees it.
+- Can you choose CA? — Only without a network between nodes, i.e. on a single node; a distributed system does not get to opt out of partitions.
+- How do you provide read-your-writes with replicas? — Read from the leader after your own write, or wait until the replica reaches that write's version.
+- What is last-write-wins and why is it dangerous? — The write with the later timestamp wins, and concurrent changes are silently lost.
+- Why is PACELC more useful than CAP? — It also covers normal operation: even without faults, strong consistency costs latency.
+
+</Next>
+
+<Src>
+
+- [Gilbert, Lynch: Brewer's Conjecture and the Feasibility of Consistent, Available, Partition-Tolerant Web Services](https://groups.csail.mit.edu/tds/papers/Gilbert/Brewer2.pdf)
+- [Abadi: Consistency Tradeoffs in Modern Distributed Database System Design (PACELC)](https://www.cs.umd.edu/~abadi/papers/abadi-pacelc.pdf)
+- [Consistency levels in Azure Cosmos DB](https://learn.microsoft.com/azure/cosmos-db/consistency-levels)
+
+</Src>
+
+</Q>
+
+<Q id="arch.sd.gateway" level="s">
+
+## Why do you need an API Gateway, and what should and shouldn't it do?
+
+<A short l="j">
+
+An <T k="api-gateway">API Gateway</T> is a single entry point in front of a set of services: the client knows one address, and the gateway forwards each request to the right service. Along the way it handles what every service needs: validating tokens, limiting request rates, writing logs.
+
+</A>
+
+<A short l="m">
+
+A gateway is an L7 reverse proxy with three roles: routing, aggregating several calls into one, and offloading cross-cutting concerns — TLS, authentication, <T k="rate-limiting">rate limiting</T>, logging. It decouples clients from how the system is split into services, but adds a network hop and becomes a critical component. Business logic does not belong there; client-specific needs go into a <T k="backends-for-frontends">BFF</T>. In .NET gateways are built on <T k="yarp">YARP</T>; off-the-shelf options include Azure API Management and Kong.
+
+</A>
+
+<A short l="s">
+
+The gateway owns north-south traffic — requests from outside: the trust boundary, policies, API versions, client quotas and the start of distributed tracing. Its main risks are being a <T k="single-point-of-failure">single point of failure</T> and becoming a "smart gateway": move business rules or orchestration into it, and every service release drags a gateway release along. So the gateway stays thin and runs as several instances across zones. Service-to-service (east-west) traffic is left to a <T k="service-mesh">service mesh</T> or to libraries inside the services.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+An API Gateway is a service that every client request to the system passes through. The client calls `api.example.com/orders`, and the gateway knows that this is the orders service.
+
+**Why**
+
+- The client knows one address instead of a dozen services.
+- Shared concerns — TLS, token validation, rate limits, logs — are handled in one place.
+- Internal services are not exposed to the internet.
+
+**How to use**
+
+The gateway is configured with routes "path → group of service instances": for example, `/orders/...` → three instances of the orders service. How the gateway and services validate JWTs is covered in [JWT](/sobes/en/security/jwt/).
+
+**Common mistake**
+
+Writing business logic in the gateway: "if the order total is over 1000, call an extra check". The gateway passes and protects requests; services make the decisions.
+
+**Takeaway:** the gateway is the single door into the system: it routes and protects but does not solve business problems.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- **Routing** by path, host or header; load balancing across instances and health checks.
+- **Authentication at the edge.** Requests without a valid token are rejected before they reach services.
+- **Rate limiting and quotas** per client or API key — protection from one noisy client.
+- **Aggregation.** One client request → several service calls → one response.
+- **Distributed tracing.** The gateway starts or continues a trace via the `traceparent` header (W3C Trace Context), so a request is visible from the edge to the database.
+- **Versioning.** `/v1` and `/v2` lead to different service versions; the old one is retired when metrics show nobody calls it.
+
+**When to choose what**
+
+| Option | When |
+|---|---|
+| YARP | the gateway as a .NET app: custom logic in code, your own hosting |
+| Azure API Management | partner-facing APIs: developer portal, keys, quotas, policies without code |
+| Kong | a ready-made plugin-based gateway, regardless of the services' stack |
+
+**Pitfalls**
+
+- **Bypassing the gateway.** The gateway checked the token, but the service trusts a header and is reachable directly — there is no protection.
+- **Per-instance limits.** The ASP.NET Core rate limiter counts in memory: with three gateway instances the effective limit is three times higher.
+- **Aggregation.** The response waits for the slowest service, and its failure breaks the whole response unless partial responses are designed in.
+
+**Rule of thumb**
+
+The gateway knows about protocols and policies, not about the business domain.
+
+**Takeaway:** the gateway routes, protects and observes; anything that needs business rules stays in the services.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- **YARP** is a library on top of ASP.NET Core. Routes and clusters reload from configuration without a restart; it provides load balancing (PowerOfTwoChoices by default), active and passive health checks, and transforms. Authentication, rate limiting, output caching and timeouts are ordinary ASP.NET Core policies assigned to a route.
+- **Azure API Management** is a managed gateway with policies such as `validate-jwt`, `rate-limit-by-key` and `quota`, plus a portal for external developers.
+- **Kong** is built on Nginx and OpenResty and extended with plugins.
+
+**Cost**
+
+- An extra network hop and processing on every request.
+- A single point of failure: if the gateway goes down, everything is unavailable. You need several instances across zones, graceful shutdown and capacity for the peak, not the average.
+- An organisational cost: a shared route configuration means a shared release cycle.
+
+**Trade-offs**
+
+- **Thin gateway and BFF.** Client-specific aggregation moves into a BFF — a separate backend for the mobile app or the web, owned by that client's team. The gateway stays shared and thin.
+- **Gateway and service mesh.** The gateway handles north-south traffic. Service-to-service (east-west) calls are covered by a mesh (Istio, Linkerd) through sidecar proxies: mTLS, retries, telemetry without code changes. Routing internal calls through a central gateway adds a hop and a shared point of failure.
+
+**How to check in production**
+
+- Gateway metrics per route: RPS, p99, 4xx and 5xx rates, limiter rejections (429).
+- A bypass test: a direct request to a service, skipping the gateway, must be rejected.
+
+**Takeaway:** a gateway pays off when it centralises edge policies and hurts when business rules creep in; internal traffic has the mesh, client-specific needs have the BFF.
+
+</A>
+
+<Ex title="A YARP gateway: version in the path, rate limit and health checks">
+
+```csharp
+// NuGet: Yarp.ReverseProxy
+using System.Threading.RateLimiting;
+using Yarp.ReverseProxy.Configuration;
+using Yarp.ReverseProxy.Transforms;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// 100 requests per second per IP — counted on each gateway instance separately
+builder.Services.AddRateLimiter(o =>
+{
+    o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    o.AddPolicy("per-client", ctx => RateLimitPartition.GetFixedWindowLimiter(
+        ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = 100, Window = TimeSpan.FromSeconds(1) }));
+});
+
+builder.Services.AddReverseProxy().LoadFromMemory(
+    [new RouteConfig
+    {
+        RouteId = "orders-v1",
+        ClusterId = "orders",
+        RateLimiterPolicy = "per-client",
+        Match = new RouteMatch { Path = "/v1/orders/{**rest}" },
+    }.WithTransformPathRemovePrefix("/v1")], // the service receives /orders/...
+    [new ClusterConfig
+    {
+        ClusterId = "orders",
+        LoadBalancingPolicy = "RoundRobin",
+        // GET /health every 10 s; an unhealthy instance is taken out of rotation
+        HealthCheck = new HealthCheckConfig
+        {
+            Active = new ActiveHealthCheckConfig { Enabled = true, Interval = TimeSpan.FromSeconds(10), Path = "/health" },
+        },
+        Destinations = new Dictionary<string, DestinationConfig>
+        {
+            ["orders-1"] = new() { Address = "https://orders-1.internal/" },
+            ["orders-2"] = new() { Address = "https://orders-2.internal/" },
+        },
+    }]);
+
+var app = builder.Build();
+app.UseRateLimiter(); // excess requests get 429 at the gateway and never reach the service
+app.MapReverseProxy();
+app.Run();
+```
+
+</Ex>
+
+<Next>
+
+- How does an API Gateway differ from a load balancer? — A load balancer spreads traffic across instances; a gateway also routes by API, applies policies and aggregates responses.
+- Is validating the token at the gateway enough? — No, if a service is reachable around the gateway; services validate tokens themselves.
+- How do you make a rate limit shared across all gateway instances? — Keep the counters in distributed storage (Redis) or use a managed gateway.
+- How does a BFF differ from an API Gateway? — A BFF serves one client type and is owned by its team; the gateway is shared and thin.
+- Do service-to-service calls need the gateway? — Usually not: east-west traffic is covered by a service mesh or client libraries.
+
+</Next>
+
+<Src>
+
+- [API gateways — Azure Architecture Center](https://learn.microsoft.com/azure/architecture/microservices/design/gateway)
+- [Gateway Offloading pattern](https://learn.microsoft.com/azure/architecture/patterns/gateway-offloading)
+- [YARP rate limiting](https://learn.microsoft.com/aspnet/core/fundamentals/servers/yarp/rate-limiting)
+
+</Src>
+
+</Q>
+
+<Q id="arch.sd.notifications" level="s">
+
+## Design a bulk notification service (SMS, email, push) with peak campaigns.
+
+<A short l="j">
+
+The service accepts a send request, puts messages in a queue, and workers send them through providers — an SMS gateway, an email service, FCM and APNs for push — and store delivery statuses. The queue is needed because a campaign for a million recipients is created in seconds, while a provider accepts a limited number of messages per second.
+
+</A>
+
+<A short l="m">
+
+Intake is separated from sending: the API validates the campaign, a background job expands it into messages and writes them to priority queues so that verification codes never wait behind marketing. Senders stay within each provider's rate limits, retry with backoff and fail over to a backup provider, while statuses arrive later: via callbacks or <T k="delivery-receipt">delivery receipts</T> over <T k="smpp">SMPP</T>. Delivery is at-least-once, so duplicates are suppressed by <T k="idempotency">idempotency</T> on the message id.
+
+</A>
+
+<A short l="s">
+
+The main constraint is not our code but the external providers: their messages-per-second limits, latency and outages. So the architecture is built around priority queues, a <T k="token-bucket">token bucket</T> per provider, <T k="failover">failover</T> driven by error rate, and send windows based on the recipient's time zone. The most expensive mistakes are duplicates and messages to people who unsubscribed, so deduplication and the opt-out check sit right before sending. Capacity is planned from the peak: a million SMS at 500 per second takes over half an hour, and the business should hear that in advance.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+A service that sends messages to a large number of recipients: verification codes, order statuses, promotions. Channels are SMS, email and push.
+
+**How it works**
+
+1. **API** accepts the request: a template, a list of recipients, a send time.
+2. **Queue** holds messages until they are sent.
+3. **Senders** take messages from the queue and hand them to a provider: an SMS gateway, an email service, FCM or APNs.
+4. **Statuses** — sent, delivered, failed — are stored in the database and show up in reports.
+
+**Common mistake**
+
+Sending directly inside the HTTP request handler. A campaign for 100,000 recipients will not fit in a timeout, and a provider outage will lose part of the messages.
+
+**Takeaway:** a queue separates accepting the request from sending, and statuses are stored separately.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+The message path:
+
+1. **Intake and validation.** Phone and address formats, client limits, template existence.
+2. **Expansion.** A background job turns the campaign into individual messages with recipient data filled in.
+3. **Priority queues.** Transactional messages (codes, order statuses) and marketing go to different queues. A verification code does not wait behind a million promo SMS.
+4. **Sending.** A pool of senders per channel and provider with rate limiting.
+5. **Statuses.** The provider acknowledges acceptance immediately and delivery later, via a callback or a delivery receipt. A message moves through `Queued → Sent → Delivered` or `Failed`.
+
+**Pitfalls**
+
+- **Retries.** A provider timeout does not mean the message was not sent. A blind retry means a duplicate SMS.
+- **Time zones.** A promo "at 10:00" is in the recipient's time, not the server's; marketing is not sent at night.
+- **SMS length.** Cyrillic text is encoded as UCS-2: 70 characters in a single SMS, 67 per segment in a concatenated one. Cost and provider limits are usually counted in segments.
+
+**Rule of thumb**
+
+Every message has a stable id from creation to final status: deduplication, retries and status reconciliation all key on it.
+
+**Takeaway:** priority queues, per-provider rate limiting and idempotency on the message id are the skeleton of any notification service.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+1. **Campaign API** — intake, validation, scheduling, an idempotency key for the request.
+2. **Scheduler** expands the campaign in batches, respecting the recipient's time zone and quiet hours.
+3. **Queues per channel and priority.** Delivery guarantees and the outbox are covered in [Queues and Kafka](/sobes/en/arch/messaging/).
+4. **Senders** keep a token bucket per provider: contracted TPS and the number of SMPP sessions. On an `ESME_RTHROTTLED` response they slow down.
+5. **Provider router** — weights, per-destination cost, failover by error rate through a circuit breaker; resilience patterns are covered in [Integration styles](/sobes/en/arch/integration/).
+6. **Status receiver** accepts HTTP callbacks and SMPP `deliver_sm` and matches them to the message by the provider's id.
+
+**Cost**
+
+- The opt-out is checked right before sending: hours may pass after the campaign is created. For email, since 2024 Gmail requires bulk senders to have SPF, DKIM, DMARC and one-click unsubscribe.
+- A callback may arrive twice, or before the provider id is stored — the receiver is idempotent and can defer processing.
+- Failover duplicates a message if the first provider actually delivered it.
+
+**Trade-offs**
+
+Statuses mean millions of rows per campaign. Hot data lives in a table partitioned by day and is written in batches; history moves to an archive.
+
+**How to check in production**
+
+Queue depth and oldest-message age per priority, actual TPS against the limit, error rate and time to delivery per provider, and the share of messages without a final status after a day.
+
+**Takeaway:** a notification service is about managing someone else's throughput: priorities, per-provider limits, failover and idempotency on the message id.
+
+</A>
+
+<Ex title="Load estimate">
+
+```text
+Assumptions: 5M recipients, one marketing campaign per day to everyone;
+             1M transactional SMS per day; Cyrillic text — usually 2 segments;
+             2 providers at 500 segments/s each
+
+1. Transactional:  1M / 86,400 s              ≈ 12 messages/s, peak ×5 ≈ 60/s
+2. Campaign:       5M × 2 segments            = 10M segments
+3. Throughput:     2 × 500                    = 1,000 segments/s,
+                   of which 100/s reserved for transactional
+4. Campaign time:  10M / 900 segments/s       ≈ 11,000 s ≈ 3 hours
+                   → shorter text (1 segment), waves by time zone
+                     or a higher limit from the provider
+5. Statuses:       ~2 events per message × 5M ≈ 10M rows,
+                   ~200 bytes each            ≈ 2 GB per campaign
+```
+
+</Ex>
+
+<Ex title="Component diagram">
+
+```text
+Clients: CRM, order service, authentication
+  → Campaign API: validation, request idempotency key, scheduling
+  → Scheduler: expands the campaign in batches by time zone
+  → Queues: sms.transactional | sms.marketing | email | push
+  → Senders: opt-out check, dedup by id, token bucket per provider
+      → Router: SMPP provider A | provider B HTTP API | email | FCM | APNs
+  ← Status receiver: deliver_sm (delivery receipt), HTTP callbacks
+      → status update by provider id
+  → Storage: messages and statuses (partitioned by day), opt-outs
+  → Metrics and alerts: queue depth, TPS, errors per provider
+
+Bottlenecks: provider limits, status writes, expanding large campaigns
+```
+
+</Ex>
+
+<Next>
+
+- How do you avoid sending one SMS twice after a provider timeout? — A stable message id, a status check before retrying, deduplication in the sender; with at-least-once a duplicate can be made rare but not impossible.
+- How does a verification code get through during a big campaign? — A separate queue and a reserved share of the provider limit for transactional traffic.
+- What if a provider starts returning errors? — A circuit breaker per provider and failover to a backup, weighing cost and the risk of duplicates.
+- How do you handle time zones? — Store the recipient's time zone and expand the campaign in waves by their local time.
+- What about messages with no delivery status? — After the message's validity period, mark the status unknown and reconcile with the provider's reports.
+
+</Next>
+
+<Src>
+
+- [Priority Queue pattern](https://learn.microsoft.com/azure/architecture/patterns/priority-queue)
+- [Rate Limiting pattern](https://learn.microsoft.com/azure/architecture/patterns/rate-limiting-pattern)
+- [SMPP Protocol Specification v3.4](https://smpp.org/SMPP_v3_4_Issue1_2.pdf)
+
+</Src>
+
+</Q>

@@ -1,0 +1,169 @@
+event-log:
+  term: Лог подій (event log, commit log)
+  def: >-
+    Упорядкований журнал, у який записи лише дописуються в кінець і не видаляються під час
+    читання. Кожен читач зберігає свою позицію й може перечитати історію в межах строку
+    зберігання. Так влаштовані топіки Kafka.
+  q: Kafka distributed commit log
+  docs: https://kafka.apache.org/intro
+point-to-point:
+  term: Точка-точка (point-to-point)
+  def: >-
+    Модель обміну повідомленнями, у якій кожне повідомлення черги отримує рівно один із
+    конкурентних одержувачів. Так розподіляють роботу між екземплярами сервісу.
+  q: point-to-point messaging queue competing consumers
+topic-partition:
+  term: Партиція (partition)
+  def: >-
+    Частина топіка Kafka — окремий упорядкований лог на одному з брокерів. Порядок записів
+    гарантований лише всередині партиції, а в групі споживачів одну партицію читає один
+    споживач.
+  q: Kafka topic partition
+  docs: https://kafka.apache.org/intro
+retention:
+  term: Строк зберігання (retention)
+  def: >-
+    Політика, за якою брокер видаляє старі дані логу: за часом (`retention.ms`, за
+    замовчуванням 7 днів), за розміром або ущільненням за ключем. Читання дані не видаляє.
+  q: Kafka retention.ms cleanup.policy
+consumer-group:
+  term: Група споживачів (consumer group)
+  def: >-
+    Набір споживачів Kafka зі спільним `group.id`, які разом читають топік. Партиції
+    діляться між учасниками, а позиція читання в групи спільна.
+  q: Kafka consumer group
+  docs: https://docs.confluent.io/kafka/design/consumer-design.html
+consumer-offset:
+  term: Зміщення (offset)
+  def: >-
+    Номер запису всередині партиції Kafka. Група споживачів комітить offset наступного
+    непрочитаного запису у внутрішній топік `__consumer_offsets` і після перезапуску
+    продовжує з нього.
+  q: Kafka consumer offset commit
+rebalance:
+  term: Ребалансування (rebalance)
+  def: >-
+    Перерозподіл партицій між учасниками групи споживачів, коли учасник приходить, іде або
+    перестає відповідати. Записи, оброблені, але не закомічені до ребалансування, надходять
+    повторно.
+  q: Kafka consumer group rebalance
+in-sync-replicas:
+  term: Синхронні репліки (in-sync replicas, ISR)
+  def: >-
+    Репліки партиції, які не відстають від лідера. З `acks=all` запис підтверджується, коли
+    його отримали всі ISR, а `min.insync.replicas` задає, скільки їх має бути щонайменше.
+  q: Kafka in-sync replicas min.insync.replicas
+kraft:
+  term: KRaft
+  def: >-
+    Вбудований у Kafka протокол консенсусу на основі Raft, через який контролери зберігають
+    метадані кластера. Із Kafka 4.0 — єдиний режим, ZooKeeper більше не використовується.
+  q: Kafka KRaft mode
+  docs: https://kafka.apache.org/blog/2025/03/18/apache-kafka-4.0.0-release-announcement/
+log-compaction:
+  term: Ущільнення логу (log compaction)
+  def: >-
+    Політика зберігання топіка Kafka (`cleanup.policy=compact`), за якої для кожного ключа
+    лишається останній запис. Запис із ключем і порожнім значенням (tombstone) видаляє ключ.
+  q: Kafka log compaction
+at-most-once:
+  term: Не більше одного разу (at-most-once)
+  def: >-
+    Гарантія доставки, за якої повідомлення не обробляється повторно, але може загубитися.
+    Виходить, якщо підтвердити повідомлення до обробки.
+  q: at-most-once delivery semantics
+exactly-once:
+  term: Рівно один раз (exactly-once)
+  def: >-
+    Гарантія, за якої кожне повідомлення обробляється рівно один раз. У Kafka досягається
+    ідемпотентним producer і транзакціями, але лише для записів усередині Kafka; для
+    зовнішніх систем її замінюють at-least-once і дедуплікацією.
+  q: Kafka exactly-once semantics
+idempotent-producer:
+  term: Ідемпотентний producer
+  def: >-
+    Режим producer Kafka (`enable.idempotence=true`), у якому брокер за producer id і номером
+    послідовності відкидає повторні надсилання. Прибирає дублі від ретраїв і зберігає
+    порядок; у `Confluent.Kafka` за замовчуванням вимкнений.
+  q: Kafka idempotent producer enable.idempotence
+dead-letter-queue:
+  term: Черга недоставлених повідомлень (dead letter queue, DLQ)
+  def: >-
+    Окрема черга або топік для повідомлень, які не вдалося обробити після всіх спроб. Не дає
+    «отруйному» повідомленню блокувати потік і зберігає його для розбору.
+  q: dead letter queue
+  docs: https://learn.microsoft.com/azure/service-bus-messaging/service-bus-dead-letter-queues
+dual-write:
+  term: Подвійний запис (dual write)
+  def: >-
+    Запис однієї зміни у дві системи без спільної транзакції, наприклад у базу й у брокер. Під
+    час збою між записами системи розходяться: подія губиться або описує зміну, яку
+    відкотили.
+  q: dual write problem microservices
+transactional-outbox:
+  term: Transactional outbox
+  def: >-
+    Шаблон, у якому подія зберігається в таблицю outbox тією самою локальною транзакцією, що й
+    бізнес-дані, а окремий процес (relay) потім публікує її в брокер. Дає доставку
+    at-least-once без розподіленої транзакції.
+  q: transactional outbox pattern
+  docs: https://microservices.io/patterns/data/transactional-outbox.html
+inbox-pattern:
+  term: Inbox (ідемпотентний споживач)
+  def: >-
+    Шаблон дедуплікації на боці одержувача: id обробленого повідомлення зберігається в
+    таблицю тією самою транзакцією, що й зміни, і повтор із тим самим id пропускається.
+  q: idempotent consumer inbox pattern
+  docs: https://learn.microsoft.com/azure/architecture/patterns/idempotent-consumer
+debezium:
+  term: Debezium
+  def: >-
+    Open source платформа CDC на основі Kafka Connect: читає журнал транзакцій бази й
+    публікує зміни рядків у Kafka. Outbox Event Router перетворює рядки outbox на події.
+  q: Debezium outbox event router
+  docs: https://debezium.io/documentation/reference/stable/transformations/outbox-event-router.html
+eventual-consistency:
+  term: Узгодженість у кінцевому підсумку (eventual consistency)
+  def: >-
+    Модель, у якій дані різних вузлів або сервісів можуть якийсь час розходитися, але
+    сходяться, коли всі зміни доставлено. Ціна відмови від розподілених транзакцій.
+  q: eventual consistency
+saga:
+  term: Сага (saga)
+  def: >-
+    Спосіб виконати бізнес-операцію через кілька сервісів ланцюжком локальних транзакцій.
+    Якщо крок не вдався, виконані кроки скасовуються компенсувальними діями.
+  q: saga pattern microservices
+  docs: https://learn.microsoft.com/azure/architecture/patterns/saga
+compensating-transaction:
+  term: Компенсувальна дія (compensating transaction)
+  def: >-
+    Операція, яка скасовує бізнес-ефект уже зафіксованого кроку, наприклад повернення грошей
+    після списання. Це не відкат, а нова дія, і її результат видно в системі.
+  q: compensating transaction pattern
+  docs: https://learn.microsoft.com/azure/architecture/patterns/compensating-transaction
+choreography:
+  term: Хореографія (choreography)
+  def: >-
+    Спосіб координації саги без центру: кожен сервіс реагує на події інших і публікує свої.
+    Простий для коротких ланцюжків, але процес цілком ніде не видно.
+  q: saga choreography vs orchestration
+orchestration:
+  term: Оркестрація (orchestration)
+  def: >-
+    Спосіб координації саги, за якого оркестратор зберігає її стан, розсилає команди
+    учасникам і запускає компенсації під час збою.
+  q: saga orchestration
+pivot-transaction:
+  term: Точка неповернення (pivot transaction)
+  def: >-
+    Крок саги, після якого компенсації більше не виконуються: решту кроків лише повторюють до
+    успіху, тому вони мають бути ідемпотентними.
+  q: saga pivot transaction retryable compensable
+  docs: https://learn.microsoft.com/azure/architecture/patterns/saga
+two-phase-commit:
+  term: Двофазний коміт (two-phase commit, 2PC)
+  def: >-
+    Протокол розподіленої транзакції: координатор спершу питає всіх учасників про готовність,
+    потім розсилає commit або rollback. Учасники тримають блокування до рішення координатора.
+  q: two-phase commit protocol

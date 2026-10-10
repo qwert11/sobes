@@ -1,0 +1,860 @@
+---
+title: Architecture styles
+description: Layered and clean architecture, monolith and microservices, DDD, CQRS and event sourcing, incremental legacy migration.
+sidebar:
+  order: 3
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+How to lay out code and services: layers and clean architecture, monolith versus microservices, DDD, CQRS and event sourcing, migrating legacy without a big rewrite. Interviews here test not definitions but whether you can name the cost of each decision and the conditions under which it pays off.
+
+**Before this topic:** [Dependency injection](/sobes/en/aspnet/di/).
+
+<Q id="arch.style.layered-clean" level="j">
+
+## How does layered architecture differ from clean (hexagonal, onion) architecture?
+
+<A short l="j">
+
+In a <T k="layered-architecture">layered architecture</T> each layer depends on the one below, so business logic depends on the data access layer. In <T k="clean-architecture">clean architecture</T> dependencies point inward, toward the domain: the repository interface is declared in the core, and the EF Core implementation lives outside and is plugged in through DI.
+
+</A>
+
+<A short l="m">
+
+Both split code by responsibility; they differ in the direction of dependencies. In a layered design the business layer references the data layer; in hexagonal (<T k="ports-and-adapters">ports and adapters</T>), onion and clean the core declares interfaces for what it needs, and infrastructure implements them following the <T k="dependency-inversion">dependency inversion principle</T>. So the core is testable without a database and does not change when you swap the ORM; the cost is more projects, interfaces and mapping between models.
+
+</A>
+
+<A short l="s">
+
+Hexagonal, onion and clean are variants of one idea: the domain core in the center, every source-code dependency pointing at it, the outside world plugged in through ports and adapters. What sets them apart from layering is precisely the direction of dependencies — not the number of layers and not an <T k="anemic-domain-model">anemic model</T>: a rich domain lives happily in layers, and an anemic one shows up in "clean" solutions. The rule is enforced by project references and architecture tests, not by a diagram on the wiki. The cost is ceremony: for a CRUD service with a dozen endpoints, four projects and mapping at every step cost more than they give.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+Layered architecture, top to bottom; a layer calls only the one below:
+
+1. Presentation — controllers.
+2. Business logic — services.
+3. Data access — repositories, EF Core.
+
+Clean architecture, from the center outward; an outer layer depends on an inner one:
+
+1. Domain — entities and rules, no dependencies.
+2. Application — use cases and port interfaces: `IOrderRepository`.
+3. Infrastructure — port implementations: EF Core, SMTP.
+4. Web API — calls use cases and wires ports to implementations.
+
+**Where the repository interface lives**
+
+In layered — in the data layer, next to the implementation. In clean — in the core, next to the code that calls it.
+
+**Common mistake**
+
+Splitting code into Domain and Infrastructure folders but leaving EF Core attributes in the domain. The dependency still points outward.
+
+**Takeaway:** in layered architecture logic depends on the database; in clean architecture the database depends on the logic.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- **Port** — an interface the core declares. An inbound port is a use case called from outside. An outbound port is something the core needs: storage, email, an external API.
+- **Adapter** — a port implementation for a technology. A controller is an inbound adapter, an EF Core repository is an outbound one.
+- **Direction.** Project references point inward, while runtime calls go both ways: the core calls the repository through an interface. Everything is wired in the <T k="composition-root">composition root</T> in `Program.cs`.
+
+**When to choose what**
+
+| Situation | Style |
+|---|---|
+| CRUD, few rules | layered or vertical slices per feature |
+| Complex rules, many external systems | clean or hexagonal |
+| Infrastructure will change | ports and adapters at that boundary |
+
+**Pitfalls**
+
+- **Leaky port.** A repository returning `IQueryable<T>` makes the core depend on EF Core again, and on which queries it can translate to SQL.
+- **An interface per class.** A port belongs at the boundary with the outside world, not between two domain classes.
+- **Generic repository over EF Core.** `DbContext` already implements a <T k="unit-of-work">unit of work</T> and `DbSet<T>` a repository; an `IRepository<T>` wrapper with `GetAll` adds nothing.
+
+**Rule of thumb**
+
+The interface is declared by its user; project references point toward the domain.
+
+**Takeaway:** the core declares ports, adapters implement them, so infrastructure is replaceable and the domain is testable without it.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- Hexagonal — Alistair Cockburn, 2005: an application has no "top" and "bottom", only driving ports (UI, tests) and driven ports (database, queues).
+- Onion — Jeffrey Palermo, 2008: concentric layers with the domain in the center.
+- Clean — Robert Martin, 2012: the Dependency Rule, source-code dependencies point only inward.
+- An anemic model is orthogonal to the style. Fowler describes a rich domain model as part of the domain layer in a layered architecture.
+
+**Cost**
+
+- Mapping: a domain entity, an EF Core entity and an API DTO are three models. Microsoft's compromise in eShopOnWeb: domain entities are mapped with the Fluent API in Infrastructure, with no attributes in the domain.
+- Indirection: the path from an endpoint to SQL crosses several projects, so debugging and navigation are slower.
+
+**Trade-offs**
+
+- A small service without complex rules is cheaper as vertical slices: the endpoint, handler and `DbContext` query side by side.
+- A separate Domain project with no package references costs almost nothing and gives the main benefit — the compiler keeps EF Core out of the domain.
+
+**How to check in production**
+
+- `Domain.csproj` has no `PackageReference` to EF Core or ASP.NET Core.
+- <T k="architecture-test">Architecture tests</T> (NetArchTest, ArchUnitNET) fail in CI when the domain references infrastructure.
+
+**Takeaway:** the essence of clean architecture is dependencies pointing at the domain; the number of layers and the shape of the model are separate decisions with their own cost.
+
+</A>
+
+<Ex>
+
+```csharp
+using Shop.Application;
+using Shop.Infrastructure;
+
+// Composition root: the port is wired to an adapter outside the core
+var handler = new PlaceOrderHandler(new ConsoleOrderRepository());
+handler.Handle(42, 3); // Saved Order { Id = 42, Quantity = 3 }
+
+namespace Shop.Domain
+{
+    // Core: references neither EF Core nor ASP.NET Core
+    public record Order(int Id, int Quantity);
+}
+
+namespace Shop.Application
+{
+    using Shop.Domain;
+
+    // The port is declared by the code that uses it
+    public interface IOrderRepository { void Save(Order order); }
+
+    public class PlaceOrderHandler(IOrderRepository repository)
+    {
+        public void Handle(int id, int quantity) => repository.Save(new Order(id, quantity));
+    }
+}
+
+namespace Shop.Infrastructure
+{
+    using Shop.Application;
+    using Shop.Domain;
+
+    // The adapter implements the port; in real code this is EF Core
+    public class ConsoleOrderRepository : IOrderRepository
+    {
+        public void Save(Order order) => Console.WriteLine($"Saved {order}");
+    }
+}
+```
+
+In a real solution each namespace is a separate project: Infrastructure references Application, Application references Domain, and there are no references back.
+
+</Ex>
+
+<Next>
+
+- How does hexagonal differ from onion and clean? — Essentially it doesn't: one idea, "dependencies toward the domain", with different terms and pictures.
+- Where should the repository interface live? — In the core, next to its user; the implementation goes in Infrastructure.
+- Do you need a repository on top of EF Core? — `DbContext` is already a unit of work and `DbSet<T>` a repository; your own port pays off when it describes domain queries rather than repeating `DbSet<T>`.
+- Is an anemic model a sign of layered architecture? — No, it is a property of the model; a rich domain fits in layers, an anemic one appears in "clean" solutions.
+- How do you keep the domain from depending on infrastructure? — A separate project with no package references and an architecture test in CI.
+
+</Next>
+
+<Src>
+
+- [Common web application architectures](https://learn.microsoft.com/dotnet/architecture/modern-web-apps-azure/common-web-application-architectures)
+- [Hexagonal architecture — Alistair Cockburn](https://alistair.cockburn.us/hexagonal-architecture/)
+- [Anemic domain model — Martin Fowler](https://martinfowler.com/bliki/AnemicDomainModel.html)
+
+</Src>
+
+</Q>
+
+<Q id="arch.style.monolith-microservices" level="m">
+
+## Monolith, modular monolith or microservices: what to choose and when?
+
+<A short l="j">
+
+A monolith is one application with one deployment, while <T k="microservices">microservices</T> are a set of small services, each with its own database and deployment. A <T k="modular-monolith">modular monolith</T> sits in between: one deployment, but the code is split into modules with explicit boundaries, so teams usually start there and extract a service once there is a reason to.
+
+</A>
+
+<A short l="m">
+
+The choice is between the simplicity of one process and the independence of parts. Microservices give independent deployment and scaling but pay for it with the network: timeouts, <T k="eventual-consistency">eventual consistency</T> instead of a single transaction, tracing and a release pipeline per service. A modular monolith gives the same boundaries in code — a module exposes only its contract and keeps the rest `internal` — with tests enforcing them; extracting such a module into a service later is much cheaper.
+
+</A>
+
+<A short l="s">
+
+Microservices are first of all an organizational decision: they pay off when several teams block each other's releases, and by <T k="conways-law">Conway's law</T> service boundaries will mirror team boundaries anyway. The cost of distribution — network failures, consistency without shared transactions, contract versioning, observability — is paid from day one, while the benefit appears only with the right boundaries. Wrong boundaries give a <T k="distributed-monolith">distributed monolith</T>: services released together and calling each other in synchronous chains. So the sensible path is a modular monolith with enforced boundaries, extracting a service where a part of the system has its own load, release cycle or team.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+| Style | How it is built |
+|---|---|
+| Monolith | one application, one database, one deployment |
+| Modular monolith | one deployment, code split into bounded modules |
+| Microservices | many services, each with its own database and deployment |
+
+**Why microservices**
+
+- Parts of the system are released and scaled independently.
+- Teams do not wait for each other: each owns its services.
+
+**What you pay**
+
+A call to a neighboring module becomes a network request. It can fail, hang or return stale data, and there is no longer one transaction across two services.
+
+**Common mistake**
+
+Splitting a small single-team application into microservices "for future growth". You get the same system, only slower and harder to debug.
+
+**Takeaway:** start with a modular monolith and extract a service when there is a concrete reason.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+A modular monolith:
+
+- A module is a vertical slice by business capability: orders, warehouse, payments. Not a technical layer.
+- A module exposes only a contract: an interface, DTOs, events. The implementation is `internal` in a separate assembly.
+- A module's data sits in its own database schema; other modules' tables are not read or joined.
+- Boundaries are enforced by architecture tests, not by agreements.
+
+**When to choose what**
+
+| Aspect | Modular monolith | Microservices |
+|---|---|---|
+| Deployment | one for everything | independent per service |
+| Calling a neighbor | method call | network: timeouts, retries |
+| Consistency | one database transaction | eventual consistency |
+| Scaling | whole application | individual service |
+| Debugging | one process | distributed tracing |
+
+**Pitfalls**
+
+- **Shared database between services.** Services are coupled through the schema: changing a table means releasing all its readers.
+- **Technical boundaries.** A "validation" service or a "database access" service takes part in every request.
+- **Synchronous chains.** A waits for B, B waits for C: latencies add up, and any failure takes down the whole chain.
+
+**Rule of thumb**
+
+Extract a service when a part of the system has its own reason: load, release cycle, team, reliability or security requirements.
+
+**Takeaway:** a modular monolith gives boundaries without the network cost; microservices are justified when independence of parts matters more than that cost.
+
+</A>
+
+<A l="s">
+
+**Cost**
+
+- The network is unreliable: you need timeouts, retries and idempotency.
+- A chain's availability is the product of availabilities: three services at 99.9% give about 99.7%.
+- Consistency across databases is eventual: outbox, sagas and compensations (see [Queues and Kafka](/sobes/en/arch/messaging/)).
+- Infrastructure per service: release pipeline, monitoring, tracing, contract versions.
+
+**Trade-offs**
+
+- **Conway's law.** Melvin Conway, 1968: a system's structure copies the communication structure. Services without an owning team decay into a distributed monolith, which is why teams are sometimes reorganized before the architecture.
+- **Monolith first.** Fowler advises starting with a monolith: the right boundaries become visible only once the domain is understood. Moving a boundary between modules is a refactoring; between services it is a data migration.
+- **Independent deployment** works only if contracts are backward compatible and versioned.
+
+**How to check in production**
+
+- Services are always released together — that is a distributed monolith.
+- Tracing shows the depth of synchronous chains per request.
+- Architecture tests in CI catch a module reaching into another's internals.
+
+**Takeaway:** microservices trade simplicity for team independence; without a real need for that independence a modular monolith is cheaper and easier to change.
+
+</A>
+
+<Ex>
+
+```csharp
+using Orders;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// The module registers itself; other modules see only its contract
+builder.Services.AddOrdersModule();
+
+var app = builder.Build();
+app.MapGet("/orders/{id:int}", (int id, IOrdersApi orders) => orders.GetStatus(id));
+app.Run(); // GET /orders/42 → "Order 42: shipped"
+
+namespace Orders
+{
+    // The module's public contract
+    public interface IOrdersApi { string GetStatus(int id); }
+
+    // In a real solution the module is a separate project,
+    // and internal hides the implementation from other modules
+    internal sealed class OrdersService : IOrdersApi
+    {
+        public string GetStatus(int id) => $"Order {id}: shipped";
+    }
+
+    public static class OrdersModule
+    {
+        public static IServiceCollection AddOrdersModule(this IServiceCollection services) =>
+            services.AddScoped<IOrdersApi, OrdersService>();
+    }
+}
+```
+
+</Ex>
+
+<Next>
+
+- How do you enforce module boundaries in a monolith? — Separate assemblies with `internal`, a database schema per module and architecture tests in CI.
+- What is a distributed monolith? — Services that cannot be released separately: shared database, synchronous chains, joint releases.
+- Can microservices share one database? — As a transitional state, yes, but then the schema becomes a shared contract and independent deployment is lost.
+- How does Conway's law affect architecture? — Service boundaries mirror team boundaries; a service without an owner sprawls.
+- When do you extract a module into a service? — When it has its own load, release cycle, team or reliability requirements.
+
+</Next>
+
+<Src>
+
+- [Microservices architecture style](https://learn.microsoft.com/azure/architecture/guide/architecture-styles/microservices)
+- [Monolith first — Martin Fowler](https://martinfowler.com/bliki/MonolithFirst.html)
+- [Microservice trade-offs — Martin Fowler](https://martinfowler.com/articles/microservice-trade-offs.html)
+
+</Src>
+
+</Q>
+
+<Q id="arch.style.ddd" level="m">
+
+## What is DDD and which of its ideas matter in practice?
+
+<A short l="j">
+
+<T k="ddd">DDD</T> (Domain-Driven Design) is an approach where code is built around a model of the business and the language of its experts. The key ideas are a <T k="ubiquitous-language">ubiquitous language</T> shared by business and code, <T k="bounded-context">bounded contexts</T> inside which a word has one meaning, and <T k="aggregate">aggregates</T> that guard their own rules.
+
+</A>
+
+<A short l="m">
+
+DDD has a strategic side — how to cut the system into bounded contexts and how they relate — and a tactical side — how to model inside a context: entities, <T k="value-object">value objects</T>, aggregates, <T k="domain-event">domain events</T>. An aggregate is a consistency boundary: its invariants hold after every transaction, and it is changed only through its root. The cost is time spent modeling with experts, so tactical DDD pays off in a complex core, not in CRUD.
+
+</A>
+
+<A short l="s">
+
+The most valuable part of DDD is strategic: bounded contexts give you module and service boundaries, and a context map records who adapts to whom. Evans's and Vernon's tactics boil down to a few rules: small aggregates, one transaction changes one aggregate, other aggregates are referenced by identity, and they are reconciled through domain events. The trade-off is complexity: a full model pays off in the core domain, while supporting subdomains are written more simply or bought off the shelf.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+DDD comes from Eric Evans's book (2003): code describes the business with the same words and rules the experts use.
+
+**Key ideas**
+
+- **Ubiquitous language.** If the warehouse says "reservation" and "shipment", the code has `Reserve` and `Shipment`, not `UpdateStatus(3)`.
+- **Bounded context.** A boundary where a word has one meaning. A "product" in the warehouse is a location and a weight; in the catalog, a description and a price.
+- **Value object.** A value without identity: `Money`, `Address`. Two objects are equal if their fields are equal.
+- **Aggregate.** A group of objects changed as a whole through its root: `Order` and its lines.
+
+**Common mistake**
+
+Treating DDD as a set of Entities, ValueObjects and Repositories folders. Without a shared language and boundaries it is just a project layout.
+
+**Takeaway:** DDD is a business model in code, a shared language with experts and clear boundaries where that model applies.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+| Level | What it decides | Tools |
+|---|---|---|
+| Strategic | how to cut the system | subdomains, contexts, context map |
+| Tactical | how to model inside | entities, value objects, aggregates, events |
+
+An aggregate:
+
+1. The root is the only entry point: `order.AddLine(...)`, not `order.Lines.Add(...)`.
+2. Invariants ("the total does not exceed the credit limit") are checked in the root's methods.
+3. A repository is per aggregate, not per table: the aggregate is loaded and saved as a whole.
+4. A domain event (`OrderSubmitted`) announces a fact, and other aggregates react to it in their own transactions.
+
+**Pitfalls**
+
+- **Huge aggregate.** "A customer with all their orders" loads slowly and keeps hitting concurrency conflicts.
+- **Public setters.** Invariants leak into services and the model becomes anemic.
+- **One model for the whole company.** A single `Customer` for sales, delivery and accounting grows fields that only one context needs.
+
+**Rule of thumb**
+
+One transaction changes one aggregate; other aggregates are referenced by identity and updated through events.
+
+**Takeaway:** strategic DDD gives boundaries, tactical DDD gives a model that enforces its own rules.
+
+</A>
+
+<A l="s">
+
+**Context map**
+
+The map describes relationships between contexts and teams:
+
+| Relationship | Meaning |
+|---|---|
+| Customer/Supplier | the supplier takes the consumer's needs into account |
+| Conformist | the consumer accepts the other model as is |
+| Anti-corruption layer | the consumer translates the other model into its own |
+| Open host service, published language | the supplier offers a stable public protocol |
+| Shared kernel | two teams share part of the model and change it together |
+
+**Cost**
+
+- Modeling takes experts' time; without them you get a developer's model, not the business's.
+- Value objects and encapsulated collections need EF Core configuration: owned types, complex types (EF Core 8+), field mapping.
+- Reconciling aggregates through events means eventual consistency. Integration events to other services are sent reliably through an outbox (see [Queues and Kafka](/sobes/en/arch/messaging/)).
+
+**Trade-offs**
+
+- Evans splits subdomains into core, supporting and generic. Full tactical DDD is for the core only; generic ones, such as authorization, are bought.
+- Vernon (Effective Aggregate Design): small aggregates, references by identity, eventual consistency outside the aggregate boundary. If the business demands immediate consistency between two aggregates, revisit the boundaries.
+
+**How to check in production**
+
+- Frequent `DbUpdateConcurrencyException` on one aggregate means it is too large or too hot.
+- Code review shows a transaction that saves several aggregates at once.
+
+**Takeaway:** what matters most in DDD is context boundaries and small aggregates with explicit invariants; tactical patterns are used only where domain complexity pays for them.
+
+</A>
+
+<Ex>
+
+```csharp
+var order = new Order(creditLimit: new Money(100m, "UAH"));
+order.AddLine("SKU-1", new Money(60m, "UAH"));
+
+try { order.AddLine("SKU-2", new Money(50m, "UAH")); }
+catch (InvalidOperationException ex) { Console.WriteLine(ex.Message); } // Credit limit exceeded
+
+order.Submit();
+Console.WriteLine(order.Events[0]); // OrderSubmitted { OrderId = ... }
+Console.WriteLine(new Money(5m, "UAH") == new Money(5m, "UAH")); // True: value equality
+
+// Value object: an immutable record without identity
+public record Money(decimal Amount, string Currency)
+{
+    public Money Add(Money other) => other.Currency == Currency
+        ? this with { Amount = Amount + other.Amount }
+        : throw new InvalidOperationException("Currency mismatch");
+}
+
+public record OrderSubmitted(Guid OrderId);
+
+// Aggregate root: state changes only through methods, invariants inside
+public class Order(Money creditLimit)
+{
+    private readonly List<Money> _lines = [];
+    private readonly List<object> _events = [];
+
+    public Guid Id { get; } = Guid.NewGuid();
+    public IReadOnlyList<object> Events => _events;
+
+    public void AddLine(string sku, Money price)
+    {
+        var total = _lines.Aggregate(price, (sum, line) => sum.Add(line));
+        if (total.Amount > creditLimit.Amount) throw new InvalidOperationException("Credit limit exceeded");
+        _lines.Add(price);
+    }
+
+    public void Submit() => _events.Add(new OrderSubmitted(Id)); // domain event
+}
+```
+
+</Ex>
+
+<Next>
+
+- How does an entity differ from a value object? — An entity has an identity that survives field changes; a value object is defined only by its values.
+- Why should an aggregate be small? — It is loaded and locked as a whole; a large aggregate means slow loads and concurrency conflicts.
+- How do you link two aggregates? — By identity and a domain event; the second one changes in its own transaction.
+- What is a bounded context in practice? — The boundary of a module or service with its own model and language.
+- How does a domain event differ from an integration event? — A domain event lives inside a context and a process; an integration event is a public contract for other services.
+
+</Next>
+
+<Src>
+
+- [Design a DDD-oriented microservice](https://learn.microsoft.com/dotnet/architecture/microservices/microservice-ddd-cqrs-patterns/ddd-oriented-microservice)
+- [Bounded context — Martin Fowler](https://martinfowler.com/bliki/BoundedContext.html)
+- [DDD aggregate — Martin Fowler](https://martinfowler.com/bliki/DDD_Aggregate.html)
+
+</Src>
+
+</Q>
+
+<Q id="arch.style.cqrs-es" level="s">
+
+## What are CQRS and event sourcing, and when are they justified?
+
+<A short l="j">
+
+<T k="cqrs">CQRS</T> separates code that changes data (commands) from code that reads it (queries) into different models. <T k="event-sourcing">Event sourcing</T> stores not the current state but the chain of events the state is rebuilt from; it is a separate idea and is not always used together with CQRS.
+
+</A>
+
+<A short l="m">
+
+CQRS starts without a second database: commands go through the domain model and EF Core, and queries are separate lightweight queries into DTOs from the same database. The next step is a separate <T k="read-model">read model</T> updated from events: reads scale independently but lag behind writes. Event sourcing gives a full audit trail and any past state, but requires versioning events and building projections for each query.
+
+</A>
+
+<A short l="s">
+
+CQRS is a pattern for a single bounded context, not an architecture for the whole system: Fowler warns that for most systems it adds complexity without benefit. It is justified when reads and writes differ sharply in shape or load, and event sourcing when the history of changes is itself valuable to the business: accounting, audit, "what was it on that date" questions. The cost of ES is immutable events: you need versioning, snapshots for long streams and projection rebuilds. MediatR is an in-process message dispatcher, not CQRS, and since version 13 (July 2025) it ships under a commercial license with a free edition for small companies.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **A command** changes state and returns little or nothing: `PlaceOrder`.
+- **A query** returns data and changes nothing: `GetOrderSummary`.
+- **CQRS** — commands and queries have different models: a domain model with rules for writes, flat DTOs shaped for the screen for reads.
+- **Event sourcing** — instead of a "balance = 70" row, the events `Deposited 100` and `Withdrawn 30` are stored; the balance is obtained by replaying them.
+
+**Why**
+
+- Reads do not drag in the complex write model and use simple queries.
+- Event sourcing keeps the history of every change.
+
+**Common mistake**
+
+Thinking CQRS requires two databases and a queue. The simplest CQRS is separate classes for commands and queries over one database.
+
+**Takeaway:** CQRS separates write and read models; event sourcing stores events instead of state.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+| Option | Reads | Consistency |
+|---|---|---|
+| One database, separate models | DTO projections, `AsNoTracking`, Dapper | immediate |
+| Separate read model | own tables or database, updated from events | eventual |
+| Event sourcing | projections from the event stream | eventual |
+
+Event sourcing step by step:
+
+1. A command loads the aggregate's event stream and rebuilds its state.
+2. The aggregate checks invariants and produces new events.
+3. The events are appended to the <T k="event-store">event store</T> with an expected stream version check — optimistic concurrency.
+4. Projections read the new events and update read models.
+
+**Pitfalls**
+
+- **Read-your-writes.** The user saves and does not see the change in the list. Fixes: return data from the command, wait for the projection version, or an optimistic UI.
+- **CRUD events.** `OrderUpdated` with every field loses meaning; events are named as business facts in the past tense: `OrderShipped`.
+- **ES everywhere.** Reference data and settings as events only complicate the code.
+
+**Rule of thumb**
+
+Start with CQRS on one database. Add a separate read model when load or data shape really differ, and ES when the business needs the history.
+
+**Takeaway:** CQRS is a range from "separate classes" to "separate databases", and ES is a separate decision with its own cost.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- An event store is an append-only log of streams: KurrentDB (formerly EventStoreDB), Marten on PostgreSQL, or your own table with a unique (stream, version) key.
+- A <T k="event-snapshot">snapshot</T> is the state at version N; the aggregate loads from it plus the tail of events. Needing snapshots often means the stream is too long and should be closed per period.
+- A new read model is built by replaying all events from the start; at large volumes that takes hours.
+
+**Cost**
+
+- **Versioning.** Events are never rewritten. New fields are added as optional; an incompatible change is a new event type or upcasting: an old event is turned into the new shape on read.
+- **Personal data.** Erasure required by law conflicts with an immutable log; such data is kept outside events or encrypted with a per-person key that is then deleted.
+
+**Trade-offs**
+
+- **MediatR is not CQRS.** CQRS is about separate models; MediatR is the Mediator pattern: it delivers a message to a handler in-process. CQRS works just as well with plain handler classes.
+- **MediatR license.** 12.5.0 is the last version under Apache 2.0. Since 13.0 (July 2, 2025) it is dual-licensed under RPL 1.5 and a commercial license; the Community edition is free under 5 million dollars of annual revenue and outside production. For new projects that is a reason to use a thin dispatcher of your own.
+
+**How to check in production**
+
+- Projection lag: the position of the last processed event versus the end of the log — a metric with an alert.
+- Stream length and aggregate load time show where snapshots are needed.
+- Frequent expected-version conflicts point to a hot stream.
+
+**Takeaway:** CQRS and ES are tools for a specific context with a clear benefit; their cost is eventual consistency, event versioning and operating projections.
+
+</A>
+
+<Ex>
+
+```csharp
+// The account's event stream is the single source of truth
+List<object> stream = [new Deposited(100m), new Withdrawn(30m)];
+
+var account = new Account(stream);   // state = replayed events
+account.Withdraw(50m);
+stream.AddRange(account.Changes);    // in reality — an append with the expected version
+
+Console.WriteLine(account.Balance);  // 20
+
+// Projection: a read model built from the same events
+var history = stream.Select(e => e switch
+{
+    Deposited d => $"+{d.Amount}",
+    Withdrawn w => $"-{w.Amount}",
+    _ => "?"
+});
+Console.WriteLine(string.Join(" ", history)); // +100 -30 -50
+
+public record Deposited(decimal Amount);
+public record Withdrawn(decimal Amount);
+
+public class Account
+{
+    public decimal Balance { get; private set; }
+    public List<object> Changes { get; } = [];
+
+    public Account(IEnumerable<object> history)
+    {
+        foreach (var e in history) Apply(e);
+    }
+
+    public void Withdraw(decimal amount)
+    {
+        if (amount > Balance) throw new InvalidOperationException("Insufficient funds");
+        var e = new Withdrawn(amount);
+        Apply(e);
+        Changes.Add(e);
+    }
+
+    private void Apply(object e) => Balance += e switch
+    {
+        Deposited d => d.Amount,
+        Withdrawn w => -w.Amount,
+        _ => 0m
+    };
+}
+```
+
+</Ex>
+
+<Next>
+
+- Does CQRS require a separate database? — No, the first level is separate models and queries over one database.
+- How does a user see their changes if the read model lags? — Return data from the command, wait for the projection version, or use an optimistic UI.
+- How do you change the format of an event that is already stored? — You don't: new fields are optional, incompatible changes become a new event type or upcasting on read.
+- Why snapshots? — To avoid replaying a long stream every time the aggregate is loaded.
+- Is MediatR CQRS? — No, it is an in-process message dispatcher; since version 13 it also has a commercial license.
+
+</Next>
+
+<Src>
+
+- [CQRS pattern](https://learn.microsoft.com/azure/architecture/patterns/cqrs)
+- [Event Sourcing pattern](https://learn.microsoft.com/azure/architecture/patterns/event-sourcing)
+- [CQRS — Martin Fowler](https://martinfowler.com/bliki/CQRS.html)
+
+</Src>
+
+</Q>
+
+<Q id="arch.style.legacy-migration" level="s">
+
+## How do you migrate a legacy system incrementally without a big rewrite?
+
+<A short l="j">
+
+Legacy is moved piece by piece: the new system grows next to the old one and takes over features one at a time until the old one can be switched off — the <T k="strangler-fig">strangler fig</T> pattern. Every step is small, verifiable and reversible, instead of one risky "we rewrote everything" release.
+
+</A>
+
+<A short l="m">
+
+A facade is placed in front of the old system — for the web, a <T k="reverse-proxy">reverse proxy</T> such as <T k="yarp">YARP</T> — that sends migrated routes to the new code and everything else to the old one. An <T k="anti-corruption-layer">anti-corruption layer</T> protects the new model from the old one, <T k="characterization-test">characterization tests</T> pin down current behavior, and a <T k="feature-toggle">feature toggle</T> does the switch with a fast rollback. The cost is a long period when both systems run and need support.
+
+</A>
+
+<A short l="s">
+
+Migration is a series of small reversible steps: pick a slice of functionality, pin its behavior with tests, implement it in new code behind an ACL, switch traffic with a flag, compare results and delete the old path. The hardest part is data: a shared database is acceptable as a transitional state if every table has a single writing owner and there is no two-way sync. For ASP.NET, Microsoft recommends exactly this setup: an ASP.NET Core app with YARP in front of the old one and System.Web adapters for shared code. The main risk is a migration that never ends, so the criteria for switching off the old part are defined up front.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+A big rewrite means building the new system from scratch and switching over at once. The risk: years with no business value while the old system keeps changing.
+
+Incremental migration (strangler fig, Martin Fowler, 2004) — the new grows around the old until the old is no longer needed.
+
+**How to use**
+
+1. Pick a small, valuable feature: a report, one screen.
+2. Describe its current behavior with tests.
+3. Implement it in the new service.
+4. Switch the calls: on the web through the proxy, in a desktop client by calling an API instead of running SQL directly.
+5. Make sure nobody uses the old path, then delete it.
+
+**Common mistake**
+
+Changing behavior while migrating. Move it as is first and improve it afterwards; otherwise you cannot tell what the migration broke.
+
+**Takeaway:** replace the system one feature at a time, and keep every step reversible.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- **Facade.** YARP in front of ASP.NET: ASP.NET Core serves migrated routes, and `MapForwarder` forwards the rest to the old app. System.Web adapters provide shared session and authentication.
+- **Anti-corruption layer.** A translation layer between the legacy model and the new one: new code knows nothing about a `T_ORD_HDR` table or `'Y'/'N'` flags.
+- **Characterization tests** (Michael Feathers). They pin down what the code does now, not what it should do: real inputs are run through the old code and the output is saved as the expected result.
+- **Feature toggles.** Switch to the new implementation per user, branch or percentage, with instant rollback. In .NET — `Microsoft.FeatureManagement`.
+
+**Desktop client**
+
+Features of a desktop client move into services: the client calls an HTTP API instead of running SQL against the database. Reads usually move first, then writes, and the old implementation in the client is turned off by a flag.
+
+**Pitfalls**
+
+- **Two-way sync** between the old and new databases: conflicts and endless update loops.
+- **New code reads legacy tables directly.** The old model leaks into the new one.
+- **Permanent flags.** Each flag doubles the code paths; every flag needs a removal date.
+
+**Rule of thumb**
+
+Every step is reversible, and every table has a single writing owner.
+
+**Takeaway:** the facade routes traffic, the ACL protects the model, tests pin down behavior, and a flag makes rollback possible.
+
+</A>
+
+<A l="s">
+
+**Data during the transition**
+
+1. Shared database: the new service reads and writes the old tables through an ACL. Schema changes are compatible only ([schema changes without downtime](/sobes/en/db/design/)).
+2. Ownership moves table by table: one writer, while the other side reads through a view, an API or a change stream.
+3. A separate database for the new service — once no old writers remain.
+
+**Cost**
+
+- Two systems run and are maintained at the same time; fixes sometimes go into both.
+- Data sync and shared authentication are extra infrastructure for the entire migration.
+
+**Trade-offs**
+
+- **Parallel run.** The new implementation computes alongside the old one, results are compared, and the old one returns the response. Expensive, but it removes the risk for calculations: prices, stock, accruals.
+- **Branch by abstraction.** When there is nowhere to put a network facade, an abstraction is introduced inside the code, the implementation behind it is switched, and the old one is removed.
+
+**How to check in production: ready to switch off**
+
+- Proxy logs show no requests to the old routes for longer than a full business cycle, including monthly and yearly reports.
+- Old desktop client versions are gone from telemetry.
+- Data is migrated and reconciled, old writers are switched off.
+- Flags are removed, old code and routes are deleted.
+
+**Takeaway:** migration is a controlled sequence of reversible steps with a single data owner and switch-off criteria set in advance.
+
+</A>
+
+<Ex>
+
+```csharp
+// NuGet: Yarp.ReverseProxy
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddHttpForwarder();
+builder.Services.AddScoped<IOrderReport, NewOrderReport>();
+
+var app = builder.Build();
+
+// Migrated feature: served by new code on ASP.NET Core
+app.MapGet("/reports/orders", (IOrderReport report) => report.Build());
+
+// Everything not migrated yet goes to the old ASP.NET app
+app.MapForwarder("/{**catch-all}", "https://legacy.internal")
+    .WithOrder(int.MaxValue) // lowest priority: own routes first
+    .ShortCircuit();         // forwarded requests skip the rest of the pipeline
+
+app.Run();
+
+public interface IOrderReport { string Build(); }
+
+public class NewOrderReport : IOrderReport
+{
+    public string Build() => "Orders report from ASP.NET Core";
+}
+```
+
+Migrating the next feature means adding a new endpoint in ASP.NET Core: the proxy automatically stops sending that route to the old app.
+
+</Ex>
+
+<Next>
+
+- Why not rewrite everything from scratch? — Years without value, the old system keeps changing, and forgotten behavior surfaces after the switch.
+- What is a characterization test? — A test that pins down the actual behavior of legacy code, even buggy behavior; a safety net for migration.
+- Can a new service work with the old database? — As a transitional state, yes, through an ACL and with a single writing owner per table.
+- How do you roll back a migrated feature? — Turn off the flag or route it back through the proxy; that is why the old path is deleted only after the switch-off criteria are met.
+- When can the old part be switched off? — No traffic for longer than a business cycle, no old clients, data reconciled, flags and code removed.
+
+</Next>
+
+<Src>
+
+- [Strangler Fig pattern](https://learn.microsoft.com/azure/architecture/patterns/strangler-fig)
+- [Incremental ASP.NET to ASP.NET Core migration](https://learn.microsoft.com/aspnet/core/migration/fx-to-core/)
+- [Anti-corruption Layer pattern](https://learn.microsoft.com/azure/architecture/patterns/anti-corruption-layer)
+
+</Src>
+
+</Q>

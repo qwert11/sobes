@@ -1,0 +1,925 @@
+---
+title: Integration styles
+description: Synchronous and asynchronous integration, REST, gRPC and SOAP, timeouts, retries and circuit breakers, idempotency, integrating with ERP, legacy and EDI.
+sidebar:
+  order: 1
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+How systems exchange data: synchronously or through messages and files, over which protocol, how to survive a neighbor's failures without creating duplicates, and how to connect ERPs, accounting systems and EDI providers. Interviewers here check not API knowledge but whether you can explain what each choice costs.
+
+**Before this topic:** [Web API](/sobes/en/aspnet/web-api/).
+
+<Q id="arch.int.sync-async" level="j">
+
+## How does synchronous integration differ from asynchronous, and when do you pick each?
+
+<A short l="j">
+
+Synchronous integration is request-response: the caller sends a request and waits for the answer, while asynchronous integration sends a message through a <T k="message-broker">broker</T> or a file and keeps working without waiting for it to be processed. You ask synchronously for what you need right now, such as a stock level, and send asynchronously what must not be lost even if the receiver is down: orders, invoices, exports.
+
+</A>
+
+<A short l="m">
+
+The key difference is <T k="temporal-coupling">temporal coupling</T>: in a synchronous call both systems must be up at the same time, so a slow or failed receiver slows down or breaks the caller. A queue or file exchange decouples them: the sender carries on and the receiver works at its own pace. The price is that the result arrives later, and duplicates, ordering and monitoring stuck messages become your problem.
+
+</A>
+
+<A short l="s">
+
+The classic view names four styles — <T k="file-transfer-integration">file transfer</T>, <T k="shared-database">shared database</T>, remote procedure invocation and messaging — and each picks its own coupling: in time, in schema, or in format and latency. A synchronous chain multiplies availability: five services at 99.9% each give about 99.5% together. That is why a long operation is modelled as <T k="async-request-reply">asynchronous request-reply</T>: 202 Accepted plus a status URL. A database shared between systems owned by different teams is the worst option: the schema becomes someone else's contract that you can no longer change.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **Synchronous integration** — the caller sends a request and waits for the response: REST, gRPC, SOAP.
+- **Asynchronous integration** — the sender puts a message into a queue or a file into an exchange folder and keeps working. The receiver processes it later.
+
+**When to choose what**
+
+| Situation | Style |
+|---|---|
+| Need the answer now: price, stock, payment authorization | synchronous |
+| Data must not be lost, answer is not urgent: orders, invoices | asynchronous |
+| Large daily batches: reference data, exports to accounting | files or batch load |
+
+**Common mistake**
+
+Integrating through a shared database: reading and writing another system's tables directly. Renaming a column on their side breaks your code, and their business rules are bypassed.
+
+**Takeaway:** synchronous when you need the answer now, asynchronous when the work must not be lost and must not depend on the receiver being up.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+| Style | What couples the systems | Main drawback |
+|---|---|---|
+| File transfer | file format and schedule | data is stale until the next export |
+| Shared database | table schema | schema cannot change without the neighbors |
+| Remote call (REST, gRPC, SOAP) | time: both must be up | receiver down means caller down |
+| Messages through a broker | message format | latency, duplicates, ordering |
+
+**When to choose what**
+
+- The user waits for an answer and the operation is short — a synchronous call with a timeout.
+- The operation is long but the client needs the result — asynchronous request-reply: the server immediately returns 202 Accepted with a URL where the client checks the status.
+- Several systems care about an event — publish a message to a broker instead of calling each one.
+
+**Pitfalls**
+
+- **A timeout is not a failure.** If no response came back, you don't know whether the operation ran. A blind retry creates a duplicate.
+- **Asynchronous does not mean faster.** A message can sit in a queue for minutes, so queue depth is monitored.
+- **Half-written files.** The receiver picks up a file while it is still being written. Write under a temporary name and rename at the end.
+
+**Rule of thumb**
+
+Between systems, default to messages or APIs, never a shared database. Go synchronous only where you cannot proceed without the answer.
+
+**Takeaway:** an integration style is a choice of which coupling to accept: in time, in schema or in latency.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- A synchronous call holds the caller's resources — thread, connection, transaction — for the whole wait. A slow neighbor exhausts them and turns their latency into your outage.
+- A broker keeps the message until the receiver acknowledges it. A receiver outage becomes latency rather than an error on the sender's side.
+- A shared database couples systems the most: the neighbor depends on your schema, locks, indexes and even your maintenance window.
+
+**Cost**
+
+- The availability of a synchronous chain is the product of its links: 0.999⁵ ≈ 0.995, which is almost 44 hours of downtime per year instead of 9.
+- Latencies along the chain add up, and the slowest participant defines the tail.
+- Asynchrony is paid for with eventual consistency: for a while, the systems see different data.
+
+**Trade-offs**
+
+- A synchronous call is easier to write, debug and explain to the user: the error shows up immediately.
+- Asynchronous exchange needs request-reply correlation, duplicate handling, and monitoring of queues and stuck messages. Brokers and delivery guarantees are covered in [Queues and Kafka](/sobes/en/arch/messaging/).
+- Files are still a sane choice for large batches and partners without an API, but you need agreements on format, naming and acknowledgements.
+
+**How to check in production**
+
+- For synchronous dependencies — p99 and error rate of outgoing calls, the `http.client.request.duration` metric.
+- For asynchronous ones — queue depth, age of the oldest message and the number of messages in the error queue.
+
+**Takeaway:** synchronous integration brings other systems' failures to you immediately, asynchronous turns them into latency; a shared database turns someone else's schema into your contract.
+
+</A>
+
+<Ex>
+
+```csharp
+using System.Threading.Channels;
+
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddSingleton(Channel.CreateUnbounded<string>());
+builder.Services.AddHostedService<ExportWorker>();
+
+var app = builder.Build();
+
+// Synchronous: the answer is needed now, the client waits
+app.MapGet("/stock/{sku}", (string sku) => new { sku, quantity = 42 });
+
+// Asynchronous: accept, enqueue and return 202 Accepted right away
+app.MapPost("/exports/{docId}", async (string docId, Channel<string> queue) =>
+{
+    await queue.Writer.WriteAsync(docId);
+    return Results.Accepted($"/exports/{docId}"); // the client checks the status at this URL
+});
+
+app.Run();
+
+// The receiver drains the queue at its own pace.
+// An in-memory channel loses messages on restart — in production this is a broker.
+public class ExportWorker(Channel<string> queue, ILogger<ExportWorker> logger) : BackgroundService
+{
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        await foreach (var docId in queue.Reader.ReadAllAsync(stoppingToken))
+            logger.LogInformation("Exported {DocId}", docId);
+    }
+}
+```
+
+</Ex>
+
+<Next>
+
+- Why is a shared database a bad integration? — The schema becomes a contract with the neighbor: you cannot change it, and the data owner's business rules are bypassed.
+- What if an operation takes minutes and the client calls it over HTTP? — Asynchronous request-reply: 202 Accepted, a status URL, and polling or a callback.
+- How does availability depend on the length of a synchronous chain? — It multiplies: every link lowers overall availability.
+- What can go wrong with file transfer? — Half-written files, loading the same file twice, and lost files without an acknowledgement.
+- Is asynchronous integration always better? — No: it adds latency, duplicates and harder debugging; where the answer is needed immediately, a synchronous call is more honest.
+
+</Next>
+
+<Src>
+
+- [Enterprise Integration Patterns: Integration Styles](https://www.enterpriseintegrationpatterns.com/patterns/messaging/IntegrationStylesIntro.html)
+- [Communication in a microservice architecture](https://learn.microsoft.com/dotnet/architecture/microservices/architect-microservice-container-applications/communication-in-microservice-architecture)
+- [Asynchronous Request-Reply pattern](https://learn.microsoft.com/azure/architecture/patterns/async-request-reply)
+
+</Src>
+
+</Q>
+
+<Q id="arch.int.rest-grpc-soap" level="m">
+
+## REST, gRPC or SOAP: how do they differ and when do you choose each?
+
+<A short l="j">
+
+<T k="rest">REST</T> is resources and HTTP methods, usually with JSON; <T k="grpc">gRPC</T> calls remote methods by a `.proto` contract with binary <T k="protobuf">Protobuf</T> messages over HTTP/2; <T k="soap">SOAP</T> is XML envelopes with a WSDL contract, typical for WCF and enterprise systems. Use REST for public APIs and browsers, gRPC for fast calls between your own services, and SOAP when a partner or legacy system requires it.
+
+</A>
+
+<A short l="m">
+
+The three styles differ in contract and transport: REST's contract is optional (OpenAPI), gRPC requires a `.proto` with generated clients, SOAP uses WSDL and XML schemas. gRPC is faster thanks to Protobuf and HTTP/2 multiplexing and supports streaming in both directions, but a browser cannot call it directly: you need <T k="grpc-web">gRPC-Web</T> or JSON transcoding. SOAP is verbose but gives a strict schema and the WS-* standards, which is why it lives on in banks, government systems and old ERPs.
+
+</A>
+
+<A short l="s">
+
+Choosing a protocol is choosing whom to make life easy for: REST suits external clients and debugging, gRPC suits performance and strictness between your own services, SOAP suits compatibility with what already exists. gRPC costs you human-readable traffic, HTTP/2 requirements on load balancers and proxies, and discipline around `.proto` field numbers. There is no server-side WCF in .NET Core: old services move to <T k="corewcf">CoreWCF</T>, and third-party SOAP services are called with the `System.ServiceModel.*` client packages. For new services Microsoft recommends gRPC over SOAP.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **REST** — a URL identifies a resource, the HTTP method is the action, the body is usually JSON. Details are in [Web API](/sobes/en/aspnet/web-api/).
+- **gRPC** — the client calls a method of a remote service as if it were a local method. The contract lives in a `.proto` file, and server and client classes are generated from it.
+- **SOAP** — request and response are XML envelopes, the contract is described in WSDL. WCF services and many enterprise systems work this way.
+
+**How to use**
+
+- REST — controllers or Minimal APIs, `HttpClient` on the client side.
+- gRPC — the `Grpc.AspNetCore` package, a `.proto` file, `AddGrpc()` and `MapGrpcService<T>()`.
+- SOAP client — dotnet-svcutil generates a proxy from the WSDL.
+
+**Common mistake**
+
+Choosing gRPC for an API called by a browser. Browsers cannot call gRPC directly, so you will need gRPC-Web or a proxy.
+
+**Takeaway:** REST by default and for external clients, gRPC between your own services, SOAP when the other side demands it.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+| Style | Contract and format | Strength |
+|---|---|---|
+| REST | OpenAPI (optional), JSON | understood by everyone, works in browsers |
+| gRPC | `.proto` (required), Protobuf, HTTP/2 | speed, generated clients, streaming |
+| SOAP | WSDL and XSD, XML | strict schema, WS-* standards |
+
+gRPC has four call types: unary (request-response), server streaming, client streaming and bidirectional streaming.
+
+**When to choose what**
+
+| Criterion | gRPC | REST |
+|---|---|---|
+| Browser client | only via gRPC-Web | yes |
+| High-load internal calls | yes | possible, but heavier |
+| Real-time streams | yes | partly: SSE, WebSocket |
+| Public API for partners | rarely | yes |
+
+**Pitfalls**
+
+- **Deadline.** A gRPC call has no deadline by default: without `deadline` it can wait forever.
+- **Field numbers.** In `.proto` a field is identified by its number. Changing a number or reusing a removed one breaks compatibility.
+- **WCF on .NET Core.** The client packages `System.ServiceModel.Http` and `System.ServiceModel.NetTcp` support only a subset of .NET Framework WCF, and part of WS-* is missing.
+
+**Rule of thumb**
+
+External and browser APIs — REST, internal call traffic — gRPC, SOAP — only at the boundary with whoever requires it.
+
+**Takeaway:** pick the protocol by the client: browsers and partners get REST, your services get gRPC, legacy gets SOAP.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- A gRPC call is a separate HTTP/2 stream. Messages are length-prefixed and the call status travels in trailers (`grpc-status`), so a proxy must pass HTTP/2 through end to end.
+- One HTTP/2 connection multiplexes many calls. Behind an L4 load balancer all of a client's calls land on one server — you need an L7 balancer or client-side load balancing.
+- Protobuf encodes a field by number and type. Old clients skip unknown fields, so adding a field is compatible but changing a number is not.
+
+**Cost**
+
+- Binary Protobuf cannot be read in a log or Fiddler without the schema.
+- gRPC-Web in the browser supports only unary calls and server streaming.
+- SOAP is the heaviest: XML envelopes, namespaces, sometimes WS-Security signing every message.
+
+**Trade-offs**
+
+- gRPC JSON transcoding (.NET 7+) also exposes a gRPC service as REST based on annotations in `.proto`: one codebase, two protocols.
+- CoreWCF is a community port of WCF's server side under the .NET Foundation, with Microsoft support. It covers migration but not everything: distributed transactions and part of WS-* are not supported.
+- Clients for third-party SOAP services are generated with dotnet-svcutil; the current `System.ServiceModel.*` packages are 10.x, released alongside .NET 10.
+
+**How to check in production**
+
+- dotnet-counters shows the `Grpc.AspNetCore.Server` and `Grpc.Net.Client` counters: calls, failures and deadline exceeded.
+- In traces gRPC calls carry the `grpc.method` and `grpc.status_code` tags, and for SOAP you inspect fault responses: the error arrives as `<Fault>` in the body.
+
+**Takeaway:** gRPC buys performance and a strict contract at the cost of browsers and readability, REST buys universality, SOAP buys compatibility; CoreWCF is a migration bridge, not a choice for a new service.
+
+</A>
+
+<Ex title="gRPC: contract and service">
+
+```protobuf
+syntax = "proto3";
+option csharp_namespace = "Stock";
+
+service StockService {
+  rpc GetBalance (BalanceRequest) returns (BalanceReply);           // unary
+  rpc WatchBalances (WatchRequest) returns (stream BalanceReply);   // server streaming
+}
+
+message BalanceRequest { string sku = 1; int32 store_id = 2; }
+message BalanceReply   { string sku = 1; int32 quantity = 2; }
+message WatchRequest   { int32 store_id = 1; }
+```
+
+```csharp
+// NuGet: Grpc.AspNetCore
+using Grpc.Core;
+using Stock; // classes are generated from .proto at build time
+
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddGrpc();
+
+var app = builder.Build();
+app.MapGrpcService<StockGrpcService>();
+app.Run();
+
+public class StockGrpcService : StockService.StockServiceBase
+{
+    public override Task<BalanceReply> GetBalance(BalanceRequest request, ServerCallContext context) =>
+        Task.FromResult(new BalanceReply { Sku = request.Sku, Quantity = 42 });
+}
+```
+
+Client fragment — always with a deadline.
+
+```csharp
+// NuGet: Grpc.Net.Client
+using Grpc.Core;
+using Grpc.Net.Client;
+using Stock;
+
+using var channel = GrpcChannel.ForAddress("https://stock.example.com");
+var client = new StockService.StockServiceClient(channel);
+try
+{
+    var reply = await client.GetBalanceAsync(
+        new BalanceRequest { Sku = "SKU-1", StoreId = 17 },
+        deadline: DateTime.UtcNow.AddSeconds(2)); // without a deadline the call waits forever
+    Console.WriteLine(reply.Quantity); // 42
+}
+catch (RpcException ex) when (ex.StatusCode == StatusCode.DeadlineExceeded)
+{
+    Console.WriteLine("Stock service timeout");
+}
+```
+
+</Ex>
+
+<Ex title="SOAP client without a generated proxy">
+
+```csharp
+// NuGet: System.ServiceModel.Http
+using System.ServiceModel;
+
+var binding = new BasicHttpBinding(BasicHttpSecurityMode.Transport);
+var address = new EndpointAddress("https://erp.example.com/InvoiceService.svc");
+var factory = new ChannelFactory<IInvoiceService>(binding, address);
+
+IInvoiceService client = factory.CreateChannel();
+string status = await client.GetStatusAsync("INV-1001"); // an XML envelope goes over HTTPS
+Console.WriteLine(status);
+
+((IClientChannel)client).Close();
+factory.Close();
+
+// The contract mirrors the WSDL; usually dotnet-svcutil generates it
+[ServiceContract]
+public interface IInvoiceService
+{
+    [OperationContract]
+    Task<string> GetStatusAsync(string invoiceNumber);
+}
+```
+
+</Ex>
+
+<Next>
+
+- Why can't a browser call gRPC directly? — Browsers don't expose control over HTTP/2 or access to trailers; you need gRPC-Web or JSON transcoding.
+- What call types does gRPC have? — Unary, server streaming, client streaming and bidirectional streaming.
+- What happens if you change a field number in `.proto`? — Old clients read the field into the wrong place or drop it: it is a breaking change.
+- How do you run an old WCF service on .NET 10? — CoreWCF on the server; clients use the `System.ServiceModel.*` packages and dotnet-svcutil.
+- Why does gRPC behind an L4 load balancer hit a single server? — All calls are multiplexed over one long-lived HTTP/2 connection.
+
+</Next>
+
+<Src>
+
+- [Compare gRPC services with HTTP APIs](https://learn.microsoft.com/aspnet/core/grpc/comparison)
+- [gRPC-Web in ASP.NET Core gRPC apps](https://learn.microsoft.com/aspnet/core/grpc/grpcweb)
+- [CoreWCF](https://github.com/CoreWCF/CoreWCF)
+
+</Src>
+
+</Q>
+
+<Q id="arch.int.resilience" level="m">
+
+## How do you make a call to an external service resilient?
+
+<A short l="j">
+
+An external service will sometimes be slow or return errors, and that is normal, so every call is protected: by a timeout so you don't wait forever, and by retries on <T k="transient-fault">transient faults</T> with a pause between attempts. In .NET you do this through <T k="http-client-factory">`IHttpClientFactory`</T> and the `Microsoft.Extensions.Http.Resilience` package: a single `AddStandardResilienceHandler()` call adds timeouts, retries and a circuit breaker.
+
+</A>
+
+<A short l="m">
+
+Resilience is assembled from strategies: a timeout per attempt and per call, retries with <T k="exponential-backoff">exponential backoff</T> and <T k="retry-jitter">jitter</T>, a <T k="circuit-breaker">circuit breaker</T> that stops calling a failed service, a bulkhead that caps concurrent calls, and a fallback answer. `AddStandardResilienceHandler` builds a Polly v8 pipeline from them with sensible defaults. Only retry what is safe to run twice: by default the standard handler retries POST too, and without <T k="idempotency">idempotency</T> that means duplicates.
+
+</A>
+
+<A short l="s">
+
+Resilience is about managing a time budget and the load on a sick neighbor, not about "more retries". Retries without jitter and an overall timeout cause a <T k="retry-storm">retry storm</T>: three layers with three attempts each turn one user request into 27. A circuit breaker gives the neighbor room to recover and saves your threads, and a bulkhead stops one dependency from eating the whole connection pool. Retry at a single layer and only idempotent operations, and watch strategy events in Polly's metrics and logs.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+A transient fault is an error that goes away on its own: a network blip, a service restart, a 503 response. A resilient call survives such faults and does not hang when the neighbor is down for long.
+
+**How to use**
+
+1. Register the client through `IHttpClientFactory`: `builder.Services.AddHttpClient<ErpClient>(...)`.
+2. Add the `Microsoft.Extensions.Http.Resilience` package and call `.AddStandardResilienceHandler()`.
+3. Pass a `CancellationToken` to every call so that cancelling the request also stops the outgoing call.
+
+**Common mistake**
+
+Retrying a request in a loop with no pause and no limit. If the neighbor is overloaded, such retries finish it off.
+
+**Takeaway:** every external call gets a timeout and bounded retries with pauses, never "whatever happens".
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+`AddStandardResilienceHandler` chains five strategies, from outermost to innermost:
+
+| Strategy | What it does | Defaults |
+|---|---|---|
+| Rate limiter | caps concurrent requests | 1000, no queue |
+| Total timeout | limit for the call including all attempts | 30 s |
+| Retry | retries on 5xx, 408, 429 and network errors | 3 times, exponential from 2 s, jitter |
+| Circuit breaker | opens on a failure ratio | 10% over 100+ requests in 30 s, break 5 s |
+| Attempt timeout | limit for a single attempt | 10 s |
+
+A circuit breaker is a state machine with three states: closed (calls flow), open (calls are rejected immediately), half-open (a probe call decides whether to close).
+
+**When to choose what**
+
+- Any HTTP client — the standard handler, with parameters tuned to the neighbor's SLA.
+- You need a fallback answer such as a cache or a default — a custom pipeline via `AddResilienceHandler` with a fallback strategy.
+- The call does not go through `HttpClient`, for example WCF or SFTP — Polly v8 directly: `ResiliencePipelineBuilder`.
+
+**Pitfalls**
+
+- **Retrying POST.** The standard handler retries all methods. For non-idempotent ones use `options.Retry.DisableForUnsafeHttpMethods()` or an idempotency key.
+- **Several handlers.** Two resilience handlers on one client retry each other. The docs recommend just one.
+- **`HttpClient.Timeout`.** It defaults to 100 s and applies on top of the pipeline; keep it no smaller than the total timeout.
+
+**Rule of thumb**
+
+Always a timeout, retries only for idempotent calls and with jitter, a circuit breaker for every external dependency.
+
+**Takeaway:** the standard handler is a sane baseline; your job is to fit the timeouts to the neighbor and not retry what must not be retried.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- The handler is a `DelegatingHandler` in the `HttpClient` chain with a Polly v8 pipeline inside. The strategy added first is the outermost.
+- Timeouts in Polly v8 are cooperative: they cancel the `CancellationToken`, and the code must honor it. When one fires you get `TimeoutRejectedException`.
+- The Polly v8 circuit breaker tracks a failure ratio over a window (`FailureRatio`, `MinimumThroughput`, `SamplingDuration`). The classic consecutive-failure counter is gone in v8. The Polly v7 bulkhead is replaced by a concurrency limiter (`AddConcurrencyLimiter`, package `Polly.RateLimiting`).
+
+**Cost**
+
+- Every retry is extra load on a neighbor that is already struggling. Retries at several layers multiply.
+- Retries stretch the response: three attempts with 2, 4 and 8 s pauses plus timeouts easily exceed the user's patience. The total timeout caps this.
+- An open circuit breaker is a fast failure you still have to handle: a 503, a fallback, or a message queued for later.
+
+**Trade-offs**
+
+- **Where to retry.** At one layer, usually closest to the call. A service in the middle of a chain propagates the error instead of retrying.
+- **Hedging.** `AddStandardHedgingHandler` sends a parallel copy of a slow request and takes the first answer. It cuts tail latency at the cost of extra load, and only for idempotent operations.
+- **`Retry-After`.** The standard retry honors this header on 429 and 503 responses: the neighbor tells you when to come back.
+
+**How to check in production**
+
+- Polly emits the `resilience.polly.strategy.events` metric and event logs: retries, timeouts, breaker openings.
+- Compare outgoing attempts with logical calls: the ratio shows the retry share. A rising share is the first sign of trouble at the neighbor.
+
+**Takeaway:** resilience is a time budget, bounded retries at one layer and fast failure when the neighbor is sick; without idempotency, retries turn into duplicates.
+
+</A>
+
+<Ex>
+
+```csharp
+// NuGet: Microsoft.Extensions.Http.Resilience
+using Microsoft.Extensions.Http.Resilience;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddHttpClient<ErpClient>(c => c.BaseAddress = new Uri("https://erp.example.com"))
+    .AddStandardResilienceHandler(options =>
+    {
+        options.AttemptTimeout.Timeout = TimeSpan.FromSeconds(5);       // a single attempt
+        options.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(20); // all attempts together
+        options.Retry.MaxRetryAttempts = 3;    // exponential backoff and jitter are on by default
+        options.Retry.DisableForUnsafeHttpMethods(); // POST, PUT, PATCH, DELETE are not retried
+    });
+
+var app = builder.Build();
+
+app.MapGet("/orders/{id}/erp-status", (string id, ErpClient erp, CancellationToken ct) =>
+    erp.GetOrderStatusAsync(id, ct));
+
+app.Run();
+
+public class ErpClient(HttpClient http)
+{
+    public Task<string> GetOrderStatusAsync(string id, CancellationToken ct) =>
+        http.GetStringAsync($"/orders/{id}/status", ct);
+}
+```
+
+</Ex>
+
+<Ex title="Polly v8 for a call that doesn't use HttpClient">
+
+```csharp
+// NuGet: Polly.Core
+using Polly;
+using Polly.CircuitBreaker;
+using Polly.Retry;
+
+var pipeline = new ResiliencePipelineBuilder()
+    .AddTimeout(TimeSpan.FromSeconds(30))            // outer: budget for all attempts
+    .AddRetry(new RetryStrategyOptions
+    {
+        MaxRetryAttempts = 3,
+        BackoffType = DelayBackoffType.Exponential,  // 1 s, 2 s, 4 s
+        UseJitter = true,                            // spread so clients don't retry in unison
+        Delay = TimeSpan.FromSeconds(1)
+    })
+    .AddCircuitBreaker(new CircuitBreakerStrategyOptions
+    {
+        FailureRatio = 0.5, MinimumThroughput = 10,
+        SamplingDuration = TimeSpan.FromSeconds(30), BreakDuration = TimeSpan.FromSeconds(15)
+    })
+    .AddTimeout(TimeSpan.FromSeconds(5))             // inner: a single attempt
+    .Build();
+
+var status = await pipeline.ExecuteAsync(async ct => await GetInvoiceStatusAsync("INV-1001", ct));
+Console.WriteLine(status); // Accepted
+
+static async Task<string> GetInvoiceStatusAsync(string number, CancellationToken ct)
+{
+    await Task.Delay(100, ct); // a SOAP or SFTP call goes here
+    return "Accepted";
+}
+```
+
+</Ex>
+
+<Next>
+
+- Why is retrying without jitter dangerous? — All clients retry at the same moments and hit the recovering service in a synchronized wave.
+- How does an attempt timeout differ from a total timeout? — The first limits one attempt, the second the whole call including retries and pauses.
+- What does a circuit breaker do when half-open? — It lets a probe call through: success closes the circuit, failure opens it again.
+- Can you retry POST? — Only if the operation is idempotent, for example with an idempotency key; otherwise use `DisableForUnsafeHttpMethods`.
+- What replaced the bulkhead in Polly v8? — The `AddConcurrencyLimiter` concurrency limiter from the `Polly.RateLimiting` package.
+
+</Next>
+
+<Src>
+
+- [Build resilient HTTP apps](https://learn.microsoft.com/dotnet/core/resilience/http-resilience)
+- [Polly: resilience strategies](https://www.pollydocs.org/strategies/)
+- [Circuit Breaker pattern](https://learn.microsoft.com/azure/architecture/patterns/circuit-breaker)
+
+</Src>
+
+</Q>
+
+<Q id="arch.int.idempotency" level="m">
+
+## What is idempotency and how do you ensure it in integrations?
+
+<A short l="j">
+
+An operation is idempotent if running it again gives the same result as running it once: "set the price to 49.90" can run twice, "add 10 units to stock" cannot. In integrations, messages and requests get repeated because of failures and retries, so the receiver must recognize a repeat and not apply it a second time.
+
+</A>
+
+<A short l="m">
+
+Repeats are unavoidable: a broker delivers <T k="at-least-once">at least once</T>, and a client retries a request whose response was lost. Idempotency comes in three forms: make the operation naturally idempotent (`SET` instead of `+=`, an <T k="upsert">upsert</T> by <T k="natural-key">business key</T>), apply <T k="message-deduplication">deduplication</T> by message id, or pass an <T k="idempotency-key">idempotency key</T> and store the result of the first run. The "processed" mark is written in the same transaction as the data change, otherwise a crash between them causes a duplicate or a loss.
+
+</A>
+
+<A short l="s">
+
+Idempotency is a property of the whole processing path, not of a method: the key, the check and the effect must be atomic, usually a unique index on the key in the same transaction as the business change. Keys are kept not forever but longer than the sender's retry window: hours for HTTP clients, days for partner exchanges and file reloads. Deduplication does not protect against out-of-order messages, so state changes carry a version and the older one is dropped. External effects that cannot be rolled back — an SMS, a payment, an email — are made idempotent with a key at the provider or a log of what was sent.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+An idempotent operation can be run several times with the same result as running it once.
+
+| Operation | Idempotent? |
+|---|---|
+| Set status to "Shipped" | yes |
+| Delete order 42 | yes |
+| Add 10 to stock | no |
+| Create an order without a key | no: every retry is a new order |
+
+**Why**
+
+The network is unreliable. If a response is lost, the sender doesn't know whether the operation ran, so it repeats it. After a failure a broker also redelivers the message.
+
+**How to use**
+
+The receiver stores the ids of processed messages. If the id is already there, the message is acknowledged and skipped.
+
+**Common mistake**
+
+Assuming repeats "don't happen". They happen on every failure, and a duplicated invoice or stock write-off is found only during reconciliation.
+
+**Takeaway:** a repeat is inevitable, so the receiver must be able to process the same thing twice safely.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+| Approach | How it works | Example |
+|---|---|---|
+| Natural idempotency | the operation sets state instead of changing it | `UPDATE ... SET status = 'Shipped'`, upsert by document number |
+| Deduplication by message id | a table of processed ids with a unique key | a message handler reading from a broker |
+| Idempotency key | the client sends a key, the server stores the first result | POST that creates a payment |
+
+How `Idempotency-Key` works in an HTTP API is covered in [Web API](/sobes/en/aspnet/web-api/).
+
+**When to choose what**
+
+- If the operation can be rewritten as "set", that is the cheapest route — no storage needed.
+- A message handler — deduplicate by message id or by the document's business key.
+- Creating an entity or a payment through an API — an idempotency key and a stored response.
+
+**Pitfalls**
+
+- **Check and write separately.** "Checked the key isn't there, then processed" lets two parallel retries both through. You need an atomic key insert backed by a unique index.
+- **Mark before effect.** If you write "processed" first and then crash, the message is lost. The mark and the effect go in one transaction.
+- **Key without content.** The same key with a different request body is a client bug, not a retry. The server compares a hash of the body and returns an error.
+
+**Rule of thumb**
+
+Design every inbound handler as if every message will arrive twice.
+
+**Takeaway:** idempotency is "set" instead of "change", a unique key for what was processed, and atomicity of key and effect.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- Reliable deduplication is a unique index: `INSERT` the key in the same transaction as the business change. A key conflict means a duplicate: roll back the transaction and acknowledge the message.
+- For an HTTP key you store an "in progress" state and the finished response. A retry during processing gets 409, a retry afterwards gets the stored response.
+- The receiver's processed-messages table is part of the inbox pattern; together with the outbox it is covered in [Queues and Kafka](/sobes/en/arch/messaging/).
+
+**Cost**
+
+- Key storage grows with traffic: you need a retention period (TTL) and regular cleanup.
+- Key retention must exceed the sender's retry window. If a partner can reload a file a week later, a key deleted after a day won't help.
+- A key in the same database as the data is convenient for the transaction but adds load under heavy traffic.
+
+**Trade-offs**
+
+- **Message id or business key.** A message id catches technical retries but not a resend of the same document with a new id. A business key — document number plus sender — catches both.
+- **Ordering.** Deduplication won't save you from an old message arriving after a new one. State changes carry a version, and the receiver applies only a newer one.
+- **External effects.** Sending an SMS or a payment cannot be rolled back with a transaction. Pass a key to the provider if it supports one, or keep a log of what was sent and reconcile it.
+
+**How to check in production**
+
+- Count deduplication hits: a growing share of duplicates points to problems at the sender or the broker.
+- A periodic query looks for duplicates by business key — document number, external id — in the target tables.
+
+**Takeaway:** idempotency rests on an atomic unique key, a sensible retention period for it, and versions to handle out-of-order delivery.
+
+</A>
+
+<Ex>
+
+```csharp
+var handler = new PriceHandler();
+var msg = new PriceChanged("m-1", "SKU-1", 49.90m, Version: 7);
+
+Console.WriteLine(handler.Handle(msg)); // Applied
+Console.WriteLine(handler.Handle(msg)); // Duplicate: the same message arrived again
+Console.WriteLine(handler.Handle(msg with { MessageId = "m-0", Price = 45m, Version = 6 })); // Stale
+
+public record PriceChanged(string MessageId, string Sku, decimal Price, long Version);
+
+public class PriceHandler
+{
+    // In production these are tables with unique keys, updated in one transaction
+    private readonly HashSet<string> _processed = [];
+    private readonly Dictionary<string, (decimal Price, long Version)> _prices = [];
+
+    public string Handle(PriceChanged m)
+    {
+        if (!_processed.Add(m.MessageId)) return "Duplicate";      // deduplication by id
+        if (_prices.TryGetValue(m.Sku, out var current) && current.Version >= m.Version)
+            return "Stale";                                         // an old version arrived after a newer one
+        _prices[m.Sku] = (m.Price, m.Version);                      // "set", not "add"
+        return "Applied";
+    }
+}
+```
+
+</Ex>
+
+<Next>
+
+- Which HTTP methods are idempotent? — GET, HEAD, OPTIONS, TRACE, PUT and DELETE; POST and PATCH are not.
+- Why is the "processed" mark written in the same transaction as the change? — Otherwise a crash between them causes either a duplicate or a lost message.
+- How long do you keep idempotency keys? — Longer than the sender's maximum retry window, then delete by TTL.
+- What if messages arrive out of order? — Carry a version or change timestamp and drop stale ones.
+- How do you make sending an SMS idempotent? — A key on the provider side, or a sent log with a unique key checked before sending.
+
+</Next>
+
+<Src>
+
+- [Idempotency in update message events](https://learn.microsoft.com/dotnet/architecture/microservices/multi-container-microservice-net-applications/subscribe-events)
+- [The Idempotency-Key HTTP Header Field (IETF draft)](https://datatracker.ietf.org/doc/draft-ietf-httpapi-idempotency-key-header/)
+- [Retry pattern](https://learn.microsoft.com/azure/architecture/patterns/retry)
+
+</Src>
+
+</Q>
+
+<Q id="arch.int.legacy-edi" level="s">
+
+## How do you integrate with external and legacy systems (ERP, accounting systems, EDI providers)?
+
+<A short l="j">
+
+Between your system and the external one you put an adapter — a separate layer that knows the external system's format and protocol and translates its data into your model. Exchange with ERPs and partners often runs as scheduled files and batches, and with trading partners through <T k="edi">EDI</T>: standard electronic documents such as an order, a dispatch advice and an invoice.
+
+</A>
+
+<A short l="m">
+
+The external system is isolated by an <T k="anti-corruption-layer">anti-corruption layer</T>: the adapter translates its model, codes and formats into yours, so the domain knows nothing about ERP fields or EDIFACT segments. The transport can be anything — API, SOAP, SFTP, <T k="as2">AS2</T>, file exports — so the raw inbound document is stored before parsing to allow reprocessing after a bug fix. An exchange without acknowledgements is not reliable: you need receipts and <T k="reconciliation">reconciliation</T> of what was sent against what was received.
+
+</A>
+
+<A short l="s">
+
+Integrating with legacy is mainly about managing distrust: the foreign model is isolated in an adapter, every document has a status and a correlation id, inbound data is stored as-is for reprocessing, and reconciliation catches what got lost silently. The architectural choice is point-to-point versus an <T k="esb">integration bus</T>: a bus like BizTalk gives shared adapters, routing and a <T k="canonical-data-model">canonical model</T>, but becomes a bottleneck and the competence center of a single team. BizTalk Server 2020 is the last version and its support ends in April 2030, so new solutions are built on a broker with small adapter services or on cloud platforms such as Azure Logic Apps.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **Legacy and external systems** — ERPs, accounting systems, partners' systems. You cannot change them, and they have their own formats and limits.
+- **EDI** (electronic data interchange) — exchange of standard electronic documents between companies: orders, dispatch advices, invoices. Usually via an EDI provider.
+
+**How to use**
+
+1. Build an adapter — a separate class or service that alone knows the external system's format.
+2. The adapter translates foreign data into your classes and back.
+3. Store every inbound document as-is, before parsing.
+
+**Common mistake**
+
+Dragging the foreign model into your code: `DOC_NO`, `RCV_FLAG` fields and ERP codes spread across the whole system, and replacing the ERP turns into a rewrite.
+
+**Takeaway:** an external system is connected through an adapter, and its formats never leave it.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- **Anti-corruption layer (ACL).** A layer between the domain and the external system that translates models, codes, units of measure and errors. The domain speaks its own language.
+- **Transport.** API or SOAP for online requests; files over SFTP or a shared folder for batches; AS2 — HTTP with signing, encryption and an MDN receipt, the EDI classic.
+- **EDI formats.** UN/EDIFACT messages `ORDERS` (order), `DESADV` (dispatch advice), `RECADV` (receiving advice), `INVOIC` (invoice). Many providers also work with XML formats.
+
+**When to choose what**
+
+| Situation | Approach |
+|---|---|
+| One or two external systems | point-to-point adapter |
+| Many partners with the same documents | an EDI provider and one internal document model |
+| Reference data and large daily volumes | batch file loading via staging |
+
+**Pitfalls**
+
+- **No receipt means no delivery.** A file dropped on SFTP is not processed yet. Wait for confirmation: MDN, `CONTRL`, a response status.
+- **Reloads.** The same file arrives twice — make loading idempotent by document number and sender.
+- **Silent parse errors.** A document that failed to parse must go to an error queue with an alert, not just to a log.
+
+**Rule of thumb**
+
+Store the raw input, translate in the adapter, track state, catch discrepancies with reconciliation.
+
+**Takeaway:** the adapter isolates the foreign model, while receipts, idempotent loading and an error queue make the exchange reliable.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- Every document is a state machine: received, parsed, loaded, acknowledged or failed. Status and correlation id live in an exchange journal.
+- The inbound file is archived before parsing. After a mapping fix the document is reprocessed from the archive without asking the partner to resend it.
+- Reconciliation is a periodic comparison of both sides: counts, totals and document numbers for a period. It catches what receipts missed.
+
+**Cost**
+
+- Point-to-point: n systems connected each to each means up to n(n−1)/2 integrations, each with its own mapping.
+- A bus reduces the links to one adapter per system but adds a central component, its license, a dedicated team and a single point of failure.
+- A canonical model reduces the number of mappings, but changing it affects every participant.
+
+**Trade-offs**
+
+- **ESB vs "smart endpoints and dumb pipes".** BizTalk is a hub with adapters, routing, orchestrations and built-in EDI and AS2 support. The modern approach: the broker only delivers, and translation logic lives in small adapter services.
+- **Own EDI or a provider.** A provider takes over transport, the formats of specific networks and receipts. You pay with a dependency and the provider's format.
+- **Gradual replacement of legacy** is covered in [Architecture styles](/sobes/en/arch/styles/).
+
+**How to check in production**
+
+- Alert on documents without a receipt beyond the SLA and on a growing parse-error queue.
+- Daily reconciliation with a discrepancy report: sent vs received, invoice totals, documents without a response.
+
+**Takeaway:** reliable legacy integration rests on model isolation, a status journal, an archive for reprocessing and reconciliation, and a bus is a trade-off between the number of links and centralization.
+
+</A>
+
+<Ex>
+
+```csharp
+using System.Globalization;
+
+var row = new ErpShipmentRow("0000123456", "20261009", "Y", "4820000000017;12|4820000000024;6");
+var delivery = ErpShipmentTranslator.ToDomain(row);
+
+Console.WriteLine($"{delivery.Number}: {delivery.Lines.Count} lines, received={delivery.IsReceived}");
+// 123456: 2 lines, received=True
+
+// The external system's model — as is, with all its quirks
+public record ErpShipmentRow(string DocNo, string DocDate, string RcvFlag, string Lines);
+
+// Our own model
+public record Delivery(long Number, DateOnly Date, bool IsReceived, IReadOnlyList<DeliveryLine> Lines);
+public record DeliveryLine(string Gtin, int Quantity);
+
+// Anti-corruption layer: translation in one place, the domain knows nothing about ERP formats
+public static class ErpShipmentTranslator
+{
+    public static Delivery ToDomain(ErpShipmentRow row) => new(
+        long.Parse(row.DocNo, CultureInfo.InvariantCulture),
+        DateOnly.ParseExact(row.DocDate, "yyyyMMdd", CultureInfo.InvariantCulture),
+        row.RcvFlag == "Y",
+        row.Lines.Split('|')
+            .Select(line => line.Split(';'))
+            .Select(p => new DeliveryLine(p[0], int.Parse(p[1], CultureInfo.InvariantCulture)))
+            .ToList());
+}
+```
+
+</Ex>
+
+<Ex title="Reconciliation: documents without a receipt">
+
+```sql
+-- Sent documents with no receipt after 4 hours
+SELECT d.doc_number, d.partner_id, d.sent_at
+FROM edi_outbound AS d
+LEFT JOIN edi_ack AS a ON a.doc_id = d.id
+WHERE a.doc_id IS NULL
+  AND d.sent_at < now() - interval '4 hours'
+ORDER BY d.sent_at;
+```
+
+</Ex>
+
+<Next>
+
+- What is an anti-corruption layer and where are its boundaries? — A translation layer between the domain and the external system; foreign models, codes and errors never cross it.
+- How does AS2 differ from SFTP? — AS2 is HTTP with signing, encryption and an MDN receipt; SFTP is file transfer over SSH with no confirmation of processing.
+- How do you find a "lost" document? — By the status journal and correlation id; systematically, by alerting on documents without a receipt and by daily reconciliation.
+- Why keep the raw inbound file? — To reprocess it after a mapping fix and to settle disputes with the partner.
+- When do you need a bus and when is point-to-point enough? — A bus pays off with many systems and shared documents; for two or three links it is overkill.
+
+</Next>
+
+<Src>
+
+- [Anti-corruption Layer pattern](https://learn.microsoft.com/azure/architecture/patterns/anti-corruption-layer)
+- [RFC 4130: AS2](https://www.rfc-editor.org/rfc/rfc4130)
+- [BizTalk Server 2020 lifecycle](https://learn.microsoft.com/lifecycle/products/biztalk-server-2020)
+
+</Src>
+
+</Q>

@@ -1,0 +1,921 @@
+---
+title: Queues and Kafka
+description: Queue vs event log, how Kafka works, delivery guarantees and DLQs, transactional outbox and inbox, sagas and compensation.
+sidebar:
+  order: 2
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+How services exchange messages asynchronously: how a queue differs from an event log, how Kafka works, which delivery guarantees are real, and how not to lose an event between the database and the broker. You can't discuss any service-to-service integration without these concepts, so they come up in almost every backend interview.
+
+**Before this topic:** [Integration styles](/sobes/en/arch/integration/), [Transactions and locking](/sobes/en/db/transactions/).
+
+<Q id="arch.msg.queue-vs-log" level="j">
+
+## How does a message queue (RabbitMQ, Azure Service Bus) differ from an event log (Kafka)?
+
+<A short l="j">
+
+A <T k="message-broker">message broker</T> holds messages until the receiver picks them up: in a queue (RabbitMQ, Azure Service Bus) a message is deleted once processing is acknowledged, while in an <T k="event-log">event log</T> (Kafka) it stays for a configured period. That's why you can re-read old events from a log but not from a queue.
+
+</A>
+
+<A short l="m">
+
+A queue follows the <T k="point-to-point">point-to-point</T> model: the broker hands messages to competing consumers, waits for acknowledgements and deletes what was processed, and fan-out (<T k="pub-sub">pub/sub</T>) is done by copying the message into each subscriber's queue. A log is append-only and deletes nothing on read: each consumer group tracks its own position, so new readers can be added without touching the sender. The price of a log is that parallelism is capped by the number of <T k="topic-partition">partitions</T>, and per-message retries and delayed delivery, which a queue gives you out of the box, have to be built yourself.
+
+</A>
+
+<A short l="s">
+
+The difference is who owns delivery state. A queue tracks every message — who has it, how many times it was delivered, when the lock expires — which makes it a good fit for commands and jobs with competing workers. A log stores only data and a <T k="retention">retention</T> policy, and reader progress is one number per partition; that buys high throughput, replay, and the ability to plug new systems into history. The lines are blurring (RabbitMQ Streams, share groups in Kafka 4.2), but you still choose by model: commands and work go to a queue, facts for many consumers go to a log.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **Message queue** — a mailbox: the receiver takes a message, acknowledges processing, and the broker deletes it.
+- **Event log** — a journal that events are only appended to. Readers move through it at their own pace, and events are kept for a configured period.
+
+**How it shows up**
+
+| Aspect | Queue | Log |
+|---|---|---|
+| After processing | message is deleted | stays until retention expires |
+| Old messages | can't be re-read | readable from any position |
+| New consumer | sees only new ones | can read the history |
+
+**Why a broker at all**
+
+It decouples services: the sender doesn't wait for the receiver, and messages aren't lost while the receiver restarts.
+
+**Common mistake**
+
+Thinking Kafka deletes a message once it's read. It stays in the topic; "read" is just the saved position of a particular reader.
+
+**Takeaway:** a queue hands out and deletes messages; a log keeps events, and readers remember where they stopped.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- **Point-to-point.** Several service instances read one queue and compete: each message goes to one of them. That's how you scale processing.
+- **Pub/sub in a queue.** A RabbitMQ exchange copies the message into every bound queue; a Service Bus topic copies it into every subscription. Each subscriber gets its own copy.
+- **Pub/sub in a log.** There's one record, read by independent consumer groups, each with its own position. Within a group, instances split the partitions — the pieces of a topic.
+
+**When to choose what**
+
+| Task | Choice |
+|---|---|
+| Command for one worker, background job | queue |
+| Delayed retry, priority, per-message TTL | queue |
+| "It happened" fact for many systems, replay | log |
+| High-volume event stream with per-key ordering | log |
+
+**Pitfalls**
+
+- **Kafka as a job queue.** One slow message holds up the whole partition, and a group can't have more active workers than partitions.
+- **A queue as history.** A new consumer can't read past events: they're already gone.
+
+**Rule of thumb**
+
+Commands and jobs go to a queue; fact events for many consumers go to a log.
+
+**Takeaway:** a queue manages delivery of each message; a log keeps an event stream for any number of independent readers.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- A queue keeps state for every message: who has it, how many times it was delivered, when the lock expires. Acknowledged messages are removed, so the queue stays short as long as consumers keep up.
+- A log is a set of segment files the broker writes and reads sequentially. Consumer progress is one number per partition, so the broker spends nothing on tracking individual messages.
+- Data leaves a log through retention, not reads: by time, by size, or by compaction per key.
+
+**Trade-offs**
+
+| Property | Queue | Log |
+|---|---|---|
+| Delivery tracking | per message: retry, delay, priority | per partition: one position |
+| Scaling reads | add workers | no more consumers than partitions |
+| Ordering | lost with competing consumers | guaranteed within a partition |
+| History | none | replay, new consumers |
+
+**The lines are blurring**
+
+- RabbitMQ Streams are a log inside RabbitMQ: messages aren't deleted on read and can be replayed.
+- In Kafka 4.2, share groups (KIP-932, "queues for Kafka") became production-ready: several consumers read the same partition and acknowledge records one by one.
+
+**How to check in production**
+
+- Queue: length and age of the oldest message tell you workers are falling behind.
+- Log: consumer lag — how many records sit between the end of the partition and the group's position.
+
+**Takeaway:** choosing between a queue and a log means choosing who owns delivery: the broker for each message, or the consumer for its position in the stream.
+
+</A>
+
+<Ex>
+
+```csharp
+// NuGet: Confluent.Kafka
+using Confluent.Kafka;
+
+// Two groups read the same topic independently: each gets every event
+using var billing = CreateConsumer("billing");
+using var analytics = CreateConsumer("analytics");
+billing.Subscribe("orders");
+analytics.Subscribe("orders");
+
+// A log can be replayed: jump to the start of partition 0 without involving the sender
+using var replay = CreateConsumer("replay");
+replay.Assign(new TopicPartitionOffset("orders", 0, Offset.Beginning));
+var first = replay.Consume(TimeSpan.FromSeconds(5));
+Console.WriteLine(first?.Message.Value); // the oldest event still retained
+
+static IConsumer<string, string> CreateConsumer(string groupId) =>
+    new ConsumerBuilder<string, string>(new ConsumerConfig
+    {
+        BootstrapServers = "localhost:9092",
+        GroupId = groupId,
+        AutoOffsetReset = AutoOffsetReset.Earliest // a new group starts from the oldest event
+    }).Build();
+```
+
+You can't do this with a queue: a processed message is already deleted, and a new subscription only sees what arrived after it was created.
+
+</Ex>
+
+<Next>
+
+- Can you delete a single message from Kafka after processing it? — No: data is removed only by retention or compaction; "read" is just the group's position.
+- How do you broadcast a message to all subscribers in RabbitMQ? — A fanout or topic exchange with a separate queue per subscriber.
+- Why can't you speed up Kafka consumption just by adding instances? — In a group, one partition is read by one consumer; the extras sit idle (except with share groups in Kafka 4.2+).
+- What would you use for jobs like "generate a report"? — A queue: competing workers, retries and dead-lettering out of the box.
+- What does a session give you in Azure Service Bus? — FIFO ordering and a single receiver for messages with the same `SessionId`.
+
+</Next>
+
+<Src>
+
+- [Apache Kafka: Introduction](https://kafka.apache.org/intro)
+- [Service Bus queues, topics, and subscriptions](https://learn.microsoft.com/azure/service-bus-messaging/service-bus-queues-topics-subscriptions)
+- [RabbitMQ: Consumer Acknowledgements and Publisher Confirms](https://www.rabbitmq.com/docs/confirms)
+
+</Src>
+
+</Q>
+
+<Q id="arch.msg.kafka-basics" level="m">
+
+## How does Kafka work?
+
+<A short l="j">
+
+Kafka stores events in topics split into partitions — separate logs spread across brokers — and records with the same key always land in the same partition. So ordering is guaranteed only per key, for example per order, and service instances in one <T k="consumer-group">consumer group</T> split the partitions among themselves.
+
+</A>
+
+<A short l="m">
+
+A partition is the unit of ordering, parallelism and replication: within a group each partition is read by exactly one consumer, and the group stores its read position — the <T k="consumer-offset">offset</T> — in Kafka. When a member joins or leaves, the group goes through a <T k="rebalance">rebalance</T> and resumes from the last committed offset, so anything processed but not committed is delivered again. Write durability comes from replicas: with `acks=all` the leader acknowledges a write once all <T k="in-sync-replicas">in-sync replicas</T> have it, and `min.insync.replicas` sets how many must exist.
+
+</A>
+
+<A short l="s">
+
+A Kafka broker only stores and replicates append-only segments, while the key, partitioning and offset commits are up to the client — the source of both its speed and its bugs. The key design decisions are the key (ordering vs. skewed load), the partition count (it can't be reduced, and increasing it breaks the key → partition mapping) and `replication.factor=3` with `min.insync.replicas=2`. Since Kafka 4.0 the cluster stores its own metadata via <T k="kraft">KRaft</T>, ZooKeeper is gone, and the new KIP-848 group protocol makes rebalancing incremental, with no group-wide pause.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **Topic** — a named event stream, such as `orders`.
+- **Partition** — a slice of a topic, a separate ordered log. Each record in a partition gets a number — its offset.
+- **Producer** writes records, **consumer** reads them.
+- **Consumer group** — instances of one service sharing a `GroupId`. The topic's partitions are split among them.
+
+**How to use**
+
+1. The producer sends a record with a key, such as the order id.
+2. Kafka picks the partition by hashing the key: events of one order always land in the same partition and stay in order.
+3. The consumer reads its partitions and saves the offset — how far it has processed.
+
+**Common mistake**
+
+Expecting ordering across the whole topic. Order exists only within a partition; records from different partitions are read interleaved.
+
+**Takeaway:** a topic is split into partitions, the key decides the partition and the order, and a group splits partitions among instances.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- **Key.** A keyed record goes to a partition by key hash; a record without a key is spread for balance.
+- **Group.** Each partition in a group is read by one consumer; if there are more consumers than partitions, the extras sit idle.
+- **Rebalance.** Partitions are reassigned when a member joins, leaves, misses `session.timeout.ms`, or doesn't call `Consume` for longer than `max.poll.interval.ms`.
+- **Offset.** The group commits the offset of the next unread record to the internal `__consumer_offsets` topic.
+- **Replicas.** A partition has a leader and followers on other brokers. In-sync replicas (ISR) keep up with the leader.
+- **Retention.** `cleanup.policy=delete` removes old segments by time or size (7 days by default); `compact` keeps the latest record per key — <T k="log-compaction">log compaction</T>.
+
+**When to choose what**
+
+| `acks` setting | What you get |
+|---|---|
+| `0` | maximum speed, losses possible |
+| `1` | leader acknowledges; lost if it dies before replication |
+| `all` with `min.insync.replicas=2` | the write survives a broker failure |
+
+**Pitfalls**
+
+Long processing between `Consume` calls kicks the consumer out of the group: its partitions move to someone else, and uncommitted records are processed again.
+
+**Rule of thumb**
+
+Key by the entity whose ordering matters; provision partitions with headroom for future parallelism.
+
+**Takeaway:** a partition is the unit of ordering and parallelism, the offset is the group's progress, and replicas plus `acks` give write durability.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- On disk a partition is a set of segment files. Writes are appended, reads are sequential and lean on the OS page cache, which is why Kafka handles high throughput on ordinary disks.
+- A replica that lags longer than `replica.lag.time.max.ms` drops out of the ISR. If the ISR is smaller than `min.insync.replicas`, an `acks=all` write fails with `NotEnoughReplicas`.
+- Since Kafka 4.0 metadata lives in a KRaft controller quorum; ZooKeeper mode no longer exists.
+- The KIP-848 group protocol (GA in Kafka 4.0, in librdkafka since 2.12) moves partition assignment to the broker. It's enabled with `group.protocol=consumer`; librdkafka still defaults to `classic`.
+
+**Cost**
+
+- The partition count can't be reduced. Increasing it changes the key → partition mapping: new events for a key go to another partition before the old ones are consumed.
+- A key with a large share of traffic, such as a big store, overloads a single partition.
+- `Confluent.Kafka` (librdkafka) hashes keys with CRC32 by default, while the Java client uses murmur2. Producers in different languages put the same key in different partitions; for compatibility, set `Partitioner.Murmur2Random`.
+
+**How to check in production**
+
+- `kafka-consumer-groups.sh --describe --group billing` shows the group's offset and lag per partition.
+- Frequent rebalances in client logs point to slow processing or unstable instances.
+
+**Takeaway:** Kafka is fast because the broker only stores and replicates the log; the key, partition count and `acks` are application decisions, and mistakes there are expensive to fix.
+
+</A>
+
+<Ex title="Producer: key and ordering">
+
+```csharp
+// NuGet: Confluent.Kafka
+using Confluent.Kafka;
+
+var config = new ProducerConfig
+{
+    BootstrapServers = "localhost:9092",
+    Acks = Acks.All,                        // wait for all in-sync replicas
+    Partitioner = Partitioner.Murmur2Random // same partitions as the Java client
+};
+
+using var producer = new ProducerBuilder<string, string>(config).Build();
+
+foreach (var status in new[] { "Created", "Paid", "Shipped" })
+{
+    // One key, one partition: order 42's events will be read in order
+    var result = await producer.ProduceAsync("orders",
+        new Message<string, string> { Key = "order-42", Value = status });
+    Console.WriteLine($"{status}: partition {result.Partition.Value}, offset {result.Offset.Value}");
+}
+// Created: partition 3, offset 120 — numbers are illustrative; all three share a partition
+// Paid: partition 3, offset 121
+// Shipped: partition 3, offset 122
+```
+
+</Ex>
+
+<Ex title="Consumer: group and rebalance">
+
+```csharp
+// NuGet: Confluent.Kafka
+using Confluent.Kafka;
+
+var config = new ConsumerConfig
+{
+    BootstrapServers = "localhost:9092",
+    GroupId = "billing",                       // instances with the same GroupId split partitions
+    AutoOffsetReset = AutoOffsetReset.Earliest // where to start if the group has no offset yet
+};
+
+using var consumer = new ConsumerBuilder<string, string>(config)
+    .SetPartitionsAssignedHandler((_, parts) => Console.WriteLine($"Assigned: {string.Join(", ", parts)}"))
+    .SetPartitionsRevokedHandler((_, parts) => Console.WriteLine($"Revoked: {string.Join(", ", parts)}"))
+    .Build();
+
+consumer.Subscribe("orders");
+var result = consumer.Consume(TimeSpan.FromSeconds(10)); // Assigned: orders [[0]], orders [[1]]
+if (result is not null)
+    Console.WriteLine($"{result.Message.Key}: {result.Message.Value} at {result.TopicPartitionOffset}");
+
+consumer.Close(); // leave the group now instead of waiting for session.timeout.ms
+```
+
+Start a second instance with the same `GroupId` — the first prints `Revoked` and ends up with half the partitions.
+
+</Ex>
+
+<Next>
+
+- What happens if a group has more consumers than partitions? — The extras get no partitions and sit idle.
+- How do you guarantee ordering for one order's events? — One key (the order id) means one partition; and don't add partitions on the fly.
+- Why is `acks=1` risky? — The leader acknowledges and dies before replicating, and the write is lost.
+- Where is a group's offset stored? — In the internal `__consumer_offsets` topic.
+- What is a compacted topic for? — It keeps the latest record per key: reference data, state; a record with a `null` value deletes the key.
+
+</Next>
+
+<Src>
+
+- [Apache Kafka: Design](https://kafka.apache.org/42/design/design/)
+- [Apache Kafka 4.0 release announcement](https://kafka.apache.org/blog/2025/03/18/apache-kafka-4.0.0-release-announcement/)
+- [Confluent .NET client for Apache Kafka](https://docs.confluent.io/kafka-clients/dotnet/current/overview.html)
+
+</Src>
+
+</Q>
+
+<Q id="arch.msg.delivery-semantics" level="m">
+
+## What delivery guarantees exist, and how do you handle failures?
+
+<A short l="j">
+
+A delivery guarantee says how many times a message gets processed when things fail: <T k="at-most-once">at-most-once</T> — no more than once, but it may be lost; <T k="at-least-once">at-least-once</T> — never lost, but it may arrive again; <T k="exactly-once">exactly-once</T> — exactly one time. In practice you pick at-least-once and make the handler <T k="idempotency">idempotent</T> so a repeat breaks nothing.
+
+</A>
+
+<A short l="m">
+
+The guarantee comes from the order of two consumer actions: acknowledge before processing — at-most-once, after — at-least-once. The <T k="idempotent-producer">idempotent producer</T> and Kafka transactions give exactly-once only inside Kafka; a database write or HTTP call stays at-least-once. Transient failures are retried with a delay, while a poison message that will never succeed goes to a <T k="dead-letter-queue">dead letter queue</T> after a few attempts so it doesn't block the stream.
+
+</A>
+
+<A short l="s">
+
+Exactly-once between a broker and the outside world is impossible without a shared transaction, so production systems build "effectively once": at-least-once plus an idempotent consumer. Queues give you retries and DLQs from the broker (Service Bus `MaxDeliveryCount` 10, RabbitMQ 4.x quorum queues `delivery-limit` 20); in Kafka you build them yourself with retry topics and a DLQ topic. The price of retries is ordering: later events for the same key overtake a delayed message, so for ordered streams you either retry in place and hold the partition, or park all subsequent events for that key.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+| Guarantee | Loss | Duplicates |
+|---|---|---|
+| at-most-once | possible | no |
+| at-least-once | no | possible |
+| exactly-once | no | no |
+
+**Where duplicates come from**
+
+1. The consumer processes a message, say, charges a card.
+2. It crashes before acknowledging to the broker.
+3. After a restart the broker delivers the same message again.
+
+**How to use**
+
+- Acknowledge a message after processing, not before.
+- Make processing idempotent: check whether a message with this id was already handled.
+- If a message keeps failing, move it to a dead letter queue — a separate queue for investigation — after a few attempts.
+
+**Common mistake**
+
+Acknowledging a message as soon as it's received. If processing fails, the message is gone.
+
+**Takeaway:** pick at-least-once with an idempotent handler: a duplicate is harmless, a loss can't be undone.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- **At-most-once.** Acknowledge or commit the offset before processing. A crash mid-processing loses the message.
+- **At-least-once.** Acknowledge after processing. A crash between processing and acknowledging means a redelivery.
+- **Exactly-once in Kafka.** The idempotent producer drops duplicates from resends. Transactions atomically combine writes to output topics with the offset commit, and `read_committed` consumers don't see aborted records. An external database isn't part of the transaction.
+
+**How to handle failures**
+
+1. Transient error (timeout, deadlock) — a few retries with a delay right in the handler.
+2. Still failing — delayed redelivery or a retry topic with growing delay.
+3. Attempts exhausted or the error is permanent (malformed JSON, broken contract) — send to the DLQ with the error reason.
+
+**Pitfalls**
+
+- In `Confluent.Kafka`, `EnableAutoCommit` and `EnableAutoOffsetStore` are on by default: the offset counts as processed as soon as `Consume` returns the message. For at-least-once, set `EnableAutoOffsetStore = false` and call `StoreOffset` after processing.
+- Without a DLQ, a poison message in Kafka stalls the partition: the consumer retries it forever.
+
+**Rule of thumb**
+
+At-least-once, an idempotent handler, a bounded number of retries and a DLQ with an alert.
+
+**Takeaway:** the guarantee is set by when you acknowledge, and for external side effects exactly-once is replaced by idempotency.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- The idempotent producer gets a producer id, and the broker remembers sequence numbers per partition and drops resends. Ordering holds with `max.in.flight.requests.per.connection` up to 5.
+- The Java client enables idempotence by default since Kafka 3.0; librdkafka and `Confluent.Kafka` don't, so set `EnableIdempotence = true` explicitly.
+- A transactional producer with a `TransactionalId` writes records and the group's offsets (`SendOffsetsToTransaction`) atomically. librdkafka reads with `read_committed` by default; the Java client uses `read_uncommitted`.
+
+**Trade-offs**
+
+| Retry | Pro | Con |
+|---|---|---|
+| In place, in the handler | order preserved | partition stalls while retrying |
+| Retry topic and DLQ | stream keeps flowing | per-key order is broken |
+| Parking the key | per-key order preserved | you must track "stuck" keys |
+
+Kafka transactions add commit latency and markers in the log, and external side effects still need deduplication. That's why at-least-once with an idempotent consumer is the more common choice.
+
+**How to check in production**
+
+- DLQ size and age are a metric with an alert: a DLQ nobody drains is still data loss, just deferred.
+- Counters of retries and dropped duplicates show where handlers are struggling.
+
+**Takeaway:** exactly-once exists only inside Kafka; at the boundary with the outside world, reliability is assembled from at-least-once, idempotency, bounded retries and a DLQ.
+
+</A>
+
+<Ex>
+
+```csharp
+// NuGet: Confluent.Kafka
+using System.Text;
+using Confluent.Kafka;
+
+var consumerConfig = new ConsumerConfig
+{
+    BootstrapServers = "localhost:9092",
+    GroupId = "billing",
+    EnableAutoCommit = true,      // commit on a timer...
+    EnableAutoOffsetStore = false // ...but only offsets stored explicitly
+};
+var producerConfig = new ProducerConfig { BootstrapServers = "localhost:9092", EnableIdempotence = true };
+
+using var consumer = new ConsumerBuilder<string, string>(consumerConfig).Build();
+using var dlq = new ProducerBuilder<string, string>(producerConfig).Build();
+consumer.Subscribe("orders");
+
+while (true)
+{
+    var result = consumer.Consume();
+    for (var attempt = 1; ; attempt++)
+    {
+        try { Handle(result.Message); break; }
+        catch (Exception) when (attempt < 3) { await Task.Delay(200 * attempt); } // transient failure
+        catch (Exception ex)
+        {
+            // Poison message: park it in the DLQ with the reason so we don't get stuck
+            await dlq.ProduceAsync("orders.dlq", new Message<string, string>
+            {
+                Key = result.Message.Key,
+                Value = result.Message.Value,
+                Headers = new Headers { { "error", Encoding.UTF8.GetBytes(ex.Message) } }
+            });
+            break;
+        }
+    }
+    consumer.StoreOffset(result); // processed or in the DLQ — only now can the offset be committed
+}
+
+static void Handle(Message<string, string> message) { /* idempotent processing */ }
+```
+
+If the process dies before `StoreOffset`, the message comes back: that's at-least-once, so `Handle` must be idempotent.
+
+</Ex>
+
+<Next>
+
+- Why doesn't Kafka's exactly-once prevent a double charge in the database? — A Kafka transaction doesn't include the external database; you need deduplication on the consumer side.
+- What does `enable.idempotence` do? — The broker drops resends by producer id and sequence number, and ordering is preserved.
+- How is a poison message different from a transient error? — Retrying it will never help: bad data or a broken contract.
+- How do you reprocess messages from a DLQ? — Fix the cause and resend them to the main topic or queue with a tool or script; the handler is idempotent, so it's safe.
+- What happens to ordering if a failed message goes to a retry topic? — Later events for the same key get processed before it.
+
+</Next>
+
+<Src>
+
+- [Apache Kafka: Message Delivery Semantics](https://kafka.apache.org/42/design/design/)
+- [Service Bus dead-letter queues](https://learn.microsoft.com/azure/service-bus-messaging/service-bus-dead-letter-queues)
+- [Idempotent Consumer pattern](https://learn.microsoft.com/azure/architecture/patterns/idempotent-consumer)
+
+</Src>
+
+</Q>
+
+<Q id="arch.msg.outbox" level="s">
+
+## How do you reliably publish an event after a database change?
+
+<A short l="j">
+
+If you save an order to the database and separately send an event to the broker, one of the two can fail — that's the <T k="dual-write">dual write</T> problem. The <T k="transactional-outbox">transactional outbox</T> solves it: the event is saved to an outbox table in the same transaction as the order, and a separate process later reads the table and sends the events to the broker.
+
+</A>
+
+<A short l="m">
+
+Dual write can't be fixed by reordering calls: sending before the commit publishes an event about a change that may roll back, sending after it loses the event if the process crashes. The outbox makes the event part of the local transaction, a background relay publishes it at-least-once, and an <T k="inbox-pattern">inbox</T> on the consumer side filters duplicates by message id. The cost is extra tables, publishing latency and a background process you have to monitor.
+
+</A>
+
+<A short l="s">
+
+The outbox replaces distributed atomicity with local atomicity: everything is atomic in the database, and from there it's at-least-once plus deduplication at the receiver. There are two kinds of relay: polling the table (simple, but it loads the database and adds latency) and <T k="change-data-capture">CDC</T> — tailing the transaction log, for example <T k="debezium">Debezium</T> with the Outbox Event Router (lower latency, but you need Kafka Connect and access to the log). Per-aggregate ordering holds only if the relay publishes sequentially with the aggregate id as the key. MassTransit, NServiceBus and Wolverine ship outbox and inbox implementations; rolling your own is easy, but cleanup, monitoring and a parallel relay are then on you.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+A service saves an order and publishes an `OrderCreated` event. That's two writes to different systems — the database and the broker — with no shared transaction.
+
+**What can go wrong**
+
+- The order is saved, but the process crashes before sending — the event is lost.
+- The event is sent, but the database transaction rolls back — other services learn about an order that doesn't exist.
+
+**How to use the outbox**
+
+1. In the same transaction as the order, insert a row into an `OutboxMessages` table: event type and JSON.
+2. A background process reads unsent rows and publishes them to the broker.
+3. Once the broker confirms, the row is marked as sent.
+
+**Common mistake**
+
+Sending the event inside the database transaction and expecting a rollback to cancel it. The broker isn't part of the transaction.
+
+**Takeaway:** the event is first saved in your own database along with the data, and goes to the broker afterwards.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+1. The business change and the outbox row are one local transaction. In EF Core that's a single `SaveChanges`.
+2. The relay — a `BackgroundService` or a separate process — selects unsent rows in order.
+3. It publishes each one to the broker and waits for the acknowledgement.
+4. It marks the row as sent. A crash between steps 3 and 4 means the row is sent again — that's at-least-once.
+
+**Inbox on the consumer side**
+
+In one transaction, the consumer inserts the message id into an `InboxMessages` table with the id as the primary key and applies its changes. A repeat violates the key: the message was already processed, so it's acknowledged and skipped.
+
+**When to choose what**
+
+| Outbox delivery | When |
+|---|---|
+| Table polling | by default: moderate volume, seconds of latency are fine |
+| CDC (Debezium) | high volume, low latency needed, Kafka Connect already in place |
+
+**Pitfalls**
+
+- Several relay instances without locking publish the same rows. Rows are claimed with `UPDLOCK, READPAST` (SQL Server) or `FOR UPDATE SKIP LOCKED` (PostgreSQL), or you run a single relay instance.
+- The outbox table grows forever unless sent rows are deleted.
+
+**Rule of thumb**
+
+Outbox on the sender side; inbox or an idempotent handler on the receiver side.
+
+**Takeaway:** the outbox removes lost events, the inbox removes duplicates, and together they give you "effectively once".
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- The outbox doesn't eliminate the distributed transaction; it replaces it with a local one plus at-least-once delivery. Between services you get <T k="eventual-consistency">eventual consistency</T>: subscribers learn about the change with a delay.
+- CDC tails the transaction log: the Debezium SQL Server connector relies on built-in CDC, the PostgreSQL one on logical decoding. The Outbox Event Router turns outbox rows into Kafka records keyed by aggregate.
+
+**Trade-offs**
+
+| Relay | Pro | Con |
+|---|---|---|
+| Table polling | just the database and your code | database load, latency up to the polling interval |
+| CDC | commit order, low latency | Kafka Connect and log access |
+
+A parallel relay or a retried row changes event order. If per-aggregate ordering matters, publish sequentially keyed by aggregate, and have the consumer check the aggregate version and drop stale events.
+
+**Off-the-shelf implementations**
+
+- MassTransit: a bus outbox for publishing outside consumers and a consumer outbox with an inbox. Since v9 MassTransit is a commercial product; v8 remains open source.
+- NServiceBus Outbox: deduplicates incoming messages and defers outgoing ones within one transaction; commercial product.
+- Wolverine: durable inbox and outbox on top of EF Core, Marten, SQL Server or PostgreSQL.
+
+**How to check in production**
+
+The age of the oldest unsent outbox row is the key metric: if it grows, the relay is stuck or falling behind.
+
+**Takeaway:** outbox and inbox replace a distributed transaction with local ones; what's left is choosing delivery — polling or CDC — and deciding how to keep ordering.
+
+</A>
+
+<Ex title="EF Core outbox: write and one relay pass">
+
+```csharp
+// NuGet: Microsoft.EntityFrameworkCore.SqlServer, Confluent.Kafka
+using System.Text.Json;
+using Confluent.Kafka;
+using Microsoft.EntityFrameworkCore;
+
+await using var db = new ShopDb();
+
+// 1. Order and event in one transaction: both are saved or neither
+var order = new Order { Id = Guid.NewGuid(), Total = 150m };
+db.Orders.Add(order);
+db.Outbox.Add(new OutboxMessage
+{
+    MessageId = Guid.NewGuid(),
+    AggregateId = order.Id.ToString(),
+    Type = "OrderCreated",
+    Payload = JsonSerializer.Serialize(new { order.Id, order.Total })
+});
+await db.SaveChangesAsync();
+
+// 2. Relay: publish unsent rows in order and mark them as sent
+using var producer = new ProducerBuilder<string, string>(
+    new ProducerConfig { BootstrapServers = "localhost:9092", EnableIdempotence = true }).Build();
+var pending = await db.Outbox.Where(m => m.SentAt == null).OrderBy(m => m.Id).Take(100).ToListAsync();
+foreach (var message in pending)
+{
+    await producer.ProduceAsync("orders", new Message<string, string>
+    {
+        Key = message.AggregateId, // aggregate key keeps one order's events in sequence
+        Value = message.Payload,
+        Headers = new Headers { { "message-id", message.MessageId.ToByteArray() } }
+    });
+    message.SentAt = DateTime.UtcNow;
+    await db.SaveChangesAsync(); // crash before this line and the event is sent again
+}
+
+public class Order { public Guid Id { get; set; } public decimal Total { get; set; } }
+
+public class OutboxMessage
+{
+    public long Id { get; set; }               // identity: defines the order
+    public Guid MessageId { get; set; }        // for deduplication at the consumer
+    public required string AggregateId { get; set; }
+    public required string Type { get; set; }
+    public required string Payload { get; set; }
+    public DateTime? SentAt { get; set; }      // null means not sent yet
+}
+
+public class ShopDb : DbContext
+{
+    public DbSet<Order> Orders => Set<Order>();
+    public DbSet<OutboxMessage> Outbox => Set<OutboxMessage>();
+    protected override void OnConfiguring(DbContextOptionsBuilder options) =>
+        options.UseSqlServer("Server=.;Database=Shop;Trusted_Connection=True;TrustServerCertificate=True");
+}
+```
+
+</Ex>
+
+<Ex title="SQL: inbox and claiming rows with several relays">
+
+```sql
+-- Inbox: the primary key prevents processing a message twice
+CREATE TABLE InboxMessages (
+    MessageId   uniqueidentifier NOT NULL PRIMARY KEY,
+    ProcessedAt datetime2        NOT NULL DEFAULT SYSUTCDATETIME()
+);
+
+BEGIN TRAN;
+INSERT INTO InboxMessages (MessageId) VALUES (@MessageId); -- duplicate: error 2627, roll back and ack
+UPDATE Accounts SET Balance = Balance - @Amount WHERE Id = @AccountId;
+COMMIT;
+
+-- Relay with several instances (inside a transaction): each claims its own rows and skips locked ones
+SELECT TOP (100) Id, MessageId, AggregateId, Payload
+FROM OutboxMessages WITH (UPDLOCK, READPAST, ROWLOCK)
+WHERE SentAt IS NULL
+ORDER BY Id;
+```
+
+`READPAST` lets relays run in parallel, but ordering across instances is no longer guaranteed.
+
+</Ex>
+
+<Next>
+
+- Why not just send the event right after `SaveChanges`? — The process can crash between the commit and the send, and the event is lost.
+- Does the outbox give exactly-once or at-least-once? — At-least-once: the relay may publish a row twice; the inbox removes duplicates.
+- Why is CDC better than table polling? — Lower latency and database load, commit order; the cost is Kafka Connect and log access.
+- How do you keep the order of one aggregate's events? — A sequential relay, the aggregate id as the Kafka key, and a version check at the consumer.
+- When do you clean up the outbox and inbox? — Outbox after sending; inbox after a period longer than the possible redelivery window.
+
+</Next>
+
+<Src>
+
+- [Pattern: Transactional outbox](https://microservices.io/patterns/data/transactional-outbox.html)
+- [Transactional Outbox pattern with Azure Cosmos DB](https://learn.microsoft.com/azure/architecture/databases/guide/transactional-outbox-cosmos)
+- [Debezium: Outbox Event Router](https://debezium.io/documentation/reference/stable/transformations/outbox-event-router.html)
+
+</Src>
+
+</Q>
+
+<Q id="arch.msg.saga" level="s">
+
+## How do you run a business operation across several services without a distributed transaction?
+
+<A short l="j">
+
+A <T k="saga">saga</T> runs an operation across several services as a chain of local transactions: each service does its step in its own database and reports the result. If a step fails, the completed steps are undone with <T k="compensating-transaction">compensating actions</T>, such as a refund instead of a rollback.
+
+</A>
+
+<A short l="m">
+
+A saga replaces one distributed transaction with a sequence of local ones, each with its own compensation. There are two ways to coordinate it: <T k="choreography">choreography</T>, where services react to each other's events with no central controller, and <T k="orchestration">orchestration</T>, where an orchestrator stores the saga state and sends commands. The cost is no isolation: other operations see intermediate states, and compensations and timeouts have to be designed as ordinary business logic.
+
+</A>
+
+<A short l="s">
+
+A saga gives you eventual atomicity without isolation, so you design it as a business process: compensable steps up to the <T k="pivot-transaction">pivot</T>, and only retryable, idempotent steps after it. <T k="two-phase-commit">Two-phase commit</T> and MSDTC are avoided because the coordinator holds locks in every participant, its failure leaves them in doubt, and brokers and HTTP services don't take part in it anyway. Orchestration suits long processes with branching and timeouts; choreography suits two or three steps.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+Placing an order touches three services: orders, payments and inventory. Each has its own database, and there's no shared transaction. A saga splits the operation into steps, and each step is a local transaction in one service.
+
+**How it works**
+
+1. The order service creates the order with status `Pending`.
+2. The payment service charges the customer.
+3. The inventory service reserves the items.
+4. The order service moves the order to `Confirmed`.
+
+**What if a step fails**
+
+Out of stock — step 3 fails. Compensations then run in reverse order: payments issues a refund, and the order gets status `Cancelled`.
+
+**Common mistake**
+
+Treating compensation as a rollback that "erases" a step. The charge did happen and the customer may have received an SMS — compensation is a new business action with its own consequences.
+
+**Takeaway:** a saga is a chain of local transactions where compensating actions replace rollback.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+| Aspect | Choreography | Orchestration |
+|---|---|---|
+| Who drives the process | nobody: services react to events | the orchestrator sends commands |
+| Where state is visible | scattered across services | in one saga record |
+| Fits | 2–3 steps, simple flow | many steps, branching, timeouts |
+
+**An order with an orchestrator**
+
+1. The orchestrator creates a saga record in state `AwaitingPayment` and sends a `ChargePayment` command.
+2. On `PaymentCompleted`, it moves to `AwaitingStock` and sends `ReserveStock`.
+3. On `StockReserved`, it confirms the order — the saga is done.
+4. On `StockUnavailable`, it sends the `RefundPayment` compensation and cancels the order once the refund is done.
+5. No reply within the timeout — it retries the command or starts compensating.
+
+**Pitfalls**
+
+- Messages arrive at-least-once: steps and compensations must be idempotent.
+- A compensation can fail too — it's retried until it succeeds.
+- The saga state change and the outgoing command are tied together via an outbox; otherwise the saga gets stuck between steps.
+
+**Rule of thumb**
+
+Every step before the pivot has a compensation; every wait has a timeout.
+
+**Takeaway:** choreography is simpler for short chains, orchestration is easier to manage for long ones; either way, steps are idempotent and compensations are retryable.
+
+</A>
+
+<A l="s">
+
+**Why not 2PC**
+
+- Two-phase commit holds locks in every participant until the coordinator announces the outcome. If the coordinator dies between phases, resources stay locked in doubt.
+- Kafka, RabbitMQ and HTTP APIs don't participate in MSDTC, and distributed transactions in .NET 7+ work only on Windows.
+- Every participant becomes required for the commit, which drags down availability.
+
+**Under the hood**
+
+- Saga state is a record in the orchestrator's database: id, current step, data, deadline. It's updated with optimistic concurrency because events for one saga can arrive in parallel.
+- Timeouts are scheduled messages or polling for records past their deadline.
+- Steps are compensable, the pivot, or retryable after it. Irreversible actions, such as shipping, come after all checks.
+
+**Trade-offs**
+
+There's no isolation: another request can see a charged payment on an order that isn't confirmed yet. The Azure Architecture Center lists countermeasures: a semantic lock (a `Pending` status that other operations respect), commutative updates, and rereading a value before changing it.
+
+**How to check in production**
+
+- Sagas stuck in one state longer than the SLA are the key metric and alert.
+- A saga correlation id in logs and traces links the steps across services.
+
+**Takeaway:** a saga trades the isolation of a distributed transaction for availability, and requires compensations, timeouts and visible intermediate states to be designed as part of the business process.
+
+</A>
+
+<Ex title="Saga orchestrator as a state machine">
+
+```csharp
+var saga = new OrderSaga(Guid.NewGuid());
+Print(saga.Start());                        // ChargePayment
+Print(saga.Handle(new PaymentCompleted())); // ReserveStock
+Print(saga.Handle(new StockUnavailable())); // RefundPayment — compensation
+Print(saga.Handle(new StockUnavailable())); // (empty) — duplicate ignored
+Print(saga.Handle(new PaymentRefunded()));  // CancelOrder
+Console.WriteLine(saga.State);              // Cancelled
+
+static void Print(object[] commands) =>
+    Console.WriteLine(string.Join(", ", commands.Select(c => c.GetType().Name)));
+
+public enum SagaState { New, AwaitingPayment, AwaitingStock, Compensating, Completed, Cancelled }
+
+public record PaymentCompleted; public record PaymentFailed; public record PaymentRefunded;
+public record StockReserved; public record StockUnavailable;
+public record ChargePayment(Guid OrderId); public record RefundPayment(Guid OrderId);
+public record ReserveStock(Guid OrderId); public record ConfirmOrder(Guid OrderId);
+public record CancelOrder(Guid OrderId);
+
+public class OrderSaga(Guid orderId)
+{
+    public SagaState State { get; private set; } = SagaState.New;
+
+    public object[] Start() => Go(SagaState.AwaitingPayment, new ChargePayment(orderId));
+
+    // (current state, event) → new state and commands for participants
+    public object[] Handle(object @event) => (State, @event) switch
+    {
+        (SagaState.AwaitingPayment, PaymentCompleted) => Go(SagaState.AwaitingStock, new ReserveStock(orderId)),
+        (SagaState.AwaitingPayment, PaymentFailed) => Go(SagaState.Cancelled, new CancelOrder(orderId)),
+        (SagaState.AwaitingStock, StockReserved) => Go(SagaState.Completed, new ConfirmOrder(orderId)),
+        (SagaState.AwaitingStock, StockUnavailable) => Go(SagaState.Compensating, new RefundPayment(orderId)),
+        (SagaState.Compensating, PaymentRefunded) => Go(SagaState.Cancelled, new CancelOrder(orderId)),
+        _ => [] // duplicate or stale event: do nothing
+    };
+
+    private object[] Go(SagaState next, params object[] commands) { State = next; return commands; }
+}
+```
+
+In a real system the `State` and saga data live in a database, commands go out through an outbox, and timeouts arrive as delayed messages.
+
+</Ex>
+
+<Next>
+
+- How does compensation differ from rollback? — A rollback erases uncommitted work; a compensation is a new action on top of committed work, and it's visible.
+- What if a compensation fails? — Retry it (it's idempotent); once retries run out, alert and handle it manually.
+- When does choreography become a problem? — With many steps: nobody sees the whole process, and cyclic dependencies between services appear.
+- What is the pivot transaction? — The step after which there are no compensations; the remaining steps are retried until they succeed.
+- Are there ready-made implementations in .NET? — State-machine sagas in MassTransit and NServiceBus, and Durable Functions; they persist the state for you.
+
+</Next>
+
+<Src>
+
+- [Saga design pattern](https://learn.microsoft.com/azure/architecture/patterns/saga)
+- [Compensating Transaction pattern](https://learn.microsoft.com/azure/architecture/patterns/compensating-transaction)
+- [Pattern: Saga](https://microservices.io/patterns/data/saga.html)
+
+</Src>
+
+</Q>

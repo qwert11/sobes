@@ -225,10 +225,11 @@ sticky-session:
 pub-sub:
   term: Pub/sub (publish-subscribe)
   def: >-
-    A messaging scheme: a sender publishes a message to a channel, and every current subscriber of
-    the channel receives it. Messages aren't stored: whoever isn't subscribed right now won't get
-    them.
-  q: Redis pub/sub
+    A messaging scheme: a sender publishes a message to a topic or channel without knowing the
+    receivers, and every subscriber gets it. Whether messages are stored depends on the system:
+    Redis pub/sub delivers only to current subscribers, while Kafka and Service Bus subscriptions keep
+    them until they are read.
+  q: publish subscribe pattern
   wiki: Publish–subscribe pattern
 stateful-reconnect:
   term: Stateful reconnect

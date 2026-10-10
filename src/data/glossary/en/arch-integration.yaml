@@ -1,0 +1,177 @@
+message-broker:
+  term: Message broker
+  def: >-
+    An intermediary server that accepts messages from senders, stores them and delivers them to
+    receivers. The sender does not need the receiver to be available at send time. Examples are
+    RabbitMQ, Apache Kafka and Azure Service Bus.
+  q: message broker
+  wiki: Message broker
+temporal-coupling:
+  term: Temporal coupling
+  def: >-
+    A dependency where systems must be running at the same time for an interaction to succeed. A
+    synchronous call couples in time; exchange through a queue or files does not.
+  q: temporal coupling integration
+file-transfer-integration:
+  term: File transfer
+  def: >-
+    An integration style where one system exports data to a file and another picks it up and loads
+    it — via a shared folder, SFTP or AS2. Simple and good for large batches, but the data is stale
+    until the next export.
+  q: file transfer integration pattern
+  docs: https://www.enterpriseintegrationpatterns.com/patterns/messaging/FileTransferIntegration.html
+shared-database:
+  term: Shared database
+  def: >-
+    An integration style where several systems read and write the same tables. The data is always
+    fresh, but the schema becomes a shared contract that cannot change without every participant.
+  q: shared database integration pattern
+  docs: https://www.enterpriseintegrationpatterns.com/patterns/messaging/SharedDataBaseIntegration.html
+async-request-reply:
+  term: Asynchronous request-reply
+  def: >-
+    A pattern for long-running operations over HTTP: the server immediately returns 202 Accepted with
+    a status URL, and the client polls it or gets notified when the result is ready.
+  q: asynchronous request-reply pattern
+  docs: https://learn.microsoft.com/azure/architecture/patterns/async-request-reply
+grpc:
+  term: gRPC
+  def: >-
+    A remote procedure call framework over HTTP/2. The contract is described in a `.proto` file,
+    server and client code is generated from it, and messages are encoded with Protobuf. Supports
+    streaming in both directions and deadlines.
+  q: gRPC ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/grpc/
+protobuf:
+  term: Protocol Buffers (Protobuf)
+  def: >-
+    Google's binary serialization format: the schema is described in `.proto`, and every field is
+    encoded by its number and type. Messages are more compact than JSON but unreadable without the
+    schema.
+  q: Protocol Buffers proto3
+  docs: https://protobuf.dev/
+soap:
+  term: SOAP
+  def: >-
+    A protocol for exchanging XML messages (envelopes) with a WSDL contract. Used by WCF and
+    enterprise systems; the WS-* standards add security, reliable delivery and transactions.
+  q: SOAP web service
+  wiki: SOAP
+grpc-web:
+  term: gRPC-Web
+  def: >-
+    A variant of the gRPC protocol that works from browsers over HTTP/1.1 and HTTP/2. Supports only
+    unary calls and server streaming; in ASP.NET Core it is enabled with the `Grpc.AspNetCore.Web`
+    package.
+  q: gRPC-Web ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/grpc/grpcweb
+corewcf:
+  term: CoreWCF
+  def: >-
+    A port of WCF's server side to modern .NET, a .NET Foundation project with Microsoft support. It
+    is meant for migrating existing SOAP services; for new ones Microsoft recommends gRPC.
+  q: CoreWCF
+  docs: https://github.com/CoreWCF/CoreWCF
+transient-fault:
+  term: Transient fault
+  def: >-
+    An error that goes away by itself shortly: a network blip, a service restart, a 503 or 429
+    response. Such errors are worth retrying after a pause.
+  q: transient fault handling
+  docs: https://learn.microsoft.com/azure/architecture/best-practices/transient-faults
+http-client-factory:
+  term: IHttpClientFactory
+  def: >-
+    The `HttpClient` factory in .NET: it reuses connection handlers, manages their lifetime and lets
+    you configure named and typed clients with a handler chain, for example resilience.
+  q: IHttpClientFactory .NET
+  docs: https://learn.microsoft.com/dotnet/core/extensions/httpclient-factory
+exponential-backoff:
+  term: Exponential backoff
+  def: >-
+    A pause between retries that multiplies with each attempt: 1, 2, 4, 8 seconds. It gives an
+    overloaded service time to recover.
+  q: exponential backoff retry
+  wiki: Exponential backoff
+retry-jitter:
+  term: Jitter
+  def: >-
+    A random addition to the pause between retries. Without it, clients that failed together also
+    retry together and hit the recovering service in a synchronized wave.
+  q: retry backoff jitter
+circuit-breaker:
+  term: Circuit breaker
+  def: >-
+    A strategy that stops calling a dependency after a failure ratio is reached and rejects calls
+    immediately, then lets a probe through after a pause. Three states — closed, open, half-open.
+  q: circuit breaker pattern
+  docs: https://learn.microsoft.com/azure/architecture/patterns/circuit-breaker
+bulkhead:
+  term: Bulkhead
+  def: >-
+    Isolating resources per dependency: capping concurrent calls to one dependency so that if it
+    hangs it cannot take all threads and connections. In Polly v8 this is a concurrency limiter.
+  q: bulkhead pattern
+  docs: https://learn.microsoft.com/azure/architecture/patterns/bulkhead
+retry-storm:
+  term: Retry storm
+  def: >-
+    An avalanche of requests when retries at several layers multiply or all clients retry at once.
+    It finishes off an already overloaded service.
+  q: retry storm
+idempotency-key:
+  term: Idempotency key
+  def: >-
+    A unique key the client sends with a request, usually in the `Idempotency-Key` header. The
+    server stores the result of the first run and returns it for a retry with the same key without
+    running the operation again.
+  q: Idempotency-Key header
+  docs: https://datatracker.ietf.org/doc/draft-ietf-httpapi-idempotency-key-header/
+message-deduplication:
+  term: Message deduplication
+  def: >-
+    Dropping redelivered messages by their id or business key. Usually a table of processed ids with
+    a unique key, filled in the same transaction as the data change.
+  q: idempotent consumer message deduplication
+edi:
+  term: EDI (electronic data interchange)
+  def: >-
+    Electronic exchange of standard business documents between companies — orders, dispatch advices,
+    invoices — in a machine-readable format, usually through an EDI provider.
+  q: EDI electronic data interchange
+  wiki: Electronic data interchange
+anti-corruption-layer:
+  term: Anti-corruption layer
+  def: >-
+    A translation layer between your model and an external or legacy system. It converts foreign
+    models, codes and errors so they don't spread through your code.
+  q: anti-corruption layer pattern
+  docs: https://learn.microsoft.com/azure/architecture/patterns/anti-corruption-layer
+as2:
+  term: AS2 (Applicability Statement 2)
+  def: >-
+    A protocol for sending EDI documents over HTTP with S/MIME signing and encryption and a signed
+    delivery receipt (MDN). Defined in RFC 4130.
+  q: AS2 protocol EDI
+  docs: https://www.rfc-editor.org/rfc/rfc4130
+reconciliation:
+  term: Reconciliation
+  def: >-
+    A periodic comparison of data in two systems: counts, totals and document numbers for a period.
+    It finds what was lost or duplicated despite receipts and retries.
+  q: data reconciliation integration
+esb:
+  term: Enterprise service bus (ESB)
+  def: >-
+    A central integration platform with adapters, routing and message transformation between
+    systems, for example BizTalk Server. It reduces point-to-point links but becomes a central
+    dependency.
+  q: enterprise service bus
+  wiki: Enterprise service bus
+canonical-data-model:
+  term: Canonical data model
+  def: >-
+    A shared message format that every system translates its data into. Instead of a mapping for
+    every pair of systems, you need one mapping per system.
+  q: canonical data model integration pattern
+  docs: https://www.enterpriseintegrationpatterns.com/patterns/messaging/CanonicalDataModel.html

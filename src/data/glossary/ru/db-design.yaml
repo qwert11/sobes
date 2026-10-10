@@ -83,10 +83,10 @@ change-tracking:
 change-data-capture:
   term: Change data capture (CDC)
   def: >-
-    Механизм SQL Server, который асинхронно читает журнал транзакций и складывает изменения со
-    значениями до и после в таблицы изменений. Нужны SQL Server Agent и редакция Standard или
-    Enterprise.
-  q: SQL Server change data capture
+    Захват изменений из журнала транзакций базы и передача их потребителям как поток событий
+    «до и после». В SQL Server это встроенный механизм с таблицами изменений (нужен SQL Server Agent),
+    в PostgreSQL — логическое декодирование; Debezium превращает такой поток в события Kafka.
+  q: change data capture
   docs: https://learn.microsoft.com/sql/relational-databases/track-changes/about-change-data-capture-sql-server
 staging-table:
   term: Staging-таблица (промежуточная таблица)

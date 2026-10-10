@@ -1,0 +1,161 @@
+non-functional-requirements:
+  term: Нефункциональные требования
+  def: >-
+    Требования не к тому, что система делает, а к тому, как: нагрузка, задержка, доступность,
+    согласованность, безопасность, срок хранения данных. Именно они определяют архитектуру.
+  q: non-functional requirements system design
+
+back-of-envelope:
+  term: Оценка на салфетке (back-of-the-envelope)
+  def: >-
+    Быстрый расчёт порядка величин по допущениям: запросы в секунду, объём данных, трафик,
+    память под кеш. Нужна точность до порядка, а не до процента.
+  q: back of the envelope estimation system design
+
+rps:
+  term: RPS (requests per second)
+  def: >-
+    Число запросов в секунду — основная мера нагрузки на сервис. Считают среднее и пик: пик
+    обычно в несколько раз выше среднего.
+  q: requests per second RPS throughput
+
+slo:
+  term: SLO (service level objective)
+  def: >-
+    Целевое значение показателя качества сервиса, например «99,9% запросов успешны» или «p99
+    меньше 300 мс». SLA — договорное обязательство перед клиентом, обычно мягче внутреннего SLO.
+  q: service level objective SLO SLI SLA
+  docs: https://learn.microsoft.com/azure/well-architected/reliability/metrics
+
+horizontal-scaling:
+  term: Горизонтальное масштабирование (scale out)
+  def: >-
+    Рост пропускной способности добавлением экземпляров сервиса, а не усилением одного сервера
+    (вертикальное, scale up). Требует, чтобы экземпляры не хранили состояние у себя.
+  q: horizontal vs vertical scaling
+  docs: https://learn.microsoft.com/azure/architecture/best-practices/auto-scaling
+
+load-balancer:
+  term: Балансировщик нагрузки (load balancer)
+  def: >-
+    Компонент, который распределяет входящий трафик между экземплярами сервиса и исключает
+    неисправные. L4 работает с TCP/UDP-соединениями, L7 — с HTTP-запросами.
+  q: load balancer layer 4 vs layer 7
+  docs: https://learn.microsoft.com/azure/architecture/guide/technology-choices/load-balancing-overview
+
+stateless-service:
+  term: Stateless-сервис
+  def: >-
+    Сервис, который не хранит состояние между запросами в своей памяти: сессии, корзины и файлы
+    лежат во внешнем хранилище. Любой экземпляр может обработать любой запрос.
+  q: stateless service horizontal scaling
+
+cdn:
+  term: CDN (content delivery network)
+  def: >-
+    Сеть серверов в точках присутствия по всему миру, которая кеширует и отдаёт статику и
+    кешируемые ответы рядом с пользователем. Снимает нагрузку с источника и сокращает задержку.
+  q: content delivery network CDN
+  docs: https://learn.microsoft.com/azure/cdn/cdn-overview
+
+queue-based-load-leveling:
+  term: Сглаживание нагрузки очередью (queue-based load leveling)
+  def: >-
+    Паттерн, при котором запросы кладут в очередь, а обработчики разбирают её с постоянной
+    скоростью. Пик превращается в рост очереди и задержку, а не в перегрузку сервиса.
+  q: queue-based load leveling pattern
+  docs: https://learn.microsoft.com/azure/architecture/patterns/queue-based-load-leveling
+
+cap-theorem:
+  term: Теорема CAP
+  def: >-
+    Утверждение Brewer, доказанное Gilbert и Lynch в 2002 году: при сетевом разделении
+    распределённая система не может одновременно сохранить линеаризуемость (C) и ответ каждого
+    работающего узла (A).
+  q: CAP theorem Gilbert Lynch
+  wiki: Теорема CAP
+
+linearizability:
+  term: Линеаризуемость (linearizability)
+  def: >-
+    Самая сильная гарантия согласованности одного объекта: система ведёт себя как одна копия, и
+    завершённую запись видят все последующие чтения. Именно это C в теореме CAP.
+  q: linearizability consistency model
+  wiki: Линеаризуемость
+
+pacelc:
+  term: PACELC
+  def: >-
+    Расширение CAP от Daniel Abadi (2010–2012): при разделении (P) система выбирает между
+    доступностью (A) и согласованностью (C), иначе (E) — между задержкой (L) и согласованностью (C).
+  q: PACELC theorem Abadi
+  docs: https://www.cs.umd.edu/~abadi/papers/abadi-pacelc.pdf
+
+quorum:
+  term: Кворум (quorum)
+  def: >-
+    Минимальное число реплик, которое должно подтвердить запись (W) или ответить на чтение (R).
+    При W + R больше числа реплик N чтение пересекается хотя бы с одной свежей репликой.
+  q: quorum reads writes W R N replication
+
+read-your-writes:
+  term: Read-your-writes
+  def: >-
+    Сессионная гарантия: пользователь всегда видит собственные записи, даже если другие клиенты
+    пока читают старую версию с отстающей реплики.
+  q: read your writes consistency guarantee
+
+backends-for-frontends:
+  term: Backends for Frontends (BFF)
+  def: >-
+    Паттерн Сэма Ньюмена: отдельный бэкенд под каждый тип клиента — веб, мобильное приложение —
+    который агрегирует вызовы сервисов и форматирует ответы под этот клиент. Им владеет команда
+    клиента.
+  q: backends for frontends pattern
+  docs: https://learn.microsoft.com/azure/architecture/patterns/backends-for-frontends
+
+single-point-of-failure:
+  term: Единая точка отказа (single point of failure)
+  def: >-
+    Компонент, отказ которого останавливает всю систему: единственный экземпляр шлюза, базы или
+    балансировщика. Устраняется резервированием в разных зонах отказа.
+  q: single point of failure
+  wiki: Единая точка отказа
+
+service-mesh:
+  term: Service mesh
+  def: >-
+    Инфраструктурный слой для вызовов между сервисами: прокси рядом с каждым сервисом (sidecar)
+    добавляет mTLS, повторы, балансировку и телеметрию без изменения кода. Примеры — Istio, Linkerd.
+  q: service mesh Istio Linkerd
+  docs: https://learn.microsoft.com/azure/aks/istio-about
+
+delivery-receipt:
+  term: Отчёт о доставке (delivery receipt, DLR)
+  def: >-
+    Асинхронное уведомление от SMS-центра о финальном статусе сообщения: доставлено, истёк срок,
+    не доставлено. В SMPP приходит операцией deliver_sm; формат текста зависит от SMSC.
+  q: SMPP delivery receipt deliver_sm DLR
+
+smpp:
+  term: SMPP (Short Message Peer-to-Peer)
+  def: >-
+    Протокол поверх TCP для обмена SMS между приложением (ESME) и SMS-центром оператора или
+    агрегатора. Сообщения отправляют операцией submit_sm, статусы получают через deliver_sm.
+  q: SMPP protocol 3.4
+  docs: https://smpp.org/SMPP_v3_4_Issue1_2.pdf
+
+token-bucket:
+  term: Token bucket (корзина токенов)
+  def: >-
+    Алгоритм ограничения скорости: корзина пополняется токенами с постоянной скоростью, каждая
+    операция забирает токен. Допускает короткие всплески до размера корзины, а в среднем держит
+    заданную скорость.
+  q: token bucket rate limiting algorithm
+
+failover:
+  term: Failover (переключение на резерв)
+  def: >-
+    Автоматический перевод нагрузки с отказавшего компонента или провайдера на резервный. Решение
+    обычно принимают по доле ошибок, таймаутам или проверкам здоровья.
+  q: failover high availability
