@@ -54,6 +54,11 @@ export default defineConfig({
           items: [{ autogenerate: { directory: 'arch' } }],
         },
         {
+          label: 'Качество и поставка',
+          translations: { uk: 'Якість і постачання', en: 'Quality and delivery' },
+          items: [{ autogenerate: { directory: 'quality' } }],
+        },
+        {
           label: 'Глоссарий',
           translations: { uk: 'Глосарій', en: 'Glossary' },
           slug: 'glossary',

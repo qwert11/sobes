@@ -1,0 +1,731 @@
+---
+title: Docker and containers
+description: Images and containers, building .NET images, docker compose and Aspire, running .NET on Kubernetes — probes, limits and shutdown.
+sidebar:
+  order: 3
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+How to package a .NET app into a container and run it next to its dependencies and in a cluster: how a container differs from a virtual machine, how to build a small and secure image, how to bring up a local stack with docker compose and what Kubernetes expects from the app. Interviewers check this with questions about layers, ports, probes and limits.
+
+**Before this topic:** [Hosting and the pipeline](/sobes/en/aspnet/hosting/).
+
+<Q id="quality.docker.basics" level="j">
+
+## What is a container and how does it differ from a virtual machine?
+
+<A short l="j">
+
+An <T k="container-image">image</T> is a packaged app with all its dependencies, and a container is an isolated process started from an image. Unlike a virtual machine, a container has no OS of its own: it uses the host kernel, so it starts in seconds and weighs tens of megabytes, not gigabytes.
+
+</A>
+
+<A short l="m">
+
+A container is an ordinary Linux process whose view is restricted by kernel <T k="linux-namespaces">namespaces</T> and whose resources are capped by <T k="cgroups">cgroups</T>, with a file system assembled from read-only image <T k="image-layer">layers</T> plus a thin writable layer. Images are built from a Dockerfile and stored in a <T k="container-registry">registry</T>, so the same artifact goes to test and to production. The cost: isolation is weaker than a VM's, and anything written into the container rather than a <T k="docker-volume">volume</T> is lost when it is recreated.
+
+</A>
+
+<A short l="s">
+
+The isolation boundary is the shared kernel: a VM virtualizes hardware and boots its own kernel, while a container is a host process with its own namespaces, cgroup limits, reduced capabilities and a seccomp filter. That gives density and sub-second startup but weaker protection: a kernel vulnerability or an over-privileged container opens a path to the host, so untrusted code is isolated with VMs or sandboxes such as gVisor and Kata Containers. An immutable image addressed by digest makes deployments reproducible but forces you to move configuration and state outside.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **Image** — an immutable template: app files, runtime, system libraries and the start command.
+- **Container** — a running instance of an image: a process with its own file system, network and limits.
+- **Dockerfile** — a text recipe for building an image from `FROM`, `COPY`, `RUN`, `ENTRYPOINT` instructions.
+- **Registry** — image storage: Docker Hub, `mcr.microsoft.com`, Azure Container Registry.
+
+**Why**
+
+One artifact behaves the same on a laptop, in CI and on a server: the right runtime version is already inside the image.
+
+**How to use**
+
+1. `docker build` — build an image from a Dockerfile.
+2. `docker run -p 5000:8080` — run it: host port 5000 leads to container port 8080.
+3. `-e` passes an environment variable, `-v` attaches a volume so data survives the container being recreated.
+
+**Common mistake**
+
+Storing data inside the container: uploaded files, SQLite, logs. After `docker rm` or an image update they are gone.
+
+**Takeaway:** the image is what to run, the container is the running process, and a volume is where to keep what must outlive it.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+1. **Layers.** Each `RUN`, `COPY` or `ADD` instruction produces a layer — a set of file system changes. Layers are read-only, addressed by content hash and shared between images.
+2. **Startup.** Docker stacks the layers (overlayfs) and adds a writable container layer on top.
+3. **Isolation.** Namespaces give the process its own PIDs, network, mount points and hostname: the app inside is PID 1. Cgroups cap CPU, memory and the number of processes.
+4. **Ports.** A container has its own network stack. `EXPOSE` in a Dockerfile is only documentation; `-p host:container` opens access from outside.
+
+**When to choose what**
+
+| Aspect | Container | Virtual machine |
+|---|---|---|
+| OS kernel | shared with the host | its own |
+| Startup | fractions of a second | tens of seconds |
+| Size | tens to hundreds of MB | gigabytes |
+| Isolation | process-level | hardware-level, stronger |
+
+**Pitfalls**
+
+- **Volume or bind mount.** A named volume (`-v data:/data`) is managed by Docker. A bind mount (`-v ./conf:/app/conf`) maps a host folder — handy in development but ties you to a specific machine.
+- **Linux containers on Windows.** Docker Desktop runs them in a lightweight WSL 2 VM: a container still needs a Linux kernel.
+- **A tag is not a version.** `latest` and even `1.0` can be overwritten. The immutable reference is the digest `@sha256:...`.
+
+**Rule of thumb**
+
+A container is disposable: settings go in environment variables, data in volumes or external services, logs to stdout.
+
+**Takeaway:** a container is an isolated process on a shared kernel built from cached layers, not a small VM.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- The launch chain: Docker CLI → dockerd → containerd → runc. The image and runtime formats are defined by the OCI standard, so Podman and Kubernetes run the same image.
+- Namespaces: pid, net, mnt, uts, ipc, user, cgroup. Cgroups v2 set `cpu.max` and `memory.max`: exceeding memory gets the process killed by the kernel, exceeding CPU gets it throttled.
+- PID 1 receives signals. `ENTRYPOINT ["dotnet", "Shop.Api.dll"]` (exec form) gets SIGTERM directly. The shell form runs the app under `/bin/sh -c`, the signal never reaches it, and `docker stop` kills the process after 10 seconds.
+- Windows containers (Server Core, Nano Server) exist, including ones with IIS and .NET Framework, but they run only on a Windows host and weigh gigabytes.
+
+**Cost**
+
+- A shared kernel is a shared attack surface. A container with `--privileged` or a mounted `docker.sock` is effectively root on the host.
+- Writes to the container layer go through copy-on-write and are slower than writes to a volume.
+
+**Trade-offs**
+
+- Density and delivery speed versus isolation strength: containers are enough for your own code; foreign code needs VMs or gVisor and Kata Containers.
+- An immutable image makes rollback easy — run the previous tag — but configuration and state have to live outside.
+
+**How to check in production**
+
+- `docker inspect` — limits, mounts, variables; `docker stats` — CPU and memory against the limits.
+- `docker history` — which instructions produced the heaviest layers.
+- Exit code 137 (128 + 9) — the process was killed with SIGKILL: by OOM or after the stop timeout.
+
+**Takeaway:** a container is a host process with restricted visibility and resources, and its strengths and weaknesses follow from the shared kernel.
+
+</A>
+
+<Ex>
+
+```bash
+# Build an image from the Dockerfile in the current folder
+docker build -t shop-api:1.0 .
+
+# Host port 5000 → port 8080 in the container, a variable, a volume and limits
+docker run -d --name shop-api -p 5000:8080 \
+  -e ASPNETCORE_ENVIRONMENT=Staging \
+  -v shop-uploads:/app/uploads \
+  --memory 512m --cpus 1.5 \
+  shop-api:1.0
+
+docker ps                 # running containers
+docker logs -f shop-api   # the app's stdout
+docker stop shop-api      # SIGTERM, SIGKILL after 10 seconds
+docker rm shop-api        # container removed, the shop-uploads volume remains
+```
+
+</Ex>
+
+<Next>
+
+- How does an image differ from a container? — An image is an immutable template, a container is a running instance with its own writable layer; one image can run any number of containers.
+- What happens to files written inside a container? — They live until the container is removed; only volumes and bind mounts survive it.
+- Why `EXPOSE` if there is `-p`? — `EXPOSE` documents the port, `-p` publishes it (or `-P` for all ports from `EXPOSE`).
+- Why doesn't the app shut down cleanly on `docker stop`? — Shell-form `ENTRYPOINT`: SIGTERM goes to `sh`, not to the app.
+- Can you run a Linux container on Windows? — Yes, via Docker Desktop with WSL 2: the Linux kernel runs in a lightweight VM.
+
+</Next>
+
+<Src>
+
+- [What is a container? — Docker Docs](https://docs.docker.com/get-started/docker-concepts/the-basics/what-is-a-container/)
+- [Volumes — Docker Docs](https://docs.docker.com/engine/storage/volumes/)
+- [Containerize a .NET app](https://learn.microsoft.com/dotnet/core/docker/build-container)
+
+</Src>
+
+</Q>
+
+<Q id="quality.docker.dotnet-images" level="m">
+
+## How do you build a good image for a .NET app?
+
+<A short l="j">
+
+A .NET image is built with a <T k="multi-stage-build">multi-stage Dockerfile</T>: in the first stage the `sdk` image restores packages and publishes the app, in the second only the `dotnet publish` output is copied into the lightweight `aspnet` image. So the final image contains neither the SDK nor the sources and is several times smaller.
+
+</A>
+
+<A short l="m">
+
+First you copy only the `.csproj` and run `dotnet restore`, then the rest of the code and `dotnet publish --no-restore`: the package layer comes from cache until dependencies change. The base image depends on the publish type — `aspnet:10.0` for a regular app, `runtime-deps` for self-contained and Native AOT — and the <T k="chiseled-image">chiseled</T> variants (`10.0-noble-chiseled`) drop the shell and package manager. Since .NET 8 the images listen on port 8080 and include an <T k="non-root-container">unprivileged user</T> `app`; the cost of chiseled is no shell for debugging and no ICU unless you take the `-extra` variant.
+
+</A>
+
+<A short l="s">
+
+An image is a delivery artifact and part of the attack surface, so there are three goals: minimal contents, reproducibility and fast rebuilds. Chiseled images, non-root and, where possible, Native AOT on `runtime-deps` give the minimum; a base image pinned by digest and updated by a bot gives reproducibility; layer order, the BuildKit cache and `.dockerignore` give speed. Without a Dockerfile, <T k="sdk-container-publish">the .NET SDK itself</T> builds the image via `dotnet publish /t:PublishContainer`, but it cannot run `RUN` steps. The trade-off is size and security versus ease of debugging and compatibility: globalization, time zones, native libraries.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+A multi-stage Dockerfile has several `FROM` instructions in one file. Each stage is a separate image, and only the last stage plus whatever was copied into it with `COPY --from` ends up in the result.
+
+**Why**
+
+The SDK is needed only to build; in production it is hundreds of extra megabytes and a compiler handy for an attacker. A simple Web API on `aspnet:10.0` is about 90 MB compressed.
+
+**How to use**
+
+1. `FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build` — the build stage.
+2. Copy the `.csproj` and run `dotnet restore` — packages land in a separate layer.
+3. Copy the code and run `dotnet publish -o /app`.
+4. `FROM mcr.microsoft.com/dotnet/aspnet:10.0`, then `COPY --from=build /app .` and `ENTRYPOINT`.
+5. List `bin/` and `obj/` in `.dockerignore` so they stay out of the build context.
+
+**Common mistake**
+
+Mapping port 80 out of habit. Since .NET 8 the app in the official image listens on 8080 (`ASPNETCORE_HTTP_PORTS=8080`), and `-p 5000:80` does not work.
+
+**Takeaway:** build in `sdk`, run in `aspnet`, and copy only the publish output between stages.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- **Layer cache.** Docker reuses a layer if the instruction and its input files have not changed, and rebuilds every layer after the first changed one. That is why the `.csproj` is copied before the code: editing a `.cs` file does not rerun restore.
+- **Microsoft images.** The `10.0` tags point to Ubuntu 24.04 (Noble); there are no Debian images for .NET 10.
+
+| Image | What is inside | Used for |
+|---|---|---|
+| `sdk:10.0` | SDK, MSBuild, compilers | build and tests |
+| `aspnet:10.0` | .NET and ASP.NET Core runtime | web apps |
+| `runtime:10.0` | .NET runtime | console, worker |
+| `runtime-deps:10.0` | system libraries only | self-contained, Native AOT |
+
+**When to choose what**
+
+- **Chiseled** (`aspnet:10.0-noble-chiseled`) — a distroless Ubuntu image without a shell or package manager, non-root by default. There is no ICU or tzdata and invariant globalization is on; if you need cultures and time zones, use `-noble-chiseled-extra`.
+- **Composite** (`-noble-chiseled-composite`) — the framework is compiled into one ReadyToRun file: the image is smaller, but the framework version is tightly coupled.
+- **No Dockerfile** — `dotnet publish /t:PublishContainer`: the SDK picks the base image from the project type, the `app` user and the port; `ContainerFamily` selects the variant.
+
+**Pitfalls**
+
+- Regular images include the `app` user, but the process runs as root until you add `USER $APP_UID`. And non-root cannot write to `/app` or to volumes created by root.
+- A `HEALTHCHECK` using `curl` does not work in a chiseled image: there is neither curl nor a shell.
+
+**Rule of thumb**
+
+Order layers from rarely changing to frequently changing; keep the final image minimal, non-root and explicitly versioned.
+
+**Takeaway:** multi-stage, restore as its own layer, `aspnet` or chiseled at runtime and non-root are the basic hygiene of a .NET image.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- BuildKit, Docker's default builder, runs independent stages in parallel. `RUN --mount=type=cache,target=/root/.nuget/packages` keeps the NuGet cache between builds even when the restore layer is rebuilt.
+- `FROM --platform=$BUILDPLATFORM` with `dotnet publish -a $TARGETARCH` builds an arm64 image on an x64 agent without emulation: the SDK runs on the native architecture.
+- `PublishContainer` needs no Docker daemon: the SDK downloads the base image layers, adds a layer with the app and pushes the image to a registry (`ContainerRegistry`) or to an archive (`ContainerArchiveOutputPath`).
+
+**Cost**
+
+Compressed image of a simple Web API, per the dotnet-docker measurement from November 2025:
+
+| Variant | Size |
+|---|---|
+| `aspnet:10.0` | ~92 MB |
+| `aspnet:10.0-noble-chiseled` | ~53 MB |
+| Native AOT on `runtime-deps:10.0-noble-chiseled` | ~12 MB |
+
+Native AOT gives fast startup and less memory but restricts reflection and dynamic code loading, and it builds in `sdk:10.0-noble-aot`. Details are in [.NET platform](/sobes/en/dotnet/platform/).
+
+**Trade-offs**
+
+- The floating `10.0` tag brings security patches on rebuild, a digest brings reproducibility. Teams usually pin the digest and let Dependabot or Renovate update it.
+- Chiseled without a shell gives you no way in: you debug with a separate container alongside (`kubectl debug`) or through dotnet-monitor.
+
+**How to check in production**
+
+- `docker history` — the weight of each layer.
+- A vulnerability scanner (Trivy, Docker Scout) on the image. In .NET 10, chiseled images include a Chisel manifest that lets scanners see the packages.
+- `docker image inspect -f "{{ .Config.User }}" image` — which user it will run as.
+
+**Takeaway:** a good image is minimal, non-root, reproducible and quick to rebuild, and chiseled, composite and AOT are a choice of size versus compatibility.
+
+</A>
+
+<Ex>
+
+```dockerfile
+# Build stage: the SDK is needed only here
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+ARG TARGETARCH
+WORKDIR /src
+
+# Project file first: the restore layer comes from cache until packages change
+COPY Shop.Api/Shop.Api.csproj Shop.Api/
+RUN dotnet restore Shop.Api/Shop.Api.csproj -a $TARGETARCH
+
+# Then the code and publish (Release is the default since .NET 8)
+COPY . .
+RUN dotnet publish Shop.Api/Shop.Api.csproj -a $TARGETARCH --no-restore -o /app
+
+# Runtime stage: no shell or package manager, non-root by default
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled
+WORKDIR /app
+COPY --from=build /app .
+EXPOSE 8080
+ENTRYPOINT ["dotnet", "Shop.Api.dll"]
+```
+
+</Ex>
+
+<Ex title="Without a Dockerfile">
+
+```bash
+# The SDK picks aspnet:10.0-noble-chiseled, the app user and port 8080 itself
+dotnet publish Shop.Api --os linux --arch x64 /t:PublishContainer \
+  -p ContainerRepository=shop-api \
+  -p ContainerFamily=noble-chiseled \
+  -p ContainerImageTag=1.4.2
+
+# The image is already in local Docker
+docker run -p 5000:8080 shop-api:1.4.2
+```
+
+</Ex>
+
+<Next>
+
+- Why copy the `.csproj` separately from the code? — So the restore layer comes from cache until dependencies change.
+- Why doesn't a .NET 8+ app in a container answer on port 80? — The default port is 8080 (`ASPNETCORE_HTTP_PORTS`): an unprivileged port is needed to run without root.
+- How does chiseled differ from Alpine? — Both lack ICU by default; Alpine is musl with a shell and apk, chiseled is glibc Ubuntu without a shell or package manager.
+- When won't `PublishContainer` do? — When the image needs `RUN` steps: system packages, certificates. Then use a Dockerfile or your own base image.
+- How do you debug a container without a shell? — A debug container alongside (`kubectl debug`), dotnet-monitor as a sidecar, dumps to a volume.
+
+</Next>
+
+<Src>
+
+- [.NET container images](https://learn.microsoft.com/dotnet/core/docker/container-images)
+- [Containerize a .NET app with dotnet publish](https://learn.microsoft.com/dotnet/core/containers/sdk-publish)
+- [Multi-stage builds — Docker Docs](https://docs.docker.com/build/building/multi-stage/)
+
+</Src>
+
+</Q>
+
+<Q id="quality.docker.compose" level="m">
+
+## How do you run an app with its dependencies using docker compose?
+
+<A short l="j">
+
+<T k="docker-compose">Docker Compose</T> describes all of an app's containers — API, database, cache — in one `compose.yaml` file and starts them with a single `docker compose up`. Services see each other by name, so the connection string says `Host=db`, and the database data lives in a named volume.
+
+</A>
+
+<A short l="m">
+
+Compose creates a shared project network with DNS by service name, the volumes, and the containers in `depends_on` order. The short `depends_on` only waits for the container to start, so the database gets a <T k="container-healthcheck">healthcheck</T> and `condition: service_healthy`, and the API should still retry its connection. Settings go through `environment` and `.env`, passwords through `secrets`, and auxiliary services are switched on with <T k="compose-profiles">profiles</T>.
+
+</A>
+
+<A short l="s">
+
+Compose is declarative orchestration on a single host: a great stack for development and integration runs but a weak production platform — no spreading across nodes, no autoscaling and no zero-downtime rollout. So the base file describes what is shared, environment differences go into override files and profiles, and secrets go into `secrets`, not `environment`. For .NET solutions the alternative for local orchestration is <T k="aspire">Aspire</T>: the topology is described in code, connection strings are wired automatically, there is a dashboard for logs and traces, and the same model can generate a compose file. The cost of Aspire is one more abstraction layer and coupling to its model and releases.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+A `compose.yaml` file lists **services** — containers with an image, ports, variables and volumes. `docker compose up -d` creates and starts them all; `docker compose down` stops and removes the containers but keeps the volumes.
+
+**Why**
+
+A developer gets the API, PostgreSQL and Redis at the right versions with one command, without installing anything on the machine.
+
+**How to use**
+
+1. Describe the `api`, `db` and `cache` services.
+2. In the API connection string use the service name: `Host=db;Port=5432`.
+3. Put the database data in a named volume.
+4. Publish (`ports`) only what you access from the host.
+
+**Common mistake**
+
+Writing `localhost` in the connection string from a container to the database. Inside a container `localhost` is the container itself; the database is reachable as `db`.
+
+**Takeaway:** compose describes the whole stack in one file, and services talk by name inside a shared network.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+1. Compose reads `compose.yaml`, automatically adds `compose.override.yaml` and substitutes `${VAR}` from `.env` and the environment.
+2. It creates the project network: the service name becomes a DNS name. Ports between services do not need publishing.
+3. It creates volumes and starts containers in `depends_on` order, waiting for the specified conditions.
+
+**When to choose what**
+
+| Task | Tool |
+|---|---|
+| Wait for the DB to be ready | `healthcheck` and `condition: service_healthy` |
+| Regular settings | `environment`, `env_file` |
+| Passwords and keys | `secrets` — a file at `/run/secrets/name` |
+| Optional services | `profiles` and `--profile tools` |
+| Environment differences | override files, `-f compose.yaml -f compose.prod.yaml` |
+
+**Pitfalls**
+
+- The short `depends_on` waits for the container to start, not for Postgres to be ready.
+- A `healthcheck` runs inside the container. The chiseled API image has no `curl` and no shell, so you cannot write such a check.
+- A variable from `environment` is visible in `docker inspect`, so it is not fit for secrets.
+- `docker compose down -v` deletes the volumes along with the database data.
+
+**Rule of thumb**
+
+The base file is shared by all environments; ports, source bind mounts and debugging services go into an override or profiles.
+
+**Takeaway:** compose gives you a network with names, healthcheck-based startup order and separation of settings and secrets — enough for a local stack.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- Compose v2 is the `docker compose` plugin, a client of the Docker Engine API. The project name (the folder name by default) prefixes networks, volumes and containers. The `version` field is obsolete: Compose always validates against the latest schema.
+- In Compose, `secrets` are a file mounted at `/run/secrets` without encryption. .NET reads such files via `AddKeyPerFile` — see [Configuration and logging](/sobes/en/aspnet/config-logging/).
+- `docker compose watch`, driven by the `develop.watch` section, syncs files or rebuilds the image when code changes.
+
+**Cost**
+
+One host: no spreading across nodes, no autoscaling, no moving a failed service to another server and no zero-downtime rollout. `restart: unless-stopped` restarts the process but does not survive a machine failure.
+
+**Trade-offs**
+
+- **Compose or Aspire.** Aspire (no longer prefixed with ".NET" since version 13) describes the stack in code in an AppHost: `AddPostgres`, `WithReference`, `WaitFor`. It runs .NET projects as plain processes and dependencies as containers, provides an OpenTelemetry dashboard, and `AddDockerComposeEnvironment` generates a compose file for deployment. Compose is simpler and stack-agnostic; Aspire is more convenient when a solution has many .NET services.
+- **Compose in production** is reasonable for a single server and internal tools. For multiple nodes and an SLA — Kubernetes or a managed platform.
+
+**How to check in production**
+
+- `docker compose config` — the final configuration after merging files and substituting variables.
+- `docker compose ps` shows healthcheck status, `docker compose logs -f api` shows a service's logs.
+
+**Takeaway:** compose is the best tool for a stack on one machine; beyond that comes Kubernetes, and for a .NET developer's local stack there is also Aspire.
+
+</A>
+
+<Ex>
+
+```yaml
+services:
+  api:
+    build: .
+    ports:
+      - "5000:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      # The database host is the service name on the compose network
+      ConnectionStrings__Shop: "Host=db;Database=shop;Username=shop"
+    secrets:
+      - db_password                  # file /run/secrets/db_password
+    depends_on:
+      db:
+        condition: service_healthy   # wait for readiness, not just startup
+
+  db:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: shop
+      POSTGRES_DB: shop
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+    secrets:
+      - db_password
+    volumes:
+      - pgdata:/var/lib/postgresql   # since postgres:18 — no /data at the end
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shop -d shop"]
+      interval: 5s
+      retries: 10
+
+  adminer:
+    image: adminer
+    profiles: ["tools"]              # only with --profile tools
+    ports:
+      - "8081:8080"
+
+volumes:
+  pgdata:
+
+secrets:
+  db_password:
+    file: ./secrets/db_password.txt
+```
+
+</Ex>
+
+<Next>
+
+- Why doesn't `depends_on` guarantee the database is ready? — The short form only waits for the container to start; you need `condition: service_healthy`, plus connection retries in the app.
+- Why can't the API container connect to `localhost:5432`? — `localhost` is the container itself; the database is reachable by service name.
+- How do you separate development and production settings? — Override files, profiles, `.env` for substitution; verify the result with `docker compose config`.
+- Why are `secrets` better than `environment` for a password? — A file in `/run/secrets` is not visible in `docker inspect` and is not inherited by child processes.
+- How do you start a database for integration tests? — With Testcontainers from the test code — see [Testing](/sobes/en/quality/testing/).
+
+</Next>
+
+<Src>
+
+- [Compose file reference: services — Docker Docs](https://docs.docker.com/reference/compose-file/services/)
+- [Secrets in Compose — Docker Docs](https://docs.docker.com/compose/how-tos/use-secrets/)
+- [Deploy to Docker Compose — Aspire](https://aspire.dev/deployment/docker-compose/)
+
+</Src>
+
+</Q>
+
+<Q id="quality.docker.kubernetes" level="s">
+
+## What does a .NET developer need to know about running on Kubernetes?
+
+<A short l="j">
+
+Kubernetes is an orchestrator: it runs containers on a cluster of servers, restarts failed ones and spreads traffic across replicas. The app lives in <T k="pod">pods</T> that can be deleted and recreated at any moment, so .NET code needs health endpoints for the checks and must not keep data inside the pod.
+
+</A>
+
+<A short l="m">
+
+Kubernetes polls the app with three probes: <T k="startup-probe">startup</T> waits for startup to finish, <T k="liveness-probe">liveness</T> restarts a hung container, <T k="readiness-probe">readiness</T> takes the pod out of load balancing until it is ready; in ASP.NET Core these are separate `MapHealthChecks` endpoints. <T k="resource-limits">Requests and limits</T> set the reservation and the ceiling, and .NET reads the limits: `Environment.ProcessorCount` equals the CPU limit rounded up, and the <T k="heap-hard-limit">GC heap limit</T> defaults to 75% of the memory limit. Configuration comes from ConfigMaps and Secrets, and after SIGTERM the pod gets `terminationGracePeriodSeconds` to stop — 30 seconds by default.
+
+</A>
+
+<A short l="s">
+
+A pod is disposable: it is killed on deploys, scaling, node eviction and OOM, so the service must be <T k="stateless-service">stateless</T> — sessions, cache, files and Data Protection keys live outside. The main risks are wrong probes (a liveness probe that checks the database restarts every pod at once when the database fails) and a runtime that disagrees with the limits: without a CPU limit .NET sees all the node's cores, with one you get throttling. Removal from load balancing runs in parallel with SIGTERM, so you need a <T k="prestop-hook">preStop</T> pause, and the pause plus `ShutdownTimeout` must fit within `terminationGracePeriodSeconds`. You verify all of this with throttling, OOMKilled and restart metrics, not by eye.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **Pod** — the smallest unit of deployment: one or more containers sharing an IP, usually one instance of the app.
+- **Deployment** — a description like "I need 3 replicas of `shop-api:1.4.2`": it creates pods and replaces them on update.
+- **Service** — a stable name and IP for a set of pods that balances requests across them.
+- **Ingress** — rules for incoming HTTP from outside: host, path, TLS. Its successor is the Gateway API.
+
+**Why**
+
+Kubernetes keeps the desired number of replicas by itself: if a process or a server fails, pods are created again.
+
+**How to use**
+
+1. Add `/healthz/live` and `/healthz/ready` endpoints to the app.
+2. Reference them in the manifest as `livenessProbe` and `readinessProbe`.
+3. Set `resources`: how much CPU and memory the pod needs and how much it may use.
+4. Pass settings from ConfigMaps and Secrets.
+
+**Common mistake**
+
+Keeping anything important in the pod: files on disk, sessions in memory. On the next deploy the pod is recreated and the data is gone.
+
+**Takeaway:** a Deployment keeps the right number of pods, a Service gives them an address, and the app helps with probes and by holding no state.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+| Probe | On failure | What to check |
+|---|---|---|
+| startup | restart; other probes wait for it | startup is done: migrations, warm-up |
+| liveness | container restart | the process is alive, no external dependencies |
+| readiness | pod removed from the Service | ready for traffic: DB and cache reachable |
+
+- In ASP.NET Core, `AddHealthChecks()` registers checks and `MapHealthChecks` with a tag-based `Predicate` exposes separate endpoints. Details are in [Observability and diagnostics](/sobes/en/quality/observability/).
+- By default a probe runs every 10 seconds with a 1-second timeout and fails after 3 consecutive failures.
+- **Requests** are a reservation: the scheduler picks a node by them. **Limits** are a ceiling: exceeding memory means OOMKilled, exceeding CPU means throttling.
+
+**Pitfalls**
+
+- A liveness probe that checks the DB: the database goes down, every pod restarts, and recovery takes longer.
+- A slow start without a startup probe: liveness kills the pod before it is up, and it ends up in `CrashLoopBackOff`.
+- ConfigMaps and Secrets exposed as environment variables do not update without a pod restart. Mounted files do update, but not with `subPath`.
+- By default a Secret is stored unencrypted in etcd — base64 is only an encoding.
+
+**Rule of thumb**
+
+Liveness is cheap and dependency-free, readiness is about accepting traffic, startup is for slow starts.
+
+**Takeaway:** probes, resources and configuration are three contracts between the app and Kubernetes, each with its own rules.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- .NET reads cgroups v1 and v2. `Environment.ProcessorCount` is the minimum of the core count, affinity and the CPU limit rounded up; requests are ignored. `DOTNET_PROCESSOR_COUNT` overrides the value.
+- The GC treats the memory limit as physical memory, and `GCHeapHardLimit` defaults to 75% of it. Details are in [Garbage collection and resources](/sobes/en/dotnet/gc/).
+- When a pod is deleted, the controller removes it from the EndpointSlice while the kubelet runs preStop and sends SIGTERM in parallel. Until load balancers catch up, requests keep arriving. `preStop: sleep` (stable since Kubernetes 1.34) needs no shell, which matters for chiseled images. Host shutdown is covered in [Hosting and the pipeline](/sobes/en/aspnet/hosting/).
+
+**Cost**
+
+- Without a CPU limit, a pod with a 0.5 CPU request on a 64-core node sees 64 cores: Server GC and the thread pool size themselves for resources that are not theirs.
+- A CPU limit slices the quota into periods: GC and JIT bursts at startup hit throttling, and tail latencies grow.
+
+**Trade-offs**
+
+- A common choice is a CPU request without a limit plus `DOTNET_PROCESSOR_COUNT`, or a limit in whole cores. For memory a limit is mandatory, usually equal to the request.
+- Stateless: sessions and cache in Redis, files in object storage, Data Protection keys in shared storage. Otherwise a cookie issued by one pod cannot be decrypted by another. Sticky sessions only mask the problem.
+
+**How to check in production**
+
+- `kubectl describe pod` — the restart reason (`OOMKilled`) and probe failures; `kubectl top pod` — consumption.
+- The `container_cpu_cfs_throttled_periods_total` metric shows throttling; dotnet-counters shows `dotnet.process.cpu.count` and heap size against the limit.
+
+**Takeaway:** on Kubernetes a .NET service reports readiness honestly, fits within limits the runtime can see, shuts down cleanly and keeps no state in the pod.
+
+</A>
+
+<Ex title="Probes in Program.cs">
+
+```csharp
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddHealthChecks()
+    // liveness: the process is alive, external dependencies are not checked
+    .AddCheck("self", () => HealthCheckResult.Healthy(), tags: ["live"])
+    // readiness: can we accept traffic
+    .AddCheck<DatabaseCheck>("database", tags: ["ready"]);
+
+var app = builder.Build();
+
+app.MapHealthChecks("/healthz/live", new HealthCheckOptions { Predicate = c => c.Tags.Contains("live") });
+app.MapHealthChecks("/healthz/ready", new HealthCheckOptions { Predicate = c => c.Tags.Contains("ready") });
+
+app.Run();
+
+public class DatabaseCheck : IHealthCheck
+{
+    public Task<HealthCheckResult> CheckHealthAsync(
+        HealthCheckContext context, CancellationToken cancellationToken = default)
+    {
+        // Here: a cheap DB query with a short timeout
+        return Task.FromResult(HealthCheckResult.Healthy());
+    }
+}
+```
+
+</Ex>
+
+<Ex title="Deployment and Service">
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shop-api
+spec:
+  replicas: 3
+  selector:
+    matchLabels: { app: shop-api }
+  template:
+    metadata:
+      labels: { app: shop-api }
+    spec:
+      terminationGracePeriodSeconds: 45   # more than preStop + ShutdownTimeout
+      containers:
+        - name: api
+          image: registry.example.com/shop-api:1.4.2
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef: { name: shop-api-config }
+            - secretRef: { name: shop-api-secrets }
+          resources:
+            requests: { cpu: "500m", memory: "512Mi" }
+            limits: { cpu: "2", memory: "512Mi" }   # ProcessorCount = 2, GC heap ≈ 384 MB
+          startupProbe:
+            httpGet: { path: /healthz/live, port: 8080 }
+            failureThreshold: 30                    # up to 30 × 10 seconds to start
+          livenessProbe:
+            httpGet: { path: /healthz/live, port: 8080 }
+          readinessProbe:
+            httpGet: { path: /healthz/ready, port: 8080 }
+          lifecycle:
+            preStop:
+              sleep: { seconds: 10 }                # let load balancers drop the pod
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: shop-api
+spec:
+  selector: { app: shop-api }
+  ports:
+    - port: 80
+      targetPort: 8080
+```
+
+</Ex>
+
+<Next>
+
+- How does readiness differ from liveness? — Readiness takes the pod out of load balancing, liveness restarts the container.
+- Why do you see 502s during a deploy even though the app handles SIGTERM? — EndpointSlice removal runs in parallel with SIGTERM; a preStop pause helps.
+- How many cores will .NET see in a pod with `limits.cpu: 1500m`? — Two: the limit is rounded up.
+- What happens when the memory limit is exceeded? — The kernel kills the process (OOMKilled, exit code 137); the GC tries to keep the heap within 75% of the limit.
+- How do you store Data Protection keys in a cluster? — In shared storage (Redis, a DB, blob) via `PersistKeysTo...`, otherwise other pods cannot read the cookies.
+
+</Next>
+
+<Src>
+
+- [Liveness, Readiness, and Startup Probes — Kubernetes](https://kubernetes.io/docs/concepts/configuration/liveness-readiness-startup-probes/)
+- [Health checks in ASP.NET Core](https://learn.microsoft.com/aspnet/core/host-and-deploy/health-checks)
+- [Resource Management for Pods and Containers — Kubernetes](https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/)
+
+</Src>
+
+</Q>

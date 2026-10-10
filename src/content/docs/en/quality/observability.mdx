@@ -1,0 +1,897 @@
+---
+title: Observability and diagnostics
+description: Logs, metrics and traces, health checks, web service metrics, troubleshooting a live server, SLOs, error budgets and alerting.
+sidebar:
+  order: 4
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+How to understand what a service is doing in production: which signals to collect, how to tell the load balancer whether an instance is healthy, how to investigate high CPU or a leak on a live process, and how to set up alerts that only wake you up when it matters. This topic tests operational experience: what you do when "everything is slow" and the logs are quiet.
+
+**Before this topic:** [Configuration and logging](/sobes/en/aspnet/config-logging/).
+
+<Q id="quality.obs.pillars" level="j">
+
+## What is observability, and how do logs, metrics and traces differ?
+
+<A short l="j">
+
+<T k="observability">Observability</T> is the ability to understand what is happening inside a system from the data it emits. Metrics show what is wrong and how badly (requests, errors, latency), <T k="distributed-tracing">traces</T> show where exactly a request spends its time, and logs show what specifically happened and with what data.
+
+</A>
+
+<A short l="m">
+
+The signals differ in the shape of their data: a metric is a numeric time series, cheap and convenient for alerting; a trace is a tree of <T k="span">spans</T> for one request across all services; a log is a single event with fields. Different systems store them: logs go to <T k="elk-stack">ELK</T> or OpenSearch, metrics to <T k="prometheus">Prometheus</T> with Grafana, traces to Jaeger or Tempo, and an <T k="apm">APM</T> product puts it all in one place. A shared <T k="trace-id">`TraceId`</T> ties the signals together, so an investigation goes from a metric alert to a trace and then to that trace's logs.
+
+</A>
+
+<A short l="s">
+
+Monitoring answers questions you knew in advance, with dashboards and alerts for familiar failures, while observability lets you ask a new question without a new deployment: slice the data by any field and find the outlier. The cost is volume: metrics are cheap as long as labels have few values, traces have to be sampled, and logs are the most expensive signal per event. So you pick the signal by the question, and <T k="opentelemetry">OpenTelemetry</T> gives all three a single format without vendor lock-in.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+Observability is the property of a system that lets you infer its internal state from its external data. There are three main kinds of data, called signals.
+
+**Three signals**
+
+| Signal | Question it answers |
+|---|---|
+| Metric: a number over time | how many and how fast: RPS, error rate, latency |
+| Trace: the path of one request | where the time goes and where it failed |
+| Log: a single event | what exactly happened and with what data |
+
+**How to use**
+
+1. A metric alert tells you the error rate went up.
+2. A trace of a failed request shows which service or database query is the problem.
+3. Logs with the same `TraceId` give the error text and parameters.
+
+**Common mistake**
+
+Computing metrics from logs: "how many errors per minute" via a search in Elastic. It is slow and expensive; counters are what metrics are for.
+
+**Takeaway:** the metric says "bad", the trace says "where", the log says "why".
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- **Metric** — a value with labels, aggregated over time: a counter, a histogram, a current value. It is stored as a time series, and its size does not depend on the number of requests.
+- **Trace** — a tree of spans. A span is one operation (an incoming request, a SQL query, an HTTP call) with a start, a duration and attributes. Between services the context travels in the `traceparent` header.
+- **Log** — an event with a level, a template and fields. Its volume grows with traffic.
+
+**Where they are stored**
+
+| Signal | Typical stack |
+|---|---|
+| Logs | ELK (Elasticsearch, Logstash, Kibana), OpenSearch, Seq, Loki |
+| Metrics | Prometheus and Grafana, VictoriaMetrics |
+| Traces | Jaeger, Grafana Tempo, Zipkin |
+| All together | APM: Elastic APM, Application Insights, Datadog |
+
+**Pitfalls**
+
+- **No `TraceId` in logs.** The signals are not linked, and the investigation turns into a search by timestamp.
+- **Pull vs push.** Prometheus scrapes metrics from the service's endpoint, while OTLP pushes them from the service. The model decides who opens the network to whom.
+
+**Rule of thumb**
+
+Alert on metrics, find the bottleneck with traces, get the details from logs.
+
+**Takeaway:** the three signals differ in shape and cost, and a shared `TraceId` ties them together.
+
+</A>
+
+<A l="s">
+
+**Monitoring vs observability**
+
+- **Monitoring** — predefined dashboards and alerts. It answers known questions: is the service up, what is p99.
+- **Observability** — the ability to answer a question nobody thought of in advance. For example, why it is slow only for one region on one client version. That takes events with rich context and slicing by any field.
+
+**Cost**
+
+- A metric costs the same at 10 and 10,000 RPS, but every unique label combination is a separate series.
+- Full trace collection means dozens of spans per request. Traces are sampled: head-based in the app or tail-based in the collector, to keep errors and slow requests.
+- Logs pay for indexing and storing every event, which is why `Debug` is off in production.
+
+**Trade-offs**
+
+- A vendor's APM agent gives a quick start but locks you in. OpenTelemetry is a standard API and the OTLP protocol: you switch the backend through configuration, at the price of running your own pipeline (the OpenTelemetry Collector).
+- Exemplars link a point on a metric chart to a specific `TraceId`: from a p99 spike you jump straight to a slow trace.
+
+**How to check in production**
+
+Take the last incident: how long it took from the alert to the root cause, and whether you had to add logs and redeploy to find it. If you did, observability is lacking.
+
+**Takeaway:** monitoring answers known questions, observability answers new ones, and you pay for it in telemetry volume.
+
+</A>
+
+<Ex>
+
+```text
+# Metric: an aggregate over an interval, no details of individual requests
+http_server_request_duration_seconds_count{http_route="/orders",http_response_status_code="500"} 17
+
+# Trace: the span tree of one request
+POST /orders            480 ms   trace 4bf92f3577b34da6
+ ├─ SELECT orders        12 ms
+ └─ POST payments-api   455 ms   ← the time goes here
+
+# Log: an event with fields and the same TraceId
+{"Level":"Error","MessageTemplate":"Payment {PaymentId} failed","PaymentId":"p-42","TraceId":"4bf92f3577b34da6"}
+```
+
+One failure, seen three ways: the metric reports 17 errors, the trace points to `payments-api`, the log gives the payment id.
+
+</Ex>
+
+<Next>
+
+- How is monitoring different from observability? — Monitoring answers predefined questions; observability lets you ask new ones without a deployment.
+- Why not count errors from logs? — Log search is slow and expensive, while a metric counter costs almost nothing and works for alerting.
+- What is a span? — One operation inside a trace: a name, a start, a duration, attributes and a link to its parent.
+- How do you link logs to traces? — Write the `TraceId` and `SpanId` of the current `Activity` into every entry; ASP.NET Core does it for you.
+- Why sample traces? — Full collection is expensive; tail-based sampling keeps all errors and slow requests.
+
+</Next>
+
+<Src>
+
+- [Observability primer — OpenTelemetry](https://opentelemetry.io/docs/concepts/observability-primer/)
+- [.NET observability with OpenTelemetry](https://learn.microsoft.com/dotnet/core/diagnostics/observability-with-otel)
+- [Monitoring Distributed Systems — Google SRE Book](https://sre.google/sre-book/monitoring-distributed-systems/)
+
+</Src>
+
+</Q>
+
+<Q id="quality.obs.health-checks" level="m">
+
+## How do you implement health checks in ASP.NET Core, and how is liveness different from readiness?
+
+<A short l="j">
+
+A <T k="health-check">health check</T> is an endpoint the load balancer or orchestrator calls to find out whether an instance can take traffic; in ASP.NET Core you add it with `AddHealthChecks()` and `MapHealthChecks("/health")`. <T k="liveness-probe">Liveness</T> answers "is the process alive", and a failure gets it restarted, while <T k="readiness-probe">readiness</T> answers "is it ready for requests", and a failure only takes it out of the load balancer.
+
+</A>
+
+<A short l="m">
+
+Checks are registered with tags and split across endpoints with `Predicate`: liveness checks nothing external, readiness checks the database, cache and other critical dependencies. Liveness must not touch the database: if the database goes down, the orchestrator restarts every instance, even though a restart fixes nothing. Dependency checks cost a database query per probe from every caller, so they get a timeout and heavy results are cached.
+
+</A>
+
+<A short l="s">
+
+`HealthCheckService` runs the selected checks in parallel, the overall result is the worst status, and an exception or a timeout turns into the registration's `failureStatus`. The main risk is a <T k="cascading-failure">cascading failure</T>: a readiness check tied to a shared database or a neighbouring service pulls every instance out of the load balancer at once when that dependency fails, turning partial degradation into a full outage. So readiness includes only what makes an instance truly useless, non-critical checks report `Degraded`, and a <T k="health-check-publisher">publisher</T> sends status to logs or metrics so you see the history, not just the latest response.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+A health check is an HTTP endpoint that reports the app's state: `Healthy`, `Degraded` or `Unhealthy`. The load balancer, the orchestrator (Kubernetes, for example) and monitoring poll it.
+
+**How to use**
+
+1. `builder.Services.AddHealthChecks()` — registers the health check service.
+2. `.AddCheck<T>("name")` — adds a check: a class implementing `IHealthCheck`.
+3. `app.MapHealthChecks("/health")` — exposes the endpoint.
+
+Default status codes: `Healthy` and `Degraded` return 200, `Unhealthy` returns 503.
+
+**Liveness and readiness**
+
+| Probe | What happens on failure |
+|---|---|
+| Liveness: is the process alive and not hung? | the process is restarted |
+| Readiness: is it ready to take traffic? | the instance is removed from the load balancer |
+
+**Common mistake**
+
+A single `/health` with a database check for both probes. The database goes down, and the orchestrator restarts every instance in a loop.
+
+**Takeaway:** liveness decides whether to restart the process, readiness decides whether to send it traffic.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+1. Each check is registered with a name, tags, a `failureStatus` and a timeout.
+2. `MapHealthChecks` with a `Predicate` selects checks by tag. That is how one set of checks becomes `/health/live` and `/health/ready`.
+3. The selected checks run on every request to the endpoint; the result is the worst status.
+4. `ResponseWriter` changes the response format. By default it is a single word: `Healthy`.
+
+**What to check**
+
+| Endpoint | Checks |
+|---|---|
+| `/health/live` | nothing external: it answered, so it is alive (`Predicate = _ => false`) |
+| `/health/ready` | database, cache, broker — whatever the instance is useless without |
+
+Ready-made checks: `AddDbContextCheck` from the `Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore` package and the `AspNetCore.Diagnostics.HealthChecks` library (SQL Server, PostgreSQL, Redis, RabbitMQ). Microsoft does not support the latter.
+
+**Pitfalls**
+
+- **No timeout.** A hung database holds the probe longer than the orchestrator waits.
+- **Frequency.** The orchestrator, load balancer and monitoring together produce dozens of database queries per minute per instance.
+- **`AllowCachingResponses`** controls HTTP caching headers, not caching of the check result.
+- **Detailed output.** A list of dependencies and error messages helps an attacker. Lock the endpoint down with `RequireHost` on a management port or with `RequireAuthorization`.
+
+**Rule of thumb**
+
+Liveness has no external dependencies; readiness has only critical dependencies, always with a timeout.
+
+**Takeaway:** tags and `Predicate` turn one set of checks into separate liveness and readiness endpoints.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- `DefaultHealthCheckService` runs checks in parallel via `Task.Run` and waits for all of them. Each gets its own DI scope and a token that is cancelled on its timeout.
+- An exception or a timeout produces the registration's `failureStatus`, `Unhealthy` by default.
+- `IHealthCheckPublisher` receives a `HealthReport` from a background service: first run after 5 seconds, then every 30. Since .NET 8 an individual registration can have its own `Delay` and `Period`.
+
+**Cost**
+
+- A heavy check multiplied by frequent probes is real load on the dependency. Caching the result for a few seconds inside the check removes it.
+- Another option: a publisher stores the latest report and your own endpoint returns it without hitting the database. The built-in `MapHealthChecks` cannot do this: it runs the checks on every call.
+
+**Trade-offs**
+
+- **Cascading failure.** A readiness check on a shared dependency switches off the whole pool at once. If the service can still partly work without it (cache, queue), it is better to return `Degraded` and let individual requests fail.
+- **Deep checks.** Service A checks B, B checks C, and C going down makes everyone "unhealthy". Neighbouring services usually stay out of readiness: timeouts and a <T k="circuit-breaker">circuit breaker</T> protect against their failures.
+
+**How to check in production**
+
+A publisher writes each check's status and duration to a log or metric. That shows flapping and slow checks. Alert not on a single failed probe but on the share of instances that are not ready.
+
+**Takeaway:** a health check controls traffic, so it should only check what actually changes the traffic decision.
+
+</A>
+
+<Ex>
+
+```csharp
+// NuGet: Microsoft.Data.SqlClient
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddHealthChecks()
+    .AddCheck<SqlHealthCheck>("sql", tags: ["ready"], timeout: TimeSpan.FromSeconds(3));
+
+var app = builder.Build();
+
+// Liveness: no checks at all — if it answered, the process is alive
+app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
+
+// Readiness: only checks tagged "ready"; Unhealthy → 503
+app.MapHealthChecks("/health/ready", new HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains("ready")
+});
+
+app.Run();
+
+sealed class SqlHealthCheck(IConfiguration config) : IHealthCheck
+{
+    public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken ct = default)
+    {
+        // An exception or a timeout (ct is cancelled after 3 s) becomes Unhealthy
+        await using var conn = new SqlConnection(config.GetConnectionString("Default"));
+        await conn.OpenAsync(ct);
+        await using var cmd = new SqlCommand("SELECT 1", conn);
+        await cmd.ExecuteScalarAsync(ct);
+        return HealthCheckResult.Healthy();
+    }
+}
+```
+
+</Ex>
+
+<Ex l="s" title="Publisher: check status to the log every 15 seconds">
+
+```csharp
+using Microsoft.Extensions.Diagnostics.HealthChecks;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddHealthChecks()
+    .AddCheck("self", () => HealthCheckResult.Healthy());
+builder.Services.Configure<HealthCheckPublisherOptions>(o => o.Period = TimeSpan.FromSeconds(15));
+builder.Services.AddSingleton<IHealthCheckPublisher, LogPublisher>();
+
+var app = builder.Build();
+app.Run();
+
+sealed class LogPublisher(ILogger<LogPublisher> logger) : IHealthCheckPublisher
+{
+    public Task PublishAsync(HealthReport report, CancellationToken ct)
+    {
+        foreach (var (name, entry) in report.Entries)
+        {
+            // The history of statuses and durations lives in the log store, not just in the latest response
+            logger.LogInformation("Health check {Check}: {Status} in {Duration} ms",
+                name, entry.Status, entry.Duration.TotalMilliseconds);
+        }
+        return Task.CompletedTask;
+    }
+}
+```
+
+</Ex>
+
+<Next>
+
+- Why must liveness not check the database? — A restart does not fix the database, and the orchestrator will restart every instance in a loop.
+- What status code does `Degraded` return? — 200 by default; change it with `ResultStatusCodes`.
+- What happens if a check throws? — The result gets the registration's `failureStatus`, `Unhealthy` by default.
+- How do you avoid loading the database with frequent probes? — A timeout, caching the result for a few seconds, or serving the latest report from a publisher.
+- How do you protect the health endpoint? — `RequireHost` on a management port, `RequireAuthorization`, a terse public response.
+
+</Next>
+
+<Src>
+
+- [Health checks in ASP.NET Core](https://learn.microsoft.com/aspnet/core/host-and-deploy/health-checks)
+- [AspNetCore.Diagnostics.HealthChecks](https://github.com/Xabaril/AspNetCore.Diagnostics.HealthChecks)
+
+</Src>
+
+</Q>
+
+<Q id="quality.obs.metrics" level="m">
+
+## Which metrics should a web service collect, and how?
+
+<A short l="j">
+
+A metric is a number the service constantly exposes: how many requests, how many errors, how long they took. The minimum for a web service is request rate, error rate and response time (the <T k="red-method">RED method</T>), and in .NET you create metrics with a `Meter` from `System.Diagnostics.Metrics`, while ASP.NET Core and the runtime already publish their own.
+
+</A>
+
+<A short l="m">
+
+For requests you use RED (rate, errors, duration), for resources <T k="use-method">USE</T> (utilization, saturation, errors), and Google SRE boils it down to the <T k="golden-signals">four golden signals</T>: latency, traffic, errors, saturation. In code these are the <T k="metric-instrument">instruments</T> `Counter<T>` for events, `Histogram<T>` for durations and `ObservableGauge<T>` for current values, and `http.server.request.duration` (.NET 8+) plus the `System.Runtime` meter (.NET 9+) already give you RED and runtime health. The cost is <T k="metric-cardinality">cardinality</T>: every label combination is a separate series, so user ids or full URLs never go into labels.
+
+</A>
+
+<A short l="s">
+
+Latency is described by <T k="percentile">percentiles</T> from a histogram, not by the average: the average hides the <T k="tail-latency">tail</T>, while p99 shows what the unhappiest users see. Percentiles cannot be averaged across instances — they are computed from summed buckets, so the bucket layout matters (in .NET 9+ `InstrumentAdvice` suggests it). `System.Diagnostics.Metrics` instruments aggregate in-process and cost almost nothing without a listener; the real cost is in storage, where the series count is the product of the value counts of all labels. Before adding a label you estimate its cardinality and put high-cardinality values into traces and logs.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+A metric is a numeric indicator the service records continuously, and the monitoring system stores as a chart over time.
+
+**What to collect: RED**
+
+- **Rate** — requests per second.
+- **Errors** — the share of failed requests, such as 5xx responses.
+- **Duration** — response time.
+
+**How to use**
+
+1. The built-in ASP.NET Core metric `http.server.request.duration` (.NET 8+) already gives all three, broken down by route and status code.
+2. Business events ("order created") are counted with your own `Counter<T>`.
+3. Locally you watch metrics with `dotnet-counters`; in production, in Prometheus and Grafana or an APM.
+
+**Common mistake**
+
+Looking at average response time. 99 requests at 10 ms and one at 10 seconds give an average of about 110 ms, yet a user waited 10 seconds.
+
+**Takeaway:** RED per endpoint plus counters for key business events is the minimal metric set.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- A `Meter` is a named source of metrics. In ASP.NET Core you create it via `IMeterFactory` from DI (.NET 8+).
+- Labels (tags) are key-value pairs on each measurement: route, status code, payment method.
+
+| Instrument | Used for |
+|---|---|
+| `Counter<T>` | a growing count of events: orders, errors |
+| `UpDownCounter<T>` | a value that goes up and down: active connections |
+| `Histogram<T>` | a distribution: duration, response size |
+| `ObservableGauge<T>` | a current value read at collection time: queue length |
+
+Since .NET 9 there is also a synchronous `Gauge<T>`: you record the value when it changes.
+
+**When to choose what**
+
+| Approach | What it measures |
+|---|---|
+| RED | every service or endpoint: rate, errors, duration |
+| USE | every resource (CPU, memory, connection pool): utilization, saturation, errors |
+| Golden signals | latency, traffic, errors, saturation — RED plus saturation |
+
+**Built-in metrics**
+
+- `Microsoft.AspNetCore.Hosting`: `http.server.request.duration`, `http.server.active_requests`.
+- `Microsoft.AspNetCore.Server.Kestrel`: connections, queues, TLS handshakes.
+- `System.Runtime` (.NET 9+): GC, thread pool, CPU, `dotnet.exceptions`.
+- .NET 10 adds authentication, authorization, Identity and Blazor metrics.
+
+**Pitfalls**
+
+- `user.id` or the path `/orders/42` as a label means millions of series. The label is the route template, `http.route`.
+- Duration in milliseconds in one service and in seconds in another. State units explicitly (`s`, `By`, `{order}`); the standard is seconds.
+
+**Rule of thumb**
+
+RED for every endpoint, USE for every limited resource, counters for key business operations.
+
+**Takeaway:** a counter for events, a histogram for durations, a gauge for state, and only labels with a small number of values.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- `Add` or `Record` without a listener is a flag check and a return. A listener (the OpenTelemetry SDK, `MeterListener`, `dotnet-counters` over EventPipe) aggregates in-process: a sum for a counter, buckets for a histogram.
+- Storage receives not every measurement but one series per label combination. Prometheus scrapes aggregates over HTTP; OTLP pushes them.
+
+**Cost**
+
+- Series = product of label value counts × histogram buckets × instances. 50 routes × 10 status codes × 4 methods × 15 buckets × 20 pods is up to 600,000 series for a single metric.
+- A metrics store pays memory for every active series, so a new label with a thousand values is a decision, not a detail.
+
+**Trade-offs**
+
+- A histogram percentile is approximate: accuracy depends on bucket boundaries. For `http.server.request.duration` with OpenTelemetry the default boundaries run from 5 ms to 10 s. Set your own with `InstrumentAdvice` (.NET 9+) or an OpenTelemetry View.
+- Percentiles cannot be averaged across instances: p99 comes from summed buckets, in Prometheus `histogram_quantile` over `sum by (le)`.
+- Average and maximum are cheaper but cannot answer "how many users waited longer than a second". The share of requests under a threshold comes from the same buckets.
+
+**How to check in production**
+
+- `dotnet-counters monitor -n MyApp --counters Shop.Orders` — your own metrics from a live process, no exporter needed.
+- In Prometheus, `count(http_server_request_duration_seconds_bucket)` shows how many series one metric produces.
+
+**Takeaway:** percentiles come from summed histograms, and label cardinality determines what metrics cost.
+
+</A>
+
+<Ex>
+
+```csharp
+using System.Diagnostics;
+using System.Diagnostics.Metrics;
+
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddSingleton<OrderMetrics>();
+
+var app = builder.Build();
+
+app.MapPost("/orders", async (OrderMetrics metrics) =>
+{
+    long start = Stopwatch.GetTimestamp();
+    await Task.Delay(50); // processing the order
+    metrics.OrderCreated("card", Stopwatch.GetElapsedTime(start));
+    return Results.Accepted();
+});
+
+app.Run();
+
+sealed class OrderMetrics
+{
+    private readonly Counter<long> _created;
+    private readonly Histogram<double> _duration;
+    private int _queueLength;
+
+    public OrderMetrics(IMeterFactory factory)
+    {
+        Meter meter = factory.Create("Shop.Orders");
+        _created = meter.CreateCounter<long>("shop.orders.created", unit: "{order}");
+        _duration = meter.CreateHistogram<double>("shop.orders.duration", unit: "s",
+            advice: new InstrumentAdvice<double> { HistogramBucketBoundaries = [0.01, 0.05, 0.1, 0.5, 1, 5] });
+        // The value is read only at collection time
+        meter.CreateObservableGauge("shop.orders.queue.length", () => Volatile.Read(ref _queueLength), unit: "{order}");
+    }
+
+    public void OrderCreated(string paymentMethod, TimeSpan elapsed)
+    {
+        // A few possible values — low cardinality; the order id never goes here
+        var tag = new KeyValuePair<string, object?>("payment.method", paymentMethod);
+        _created.Add(1, tag);
+        _duration.Record(elapsed.TotalSeconds, tag);
+    }
+}
+```
+
+```bash
+# Custom and built-in metrics of a running process
+dotnet-counters monitor -n MyShop --counters Shop.Orders,Microsoft.AspNetCore.Hosting
+```
+
+</Ex>
+
+<Next>
+
+- How is RED different from USE? — RED is for requests to a service, USE is for resources: CPU, memory, pools.
+- Why p99 and not the average? — The average hides the slow tail that real users experience.
+- Can you average p99 across pods? — No, you sum histogram buckets and compute the percentile from the sum.
+- Why not put `user.id` in a label? — Every value is a new time series, and storage blows up.
+- How is `ObservableGauge<T>` different from `Gauge<T>`? — The first reads the value through a callback at collection time; the second is recorded when the value changes (.NET 9+).
+
+</Next>
+
+<Src>
+
+- [Creating metrics — .NET](https://learn.microsoft.com/dotnet/core/diagnostics/metrics-instrumentation)
+- [ASP.NET Core built-in metrics](https://learn.microsoft.com/aspnet/core/metrics/built-in)
+- [.NET runtime metrics](https://learn.microsoft.com/dotnet/core/diagnostics/built-in-metrics-runtime)
+
+</Src>
+
+</Q>
+
+<Q id="quality.obs.prod-diagnostics" level="s">
+
+## How do you troubleshoot a performance or memory problem on a live server?
+
+<A short l="j">
+
+First you use metrics to pin down the symptom: what went up — CPU, memory, response time or thread count. Then you collect data from the running process: <T k="dotnet-counters">`dotnet-counters`</T> shows live counters, <T k="dotnet-trace">`dotnet-trace`</T> shows where the time goes, and <T k="dotnet-dump">`dotnet-dump`</T> takes a snapshot of memory and threads, with the process frozen while the dump is written.
+
+</A>
+
+<A short l="m">
+
+The order is: symptom, metrics, hypothesis, targeted data collection — not "grab everything at once". High CPU means a `dotnet-trace` profile; growing memory means comparing <T k="dotnet-gcdump">`dotnet-gcdump`</T> snapshots; slow with low CPU means the thread pool in `dotnet-counters` and stacks in a dump; slow database queries mean traces with SQL spans. Collection has a price: a dump freezes the process and is as big as its memory, a trace adds load, so you take the instance out of the load balancer and check disk space first.
+
+</A>
+
+<A short l="s">
+
+Mitigate first, gather evidence second: roll back the release or pull the instance out of the load balancer, but keep one "sick" instance for collection. The tools connect through the <T k="diagnostic-port">diagnostic port</T> and <T k="eventpipe">EventPipe</T>, so in a container you run them in a sidecar with a shared `/tmp` or deploy <T k="dotnet-monitor">`dotnet-monitor`</T>, which captures a dump or trace through an HTTP API and trigger rules, for example on a burst of slow requests. A dump is the whole process memory, tokens and personal data included, so you treat it like a secret.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+Diagnostics on a live server means finding the cause without a debugger and without stopping the service.
+
+**How to use**
+
+1. Use metrics to define the symptom: what went up and when.
+2. Look at the process counters: `dotnet-counters monitor -n MyApp`.
+3. High CPU — record a 30-second trace and open it in Visual Studio or PerfView.
+4. Memory keeps growing or the process hangs — take a dump and open it with `dotnet-dump analyze`.
+
+**Tools**
+
+| Tool | What it gives you |
+|---|---|
+| `dotnet-counters` | live metrics: CPU, GC, thread pool, requests |
+| `dotnet-trace` | where the time goes, runtime events |
+| `dotnet-dump` | a snapshot of all memory and thread stacks |
+| `dotnet-gcdump` | only the heap object graph |
+
+**Common mistake**
+
+Restarting the process right away without capturing anything. The symptom is gone, so is the evidence, and a day later it all happens again.
+
+**Takeaway:** first the symptom from metrics, then the lightest tool that can explain it.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+The tools connect to the process through the diagnostic port: a named pipe on Windows or a Unix socket in `/tmp` on Linux. Data flows over EventPipe, so you need neither an SDK on the server nor a restart. You do need the same user as the process, or root.
+
+**When to choose what**
+
+| Symptom | What to look at |
+|---|---|
+| High CPU | `dotnet-trace`: hot stacks in PerfView or speedscope |
+| Growing memory | heap growth after GC in `dotnet-counters`, then two `dotnet-gcdump` snapshots |
+| Slow, CPU low | thread pool queue and threads in `dotnet-counters`, stacks in a dump |
+| Slow database queries | traces with SQL spans, then the query plan |
+| Exception spike | `dotnet.exceptions` by `error.type` |
+
+Details: leaks are covered in [Garbage collection and resources](/sobes/en/dotnet/gc/), thread pool starvation in [Threading](/sobes/en/dotnet/threading/), query plans in [Indexes and query plans](/sobes/en/db/indexes/).
+
+**Pitfalls**
+
+- The default `dotnet-trace` profile samples all managed threads, including waiting ones. In the report you separate work from waiting. The `cpu-sampling` profile from older guides has been removed in newer versions of the tool.
+- On Linux the tool and the process need the same `TMPDIR`, otherwise the connection times out.
+- `dotnet-gcdump` triggers a full garbage collection, which is a noticeable pause on a large heap.
+
+**Rule of thumb**
+
+One hypothesis, one targeted capture. Counters first, then a trace, a dump last.
+
+**Takeaway:** you choose the tool by the symptom, not the other way round.
+
+</A>
+
+<A l="s">
+
+**Step-by-step plan**
+
+1. **Mitigate.** Roll back the release if the problem lines up with a deployment, or pull the instance out of the load balancer. Keep one "sick" instance for collection.
+2. **Metrics.** When it started, all instances or one, whether it lines up with a deployment, a traffic increase or GC pauses.
+3. **Light capture.** `dotnet-counters`, then `dotnet-trace` for 30–60 seconds.
+4. **Heavy capture.** A dump only when you need it. Before it, check disk space (a dump is as big as the process memory) and the container memory limit: collection can page memory in and trigger an OOM kill.
+5. **Analysis outside production.** Copy the dump to a workstation and analyze it there.
+6. **Verification.** Confirm the fix with the same metrics.
+
+**Containers**
+
+- A sidecar sees the process if the containers share the process namespace and `/tmp` (for example, an `emptyDir`). `dotnet-dump` needs `ptrace` (`SYS_PTRACE`).
+- `dotnet-monitor` is a ready-made sidecar with an HTTP API: `/dump`, `/gcdump`, `/trace`, `/metrics`. Its collection rules with triggers such as `AspNetRequestDuration` capture an artifact at the moment of the problem and upload it to storage.
+- For crashes, the runtime writes a dump itself when `DOTNET_DbgEnableMiniDump=1` is set.
+
+**Cost**
+
+- While the dump is being written, the process is stopped: on a large heap that is seconds or more.
+- A dump holds all memory: connection strings, tokens, personal data. Store and transfer it like a secret and delete it after the analysis.
+
+**Takeaway:** in production you save the users first, then capture the minimum sufficient evidence, and take heavy snapshots on an instance already out of the load balancer.
+
+</A>
+
+<Ex>
+
+```bash
+# 1. Which .NET processes are visible (same user or root)
+dotnet-counters ps
+
+# 2. Live metrics: CPU, GC, thread pool, requests
+dotnet-counters monitor -p 1234 --counters System.Runtime,Microsoft.AspNetCore.Hosting
+
+# 3. High CPU: 30 seconds of stack samples, a file for speedscope or PerfView
+dotnet-trace collect -p 1234 --duration 00:00:00:30 --format Speedscope
+
+# 4. Growing memory: the object graph (triggers a full garbage collection)
+dotnet-gcdump collect -p 1234 -o before.gcdump
+
+# 5. Hang or thread pool starvation: a full dump and the stacks of all threads
+dotnet-dump collect -p 1234 -o /diag/app.dmp
+dotnet-dump analyze /diag/app.dmp -c "threadpool" -c "parallelstacks" -c "exit"
+```
+
+</Ex>
+
+<Ex l="s" title="dotnet-monitor: a trace on a burst of slow requests">
+
+```json
+{
+  "CollectionRules": {
+    "SlowRequests": {
+      "Trigger": {
+        "Type": "AspNetRequestDuration",
+        "Settings": { "RequestCount": 10, "RequestDuration": "00:00:03", "SlidingWindowDuration": "00:01:00" }
+      },
+      "Actions": [
+        { "Type": "CollectTrace", "Settings": { "Profile": "Cpu", "Duration": "00:00:30", "Egress": "TmpDir" } }
+      ],
+      "Limits": { "ActionCount": 1, "ActionCountSlidingWindowDuration": "01:00:00" }
+    }
+  }
+}
+```
+
+Ten requests slower than three seconds within a minute, and `dotnet-monitor` records a 30-second trace on its own, at most once an hour.
+
+</Ex>
+
+<Next>
+
+- How is `dotnet-dump` different from `dotnet-gcdump`? — A dump is the whole process memory with field values; a gcdump is only the object graph, light but with a full GC.
+- Why can't `dotnet-trace` see a process in a neighbouring container? — There is no shared `/tmp` with the diagnostic port, or no shared process namespace.
+- How do you tell the thread pool from CPU as the cause of slowness? — CPU is low, the pool queue is long, the thread count keeps growing; stacks show blocking calls.
+- How do you catch a problem that lasts one minute at night? — `dotnet-monitor` rules with a trigger, or `--stopping-event` in `dotnet-trace`.
+- What makes a dump in production risky? — A process pause, memory growth up to an OOM kill, personal data in the file.
+
+</Next>
+
+<Src>
+
+- [dotnet-trace diagnostic tool](https://learn.microsoft.com/dotnet/core/diagnostics/dotnet-trace)
+- [dotnet-monitor diagnostic tool](https://learn.microsoft.com/dotnet/core/diagnostics/dotnet-monitor)
+- [Collect diagnostics in Linux containers](https://learn.microsoft.com/dotnet/core/diagnostics/diagnostics-in-containers)
+
+</Src>
+
+</Q>
+
+<Q id="quality.obs.slo-alerting" level="s">
+
+## What are SLIs, SLOs and error budgets, and how do you set up alerts that don't wake people for nothing?
+
+<A short l="j">
+
+An <T k="sli">SLI</T> is a measurable indicator of service quality, such as the share of successful requests, and an <T k="slo">SLO</T> is the target for it: "99.9% of requests succeed over 30 days". The <T k="error-budget">error budget</T> is the allowed share of failures, 0.1% here: while it lasts, you can ship changes freely, and an alert fires when the budget is being spent too fast.
+
+</A>
+
+<A short l="m">
+
+An SLI is computed as the share of good events among all events (successful requests, requests faster than 300 ms), and the error budget is 100% − SLO: for 99.9% over 30 days that is 43 minutes of full downtime. What pages a human should be <T k="symptom-based-alerting">symptom-based alerts</T> — errors and latency the user sees — not cause-based ones like "CPU at 90%", which are noisy and still miss unfamiliar failures. The budget burn speed separates urgent from non-urgent: fast burn pages the on-call engineer, slow burn opens a ticket.
+
+</A>
+
+<A short l="s">
+
+<T k="burn-rate">Burn rate</T> is how many times faster than allowed the budget is being consumed: at 1 it runs out exactly at the end of the SLO window. The SRE Workbook recommends several windows: 2% of the budget in an hour (burn rate 14.4) and 5% in 6 hours (6) page, 10% in 3 days (1) opens a ticket, and a short window of 1/12 of the long one clears the alert right after recovery. Every paging alert must require action and link to a <T k="runbook">runbook</T>, and after an incident you write a <T k="blameless-postmortem">blameless postmortem</T>: you look for weaknesses in the system and processes, not for someone to blame.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **SLI** (service level indicator) — what you measure: the share of successful requests, the share of requests faster than 300 ms.
+- **SLO** (service level objective) — the target: 99.9% over 30 days.
+- **SLA** — a contract with a customer that has consequences, usually looser than the internal SLO.
+- **Error budget** — 100% − SLO: how many failures you can afford.
+
+**Why**
+
+An SLO answers "are we reliable enough?". 100% is unreachable and unnecessary: users cannot tell 99.99% from 100%.
+
+**How to use**
+
+- Budget left — ship features. Budget gone — work on reliability.
+- An alert fires when users are suffering, not when "something looks odd".
+
+**Common mistake**
+
+Alerting on every CPU spike or on a single 500. The on-call engineer learns to ignore notifications and misses the real outage.
+
+**Takeaway:** the SLO sets the reliability target, and the error budget is how many failures you can spend on change.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+1. SLI = good events / all events. It is computed from metrics, for example from `http.server.request.duration` with the status code.
+2. An SLO is set over a window, usually a rolling 28 or 30 days.
+3. The budget in minutes: 99.9% over 30 days is 43.2 minutes of full downtime, 99.99% is 4.3 minutes.
+
+**When to choose what**
+
+| Alert | Example | Where it goes |
+|---|---|---|
+| Symptom-based | 5xx rate, p99 above the SLO target | pages the on-call engineer |
+| Cause-based | CPU at 90%, disk 80% full | dashboard or ticket |
+| Cause-based but imminent | disk full in 4 hours | pages: the outage is about to happen |
+
+**Pitfalls**
+
+- **Low traffic.** A threshold of "more than 1% errors over 5 minutes" fires at night on one error in 50 requests.
+- **An alert with no action.** If there is nothing to do about a notification, it is a dashboard line, not an alert.
+- **Availability only.** An error-based SLO will not notice that everything got slow; you also need a latency SLI.
+
+**Rule of thumb**
+
+Only what needs a human to act right now pages anyone, and every such alert has a runbook.
+
+**Takeaway:** symptoms users can see page people; causes go to dashboards and tickets.
+
+</A>
+
+<A l="s">
+
+**Under the hood: burn rate**
+
+Burn rate = error rate / (1 − SLO). With a 99.9% SLO and 1.44% errors the burn rate is 14.4: the monthly budget burns out in 50 hours. The SRE Workbook recommendation for 99.9%:
+
+| Budget consumed | Windows: long / short | Burn rate and response |
+|---|---|---|
+| 2% | 1 h / 5 min | 14.4 — page |
+| 5% | 6 h / 30 min | 6 — page |
+| 10% | 3 days / 6 h | 1 — ticket |
+
+The alert fires when both windows are exceeded: the long one gives precision, the short one a quick reset after recovery.
+
+**Cost**
+
+- A night-time page has a human cost. Google SRE plans for at most two incidents per 12-hour shift: more than that, and follow-up turns into firefighting.
+- Too strict an SLO slows down releases, too loose a one does not protect users. Base the target on what users notice, not on the current charts.
+
+**Trade-offs**
+
+- An error budget policy agrees on consequences in advance: the budget is gone, features wait, the team fixes reliability. Without a policy, an SLO stays a number on a dashboard.
+- A runbook is the diagnostic steps and safe actions for a specific alert. A runbook you keep repeating is a candidate for automation.
+
+**Incident review**
+
+A blameless postmortem records the timeline, user impact, causes and action items with owners and deadlines. The question is "why did the system allow this to happen", not "who is to blame": otherwise people start hiding mistakes.
+
+**Takeaway:** an alert on error budget burn rate pages only when users are actually losing the promised quality.
+
+</A>
+
+<Ex>
+
+```yaml
+groups:
+  - name: orders-api-slo
+    rules:
+      # SLI: share of 5xx responses over the window
+      - record: slo:error_ratio:rate5m
+        expr: |
+          sum(rate(http_server_request_duration_seconds_count{job="orders-api",http_response_status_code=~"5.."}[5m]))
+          /
+          sum(rate(http_server_request_duration_seconds_count{job="orders-api"}[5m]))
+      - record: slo:error_ratio:rate1h
+        expr: |
+          sum(rate(http_server_request_duration_seconds_count{job="orders-api",http_response_status_code=~"5.."}[1h]))
+          /
+          sum(rate(http_server_request_duration_seconds_count{job="orders-api"}[1h]))
+      # SLO 99.9% → budget 0.001; burn rate 14.4 = 2% of the monthly budget per hour
+      - alert: OrdersApiErrorBudgetBurn
+        expr: |
+          slo:error_ratio:rate1h > (14.4 * 0.001)
+          and
+          slo:error_ratio:rate5m > (14.4 * 0.001)
+        labels:
+          severity: page
+        annotations:
+          summary: "orders-api is burning its error budget 14x faster than allowed"
+          runbook_url: "https://wiki.example.com/runbooks/orders-api-errors"
+```
+
+The Prometheus rule pages the on-call engineer only if errors are high both over the last hour and over the last 5 minutes.
+
+</Ex>
+
+<Next>
+
+- How is an SLO different from an SLA? — An SLO is an internal target; an SLA is a contract with consequences, usually looser than the SLO.
+- How much downtime does 99.9% allow per month? — About 43 minutes.
+- What does a burn rate of 1 mean? — The budget runs out exactly at the end of the SLO window.
+- Why a short window in a burn-rate alert? — So the alert clears quickly after recovery instead of firing for an hour.
+- What belongs in a postmortem? — Timeline, impact, causes, action items with owners; no hunt for someone to blame.
+
+</Next>
+
+<Src>
+
+- [Service Level Objectives — Google SRE Book](https://sre.google/sre-book/service-level-objectives/)
+- [Alerting on SLOs — Google SRE Workbook](https://sre.google/workbook/alerting-on-slos/)
+- [Postmortem Culture — Google SRE Book](https://sre.google/sre-book/postmortem-culture/)
+
+</Src>
+
+</Q>

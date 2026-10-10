@@ -1,0 +1,141 @@
+continuous-integration:
+  term: Неперервна інтеграція (continuous integration, CI)
+  def: >-
+    Практика, за якої розробники часто зливають зміни в спільну гілку, а кожна зміна автоматично
+    збирається й перевіряється тестами. Помилку інтеграції видно за хвилини, а не в день релізу.
+  q: continuous integration
+  docs: https://learn.microsoft.com/devops/develop/what-is-continuous-integration
+  wiki: Неперервна інтеграція
+continuous-delivery:
+  term: Неперервна доставка (continuous delivery, CD)
+  def: >-
+    Продовження CI: кожна перевірена збірка автоматично пакується й розгортається на тестові
+    оточення, тож у прод її можна випустити будь-коли — за ручним підтвердженням.
+  q: continuous delivery
+  docs: https://learn.microsoft.com/devops/deliver/what-is-continuous-delivery
+  wiki: Неперервна доставка
+continuous-deployment:
+  term: Неперервне розгортання (continuous deployment)
+  def: >-
+    Варіант CD без ручного кроку: кожна зміна, що пройшла всі перевірки конвеєра, автоматично йде в
+    прод. Потребує надійних автотестів, моніторингу й швидкого відкату.
+  q: continuous deployment vs continuous delivery
+ci-pipeline:
+  term: Конвеєр CI/CD (pipeline)
+  def: >-
+    Описана кодом послідовність кроків, яку CI-система виконує на кожну зміну: restore, збирання,
+    тести, аналіз, публікація й розгортання. У GitHub Actions це workflow у YAML, у Jenkins —
+    `Jenkinsfile`.
+  q: CI/CD pipeline
+  docs: https://docs.github.com/actions/get-started/understand-github-actions
+build-artifact:
+  term: Артефакт збирання (build artifact)
+  def: >-
+    Результат конвеєра, який зберігають і розгортають: архів із результатом `dotnet publish`,
+    NuGet-пакет або образ контейнера. Його збирають один раз і просувають оточеннями без
+    перезбирання.
+  q: build artifact CI/CD
+  docs: https://docs.github.com/actions/tutorials/store-and-share-data
+roslyn-analyzer:
+  term: Аналізатор Roslyn (Roslyn analyzer)
+  def: >-
+    Розширення компілятора C#, яке перевіряє код під час збирання та в IDE й видає діагностики на
+    кшталт `CA2016` або `IDE0161`. Аналізатори якості коду вбудовані в .NET SDK із .NET 5.
+  q: .NET Roslyn analyzers code analysis
+  docs: https://learn.microsoft.com/dotnet/fundamentals/code-analysis/overview
+editorconfig:
+  term: .editorconfig
+  def: >-
+    Файл налаштувань у репозиторії, спільний для IDE і збирання: відступи, стиль коду й важливість
+    правил аналізаторів (`dotnet_diagnostic.CA2016.severity = error`). Діє на папку, де лежить, і
+    вкладені.
+  q: .NET editorconfig code analysis configuration
+  docs: https://learn.microsoft.com/dotnet/fundamentals/code-analysis/configuration-files
+quality-gate:
+  term: Quality gate
+  def: >-
+    Набір порогів, які результат аналізу має пройти, щоб вважатися придатним: наприклад, немає нових
+    зауважень і покриття нового коду від 80%. У SonarQube статус gate може зупиняти конвеєр і злиття
+    PR.
+  q: SonarQube quality gate
+  docs: https://docs.sonarsource.com/sonarqube-server/quality-standards-administration/managing-quality-gates/introduction-to-quality-gates
+code-smell:
+  term: Code smell («запах коду»)
+  def: >-
+    Ознака проблеми з підтримуваністю коду, яка не ламає його просто зараз: задовгий метод,
+    дублювання, складна умова. SonarQube відносить такі зауваження до супроводжуваності (maintainability).
+  q: code smell
+branch-protection:
+  term: Правила захисту гілки (branch protection)
+  def: >-
+    Налаштування репозиторію, які забороняють злиття в гілку на кшталт `main`, доки не пройдено
+    обов'язкові перевірки конвеєра й не отримано схвалення рев'юерів. У GitHub — protected branches
+    і rulesets.
+  q: GitHub protected branches required status checks
+  docs: https://docs.github.com/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches
+semver:
+  term: Семантичне версіонування (SemVer)
+  def: >-
+    Схема версій `MAJOR.MINOR.PATCH`: major зростає за несумісних змін, minor — за нових зворотно
+    сумісних можливостей, patch — за виправлень. Суфікс через дефіс позначає попередню версію, через
+    плюс — метадані збирання.
+  q: semantic versioning 2.0
+  docs: https://semver.org/lang/uk/
+nuget-feed:
+  term: NuGet-фід (package source)
+  def: >-
+    Сервер або папка, звідки NuGet завантажує пакети. Приватний фід компанії (Azure Artifacts,
+    GitHub Packages, BaGetter, Nexus) зберігає внутрішні пакети й часто проксує nuget.org.
+  q: private NuGet feed hosting
+  docs: https://learn.microsoft.com/nuget/hosting-packages/overview
+package-lock-file:
+  term: Lock-файл пакетів (packages.lock.json)
+  def: >-
+    Файл із повним графом залежностей проєкту й точними версіями, зокрема транзитивними. З `dotnet
+    restore --locked-mode` restore бере рівно ці версії або падає, якщо граф змінився.
+  q: NuGet packages.lock.json locked mode
+  docs: https://learn.microsoft.com/nuget/consume-packages/package-references-in-project-files#locking-dependencies
+nuget-audit:
+  term: NuGet Audit
+  def: >-
+    Перевірка пакетів на відомі вразливості під час кожного restore (.NET 8 SDK+). Видає
+    попередження NU1901–NU1904 за рівнем небезпеки; для `net10.0` за замовчуванням перевіряє й
+    транзитивні пакети.
+  q: NuGetAudit NuGetAuditMode
+  docs: https://learn.microsoft.com/nuget/concepts/auditing-packages
+package-source-mapping:
+  term: Package Source Mapping
+  def: >-
+    Налаштування `nuget.config`, яке для кожного шаблону імені пакета задає, з якого фіду його можна
+    брати. Захищає від підміни внутрішніх пакетів однойменними з nuget.org (dependency confusion).
+  q: NuGet package source mapping
+  docs: https://learn.microsoft.com/nuget/consume-packages/package-source-mapping
+source-link:
+  term: Source Link
+  def: >-
+    Технологія, яка записує в PDB і пакет адресу репозиторію й коміт. Налагоджувач за нею
+    завантажує вихідний код точної версії бібліотеки. Із .NET 8 вбудована в SDK для GitHub, Azure
+    Repos, GitLab і Bitbucket.
+  q: .NET Source Link
+  docs: https://learn.microsoft.com/dotnet/standard/library-guidance/sourcelink
+rolling-deployment:
+  term: Поетапне розгортання (rolling deployment)
+  def: >-
+    Стратегія, за якої екземпляри за балансувальником оновлюються по одному або невеликими групами.
+    Зайві сервери не потрібні, але на час розгортання стара й нова версії працюють одночасно.
+  q: rolling deployment strategy
+blue-green-deployment:
+  term: Blue-green deployment
+  def: >-
+    Стратегія з двома повними копіями середовища: нова версія розгортається поруч зі старою без
+    трафіку, проходить перевірки, і балансувальник перемикається на неї. Стара копія залишається для
+    миттєвого відкату.
+  q: blue-green deployment
+  docs: https://martinfowler.com/bliki/BlueGreenDeployment.html
+canary-release:
+  term: Канарковий реліз (canary release)
+  def: >-
+    Стратегія, за якої нова версія спершу отримує малу частку трафіку або користувачів. Її помилки
+    й затримки порівнюють зі старою і збільшують частку сходинками або відкочують.
+  q: canary release deployment
+  docs: https://martinfowler.com/bliki/CanaryRelease.html

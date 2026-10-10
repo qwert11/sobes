@@ -1,0 +1,838 @@
+---
+title: Тестирование
+description: Модульные тесты в xUnit и NUnit, моки, стабы и фейки, интеграционные тесты с WebApplicationFactory и Testcontainers, стратегия тестирования, покрытие и legacy-код.
+sidebar:
+  order: 1
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+Как проверять .NET-код автоматически: модульные тесты и дублёры зависимостей, интеграционные тесты ASP.NET Core с настоящей базой и стратегия, которая держит баланс между уверенностью и временем прогона. На собеседовании здесь проверяют не синтаксис атрибутов, а умение объяснить, что, каким тестом и зачем проверять.
+
+**Перед этой темой:** [Внедрение зависимостей](/sobes/aspnet/di/).
+
+<Q id="quality.test.unit-basics" level="j">
+
+## Что такое модульный тест и как его правильно написать?
+
+<A short l="j">
+
+<T k="unit-test">Модульный тест</T> (unit test) — маленький автоматический тест, который проверяет одно поведение кода в изоляции от базы, сети и файлов. Его пишут по схеме <T k="arrange-act-assert">Arrange-Act-Assert</T>: подготовить данные, вызвать метод, проверить результат, — поэтому он выполняется за миллисекунды и сразу показывает, что сломалось.
+
+</A>
+
+<A short l="m">
+
+Модульный тест проверяет поведение одной единицы кода через её публичный API, без внешних ресурсов, и должен быть быстрым, изолированным и повторяемым. Хороший тест проверяет одно поведение: имя вида `Метод_Сценарий_Ожидание`, одно действие, <T k="parameterized-test">параметризованный тест</T> вместо цикла — в xUnit это `[Fact]` и `[Theory]`, в NUnit — `[Test]` и `[TestCase]`. Цена ошибки в дизайне теста — привязка к деталям реализации: такие тесты ломаются при каждом рефакторинге.
+
+</A>
+
+<A short l="s">
+
+Модульный тест — исполняемая спецификация поведения: он ценен, пока ловит регрессии и не мешает рефакторингу. Поэтому проверяют наблюдаемое поведение через публичный API, а не приватные методы и порядок вызовов. Всё недетерминированное — время, случайные числа, окружение — выносят в зависимости вроде <T k="time-provider">`TimeProvider`</T>. Выбор между <T k="xunit">xUnit</T>, NUnit и MSTest вторичен: важнее, как фреймворк создаёт экземпляр класса теста и что запускает параллельно.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+Модульный тест — метод, который вызывает ваш код с известными данными и проверяет результат. Он не трогает базу, сеть и файлы, поэтому выполняется за миллисекунды.
+
+**Как пользоваться**
+
+1. **Arrange** — создать объект и данные.
+2. **Act** — один раз вызвать проверяемый метод.
+3. **Assert** — сравнить результат с ожидаемым: `Assert.Equal(100m, price)`.
+
+Имя теста состоит из трёх частей: метод, сценарий, ожидаемое поведение — `Apply_UnknownCoupon_Throws`. В xUnit обычный тест помечают `[Fact]`, а тест с наборами данных — `[Theory]` и `[InlineData]`.
+
+**Что тестировать**
+
+Логику с ветвлениями: расчёты, валидацию, граничные значения — ноль, пустую строку, `null`. Автосвойства и код фреймворка тестировать не нужно.
+
+**Частая ошибка**
+
+Тест зависит от `DateTime.Now` или от порядка запуска: сегодня он зелёный, завтра красный.
+
+**Итог:** один тест — одно поведение: подготовить, вызвать, проверить.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+| Фреймворк | Тест и параметры | Жизненный цикл класса теста |
+|---|---|---|
+| xUnit | `[Fact]`, `[Theory]` и `[InlineData]` | новый экземпляр на каждый тест; подготовка в конструкторе, очистка в `Dispose` |
+| NUnit | `[Test]`, `[TestCase]` | один экземпляр на класс; `[SetUp]` и `[TearDown]` вокруг каждого теста |
+| MSTest | `[TestMethod]`, `[DataRow]` | новый экземпляр на тест; `[TestInitialize]`, `[TestCleanup]` |
+
+- xUnit по умолчанию запускает разные классы параллельно, а тесты одного класса — последовательно. NUnit и MSTest идут последовательно, пока параллельность не включили (`[Parallelizable]`, `[assembly: Parallelize]`).
+- В NUnit 4 основной стиль — `Assert.That(x, Is.EqualTo(y))`, а классические `Assert.AreEqual` переехали в `ClassicAssert`.
+
+**Ловушки**
+
+- **Общее состояние в NUnit.** Поле класса переживает тест, и тест, который его меняет, ломает соседей. `[FixtureLifeCycle(LifeCycle.InstancePerTestCase)]` даёт экземпляр на тест.
+- **Несколько действий в тесте.** Первый упавший assert скрывает остальные проверки — лучше `[Theory]` с наборами данных.
+- **Логика в тесте.** `if` и циклы в тесте — место для собственных багов.
+- **«Один assert на тест».** Правило про одно логическое утверждение: проверить несколько полей одного результата — нормально.
+
+**Правило**
+
+Одно поведение на тест, проверка через публичный API. Приватный метод проверяется через публичный, который его вызывает.
+
+**Итог:** хороший модульный тест быстрый, изолированный и повторяемый, а фреймворки различаются в первую очередь жизненным циклом класса теста.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- xUnit создаёт экземпляр класса на каждый тест — изоляция заложена в дизайн. Дорогой общий ресурс делят явно: `IClassFixture<T>` на класс, `ICollectionFixture<T>` на группу классов, в v3 — `[assembly: AssemblyFixture]` на сборку.
+- xUnit v3 (пакет `xunit.v3`) собирает тестовый проект в исполняемый файл и требует .NET 8+ или .NET Framework 4.7.2+. `IAsyncLifetime` в нём работает с `ValueTask`, а `TestContext.Current.CancellationToken` сигналит об отмене прогона или таймауте.
+
+**Цена**
+
+- Тест, привязанный к реализации — порядку вызовов, приватным методам, внутренним полям, — падает при рефакторинге без изменения поведения. Такие ложные срабатывания учат команду не верить тестам.
+- Недетерминированный тест хуже отсутствующего: его перезапускают, пока не позеленеет, и вместе с ним пропускают настоящие падения.
+
+**Компромиссы**
+
+- Детерминизм дают зависимости вместо статики: `TimeProvider` (.NET 8+) и `FakeTimeProvider` из `Microsoft.Extensions.TimeProvider.Testing` для времени, генератор с фиксированным seed для случайных чисел, явная `CultureInfo` для форматирования.
+- «Единица» — это поведение, а не класс. Тест агрегата вместе с его value objects без подмен устойчивее, чем отдельный тест на каждый маленький класс.
+
+**Как проверить**
+
+- Тест, который падает только в полном прогоне, зависит от общего состояния или порядка.
+- Намеренно сломайте проверяемую строку: если тест не упал, он ничего не проверяет.
+
+**Итог:** модульный тест проверяет наблюдаемое поведение и детерминирован; всё, что привязывает его к реализации или к окружению, превращает его в шум.
+
+</A>
+
+<Ex>
+
+```csharp
+// NuGet: xunit.v3
+using Xunit;
+
+public class DiscountCalculatorTests
+{
+    [Fact]
+    public void Apply_NoCoupon_ReturnsOriginalPrice()
+    {
+        // Arrange
+        var calculator = new DiscountCalculator();
+
+        // Act
+        var price = calculator.Apply(100m, coupon: null);
+
+        // Assert
+        Assert.Equal(100m, price);
+    }
+
+    // Один тест — несколько наборов данных
+    [Theory]
+    [InlineData("SALE10", 90)]
+    [InlineData("SALE50", 50)]
+    public void Apply_KnownCoupon_ReducesPrice(string coupon, int expected)
+    {
+        var price = new DiscountCalculator().Apply(100m, coupon);
+
+        Assert.Equal(expected, price);
+    }
+
+    [Fact]
+    public void Apply_UnknownCoupon_Throws() =>
+        Assert.Throws<ArgumentException>(() => new DiscountCalculator().Apply(100m, "BOGUS"));
+}
+
+public class DiscountCalculator
+{
+    public decimal Apply(decimal price, string? coupon) => coupon switch
+    {
+        null => price,
+        "SALE10" => price * 0.9m,
+        "SALE50" => price * 0.5m,
+        _ => throw new ArgumentException($"Unknown coupon: {coupon}", nameof(coupon))
+    };
+}
+```
+
+</Ex>
+
+<Ex title="То же на NUnit 4">
+
+```csharp
+// NuGet: NUnit
+using NUnit.Framework;
+
+[TestFixture]
+public class DiscountCalculatorTests
+{
+    [Test]
+    public void Apply_NoCoupon_ReturnsOriginalPrice() =>
+        Assert.That(new DiscountCalculator().Apply(100m, null), Is.EqualTo(100m));
+
+    // Аналог [Theory] + [InlineData]
+    [TestCase("SALE10", 90)]
+    [TestCase("SALE50", 50)]
+    public void Apply_KnownCoupon_ReducesPrice(string coupon, int expected) =>
+        Assert.That(new DiscountCalculator().Apply(100m, coupon), Is.EqualTo(expected));
+}
+```
+
+</Ex>
+
+<Next>
+
+- Чем `[Fact]` отличается от `[Theory]`? — `[Fact]` без параметров, `[Theory]` запускается на каждый набор из `[InlineData]`, `[MemberData]` или `[ClassData]`.
+- Как в xUnit сделать общую подготовку для тестов? — Конструктор для каждого теста, `IClassFixture<T>` для класса, `ICollectionFixture<T>` для нескольких классов.
+- Нужно ли тестировать приватные методы? — Нет, через публичный метод; желание проверить приватный — сигнал выделить класс.
+- Как тестировать код с `DateTime.Now`? — Внедрить `TimeProvider` и подставить в тесте `FakeTimeProvider`.
+- Почему NUnit-тест падает только при запуске всего класса? — Один экземпляр на класс: тесты делят поля.
+
+</Next>
+
+<Src>
+
+- [Best practices for writing unit tests](https://learn.microsoft.com/dotnet/core/testing/unit-testing-best-practices)
+- [What's new in xUnit.net v3](https://xunit.net/docs/getting-started/v3/whats-new)
+- [Unit testing C# with NUnit](https://learn.microsoft.com/dotnet/core/testing/unit-testing-csharp-with-nunit)
+
+</Src>
+
+</Q>
+
+<Q id="quality.test.test-doubles" level="m">
+
+## Что такое моки, стабы и фейки и когда их использовать?
+
+<A short l="j">
+
+<T k="test-double">Test double</T> («дублёр») — объект, который в тесте заменяет настоящую зависимость: <T k="test-stub">стаб</T> возвращает заготовленные данные, <T k="mock-object">мок</T> позволяет проверить, что его вызвали, а <T k="test-fake">фейк</T> — упрощённая рабочая реализация, например репозиторий на словаре. Их пишут руками или создают библиотекой вроде NSubstitute и Moq, чтобы тестировать класс без базы и сети.
+
+</A>
+
+<A short l="m">
+
+Джерард Мезарос выделяет пять видов дублёров — dummy, stub, spy, mock и fake, — но на практике важно отличать стаб, который управляет входными данными, от мока, который проверяет исходящее взаимодействие. Мок оправдан, когда вызов и есть результат: отправка письма, публикация события; для методов-запросов хватает стаба, а проверка их вызова привязывает тест к реализации. NSubstitute и Moq решают одну задачу, NSubstitute короче синтаксисом, а тестовые данные помогает генерировать <T k="autofixture">AutoFixture</T>.
+
+</A>
+
+<A short l="s">
+
+Дублёры подменяют то, что медленно, недетерминированно или даёт побочные эффекты, а всё остальное лучше оставлять настоящим. Избыток моков — запах: тест повторяет реализацию, ломается при рефакторинге и не ловит ошибок на стыках. Чужие типы вроде `HttpClient`, `DbContext` и SDK не мокают напрямую: их оборачивают своим адаптером, в модульных тестах подменяют его, а сам адаптер проверяют интеграционным тестом. Выбор библиотек — ещё и вопрос лицензий: SponsorLink в Moq (2023) и платная <T k="fluent-assertions">FluentAssertions</T> 8 (2025) заставили многие команды пересмотреть зависимости.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+Test double — замена настоящей зависимости в тесте. `OrderService` получает `IEmailSender` через конструктор, поэтому в тест можно передать дублёра вместо настоящей отправки писем.
+
+**Какие бывают**
+
+| Вид | Что делает |
+|---|---|
+| Stub (стаб) | возвращает заготовленные ответы |
+| Mock (мок) | запоминает вызовы, тест их проверяет |
+| Fake (фейк) | работает по-настоящему, но упрощённо: репозиторий на словаре |
+
+**Как пользоваться**
+
+- NSubstitute: `Substitute.For<IStockService>()` создаёт дублёра, `stock.IsAvailable("SKU-1").Returns(true)` задаёт ответ, `email.Received(1).Send(...)` проверяет вызов.
+- Moq: то же через `new Mock<T>()`, `Setup(...)` и `Verify(...)`.
+
+**Частая ошибка**
+
+Проверять каждый вызов каждой зависимости. Если метод только читает данные, проверяйте результат, а не сам факт вызова.
+
+**Итог:** стаб даёт данные, мок проверяет вызов, фейк — упрощённая рабочая реализация.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+Классификация Мезароса из книги «xUnit Test Patterns»:
+
+- **Dummy** — передаётся ради сигнатуры и не используется.
+- **Stub** — возвращает заготовленные значения: управляет входами.
+- **Spy** — стаб, который записывает вызовы для проверки после действия.
+- **Mock** — проверяет взаимодействие: какие вызовы и с какими аргументами.
+- **Fake** — упрощённая рабочая реализация: репозиторий в памяти, `FakeTimeProvider`.
+
+Библиотека создаёт объект, который может сыграть любую роль; роль задаёт тест.
+
+**Когда что выбирать**
+
+| Действие | NSubstitute | Moq |
+|---|---|---|
+| Создать | `Substitute.For<T>()` | `new Mock<T>()`, затем `.Object` |
+| Задать ответ | `x.Get(1).Returns(5)` | `Setup(x => x.Get(1)).Returns(5)` |
+| Проверить вызов | `x.Received(1).Get(1)` | `Verify(x => x.Get(1), Times.Once())` |
+
+AutoFixture создаёт объекты с произвольными данными (`fixture.Create<Order>()`), с `AutoNSubstituteCustomization` подставляет дублёров вместо интерфейсов, а `[AutoData]` из `AutoFixture.Xunit3` передаёт сгенерированные аргументы в тест.
+
+**Ловушки**
+
+- **Дублёр класса.** Обе библиотеки перехватывают только интерфейсы и виртуальные члены: невиртуальный метод класса выполнится по-настоящему.
+- **Проверка запросов.** `Received()` у метода-чтения дублирует реализацию и ничего не добавляет к проверке результата.
+- **Громоздкий матчер.** Большая лямбда в `Arg.Is` хрупка; проще захватить аргумент и проверить его отдельно.
+
+**Правило**
+
+Стаб — для входящих данных, мок — только для исходящих команд с побочным эффектом.
+
+**Итог:** роль дублёра определяет тест; моки нужны там, где вызов и есть ожидаемый результат.
+
+</A>
+
+<A l="s">
+
+**Компромиссы**
+
+- **Классическая и лондонская школы.** Классическая подменяет только внешние и общие зависимости и тестирует поведение группы классов. Лондонская изолирует каждый класс моками: точнее локализует ошибку, но связывает тесты с реализацией.
+- **Избыток моков.** Пять дублёров в конструкторе и проверка каждого вызова — тест пересказывает код построчно. Это сигнал: у класса слишком много обязанностей или тест написан не на том уровне.
+- **Не мокайте то, чем не владеете.** Мок `HttpClient` или SDK фиксирует ваше представление о чужом API, а не его поведение. Свой адаптер с узким интерфейсом подменяют в модульных тестах, а сам адаптер проверяют против настоящего сервиса или эмулятора. По той же причине Microsoft не советует мокать `DbContext`: LINQ-запрос не подменить честно.
+
+**Цена: лицензии**
+
+- **Moq и SponsorLink.** В августе 2023 Moq 4.20.0 добавил анализатор SponsorLink: при сборке он читал email из настроек git и отправлял его хэш на внешний сервис для проверки спонсорства. После критики его убрали в 4.20.2, но часть компаний запретила пакет и перешла на NSubstitute.
+- **FluentAssertions 8.** С января 2025 библиотека выходит под Xceed Community License: бесплатно для некоммерческого использования, для коммерческого — платная лицензия на разработчика. Версия 7 осталась под Apache 2.0. Варианты: остаться на 7.x, перейти на форк AwesomeAssertions, на Shouldly (`result.ShouldBe(5)`) или на встроенные `Assert`.
+
+**Как проверить**
+
+Чистый рефакторинг не должен менять тесты. Если в таком PR правят десятки тестов, они проверяют реализацию, а не поведение.
+
+**Итог:** подменяйте только неуправляемое и чужое за своим адаптером, а тестовые библиотеки выбирайте с учётом лицензии так же, как продуктовые.
+
+</A>
+
+<Ex>
+
+```csharp
+// NuGet: xunit.v3, NSubstitute
+using NSubstitute;
+using Xunit;
+
+public class OrderServiceTests
+{
+    private readonly IStockService _stock = Substitute.For<IStockService>(); // стаб: даёт данные
+    private readonly IEmailSender _email = Substitute.For<IEmailSender>();   // мок: проверяем вызов
+
+    [Fact]
+    public void Place_InStock_SendsConfirmation()
+    {
+        _stock.IsAvailable("SKU-1").Returns(true);
+        var service = new OrderService(_stock, _email);
+
+        var placed = service.Place("SKU-1", "a@b.c");
+
+        Assert.True(placed);
+        _email.Received(1).Send("a@b.c", Arg.Is<string>(s => s.Contains("SKU-1")));
+    }
+
+    [Fact]
+    public void Place_OutOfStock_SendsNothing()
+    {
+        // IsAvailable без настройки вернёт false
+        var placed = new OrderService(_stock, _email).Place("SKU-2", "a@b.c");
+
+        Assert.False(placed);
+        _email.DidNotReceiveWithAnyArgs().Send(default!, default!);
+    }
+}
+
+public interface IStockService { bool IsAvailable(string sku); }
+public interface IEmailSender { void Send(string to, string body); }
+
+public class OrderService(IStockService stock, IEmailSender email)
+{
+    public bool Place(string sku, string customer)
+    {
+        if (!stock.IsAvailable(sku)) return false;
+        email.Send(customer, $"Order for {sku} placed");
+        return true;
+    }
+}
+```
+
+</Ex>
+
+<Ex title="То же на Moq">
+
+```csharp
+// NuGet: Moq
+using Moq;
+
+var stock = new Mock<IStockService>();
+stock.Setup(s => s.IsAvailable("SKU-1")).Returns(true); // стаб
+var email = new Mock<IEmailSender>();                    // мок
+
+var placed = new OrderService(stock.Object, email.Object).Place("SKU-1", "a@b.c");
+
+email.Verify(e => e.Send("a@b.c", It.Is<string>(s => s.Contains("SKU-1"))), Times.Once());
+Console.WriteLine(placed); // True
+
+// Те же типы, что в примере с NSubstitute
+public interface IStockService { bool IsAvailable(string sku); }
+public interface IEmailSender { void Send(string to, string body); }
+
+public class OrderService(IStockService stock, IEmailSender email)
+{
+    public bool Place(string sku, string customer)
+    {
+        if (!stock.IsAvailable(sku)) return false;
+        email.Send(customer, $"Order for {sku} placed");
+        return true;
+    }
+}
+```
+
+</Ex>
+
+<Next>
+
+- Чем мок отличается от стаба? — По стабу тест ничего не проверяет, он только даёт данные; по моку тест проверяет взаимодействие.
+- Можно ли подменить невиртуальный метод класса? — NSubstitute и Moq — нет: они строят прокси (Castle DynamicProxy) и перехватывают только интерфейсы и виртуальные члены.
+- Почему не мокают `DbContext`? — LINQ-запросы — методы расширения над `IQueryable`, их честно не подменить; Microsoft советует тест против настоящей базы или репозиторий.
+- Что такое «не мокай то, чем не владеешь»? — Чужой API оборачивают своим адаптером, подменяют адаптер, а его самого проверяют интеграционным тестом.
+- Что делать с FluentAssertions после смены лицензии? — Купить лицензию, закрепить 7.x или перейти на AwesomeAssertions либо Shouldly.
+
+</Next>
+
+<Src>
+
+- [Mocks Aren't Stubs — Martin Fowler](https://martinfowler.com/articles/mocksArentStubs.html)
+- [NSubstitute: getting started](https://nsubstitute.github.io/help/getting-started/)
+- [Best practices for writing unit tests: terminology](https://learn.microsoft.com/dotnet/core/testing/unit-testing-best-practices#unit-testing-terminology)
+
+</Src>
+
+</Q>
+
+<Q id="quality.test.integration" level="m">
+
+## Как писать интеграционные тесты для ASP.NET Core?
+
+<A short l="j">
+
+<T k="integration-test">Интеграционный тест</T> проверяет несколько частей приложения вместе: маршрутизацию, middleware, DI, сериализацию и базу. В ASP.NET Core для этого есть <T k="web-application-factory">`WebApplicationFactory`</T> из пакета `Microsoft.AspNetCore.Mvc.Testing`: она поднимает приложение в памяти и даёт `HttpClient`, которым тест шлёт настоящие HTTP-запросы.
+
+</A>
+
+<A short l="m">
+
+`WebApplicationFactory<Program>` запускает настоящий `Program.cs` на `TestServer` без сети, а в `ConfigureTestServices` тест подменяет внешние зависимости: платёжный шлюз, почту, HTTP-клиенты. Базу лучше не подделывать: InMemory-провайдер EF Core Microsoft для тестов не рекомендует, SQLite ведёт себя иначе, чем SQL Server, а <T k="testcontainers">Testcontainers</T> поднимает настоящую СУБД в Docker. Цена — время на старт контейнера и необходимость изолировать данные тестов, например сбросом через <T k="respawn">Respawn</T>.
+
+</A>
+
+<A short l="s">
+
+Интеграционный тест ценен тем, что проверяет стыки, которых не видят модульные: конфигурацию DI, фильтры, сериализацию, трансляцию LINQ в SQL и миграции. Поэтому подменяют только внешнее и неуправляемое, а базу берут настоящую через Testcontainers — контейнер на коллекцию тестов, схема один раз, данные сбрасываются между тестами. Главные издержки — время старта и параллельность, поэтому фабрику и контейнер делят через fixture. Внешние HTTP-сервисы эмулируют на уровне протокола, например <T k="wiremock-net">WireMock.Net</T>, чтобы проверить таймауты, повторы и разбор ответов.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+Интеграционный тест запускает приложение почти целиком и проверяет, что части работают вместе: запрос доходит до эндпоинта, данные сохраняются в базу, ответ сериализуется в JSON.
+
+**Как пользоваться**
+
+1. Добавить в тестовый проект пакет `Microsoft.AspNetCore.Mvc.Testing` и ссылку на проект API.
+2. Подключить фабрику к классу тестов: `IClassFixture<WebApplicationFactory<Program>>`.
+3. Получить клиента: `var client = factory.CreateClient();`.
+4. Отправить запрос и проверить ответ: `Assert.Equal(HttpStatusCode.OK, response.StatusCode)`.
+
+До .NET 10 в `Program.cs` дописывали `public partial class Program { }`, чтобы тест видел класс. В .NET 10 это делает генератор кода.
+
+**Частая ошибка**
+
+Запускать тесты против общей базы разработки. Тесты портят данные друг другу и падают случайно.
+
+**Итог:** `WebApplicationFactory` поднимает приложение в памяти, а тест общается с ним по HTTP.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+- Фабрика выполняет `Program.cs` приложения, но вместо Kestrel ставит `TestServer`: запрос проходит весь конвейер, только без сокетов.
+- `ConfigureWebHost` меняет окружение (`UseEnvironment("Testing")`) и настройки. `ConfigureTestServices` выполняется после регистраций приложения, поэтому сервисы заменяют в нём.
+
+**Когда что выбирать**
+
+| База в тестах | Плюс | Минус |
+|---|---|---|
+| InMemory-провайдер EF Core | ничего не нужно настраивать | не реляционный: нет транзакций и SQL; Microsoft не рекомендует |
+| SQLite in-memory | быстро, без Docker | другой диалект SQL, строки сравниваются с учётом регистра |
+| Testcontainers | та же СУБД и версия, что в проде | нужен Docker, старт контейнера — секунды |
+
+**Ловушки**
+
+- **Повторный `AddDbContext`.** Он не убирает настройку провайдера из `Program.cs`. В EF Core 9+ сначала удаляют `IDbContextOptionsConfiguration<TContext>`, потом регистрируют контекст заново.
+- **Общие данные.** Тесты пишут в одну базу. Изоляция — уникальные данные на тест, транзакция с откатом или сброс таблиц перед тестом.
+- **Параллельность.** xUnit запускает классы параллельно: если они делят базу, они делят и данные.
+
+**Правило**
+
+Подменять только внешнее и неуправляемое: платежи, почту, чужие API. База, сериализация и DI остаются настоящими.
+
+**Итог:** фабрика запускает настоящий конвейер, тест подменяет только внешнее, а база — та же СУБД в контейнере.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- Фабрика перехватывает построение хоста в `Program.cs` и применяет свои настройки поверх приложения. `CreateClient` возвращает `HttpClient`, чей обработчик передаёт запрос прямо в `TestServer` того же процесса.
+- С .NET 10 `UseKestrel()` поднимает вместо `TestServer` настоящий Kestrel на порту — это нужно браузерным тестам на Playwright.
+
+**Цена**
+
+Старт хоста — сотни миллисекунд, контейнер PostgreSQL — секунды, SQL Server — дольше. Поэтому фабрику и контейнер создают на класс или коллекцию через `IClassFixture<T>` и `ICollectionFixture<T>`, а в xUnit v3 — на сборку через `[assembly: AssemblyFixture]`.
+
+**Компромиссы**
+
+| Изоляция данных | Плюс | Минус |
+|---|---|---|
+| Транзакция с откатом | быстро | запрос через `HttpClient` идёт в своём scope, и общую транзакцию туда не передать |
+| Respawn перед тестом | схема остаётся, удаляются только данные | тесты с общей базой идут последовательно |
+| База на класс | полная изоляция и параллельность | время старта и память |
+
+**HTTP-клиенты**
+
+- Модульно: typed-клиенту передают `HttpClient` с обработчиком-заглушкой и проверяют URL, заголовки и разбор ответа.
+- Интеграционно: WireMock.Net поднимает HTTP-сервер с заготовленными ответами, задержками и ошибками, а адрес клиента в фабрике направляют на него. Так проверяются таймауты и повторы.
+
+**Итог:** интеграционные тесты проверяют стыки на настоящей инфраструктуре; их цену держат в узде общие fixture и быстрый сброс данных.
+
+</A>
+
+<Ex>
+
+```csharp
+// NuGet: xunit.v3, Microsoft.AspNetCore.Mvc.Testing, Testcontainers.PostgreSql, Npgsql.EntityFrameworkCore.PostgreSQL
+using System.Net;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Testcontainers.PostgreSql;
+using Xunit;
+
+public class OrdersApiTests(ApiFactory factory) : IClassFixture<ApiFactory>
+{
+    [Fact]
+    public async Task GetOrder_Unknown_Returns404()
+    {
+        var client = factory.CreateClient();
+
+        var response = await client.GetAsync("/orders/999", TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+}
+
+// Одна фабрика и один контейнер на класс тестов
+public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
+{
+    private readonly PostgreSqlContainer _db = new PostgreSqlBuilder("postgres:17-alpine").Build();
+
+    public async ValueTask InitializeAsync()
+    {
+        await _db.StartAsync();
+        using var scope = Services.CreateScope(); // здесь строится хост приложения
+        await scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.MigrateAsync();
+    }
+
+    public override async ValueTask DisposeAsync()
+    {
+        await base.DisposeAsync();
+        await _db.DisposeAsync();
+    }
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder) =>
+        builder.UseEnvironment("Testing").ConfigureTestServices(services =>
+        {
+            // Убираем провайдер из Program.cs (EF Core 9+) и подключаем контейнер
+            services.RemoveAll<IDbContextOptionsConfiguration<AppDbContext>>();
+            services.AddDbContext<AppDbContext>(o => o.UseNpgsql(_db.GetConnectionString()));
+            // Внешний сервис — фейк
+            services.AddSingleton<IPaymentGateway, FakePaymentGateway>();
+        });
+}
+```
+
+</Ex>
+
+<Ex title="Тест HTTP-клиента без сети">
+
+```csharp
+// NuGet: xunit.v3
+using System.Globalization;
+using System.Net;
+using Xunit;
+
+public class RatesClientTests
+{
+    [Fact]
+    public async Task GetRate_ParsesApiResponse()
+    {
+        var handler = new StubHandler(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("41.5")
+        });
+        var client = new RatesClient(new HttpClient(handler) { BaseAddress = new Uri("https://rates.test/") });
+
+        var rate = await client.GetRateAsync("USD", TestContext.Current.CancellationToken);
+
+        Assert.Equal(41.5m, rate);
+        Assert.Equal("/rates/USD", handler.LastRequest?.RequestUri?.AbsolutePath);
+    }
+}
+
+public class RatesClient(HttpClient http)
+{
+    public async Task<decimal> GetRateAsync(string currency, CancellationToken ct) =>
+        decimal.Parse(await http.GetStringAsync($"rates/{currency}", ct), CultureInfo.InvariantCulture);
+}
+
+// Заглушка вместо сети: запоминает запрос и возвращает готовый ответ
+public class StubHandler(HttpResponseMessage response) : HttpMessageHandler
+{
+    public HttpRequestMessage? LastRequest { get; private set; }
+
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+    {
+        LastRequest = request;
+        return Task.FromResult(response);
+    }
+}
+```
+
+</Ex>
+
+<Next>
+
+- Чем `ConfigureTestServices` удобнее `ConfigureServices` в фабрике? — Он гарантированно выполняется после регистраций приложения, и замену не перетрёт код из `Program.cs`.
+- Почему не InMemory-провайдер EF Core? — Он не реляционный: нет транзакций, raw SQL и функций конкретной СУБД; Microsoft считает его использование в тестах устаревшей практикой.
+- Как не поднимать контейнер на каждый тест? — Fixture на класс, коллекцию или сборку и сброс данных между тестами.
+- Как протестировать эндпоинт с `[Authorize]`? — Зарегистрировать в `ConfigureTestServices` тестовую схему аутентификации со своим `AuthenticationHandler`.
+- Что нужно CI для Testcontainers? — Агент, который умеет запускать Docker-контейнеры.
+
+</Next>
+
+<Src>
+
+- [Integration tests in ASP.NET Core](https://learn.microsoft.com/aspnet/core/test/integration-tests)
+- [Choosing a testing strategy — EF Core](https://learn.microsoft.com/ef/core/testing/choosing-a-testing-strategy)
+- [Testcontainers for .NET](https://dotnet.testcontainers.org/)
+
+</Src>
+
+</Q>
+
+<Q id="quality.test.strategy" level="s">
+
+## Как выстроить стратегию тестирования проекта?
+
+<A short l="j">
+
+Стратегия тестирования — решение, какие тесты писать и в каком соотношении. Классическая <T k="test-pyramid">пирамида тестов</T>: много быстрых модульных, меньше интеграционных и совсем немного сквозных (end-to-end), потому что чем выше уровень, тем тест медленнее и дороже.
+
+</A>
+
+<A short l="m">
+
+Пирамида задаёт пропорции по скорости и цене, а «трофей» Кента Доддса смещает вес к интеграционным тестам: они ловят больше реальных ошибок на единицу тестового кода. <T k="code-coverage">Покрытие кода</T> показывает, какой код ни один тест не выполнил, но не доказывает, что выполненный код проверен, — это проверяет <T k="mutation-testing">мутационное тестирование</T> (Stryker.NET). Цена любой стратегии — время прогона в CI и <T k="flaky-test">нестабильные тесты</T>, которые подрывают доверие ко всему набору.
+
+</A>
+
+<A short l="s">
+
+Стратегию строят от рисков, а не от процентов: где ошибка дороже всего и какой самый дешёвый тест её поймает. Отсюда портфель: модульные тесты на сложную логику, интеграционные с настоящей базой на основные сценарии, немного сквозных, <T k="architecture-test">тесты архитектуры</T> и <T k="contract-test">контрактные тесты</T> на границах сервисов. Метрики — обратная связь, а не цель: покрытие ищет непроверенный код, мутационный score — пустые тесты, а flaky-тесты чинят, а не перезапускают. Legacy без тестов начинают с <T k="characterization-test">характеризующих тестов</T> через <T k="seam">швы</T> — места, где поведение подменяется без правки логики.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+Стратегия тестирования отвечает на три вопроса: что проверять, какими тестами и когда их запускать.
+
+**Уровни тестов**
+
+| Уровень | Что проверяет | Скорость |
+|---|---|---|
+| Модульный | одну единицу логики | миллисекунды |
+| Интеграционный | части вместе: API и базу | от десятков миллисекунд до секунд |
+| Сквозной (E2E) | систему глазами пользователя | секунды и минуты |
+
+Пирамида: внизу больше всего модульных тестов, наверху меньше всего сквозных.
+
+**Как пользоваться**
+
+- Баг из продакшена сначала воспроизводят тестом, потом чинят.
+- Тесты запускаются в CI на каждый pull request.
+- Покрытие смотрят, чтобы найти непроверенный код, а не ради цифры.
+
+**Частая ошибка**
+
+Гнаться за 100 % покрытия. Тест без проверок тоже поднимает процент.
+
+**Итог:** быстрых тестов много, медленных мало, и все запускаются автоматически.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+- **Пирамида** (Майк Кон): основание — модульные тесты, середина — интеграционные, вершина — UI и E2E.
+- **Трофей** (Кент Доддс): основание — статический анализ, тонкий слой модульных, самый широкий слой — интеграционные, сверху E2E. Для веб-API с тонкой логикой тесты через `WebApplicationFactory` дают больше уверенности на строку теста.
+
+**Где покрытие врёт**
+
+coverlet (`dotnet test --collect:"XPlat Code Coverage"`) считает выполненные строки и ветви. Но:
+
+- тест без assert даёт 100 % строк: код выполнен, но не проверен;
+- покрытие строк скрывает ветви: `if` без `else` покрыт одним сценарием.
+
+**Мутационное тестирование**
+
+Stryker.NET (`dotnet stryker`) вносит в код маленькие изменения — мутанты: `>` на `>=`, `&&` на `||`, удаление вызова. Затем запускает тесты. Если ни один не упал, мутант «выжил»: это поведение не проверяется. Доля убитых мутантов — mutation score.
+
+**Ловушки**
+
+- Порог покрытия как KPI порождает тесты ради процента.
+- Stryker на весь проект работает в разы дольше обычного прогона. В PR его запускают только по изменённому коду (`--since`).
+
+**Правило**
+
+Покрытие — чтобы найти непроверенный код, мутационный score — чтобы оценить качество тестов на критичной логике.
+
+**Итог:** пропорции тестов выбирают по скорости и пользе, а качество тестов меряют мутациями, а не процентом покрытия.
+
+</A>
+
+<A l="s">
+
+**Компромиссы**
+
+- **Портфель.** Модульные — на ветвистую доменную логику, интеграционные с настоящей базой — на основные сценарии, E2E — на несколько критичных путей.
+- **Тесты архитектуры** (NetArchTest, ArchUnitNET) фиксируют правила зависимостей: домен не ссылается на EF Core.
+- **Контрактные тесты** (Pact, PactNet): потребитель записывает ожидания к API в контракт, поставщик проверяет его в своём CI. Ломающее изменение между сервисами видно без общего стенда.
+
+**Flaky-тесты**
+
+Причины: время и таймауты, `Task.Delay` вместо ожидания условия, общее состояние, параллельность, внешние сервисы, культура и часовой пояс. Порядок работы:
+
+1. Обнаружить: повторный прогон упавших, история падений в CI.
+2. Изолировать в карантин с задачей на починку.
+3. Устранить причину.
+
+Автоповтор (`Microsoft.Testing.Extensions.Retry`, `--retry-failed-tests`) — временная мера для интеграционных тестов: он прячет гонки, которые проявятся и в проде.
+
+**Время прогона в CI**
+
+Быстрые тесты — на каждый коммит, медленные — отдельной стадией по фильтру категории: `[Trait("Category", "Integration")]` в xUnit, `[Category("Integration")]` в NUnit. Контейнеры — на коллекцию, а не на тест.
+
+**Legacy без тестов**
+
+Для Майкла Фэзерса legacy — это код без тестов. Порядок:
+
+1. Найти место изменения и точку, где виден результат.
+2. Создать шов: виртуальный метод, параметр-интерфейс, `TimeProvider`.
+3. Зафиксировать текущее поведение характеризующими тестами, даже странное.
+4. Только потом рефакторить.
+
+Те же тесты страхуют перенос системы — см. [Архитектурные стили](/sobes/arch/styles/).
+
+**Итог:** стратегия — портфель тестов под риски проекта; метрики и CI служат ему, а не наоборот.
+
+</A>
+
+<Ex>
+
+```csharp
+// NuGet: xunit.v3
+using Xunit;
+
+// Характеризующий тест: фиксирует, как код работает сейчас, а не как «должен»
+public class LateFeeCalculatorTests
+{
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(10, 50)]
+    [InlineData(31, 200)] // не 155: так считает прод, фиксируем как есть
+    public void Fee_MatchesCurrentBehavior(int daysLate, int expectedFee)
+    {
+        var due = new DateTime(2026, 1, 1);
+        var calculator = new TestableLateFeeCalculator(now: due.AddDays(daysLate));
+
+        Assert.Equal(expectedFee, calculator.Fee(due));
+    }
+}
+
+// Шов: подкласс подменяет источник времени, не трогая логику
+public class TestableLateFeeCalculator(DateTime now) : LateFeeCalculator
+{
+    protected override DateTime Now() => now;
+}
+
+// Legacy-класс: единственная правка — DateTime.Now вынесен в виртуальный метод
+public class LateFeeCalculator
+{
+    protected virtual DateTime Now() => DateTime.Now;
+
+    public int Fee(DateTime dueDate)
+    {
+        var days = (Now() - dueDate).Days;
+        if (days <= 0) return 0;
+        if (days > 30) return 200;
+        return days * 5;
+    }
+}
+```
+
+</Ex>
+
+<Next>
+
+- Какой процент покрытия нужен? — Универсального числа нет; важнее покрытие критичной логики и нового кода в каждом PR.
+- Что значит «мутант выжил»? — Изменение кода не уронило ни одного теста: поведение не проверено или мутант эквивалентен исходному коду.
+- Чем контрактный тест отличается от интеграционного? — Он проверяет договорённость потребителя и поставщика по отдельности, не запуская их вместе.
+- Можно ли лечить flaky-тест ретраями? — Только временно: ретрай прячет гонку, а не устраняет её.
+- С чего начать тесты в legacy-модуле? — С характеризующих тестов вокруг места изменения через минимальный шов.
+
+</Next>
+
+<Src>
+
+- [Unit testing code coverage](https://learn.microsoft.com/dotnet/core/testing/unit-testing-code-coverage)
+- [Stryker.NET configuration](https://stryker-mutator.io/docs/stryker-net/configuration/)
+- [Microsoft.Testing.Platform retry extension](https://learn.microsoft.com/dotnet/core/testing/microsoft-testing-platform-retry)
+
+</Src>
+
+</Q>

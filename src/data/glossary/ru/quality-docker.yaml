@@ -1,0 +1,139 @@
+container-image:
+  term: Образ контейнера (container image)
+  def: >-
+    Неизменяемый шаблон, из которого запускают контейнеры: файлы приложения, рантайм, системные
+    библиотеки и команда запуска. Состоит из слоёв и хранится в реестре под именем с тегом.
+  q: container image OCI
+  docs: https://docs.docker.com/get-started/docker-concepts/the-basics/what-is-an-image/
+image-layer:
+  term: Слой образа (image layer)
+  def: >-
+    Набор изменений файловой системы, который даёт одна инструкция Dockerfile (`RUN`, `COPY`, `ADD`).
+    Слои только для чтения, адресуются хешем и кешируются: неизменённые слои не пересобираются.
+  q: docker image layers cache
+  docs: https://docs.docker.com/get-started/docker-concepts/building-images/understanding-image-layers/
+container-registry:
+  term: Реестр образов (container registry)
+  def: >-
+    Сервис хранения и раздачи образов: Docker Hub, `mcr.microsoft.com`, Azure Container Registry,
+    GitHub Container Registry. Образ адресуют по тегу (изменяемый) или по digest (неизменяемый).
+  q: container registry
+  docs: https://docs.docker.com/get-started/docker-concepts/the-basics/what-is-a-registry/
+linux-namespaces:
+  term: Пространства имён Linux (namespaces)
+  def: >-
+    Механизм ядра Linux, который даёт процессу собственное представление о ресурсах: списке процессов,
+    сети, точках монтирования, hostname. Основа изоляции контейнеров.
+  q: linux namespaces containers
+cgroups:
+  term: Контрольные группы (cgroups)
+  def: >-
+    Механизм ядра Linux, который ограничивает и учитывает ресурсы группы процессов: CPU, память,
+    ввод-вывод. Лимиты контейнера задаются через cgroups, и .NET читает их при старте.
+  q: cgroups v2 containers
+  wiki: Cgroups
+docker-volume:
+  term: Том (volume)
+  def: >-
+    Хранилище данных вне записываемого слоя контейнера, которым управляет Docker. Переживает удаление
+    контейнера; в отличие от bind mount не привязан к папке хоста.
+  q: docker volumes
+  docs: https://docs.docker.com/engine/storage/volumes/
+multi-stage-build:
+  term: Многоэтапная сборка (multi-stage build)
+  def: >-
+    Dockerfile с несколькими `FROM`: на одних этапах собирают, в последний копируют только результат
+    через `COPY --from`. Инструменты сборки не попадают в итоговый образ.
+  q: docker multi-stage build
+  docs: https://docs.docker.com/build/building/multi-stage/
+chiseled-image:
+  term: Chiseled-образ (Ubuntu Chiseled)
+  def: >-
+    Distroless-вариант образов .NET на Ubuntu: только пакеты, нужные рантайму, без shell и пакетного
+    менеджера, с non-root пользователем по умолчанию. Без ICU и tzdata, если не взять вариант `-extra`.
+  q: .NET Ubuntu chiseled images
+  docs: https://github.com/dotnet/dotnet-docker/blob/main/documentation/ubuntu-chiseled.md
+non-root-container:
+  term: Non-root контейнер
+  def: >-
+    Контейнер, процесс которого работает не от root. Образы .NET с версии 8 содержат пользователя `app`
+    (UID в переменной `APP_UID`); включается инструкцией `USER $APP_UID`, в chiseled — по умолчанию.
+  q: .NET 8 non-root container app user
+  docs: https://devblogs.microsoft.com/dotnet/securing-containers-with-rootless/
+sdk-container-publish:
+  term: Публикация образа средствами SDK (PublishContainer)
+  def: >-
+    Сборка образа командой `dotnet publish /t:PublishContainer` без Dockerfile и Docker-демона. SDK сам
+    выбирает базовый образ, пользователя и порт; настройки — свойства `Container*` в проекте.
+  q: dotnet publish PublishContainer
+  docs: https://learn.microsoft.com/dotnet/core/containers/sdk-publish
+docker-compose:
+  term: Docker Compose
+  def: >-
+    Инструмент, который по файлу `compose.yaml` создаёт и запускает набор связанных контейнеров с общей
+    сетью, томами и порядком старта. Работает в пределах одного хоста.
+  q: docker compose
+  docs: https://docs.docker.com/compose/
+container-healthcheck:
+  term: Healthcheck контейнера
+  def: >-
+    Команда, которую Docker периодически выполняет внутри контейнера, чтобы определить его состояние:
+    starting, healthy или unhealthy. В Compose по нему работает `condition: service_healthy`.
+  q: docker compose healthcheck
+  docs: https://docs.docker.com/reference/compose-file/services/#healthcheck
+compose-profiles:
+  term: Профили Compose (profiles)
+  def: >-
+    Метки сервисов в Compose: сервис с профилем запускается, только если профиль включён через
+    `--profile` или `COMPOSE_PROFILES`. Сервисы без профиля запускаются всегда.
+  q: docker compose profiles
+  docs: https://docs.docker.com/compose/how-tos/profiles/
+aspire:
+  term: Aspire (ранее .NET Aspire)
+  def: >-
+    Платформа Microsoft для локальной оркестрации и наблюдаемости распределённых приложений. Топологию
+    описывают кодом в AppHost; Aspire запускает сервисы, прокидывает строки подключения и даёт дашборд.
+  q: Aspire AppHost
+  docs: https://aspire.dev/get-started/what-is-aspire/
+pod:
+  term: Под (Pod)
+  def: >-
+    Минимальная единица запуска в Kubernetes: один или несколько контейнеров с общим IP и томами. Поды
+    эфемерны — их создают и удаляют контроллеры вроде Deployment.
+  q: Kubernetes pod
+  docs: https://kubernetes.io/docs/concepts/workloads/pods/
+startup-probe:
+  term: Startup-проба (startup probe)
+  def: >-
+    Проверка Kubernetes, которая ждёт окончания запуска контейнера. Пока она не прошла, liveness и
+    readiness не выполняются; при провале контейнер перезапускается.
+  q: Kubernetes startup probe
+  docs: https://kubernetes.io/docs/concepts/configuration/liveness-readiness-startup-probes/
+liveness-probe:
+  term: Liveness-проба (liveness probe)
+  def: >-
+    Периодическая проверка Kubernetes, жив ли процесс. После нескольких неудач подряд kubelet
+    перезапускает контейнер, поэтому внешние зависимости в ней не проверяют.
+  q: Kubernetes liveness probe
+  docs: https://kubernetes.io/docs/concepts/configuration/liveness-readiness-startup-probes/
+readiness-probe:
+  term: Readiness-проба (readiness probe)
+  def: >-
+    Периодическая проверка Kubernetes, готов ли контейнер принимать трафик. При провале под убирают из
+    EndpointSlice сервиса, но не перезапускают.
+  q: Kubernetes readiness probe
+  docs: https://kubernetes.io/docs/concepts/configuration/liveness-readiness-startup-probes/
+resource-limits:
+  term: Requests и limits
+  def: >-
+    Ресурсы контейнера в Kubernetes. Requests — резерв, по которому планировщик выбирает узел; limits —
+    потолок: за превышение памяти процесс убивают (OOMKilled), за превышение CPU — троттлят.
+  q: Kubernetes resource requests limits
+  docs: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+prestop-hook:
+  term: Хук preStop
+  def: >-
+    Действие, которое kubelet выполняет перед отправкой SIGTERM контейнеру: команда, HTTP-запрос или
+    пауза `sleep`. Время хука входит в `terminationGracePeriodSeconds`.
+  q: Kubernetes preStop hook sleep
+  docs: https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/

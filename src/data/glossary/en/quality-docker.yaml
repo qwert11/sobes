@@ -1,0 +1,140 @@
+container-image:
+  term: Container image
+  def: >-
+    An immutable template that containers are started from: app files, runtime, system libraries and the
+    start command. It consists of layers and is stored in a registry under a name and tag.
+  q: container image OCI
+  docs: https://docs.docker.com/get-started/docker-concepts/the-basics/what-is-an-image/
+image-layer:
+  term: Image layer
+  def: >-
+    A set of file system changes produced by one Dockerfile instruction (`RUN`, `COPY`, `ADD`). Layers are
+    read-only, addressed by hash and cached: unchanged layers are not rebuilt.
+  q: docker image layers cache
+  docs: https://docs.docker.com/get-started/docker-concepts/building-images/understanding-image-layers/
+container-registry:
+  term: Container registry
+  def: >-
+    A service that stores and serves images: Docker Hub, `mcr.microsoft.com`, Azure Container Registry,
+    GitHub Container Registry. An image is referenced by tag (mutable) or by digest (immutable).
+  q: container registry
+  docs: https://docs.docker.com/get-started/docker-concepts/the-basics/what-is-a-registry/
+linux-namespaces:
+  term: Linux namespaces
+  def: >-
+    A Linux kernel mechanism that gives a process its own view of resources: the process list, network,
+    mount points, hostname. The foundation of container isolation.
+  q: linux namespaces containers
+  wiki: Linux namespaces
+cgroups:
+  term: Control groups (cgroups)
+  def: >-
+    A Linux kernel mechanism that limits and accounts for the resources of a group of processes: CPU,
+    memory, I/O. Container limits are set through cgroups, and .NET reads them at startup.
+  q: cgroups v2 containers
+  wiki: Cgroups
+docker-volume:
+  term: Volume
+  def: >-
+    Data storage outside the container's writable layer, managed by Docker. It survives container
+    removal and, unlike a bind mount, is not tied to a host folder.
+  q: docker volumes
+  docs: https://docs.docker.com/engine/storage/volumes/
+multi-stage-build:
+  term: Multi-stage build
+  def: >-
+    A Dockerfile with several `FROM` instructions: some stages build, and only the result is copied into
+    the last one via `COPY --from`. Build tools do not end up in the final image.
+  q: docker multi-stage build
+  docs: https://docs.docker.com/build/building/multi-stage/
+chiseled-image:
+  term: Chiseled image (Ubuntu Chiseled)
+  def: >-
+    A distroless flavor of the .NET images on Ubuntu: only the packages the runtime needs, no shell or
+    package manager, non-root user by default. No ICU or tzdata unless you take the `-extra` variant.
+  q: .NET Ubuntu chiseled images
+  docs: https://github.com/dotnet/dotnet-docker/blob/main/documentation/ubuntu-chiseled.md
+non-root-container:
+  term: Non-root container
+  def: >-
+    A container whose process does not run as root. Since .NET 8 the images include an `app` user (its UID
+    is in `APP_UID`); you switch to it with `USER $APP_UID`, chiseled images do it by default.
+  q: .NET 8 non-root container app user
+  docs: https://devblogs.microsoft.com/dotnet/securing-containers-with-rootless/
+sdk-container-publish:
+  term: SDK container publishing (PublishContainer)
+  def: >-
+    Building an image with `dotnet publish /t:PublishContainer`, without a Dockerfile or a Docker daemon.
+    The SDK picks the base image, user and port; settings are `Container*` properties in the project.
+  q: dotnet publish PublishContainer
+  docs: https://learn.microsoft.com/dotnet/core/containers/sdk-publish
+docker-compose:
+  term: Docker Compose
+  def: >-
+    A tool that creates and starts a set of related containers from a `compose.yaml` file, with a shared
+    network, volumes and startup order. It works within a single host.
+  q: docker compose
+  docs: https://docs.docker.com/compose/
+container-healthcheck:
+  term: Container healthcheck
+  def: >-
+    A command Docker periodically runs inside a container to determine its state: starting, healthy or
+    unhealthy. In Compose, `condition: service_healthy` relies on it.
+  q: docker compose healthcheck
+  docs: https://docs.docker.com/reference/compose-file/services/#healthcheck
+compose-profiles:
+  term: Compose profiles
+  def: >-
+    Service labels in Compose: a service with a profile starts only when the profile is enabled via
+    `--profile` or `COMPOSE_PROFILES`. Services without a profile always start.
+  q: docker compose profiles
+  docs: https://docs.docker.com/compose/how-tos/profiles/
+aspire:
+  term: Aspire (formerly .NET Aspire)
+  def: >-
+    A Microsoft platform for local orchestration and observability of distributed apps. The topology is
+    described in code in an AppHost; Aspire starts the services, wires connection strings and adds a dashboard.
+  q: Aspire AppHost
+  docs: https://aspire.dev/get-started/what-is-aspire/
+pod:
+  term: Pod
+  def: >-
+    The smallest unit of deployment in Kubernetes: one or more containers sharing an IP and volumes. Pods
+    are ephemeral — controllers such as a Deployment create and delete them.
+  q: Kubernetes pod
+  docs: https://kubernetes.io/docs/concepts/workloads/pods/
+startup-probe:
+  term: Startup probe
+  def: >-
+    A Kubernetes check that waits for a container to finish starting. Until it succeeds, liveness and
+    readiness probes do not run; if it fails, the container is restarted.
+  q: Kubernetes startup probe
+  docs: https://kubernetes.io/docs/concepts/configuration/liveness-readiness-startup-probes/
+liveness-probe:
+  term: Liveness probe
+  def: >-
+    A periodic Kubernetes check of whether the process is alive. After several consecutive failures the
+    kubelet restarts the container, so it should not check external dependencies.
+  q: Kubernetes liveness probe
+  docs: https://kubernetes.io/docs/concepts/configuration/liveness-readiness-startup-probes/
+readiness-probe:
+  term: Readiness probe
+  def: >-
+    A periodic Kubernetes check of whether a container is ready to accept traffic. On failure the pod is
+    removed from the Service's EndpointSlices but not restarted.
+  q: Kubernetes readiness probe
+  docs: https://kubernetes.io/docs/concepts/configuration/liveness-readiness-startup-probes/
+resource-limits:
+  term: Requests and limits
+  def: >-
+    Container resources in Kubernetes. Requests are a reservation the scheduler uses to pick a node;
+    limits are a ceiling: exceeding memory gets the process killed (OOMKilled), exceeding CPU gets it throttled.
+  q: Kubernetes resource requests limits
+  docs: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+prestop-hook:
+  term: preStop hook
+  def: >-
+    An action the kubelet runs before sending SIGTERM to a container: a command, an HTTP request or a
+    `sleep` pause. The hook's time counts against `terminationGracePeriodSeconds`.
+  q: Kubernetes preStop hook sleep
+  docs: https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/

@@ -1,0 +1,716 @@
+---
+title: CI/CD and code quality
+description: The build pipeline, analyzers and SonarQube, packages and versions, deployment strategies and rollback.
+sidebar:
+  order: 2
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+How code gets from a pull request to production: what steps a pipeline has, which quality checks go into it, how to manage packages and versions, and how to deploy so that rollback is a routine operation. Interviewers check this by asking about a pipeline the candidate has actually worked with.
+
+**Before this topic:** [Testing](/sobes/en/quality/testing/).
+
+<Q id="quality.ci.pipeline" level="j">
+
+## What are CI and CD, and what steps make up a .NET pipeline?
+
+<A short l="j">
+
+<T k="continuous-integration">Continuous integration</T> (CI) means every change is built and tested automatically, and <T k="continuous-delivery">continuous delivery</T> (CD) means a verified build is automatically brought to a "ready to deploy" state. So a mistake shows up minutes after the push, not on release day.
+
+</A>
+
+<A short l="m">
+
+CI is the practice of merging into a shared branch often, with every pull request and commit going through a <T k="ci-pipeline">pipeline</T>: restore, build, test, code analysis. CD continues from there: it publishes an <T k="build-artifact">artifact</T> and promotes it through environments; continuous delivery leaves the production deployment to a human, while <T k="continuous-deployment">continuous deployment</T> ships every green change on its own. The cost is that the pipeline becomes code you have to maintain: a slow or flaky pipeline is one the team starts working around.
+
+</A>
+
+<A short l="s">
+
+A pipeline is code in the repository (YAML or a `Jenkinsfile`) that turns a commit into an immutable, versioned artifact and promotes it through environments. The core principle is build once and deploy the same artifact everywhere, changing only configuration; otherwise you tested one thing and shipped another. PR checks have to finish in minutes, so heavy runs move to nightly or release builds. Choosing between delivery and deployment depends not on the tool but on the maturity of your tests, monitoring and rollback.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **CI** — changes are merged into a shared branch often, and each one is built and tested automatically.
+- **Continuous delivery** — a verified build is ready to deploy at any moment; production is one button away.
+- **Continuous deployment** — every change that passes the checks goes to production with no button at all.
+
+**Steps of a .NET pipeline**
+
+1. `dotnet restore` — download NuGet packages.
+2. `dotnet build` — build the solution.
+3. `dotnet test` — run the tests.
+4. Code analysis: analyzers, SonarQube.
+5. `dotnet publish` — prepare the application files.
+6. Save the output as an artifact.
+7. Deploy it to a test environment, then to production.
+
+A pull request usually runs steps 1–4; a push to `main` runs all of them.
+
+**Common mistake**
+
+Rebuilding the project for every environment. Then production gets a different build from the one you tested.
+
+**Takeaway:** CI checks every change; CD takes a verified build all the way to deployment.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- The pipeline is described as code in the repository: `.github/workflows/*.yml` in GitHub Actions, a `Jenkinsfile` in Jenkins. It is versioned and reviewed like any other code.
+- Triggers: `pull_request` checks a change before the merge, `push` to `main` builds a release candidate, a manual run handles deployments and retries.
+- Jobs run on agents: cloud-hosted or your own (self-hosted), for example a Windows Server next to IIS. Separate jobs pass files to each other through artifacts.
+
+**When to choose what**
+
+| Aspect | Continuous delivery | Continuous deployment |
+|---|---|---|
+| Production deploy | after manual approval | automatic |
+| What you need | reliable CI | plus automated tests, monitoring, auto-rollback |
+
+**Pitfalls**
+
+- **A slow pipeline.** A 40-minute PR check means changes pile up and get merged in batches. Package caching, `--no-restore` and `--no-build` in later steps, and parallel jobs help.
+- **Flaky tests.** "Just rerun it, it fails sometimes" teaches people to ignore a red pipeline.
+- **Secrets in YAML.** Tokens belong in GitHub secrets or Jenkins Credentials, not in the repository.
+
+**Rule of thumb**
+
+On a PR: fast checks, and no merge without a green status. On `main`: build the artifact once and promote it through the environments.
+
+**Takeaway:** a pipeline is versioned code: on a PR it verifies, on `main` it builds one artifact for every environment.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- The artifact is immutable and tagged with a version and commit SHA. The version running in production leads you to the exact commit.
+- Environment configuration is not baked into the build; it arrives at deploy time: environment variables, `appsettings.{Environment}.json`, a secret store. That is how one artifact moves through dev, stage and prod.
+- Reproducibility: `global.json` pins the SDK, lock files pin the packages, and agents are built from a single image.
+
+**Cost**
+
+- Feedback time is the key CI metric: a slow pipeline slows down every change.
+- Self-hosted agents can see the internal network and are cheaper at scale, but you patch and secure them yourself. Code from PRs runs on them, which is why GitHub advises against them for public repositories.
+
+**Trade-offs**
+
+- GitHub Actions: YAML next to the code and ready-made actions. Jenkins: your own server, plugins and Groovy, full control at the price of constant plugin upgrades.
+- Continuous deployment needs a rollback measured in minutes and metrics to trigger it. Without them, a manual approval is the honest choice.
+- Fast checks on PRs and heavy ones on a schedule is a trade-off between speed and completeness.
+
+**How to check in production**
+
+- DORA metrics: deployment frequency, lead time from commit to production, change failure rate, time to restore.
+- The version and commit SHA show up in the startup log or a service endpoint, so you know exactly what is running.
+
+**Takeaway:** a pipeline is valuable because it is reproducible: one immutable artifact, configuration from outside and fast feedback.
+
+</A>
+
+<Ex>
+
+```yaml
+# .github/workflows/ci.yml
+name: ci
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json   # SDK version from the repository
+      - run: dotnet restore
+      - run: dotnet build --no-restore -c Release
+      - run: dotnet test --no-build -c Release
+      - run: dotnet publish src/Shop.Api --no-build -c Release -o out
+      # Save the artifact only from main: that is what we deploy
+      - if: github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v7
+        with:
+          name: shop-api-${{ github.sha }}
+          path: out
+```
+
+</Ex>
+
+<Ex title="The same in a Jenkinsfile">
+
+```groovy
+// Declarative pipeline on a Windows agent (multibranch pipeline)
+pipeline {
+    agent { label 'windows' }
+    stages {
+        stage('Build') {
+            steps {
+                bat 'dotnet restore'
+                bat 'dotnet build --no-restore -c Release'
+            }
+        }
+        stage('Test') {
+            steps { bat 'dotnet test --no-build -c Release' }
+        }
+        stage('Publish') {
+            when { branch 'main' }   // artifact from main only
+            steps {
+                bat 'dotnet publish src/Shop.Api --no-build -c Release -o out'
+                archiveArtifacts artifacts: 'out/**'
+            }
+        }
+    }
+}
+```
+
+</Ex>
+
+<Next>
+
+- How is continuous delivery different from continuous deployment? — A manual approval for the production deploy versus a fully automatic one.
+- Why build the artifact only once? — Otherwise production gets a different build from the one you tested.
+- What runs on a PR and what on `main`? — A PR gets fast checks for the merge; `main` also publishes the artifact and deploys it.
+- How do you speed up a pipeline? — Package caching, `--no-restore` and `--no-build`, parallel jobs, heavy tests on a schedule.
+- Where do pipeline secrets live? — In GitHub secrets or Jenkins Credentials, with least-privilege tokens.
+
+</Next>
+
+<Src>
+
+- [Building and testing .NET — GitHub Docs](https://docs.github.com/actions/tutorials/build-and-test-code/net)
+- [Pipeline — Jenkins User Handbook](https://www.jenkins.io/doc/book/pipeline/)
+- [What is continuous delivery?](https://learn.microsoft.com/devops/deliver/what-is-continuous-delivery)
+
+</Src>
+
+</Q>
+
+<Q id="quality.ci.quality-gates" level="m">
+
+## How do you keep track of code quality automatically?
+
+<A short l="j">
+
+Quality is checked on every pull request without a human: <T k="roslyn-analyzer">analyzers</T> find problems during the build, tests produce <T k="code-coverage">coverage</T>, and SonarQube compares the result against a <T k="quality-gate">quality gate</T> — a set of thresholds. If a threshold is not met, the PR can't be merged.
+
+</A>
+
+<A short l="m">
+
+The checks come in layers: during the build, Roslyn analyzers and nullable warnings with rules from <T k="editorconfig">`.editorconfig`</T> and `TreatWarningsAsErrors`; in the pipeline, `dotnet format --verify-no-changes` and SonarQube with a coverage report. The "Sonar way" quality gate looks only at new code: no new issues, at least 80% coverage on new code, at most 3% duplication. The check status becomes mandatory in <T k="branch-protection">branch protection rules</T> along with code review; the cost is false-positive noise, so rules are turned on gradually.
+
+</A>
+
+<A short l="s">
+
+An automated check is worth something when it blocks the merge: an analyzer error in the build is cheaper than an issue on a dashboard nobody opens. So strictness lives in the code (`TreatWarningsAsErrors`, `AnalysisLevel`, severities in `.editorconfig`), and SonarQube keeps what is only visible at project level: coverage, duplication, <T k="code-smell">code smells</T>, security hotspots. Focusing on new code lets you put a strict gate on a legacy project without rewriting the old code. The cost is false positives and suppressions, which also need review.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+Automated quality checks are rules the pipeline applies to every PR.
+
+**What kinds there are**
+
+- **Compiler and analyzers.** Warning `CS8602` about a possible `null`, `CAxxxx` rules on reliability and performance. Built into the .NET SDK.
+- **Style.** `.editorconfig` sets indentation, naming and rule severities; `dotnet format` brings the code in line with it.
+- **Coverage.** The share of code that the tests executed.
+- **SonarQube.** Puts it all together and gives a verdict against the quality gate.
+- **Code review.** A person checks what tools can't see: intent and design.
+
+**How to use**
+
+Turn on `TreatWarningsAsErrors` and make a green pipeline a required condition for merging into `main`.
+
+**Common mistake**
+
+Chasing 100% coverage. Coverage shows which code ran, not that its result was checked.
+
+**Takeaway:** analyzers, tests and the quality gate check every PR; code review covers what can't be automated.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+1. **Build.** Roslyn analyzers are on by default since .NET 5. `AnalysisLevel` picks the rule set: `latest-recommended` is stricter than the default. `IDExxxx` style rules run in a command-line build only with `EnforceCodeStyleInBuild`.
+2. **Strictness.** `TreatWarningsAsErrors` turns any warning into an error. A softer option is `<WarningsAsErrors>Nullable</WarningsAsErrors>`: only nullable warnings become errors.
+3. **Format.** `dotnet format --verify-no-changes` fails if the code doesn't match `.editorconfig`.
+4. **SonarQube.** `dotnet sonarscanner begin` before the build, `dotnet test` with a coverage report, `end` afterwards. The server evaluates the quality gate.
+5. **Branch.** Branch protection requires green checks and a reviewer's approval.
+
+**Pitfalls**
+
+- `TreatWarningsAsErrors` on an old project produces hundreds of errors at once. Enable it project by project or start with `WarningsAsErrors`.
+- Branch and PR analysis in SonarQube starts at Developer Edition. The free Community Build analyzes only the main branch.
+- SonarQube doesn't compute coverage itself: coverlet produces the report, and its path goes into `sonar.cs.opencover.reportsPaths`.
+
+**Rule of thumb**
+
+Whatever can be checked in the build, check in the build. SonarQube holds the thresholds on new code; branch protection makes the checks mandatory.
+
+**Takeaway:** strictness lives in the build, thresholds in SonarQube, enforcement in branch protection.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- A Roslyn analyzer subscribes to the compiler's syntax and semantic events. It sees types and symbols, and the result is the same in the IDE and in CI.
+- Rule severity is set in layers: `AnalysisLevel` is the baseline, `.editorconfig` or `.globalconfig` sets a specific rule (`dotnet_diagnostic.CA2016.severity`), `#pragma` and `[SuppressMessage]` cover a specific spot.
+- SonarQube computes metrics against the new code period: since the previous version, over N days or relative to a branch. "Sonar way" checks only that period and ignores coverage and duplication while there are fewer than 20 new lines.
+
+**Cost**
+
+- Analyzers make the build longer; `latest-all` on a large solution is noticeable.
+- A suppression nobody reviews is technical debt with no owner.
+
+**Trade-offs**
+
+- 80% coverage on new code is Sonar's default, not a law. Trivial DTOs are excluded with `sonar.coverage.exclusions`; complex logic is not.
+- A new SDK brings new rules. `AnalysisLevel` with a version number (`10.0-recommended`) pins the set, and upgrading becomes a separate PR.
+- A gate on all code is permanently red on a legacy project, and people stop noticing it. A gate on new code holds the bar for changes, and old code gets fixed when someone touches it.
+
+**How to check it works**
+
+- The trend of suppressions (`#pragma warning disable`, `NoWarn`) per quarter.
+- The share of PRs merged around branch protection or with a red gate.
+
+**Takeaway:** strictness lives in the build and branch protection, SonarQube holds the bar on new code, and suppressions are reviewed like code.
+
+</A>
+
+<Ex>
+
+```xml
+<!-- Directory.Build.props at the repository root: applies to every project -->
+<Project>
+  <PropertyGroup>
+    <Nullable>enable</Nullable>
+    <!-- Rule set is pinned: a new SDK won't turn on new rules by itself -->
+    <AnalysisLevel>10.0-recommended</AnalysisLevel>
+    <!-- IDExxxx style rules are checked in dotnet build too -->
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <!-- Any warning breaks the build -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+</Project>
+```
+
+```ini
+# .editorconfig
+root = true
+
+[*.cs]
+# CA2016: forward the CancellationToken — a build error
+dotnet_diagnostic.CA2016.severity = error
+# IDE0161: file-scoped namespace — a warning (option:severity format, .NET 9+)
+csharp_style_namespace_declarations = file_scoped:warning
+```
+
+</Ex>
+
+<Ex title="SonarQube in a Jenkinsfile">
+
+```groovy
+// Requires the dotnet-sonarscanner global tool on the agent
+// and a SonarQube webhook to <jenkins>/sonarqube-webhook/
+stage('Build and analyze') {
+    steps {
+        // withSonarQubeEnv provides SONAR_HOST_URL and SONAR_AUTH_TOKEN
+        withSonarQubeEnv('SonarQube') {
+            bat '''
+              dotnet sonarscanner begin /k:"shop-api" ^
+                /d:sonar.host.url=%SONAR_HOST_URL% ^
+                /d:sonar.token=%SONAR_AUTH_TOKEN% ^
+                /d:sonar.cs.opencover.reportsPaths=**/coverage.opencover.xml
+              dotnet build -c Release --no-incremental
+              dotnet test -c Release --no-build --collect:"XPlat Code Coverage;Format=opencover"
+              dotnet sonarscanner end /d:sonar.token=%SONAR_AUTH_TOKEN%
+            '''
+        }
+    }
+}
+stage('Quality gate') {
+    steps {
+        timeout(time: 10, unit: 'MINUTES') {
+            waitForQualityGate abortPipeline: true   // red gate means a red build
+        }
+    }
+}
+```
+
+</Ex>
+
+<Next>
+
+- How is `TreatWarningsAsErrors` different from `WarningsAsErrors`? — The first turns every warning into an error, the second only the listed ones, such as `Nullable`.
+- What does the "Sonar way" quality gate check? — New code: no new issues, hotspots reviewed, coverage at least 80%, duplication at most 3%.
+- Why does the gate look at new code rather than all code? — Otherwise a legacy project is red forever; the bar has to be held on changes.
+- Why does SonarQube show zero coverage? — The report wasn't produced in the right format, or the path in `sonar.cs.opencover.reportsPaths` didn't match.
+- How do you upgrade the SDK without new rules breaking the build? — Pin `AnalysisLevel` to a version and bump it in a separate PR.
+
+</Next>
+
+<Src>
+
+- [Code analysis in .NET](https://learn.microsoft.com/dotnet/fundamentals/code-analysis/overview)
+- [Understanding quality gates — SonarQube Server](https://docs.sonarsource.com/sonarqube-server/quality-standards-administration/managing-quality-gates/introduction-to-quality-gates)
+- [SonarScanner for .NET](https://docs.sonarsource.com/sonarqube-server/analyzing-source-code/scanners/dotnet/introduction)
+
+</Src>
+
+</Q>
+
+<Q id="quality.ci.packages-versioning" level="m">
+
+## How do you manage packages and versions?
+
+<A short l="j">
+
+Versions follow <T k="semver">SemVer</T> — `MAJOR.MINOR.PATCH`: major goes up for breaking changes, minor for new features, patch for fixes. Your own libraries are published to a private <T k="nuget-feed">NuGet feed</T>, and projects reference them as regular packages instead of copying `.dll` files.
+
+</A>
+
+<A short l="m">
+
+Internal libraries live in a private feed, versions of all packages are set in one place with Central Package Management, and a <T k="package-lock-file">lock file</T> plus `dotnet restore --locked-mode` in CI guarantee that restore picks exactly the same versions. <T k="nuget-audit">NuGetAudit</T> warns about vulnerable packages on every restore. The build version is computed from git tags (MinVer, GitVersion) rather than edited by hand; the cost is discipline around tags and branches.
+
+</A>
+
+<A short l="s">
+
+Dependencies are a supply chain: where a package came from, which version it is, and whether you can rebuild the same thing a year later. So there is one feed that proxies nuget.org, <T k="package-source-mapping">Package Source Mapping</T> prevents internal names from being hijacked, lock files make restore reproducible, and NuGetAudit checks transitive packages too. A package version following SemVer is a contract with consumers, and <T k="source-link">Source Link</T> takes the debugger to the exact commit. The cost is that a fresh advisory can break the build at a bad moment, so you decide up front which severity levels block the pipeline.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **SemVer** — a `MAJOR.MINOR.PATCH` version such as `2.4.1`. A breaking change gives `3.0.0`, a new feature `2.5.0`, a fix `2.4.2`. A `-beta.1` suffix marks a prerelease.
+- **Private feed** — the company's NuGet server for internal packages: a shared logging library, clients for internal APIs.
+
+**How to use**
+
+1. The library's pipeline runs `dotnet pack` and gets a `.nupkg`.
+2. `dotnet nuget push` publishes the package to the feed.
+3. The feed is listed in `nuget.config` at the repository root, and the package installs like any other: `dotnet add package Company.Logging`.
+
+**Common mistake**
+
+Re-uploading a changed package under the same version. Everyone's `~/.nuget/packages` cache already holds the old one, and builds start to diverge.
+
+**Takeaway:** SemVer tells consumers what changed, and a private feed serves internal packages the same way nuget.org does.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- **Feed.** Azure Artifacts and GitHub Packages are cloud-hosted. BaGetter (the successor of BaGet), Nexus and ProGet are self-hosted. NuGet.Server is the old .NET Framework option. A good feed proxies nuget.org, so all packages go through one point.
+- **Versions in one place.** Central Package Management and `Directory.Packages.props` — see [.NET platform](/sobes/en/dotnet/platform/).
+- **Lock file.** `RestorePackagesWithLockFile` creates `packages.lock.json` with the full graph. `dotnet restore --locked-mode` in CI fails if the graph changed but the file didn't.
+- **Audit.** NuGetAudit checks the graph against a vulnerability database on restore and reports NU1901–NU1904, from low to critical.
+- **Version from git.** MinVer takes the version from the latest tag, GitVersion from tags and the branching scheme. No hand-written `<Version>` in the project.
+
+**When to choose what**
+
+| Tool | When |
+|---|---|
+| MinVer | version = latest tag, a simple process |
+| GitVersion | release branches, GitFlow, complex rules |
+| manual `<Version>` | one package, rare releases |
+
+**Pitfalls**
+
+- A library's lock file doesn't help its consumers: the application resolves the graph. Commit it mainly for applications.
+- Floating versions (`2.*`) without a lock file make the build non-reproducible.
+- A fresh advisory breaks a build that uses `TreatWarningsAsErrors`. Decide up front which codes block.
+
+**Rule of thumb**
+
+One feed, versions in `Directory.Packages.props`, a lock file and `--locked-mode` for applications, the version from a tag.
+
+**Takeaway:** lock files give reproducibility, the audit gives safety, SemVer from tags gives clarity.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- NuGet supports SemVer 2.0: a prerelease sorts below the release (`2.0.0-rc.1` is less than `2.0.0`), and metadata after `+` is ignored in comparisons.
+- An assembly has several versions: the package version is for NuGet, `AssemblyVersion` for the loader, `FileVersion` for Windows, `InformationalVersion` for humans. Since .NET 8 the SDK appends the commit SHA to `InformationalVersion`: `2.4.0+a1b2c3d…`.
+- Since .NET 8 Source Link is built into the SDK for GitHub, Azure Repos, GitLab and Bitbucket. It writes the repository URL and commit into the PDB, and the debugger downloads the source of the exact version. `ContinuousIntegrationBuild=true` in CI normalizes paths for a deterministic build.
+
+**Cost**
+
+- A `.snupkg` doesn't bloat the package but isn't supported by every feed: Azure Artifacts doesn't accept it. The alternative is `DebugType=embedded`, with the PDB inside the assembly at the cost of size.
+- Auditing transitive packages finds more vulnerabilities — and more noise.
+
+**Trade-offs**
+
+- Dependency confusion: a `Company.Logging` package with a high version on nuget.org can win over the internal one. The defence is Package Source Mapping or a single feed that proxies upstream.
+- A blocking audit in a separate pipeline (Microsoft's recipe with `-p:AuditPipeline=true`) doesn't hold up an urgent fix because of a fresh advisory.
+
+**How to check in production**
+
+- The version and SHA from `InformationalVersion` in the startup log lead to the release commit.
+- `dotnet package list --vulnerable --include-transitive` (before .NET 10, `dotnet list package`) on the release commit shows vulnerabilities in what is running now.
+- NuGet Package Explorer shows whether a package has Source Link and symbols.
+
+**Takeaway:** packages are a supply chain: one feed, a pinned graph, an audit, and a version that leads to the commit.
+
+</A>
+
+<Ex>
+
+```xml
+<!-- Directory.Build.props: package rules for every project -->
+<Project>
+  <PropertyGroup>
+    <!-- packages.lock.json with the full graph; in CI: dotnet restore --locked-mode -->
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <!-- Audit transitive packages too (already the default for net10.0) -->
+    <NuGetAuditMode>all</NuGetAuditMode>
+    <!-- High and critical vulnerabilities break the build, low and moderate stay warnings -->
+    <WarningsAsErrors>$(WarningsAsErrors);NU1903;NU1904</WarningsAsErrors>
+  </PropertyGroup>
+</Project>
+```
+
+```xml
+<!-- nuget.config at the repository root -->
+<configuration>
+  <packageSources>
+    <clear />
+    <add key="company" value="https://nuget.example.com/v3/index.json" />
+    <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
+  </packageSources>
+  <!-- Package Source Mapping: Company.* comes only from our own feed -->
+  <packageSourceMapping>
+    <packageSource key="company">
+      <package pattern="Company.*" />
+    </packageSource>
+    <packageSource key="nuget.org">
+      <package pattern="*" />
+    </packageSource>
+  </packageSourceMapping>
+</configuration>
+```
+
+</Ex>
+
+<Next>
+
+- When do you bump the major version? — For any breaking change to the public API, however small.
+- Why a lock file if versions are already specified? — Only direct dependencies are specified; transitive and floating versions can change without it.
+- How do you protect against dependency confusion? — Package Source Mapping or a single feed that proxies nuget.org.
+- What do you do about a vulnerability in a transitive package? — Update the nearest direct package; otherwise bump the transitive one with an explicit reference or transitive pinning.
+- What is Source Link for? — The debugger downloads the package source of exactly the version it was built from.
+
+</Next>
+
+<Src>
+
+- [Auditing package dependencies for security vulnerabilities](https://learn.microsoft.com/nuget/concepts/auditing-packages)
+- [Locking dependencies](https://learn.microsoft.com/nuget/consume-packages/package-references-in-project-files#locking-dependencies)
+- [Package Source Mapping](https://learn.microsoft.com/nuget/consume-packages/package-source-mapping)
+
+</Src>
+
+</Q>
+
+<Q id="quality.ci.deployment" level="s">
+
+## What deployment strategies are there, and how do you roll back?
+
+<A short l="j">
+
+A deployment strategy defines how the new version replaces the old one: <T k="rolling-deployment">rolling</T> updates servers one at a time, <T k="blue-green-deployment">blue-green</T> keeps two copies and switches traffic, <T k="canary-release">canary</T> first gives the new version to a small share of users. A rollback returns to the previous version, and it should be as well-rehearsed a step as the deployment itself.
+
+</A>
+
+<A short l="m">
+
+Rolling is cheap, but for a while both versions run; blue-green gives an instant switch and rollback at the price of double resources; canary limits how many users are affected but needs metrics to compare versions. <T k="feature-toggle">Feature flags</T> separate deploying code from turning a feature on, so a rollback often comes down to switching a flag off. The database schema meanwhile changes via <T k="expand-contract">expand/contract</T>; otherwise rolling back the code runs into an incompatible schema.
+
+</A>
+
+<A short l="s">
+
+A safe release means a small blast radius, decisions driven by metrics, and rollback without a new build. Every strategy except stop-and-replace assumes two versions run at the same time, so compatibility of schema, API and messages with the previous version is a hard requirement. On IIS without an orchestrator, zero downtime comes from several servers or two sites behind a load balancer, while `app_offline.htm` is a short planned outage of one site. In containers a <T k="readiness-probe">readiness check</T> lets traffic reach a new instance, and rollback starts automatically when errors and latency go up.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+A deployment strategy is the order in which the new version reaches the servers and starts getting traffic.
+
+| Strategy | How it works |
+|---|---|
+| Stop and replace | stop, replace files, start — there is downtime |
+| Rolling | servers behind a load balancer are updated one at a time |
+| Blue-green | a new copy next to the old one, traffic switches at once |
+| Canary | the new version first gets 1–5% of traffic |
+
+**How to roll back**
+
+- Keep the previous artifact and deploy it with a single command.
+- In blue-green, send traffic back to the old copy.
+- For a feature behind a feature flag, switch the flag off — no deployment needed.
+
+**Common mistake**
+
+Assuming rollback is easy until the database changes. If the new version dropped a column, the old code no longer works with that database.
+
+**Takeaway:** pick a strategy by the cost of downtime, and test the rollback in advance.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- **Rolling.** The load balancer takes a server out of rotation, the server is updated, passes a health check and comes back.
+- **Blue-green.** Two full copies. The new one is deployed and warmed up with no traffic, passes smoke tests, then the load balancer switches. The old one stays for rollback.
+- **Canary.** The new version gets a small share of traffic; its errors and latency are compared with the old one, and the share grows in steps.
+- **Feature flags.** Code ships switched off and is enabled for some users, for example with `Microsoft.FeatureManagement`.
+
+**When to choose what**
+
+| Strategy | Pro | Con |
+|---|---|---|
+| Rolling | no extra servers | rollback is another slow rolling |
+| Blue-green | instant rollback | double resources |
+| Canary | few users affected | needs metrics and routing |
+
+**Pitfalls**
+
+- **Database schema.** The migration runs before the deployment and must work with the old code: add, don't drop or rename. Details are in [changing the schema without downtime](/sobes/en/db/design/).
+- **In-memory state.** After the switch a user lands on another instance, so sessions and caches live outside the process.
+- **Two versions at once.** Messages in queues and API responses must be understood by both versions.
+
+**Rule of thumb**
+
+Every release is compatible with the previous one in schema, API and messages. Then any strategy works, and rolling back the code doesn't require rolling back the database.
+
+**Takeaway:** a strategy is a trade-off between resource cost, rollback speed and the number of users affected.
+
+</A>
+
+<A l="s">
+
+**Under the hood: IIS and containers**
+
+- **`app_offline.htm`.** A file in the site root makes the ASP.NET Core Module shut the app down gracefully and serve the file's contents. The DLLs are released, files are replaced, the file is removed, and the next request starts the new version. That is downtime: fine for a maintenance window or as a step of a rolling deployment behind a load balancer.
+- **Two sites.** Blue and green sites with their own pools and folders behind ARR or an external load balancer. Green is deployed and warmed up, `/health/ready` is checked, the load balancer switches, and blue is kept until the observation period ends.
+- **Containers.** The orchestrator sends traffic to a new instance only after a successful readiness check. Readiness and liveness are different checks: an unavailable database is no reason to restart the process.
+
+**Cost**
+
+Any zero-downtime strategy requires compatibility between versions N and N−1: expand/contract in the database, optional fields in the API, versioned messages.
+
+**Trade-offs**
+
+- Rolling back is faster when the artifact and schema are compatible. Fixing forward (roll forward) is the way when a data migration can no longer be undone.
+- Feature flags separate deployment from release but pile up dead code paths. A flag needs an expiry date.
+
+**How to check in production**
+
+- After the switch the pipeline waits out an observation period (bake time), compares the 5xx rate, p99 and business metrics against thresholds, and sends traffic back on its own if they are breached.
+- Each deployment is marked with its version in monitoring, so an error spike is tied to a release right away.
+- Rollbacks are rehearsed: a rollback nobody has ever run doesn't work.
+
+**Takeaway:** a safe deployment means small steps, N and N−1 compatibility, metric-driven decisions and a rollback that has already been tested.
+
+</A>
+
+<Ex>
+
+```yaml
+# Deploy job in ci.yml: blue-green on IIS (for simplicity the new copy is always green)
+jobs:
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, windows, iis]   # own agent inside the server network
+    environment: production                # manual approval in the environment settings
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v7          # deployment scripts live in the repository
+      - uses: actions/download-artifact@v8
+        with:
+          name: shop-api-${{ github.sha }}
+          path: drop
+      # 1. Deploy to the copy that has no traffic
+      - run: |
+          Import-Module WebAdministration
+          Stop-WebAppPool -Name shop-green
+          Copy-Item drop\* D:\sites\shop-green -Recurse -Force
+          Start-WebAppPool -Name shop-green
+      # 2. Warm up and check readiness before switching
+      - run: Invoke-WebRequest http://localhost:8081/health/ready -UseBasicParsing
+      # 3. Switch the load balancer and watch the metrics
+      - run: ./deploy/switch-traffic.ps1 -To green
+      - run: ./deploy/watch-metrics.ps1 -Minutes 15 -Max5xxPercent 1
+      # 4. Failure at any step: send traffic back to the previous copy
+      - if: failure()
+        run: ./deploy/switch-traffic.ps1 -To blue
+```
+
+`switch-traffic.ps1` and `watch-metrics.ps1` are project scripts: the first changes the ARR rule or the load balancer pool, the second reads metrics from monitoring. On the next release the colors swap.
+
+</Ex>
+
+<Next>
+
+- How is blue-green different from canary? — Blue-green switches all traffic at once, canary moves it in steps by percentage.
+- How do you roll back a release if a migration dropped a column? — Not quickly, which is why dropping is a separate, later release under expand/contract.
+- Does `app_offline.htm` give you a zero-downtime deployment? — No, the site is unavailable meanwhile; zero downtime needs several servers or two sites behind a load balancer.
+- How is readiness different from liveness? — Readiness decides whether an instance gets traffic, liveness whether the process gets restarted.
+- What is bake time? — The period of watching metrics after a deployment before moving on.
+
+</Next>
+
+<Src>
+
+- [Safe deployment practices — Azure Well-Architected Framework](https://learn.microsoft.com/azure/well-architected/operational-excellence/safe-deployments)
+- [Host ASP.NET Core on Windows with IIS: locked deployment files](https://learn.microsoft.com/aspnet/core/host-and-deploy/iis/#locked-deployment-files)
+- [Health checks in ASP.NET Core](https://learn.microsoft.com/aspnet/core/host-and-deploy/health-checks)
+
+</Src>
+
+</Q>

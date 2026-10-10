@@ -1,0 +1,169 @@
+observability:
+  term: Наблюдаемость (observability)
+  def: >-
+    Свойство системы, позволяющее понять её внутреннее состояние по данным, которые она отдаёт
+    наружу: метрикам, трейсам и логам. В отличие от мониторинга, отвечает и на вопросы, о которых
+    не думали заранее.
+  q: observability logs metrics traces
+  docs: https://opentelemetry.io/docs/concepts/observability-primer/
+distributed-tracing:
+  term: Распределённая трассировка (distributed tracing)
+  def: >-
+    Запись пути одного запроса через все сервисы в виде дерева спанов с общим trace id. Показывает,
+    где тратится время и где произошла ошибка.
+  q: distributed tracing
+  docs: https://opentelemetry.io/docs/concepts/signals/traces/
+span:
+  term: Спан (span)
+  def: >-
+    Одна операция внутри трейса: входящий запрос, SQL-запрос или HTTP-вызов. У спана есть имя,
+    начало, длительность, атрибуты и ссылка на родительский спан. В .NET спан — это `Activity`.
+  q: OpenTelemetry span
+  docs: https://opentelemetry.io/docs/concepts/signals/traces/#spans
+prometheus:
+  term: Prometheus
+  def: >-
+    Система мониторинга и база временных рядов. Сама забирает метрики с HTTP-эндпоинтов сервисов
+    (pull), хранит их и проверяет правила алертов; графики обычно строят в Grafana.
+  q: Prometheus monitoring
+  docs: https://prometheus.io/docs/introduction/overview/
+elk-stack:
+  term: ELK (Elasticsearch, Logstash, Kibana)
+  def: >-
+    Стек для сбора, хранения и поиска логов: Logstash или Beats доставляют события, Elasticsearch
+    индексирует их, Kibana даёт поиск и дашборды. Открытый форк Elasticsearch — OpenSearch.
+  q: ELK stack logging
+  docs: https://www.elastic.co/elastic-stack
+health-check:
+  term: Health check (проверка здоровья)
+  def: >-
+    HTTP-эндпоинт, который сообщает состояние экземпляра приложения: Healthy, Degraded или Unhealthy.
+    По нему балансировщик и оркестратор решают, слать ли трафик и перезапускать ли процесс.
+  q: ASP.NET Core health checks
+  docs: https://learn.microsoft.com/aspnet/core/host-and-deploy/health-checks
+health-check-publisher:
+  term: Health check publisher
+  def: >-
+    Реализация `IHealthCheckPublisher`, которую фоновый сервис ASP.NET Core периодически вызывает
+    с отчётом о проверках. Используется, чтобы отправлять статус в лог, метрики или систему
+    мониторинга без внешнего опроса.
+  q: IHealthCheckPublisher ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/host-and-deploy/health-checks#health-check-publisher
+cascading-failure:
+  term: Каскадный отказ (cascading failure)
+  def: >-
+    Отказ, который распространяется по системе: сбой одного компонента перегружает или выключает
+    другие. Пример — readiness-проба на общую БД, которая при её сбое выводит из балансировки все
+    экземпляры сразу.
+  q: cascading failure
+  docs: https://sre.google/sre-book/addressing-cascading-failures/
+red-method:
+  term: Метод RED
+  def: >-
+    Набор метрик для сервиса, обрабатывающего запросы: Rate (запросов в секунду), Errors (ошибки),
+    Duration (время ответа). Предложен Томом Уилки как дополнение к USE.
+  q: RED method rate errors duration
+use-method:
+  term: Метод USE
+  def: >-
+    Набор метрик для каждого ресурса: Utilization (загрузка), Saturation (насыщение, очередь
+    ожидающей работы), Errors (ошибки). Предложен Бренданом Греггом для анализа производительности.
+  q: USE method Brendan Gregg
+  docs: https://www.brendangregg.com/usemethod.html
+golden-signals:
+  term: Четыре золотых сигнала
+  def: >-
+    Метрики из Google SRE Book для сервиса, видимого пользователям: задержка, трафик, ошибки и
+    насыщение. Если можно мерить только четыре вещи, мерить нужно их.
+  q: four golden signals SRE
+  docs: https://sre.google/sre-book/monitoring-distributed-systems/
+metric-instrument:
+  term: Инструмент метрики (instrument)
+  def: >-
+    Объект `System.Diagnostics.Metrics`, через который код записывает измерения: `Counter<T>`,
+    `UpDownCounter<T>`, `Histogram<T>`, `Gauge<T>` и их observable-варианты. Создаётся из `Meter`.
+  q: System.Diagnostics.Metrics instrument types
+  docs: https://learn.microsoft.com/dotnet/core/diagnostics/metrics-instrumentation
+metric-cardinality:
+  term: Кардинальность метрики
+  def: >-
+    Число уникальных комбинаций значений меток метрики, то есть число временных рядов. Метка с
+    id пользователя или полным URL даёт миллионы рядов и перегружает хранилище.
+  q: metrics label cardinality
+  docs: https://prometheus.io/docs/practices/naming/#labels
+percentile:
+  term: Перцентиль (p50, p95, p99)
+  def: >-
+    Значение, ниже которого лежит заданная доля измерений: p99 = 200 мс значит, что 99% запросов
+    быстрее 200 мс. В метриках перцентили считают приближённо по бакетам гистограммы.
+  q: latency percentile p99
+dotnet-trace:
+  term: dotnet-trace
+  def: >-
+    CLI-инструмент для записи трейса событий работающего .NET-процесса через EventPipe: сэмплы
+    стеков, события GC, JIT, исключений. Результат открывают в PerfView, Visual Studio или speedscope.
+  q: dotnet-trace
+  docs: https://learn.microsoft.com/dotnet/core/diagnostics/dotnet-trace
+eventpipe:
+  term: EventPipe
+  def: >-
+    Встроенный в рантайм .NET механизм трассировки, одинаковый на всех ОС. Через него работают
+    dotnet-counters, dotnet-trace и dotnet-monitor без внешнего профилировщика.
+  q: .NET EventPipe
+  docs: https://learn.microsoft.com/dotnet/core/diagnostics/eventpipe
+diagnostic-port:
+  term: Diagnostic port
+  def: >-
+    Канал, через который диагностические инструменты общаются с рантаймом .NET: именованный канал на
+    Windows или Unix-сокет в каталоге временных файлов на Linux. В контейнере к нему нужен общий
+    доступ с sidecar.
+  q: .NET diagnostic port
+  docs: https://learn.microsoft.com/dotnet/core/diagnostics/diagnostic-port
+dotnet-monitor:
+  term: dotnet-monitor
+  def: >-
+    Инструмент для продакшена, обычно sidecar-контейнер: по HTTP API снимает дампы, трейсы, логи и
+    метрики .NET-процессов, а по правилам-триггерам собирает их сам и выгружает в хранилище.
+  q: dotnet-monitor
+  docs: https://learn.microsoft.com/dotnet/core/diagnostics/dotnet-monitor
+sli:
+  term: SLI (service level indicator)
+  def: >-
+    Измеряемый показатель качества сервиса, обычно доля хороших событий среди всех: успешных
+    запросов, запросов быстрее порога.
+  q: service level indicator SLI
+  docs: https://sre.google/sre-book/service-level-objectives/
+error-budget:
+  term: Error budget (бюджет ошибок)
+  def: >-
+    Допустимая доля неудач за окно SLO: 100% − SLO. При SLO 99,9% за 30 дней — около 43 минут полного
+    простоя. Пока бюджет есть, команда тратит его на изменения.
+  q: error budget SRE
+  docs: https://sre.google/workbook/error-budget-policy/
+burn-rate:
+  term: Burn rate (скорость расхода бюджета)
+  def: >-
+    Во сколько раз сервис тратит error budget быстрее допустимого: доля ошибок, делённая на 1 − SLO.
+    При burn rate 1 бюджет закончится ровно к концу окна SLO.
+  q: SLO burn rate alerting
+  docs: https://sre.google/workbook/alerting-on-slos/
+symptom-based-alerting:
+  term: Симптомный алерт
+  def: >-
+    Алерт на то, что видит пользователь: ошибки, задержка, недоступность. Противоположность
+    причинному алерту на внутренний показатель вроде загрузки CPU.
+  q: alert on symptoms not causes
+  docs: https://sre.google/sre-book/monitoring-distributed-systems/
+runbook:
+  term: Runbook
+  def: >-
+    Инструкция для дежурного по конкретному алерту: что проверить, какие действия безопасны, кого
+    звать. Ссылку на него кладут прямо в алерт.
+  q: runbook on-call alert
+blameless-postmortem:
+  term: Blameless postmortem
+  def: >-
+    Разбор инцидента без поиска виноватых: хронология, влияние, причины и действия с владельцами.
+    Ищут, почему система и процессы позволили ошибке случиться.
+  q: blameless postmortem
+  docs: https://sre.google/sre-book/postmortem-culture/

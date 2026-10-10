@@ -1,0 +1,731 @@
+---
+title: Docker и контейнеры
+description: Образы и контейнеры, сборка образов .NET, docker compose и Aspire, запуск .NET в Kubernetes — пробы, лимиты и остановка.
+sidebar:
+  order: 3
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+Как упаковать .NET-приложение в контейнер и запустить его рядом с зависимостями и в кластере: чем контейнер отличается от виртуальной машины, как собрать маленький и безопасный образ, как поднять стенд через docker compose и что Kubernetes ждёт от приложения. На собеседовании это проверяют вопросами про слои, порты, пробы и лимиты.
+
+**Перед этой темой:** [Хостинг и конвейер](/sobes/aspnet/hosting/).
+
+<Q id="quality.docker.basics" level="j">
+
+## Что такое контейнер и чем он отличается от виртуальной машины?
+
+<A short l="j">
+
+<T k="container-image">Образ</T> — упакованное приложение со всеми зависимостями, а контейнер — изолированный процесс, запущенный из образа. В отличие от виртуальной машины, у контейнера нет своей ОС: он использует ядро хоста, поэтому стартует за секунды и весит десятки мегабайт, а не гигабайты.
+
+</A>
+
+<A short l="m">
+
+Контейнер — обычный процесс Linux, которому ядро ограничивает видимость через <T k="linux-namespaces">namespaces</T> и ресурсы через <T k="cgroups">cgroups</T>, а файловую систему собирает из read-only <T k="image-layer">слоёв</T> образа и тонкого записываемого слоя. Образ собирают по Dockerfile и хранят в <T k="container-registry">реестре</T>, поэтому один и тот же артефакт едет на тест и в прод. Цена — изоляция слабее, чем у ВМ, а всё записанное в контейнер, а не в <T k="docker-volume">том</T>, пропадает при его пересоздании.
+
+</A>
+
+<A short l="s">
+
+Граница изоляции — общее ядро: ВМ виртуализирует железо и запускает своё ядро, а контейнер — процесс хоста с отдельными namespaces, лимитами cgroups, урезанными capabilities и фильтром seccomp. Отсюда плотность и старт за доли секунды, но и слабее защита: уязвимость ядра или контейнер с лишними правами открывает путь на хост, поэтому недоверенный код изолируют ВМ или песочницами вроде gVisor и Kata Containers. Неизменяемый образ с адресацией по digest делает выкладку воспроизводимой, но требует выносить конфигурацию и состояние наружу.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+- **Образ** — неизменяемый шаблон: файлы приложения, рантайм, системные библиотеки и команда запуска.
+- **Контейнер** — запущенный экземпляр образа: процесс со своей файловой системой, сетью и лимитами.
+- **Dockerfile** — текстовый рецепт сборки образа из инструкций `FROM`, `COPY`, `RUN`, `ENTRYPOINT`.
+- **Реестр** — хранилище образов: Docker Hub, `mcr.microsoft.com`, Azure Container Registry.
+
+**Зачем**
+
+Один артефакт работает одинаково на ноутбуке, в CI и на сервере: рантайм нужной версии уже внутри образа.
+
+**Как пользоваться**
+
+1. `docker build` — собрать образ по Dockerfile.
+2. `docker run -p 5000:8080` — запустить: порт 5000 хоста ведёт в порт 8080 контейнера.
+3. `-e` — передать переменную окружения, `-v` — подключить том, чтобы данные пережили пересоздание контейнера.
+
+**Частая ошибка**
+
+Хранить данные внутри контейнера: загруженные файлы, SQLite, логи. После `docker rm` или обновления образа они исчезают.
+
+**Итог:** образ — что запускать, контейнер — запущенный процесс, том — где хранить то, что должно его пережить.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+1. **Слои.** Каждая инструкция `RUN`, `COPY` или `ADD` даёт слой — набор изменений файловой системы. Слои только для чтения, адресуются хешем содержимого и общие для разных образов.
+2. **Запуск.** Docker накладывает слои друг на друга (overlayfs) и добавляет сверху записываемый слой контейнера.
+3. **Изоляция.** Namespaces дают процессу свои PID, сеть, точки монтирования и hostname: приложение внутри — PID 1. Cgroups ограничивают CPU, память и число процессов.
+4. **Порты.** У контейнера свой сетевой стек. `EXPOSE` в Dockerfile — только документация, доступ снаружи открывает `-p хост:контейнер`.
+
+**Когда что выбирать**
+
+| Признак | Контейнер | Виртуальная машина |
+|---|---|---|
+| Ядро ОС | общее с хостом | своё |
+| Старт | доли секунды | десятки секунд |
+| Размер | десятки–сотни МБ | гигабайты |
+| Изоляция | процессная | аппаратная, сильнее |
+
+**Ловушки**
+
+- **Том или bind mount.** Именованным томом (`-v data:/data`) управляет Docker. Bind mount (`-v ./conf:/app/conf`) подключает папку хоста — удобно в разработке, но привязывает к конкретной машине.
+- **Linux-контейнеры на Windows.** Docker Desktop запускает их в лёгкой ВМ WSL 2: контейнеру всё равно нужно ядро Linux.
+- **Тег — не версия.** `latest` и даже `1.0` можно перезаписать. Неизменяемая ссылка — digest `@sha256:...`.
+
+**Правило**
+
+Контейнер одноразовый: настройки — в переменных окружения, данные — в томах или внешних сервисах, логи — в stdout.
+
+**Итог:** контейнер — изолированный процесс на общем ядре, собранный из кешируемых слоёв, а не маленькая ВМ.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- Цепочка запуска: Docker CLI → dockerd → containerd → runc. Формат образа и рантайма описан стандартом OCI, поэтому тот же образ запускают Podman и Kubernetes.
+- Namespaces: pid, net, mnt, uts, ipc, user, cgroup. Cgroups v2 задают `cpu.max` и `memory.max`: за превышение памяти ядро убивает процесс, за превышение CPU — троттлит.
+- PID 1 получает сигналы. `ENTRYPOINT ["dotnet", "Shop.Api.dll"]` (exec-форма) принимает SIGTERM напрямую. Shell-форма запускает приложение под `/bin/sh -c`, сигнал до него не доходит, и `docker stop` через 10 секунд убивает процесс.
+- Windows-контейнеры (Server Core, Nano Server) есть, в том числе с IIS и .NET Framework, но работают только на Windows-хосте и весят гигабайты.
+
+**Цена**
+
+- Общее ядро — общая поверхность атаки. Контейнер с `--privileged` или смонтированным `docker.sock` фактически равен root на хосте.
+- Запись в слой контейнера идёт через copy-on-write и медленнее записи в том.
+
+**Компромиссы**
+
+- Плотность и скорость доставки против силы изоляции: для своего кода контейнеров хватает, для чужого нужны ВМ или gVisor и Kata Containers.
+- Неизменяемый образ упрощает откат — запустить предыдущий тег, — но конфигурацию и состояние приходится выносить наружу.
+
+**Как проверить в проде**
+
+- `docker inspect` — лимиты, монтирования, переменные; `docker stats` — CPU и память относительно лимитов.
+- `docker history` — какие инструкции дали самые тяжёлые слои.
+- Код выхода 137 (128 + 9) — процесс убит SIGKILL: по OOM или после таймаута остановки.
+
+**Итог:** контейнер — процесс хоста с ограниченной видимостью и ресурсами, и его сильные и слабые стороны следуют из общего ядра.
+
+</A>
+
+<Ex>
+
+```bash
+# Собрать образ по Dockerfile из текущей папки
+docker build -t shop-api:1.0 .
+
+# Порт хоста 5000 → порт 8080 в контейнере, переменная, том и лимиты
+docker run -d --name shop-api -p 5000:8080 \
+  -e ASPNETCORE_ENVIRONMENT=Staging \
+  -v shop-uploads:/app/uploads \
+  --memory 512m --cpus 1.5 \
+  shop-api:1.0
+
+docker ps                 # запущенные контейнеры
+docker logs -f shop-api   # stdout приложения
+docker stop shop-api      # SIGTERM, через 10 секунд — SIGKILL
+docker rm shop-api        # контейнер удалён, том shop-uploads остался
+```
+
+</Ex>
+
+<Next>
+
+- Чем образ отличается от контейнера? — Образ — неизменяемый шаблон, контейнер — его запущенный экземпляр со своим записываемым слоем; из одного образа — сколько угодно контейнеров.
+- Что будет с файлами, записанными внутрь контейнера? — Живут до удаления контейнера; переживают его только тома и bind mount.
+- Зачем `EXPOSE`, если есть `-p`? — `EXPOSE` документирует порт, а публикует его `-p` (или `-P` для всех портов из `EXPOSE`).
+- Почему приложение не останавливается корректно по `docker stop`? — Shell-форма `ENTRYPOINT`: SIGTERM получает `sh`, а не приложение.
+- Можно ли запустить Linux-контейнер на Windows? — Да, через Docker Desktop с WSL 2: ядро Linux работает в лёгкой ВМ.
+
+</Next>
+
+<Src>
+
+- [What is a container? — Docker Docs](https://docs.docker.com/get-started/docker-concepts/the-basics/what-is-a-container/)
+- [Volumes — Docker Docs](https://docs.docker.com/engine/storage/volumes/)
+- [Containerize a .NET app](https://learn.microsoft.com/dotnet/core/docker/build-container)
+
+</Src>
+
+</Q>
+
+<Q id="quality.docker.dotnet-images" level="m">
+
+## Как правильно собрать образ .NET-приложения?
+
+<A short l="j">
+
+Образ .NET собирают <T k="multi-stage-build">многоэтапным Dockerfile</T>: на первом этапе образ `sdk` восстанавливает пакеты и публикует приложение, на втором в лёгкий образ `aspnet` копируется только результат `dotnet publish`. Поэтому в итоговом образе нет SDK и исходников, и он в несколько раз меньше.
+
+</A>
+
+<A short l="m">
+
+Сначала копируют только `.csproj` и выполняют `dotnet restore`, потом остальной код и `dotnet publish --no-restore`: слой с пакетами берётся из кеша, пока не менялись зависимости. Базовый образ выбирают по типу публикации — `aspnet:10.0` для обычного приложения, `runtime-deps` для self-contained и Native AOT, — а <T k="chiseled-image">chiseled</T>-варианты (`10.0-noble-chiseled`) убирают shell и пакетный менеджер. С .NET 8 образы слушают порт 8080 и содержат <T k="non-root-container">непривилегированного пользователя</T> `app`; цена chiseled — нет shell для отладки и нет ICU, если не взять вариант `-extra`.
+
+</A>
+
+<A short l="s">
+
+Образ — артефакт поставки и часть поверхности атаки, поэтому цели три: минимальное содержимое, воспроизводимость и быстрая пересборка. Минимум дают chiseled-образы, non-root и, где возможно, Native AOT на `runtime-deps`; воспроизводимость — базовый образ, зафиксированный по digest и обновляемый ботом; скорость — порядок слоёв, кеш BuildKit и `.dockerignore`. Без Dockerfile образ собирает <T k="sdk-container-publish">сам .NET SDK</T> через `dotnet publish /t:PublishContainer`, но `RUN`-шагов он не умеет. Компромисс — размер и безопасность против удобства отладки и совместимости: глобализация, часовые пояса, нативные библиотеки.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+Многоэтапный Dockerfile — несколько `FROM` в одном файле. Каждый этап — отдельный образ, а в итог попадает только последний этап и то, что в него скопировали через `COPY --from`.
+
+**Зачем**
+
+SDK нужен только для сборки, в проде это сотни лишних мегабайт и компилятор под рукой у атакующего. Простой Web API на `aspnet:10.0` весит около 90 МБ в сжатом виде.
+
+**Как пользоваться**
+
+1. `FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build` — этап сборки.
+2. Скопировать `.csproj` и выполнить `dotnet restore` — пакеты попадают в отдельный слой.
+3. Скопировать код и выполнить `dotnet publish -o /app`.
+4. `FROM mcr.microsoft.com/dotnet/aspnet:10.0`, затем `COPY --from=build /app .` и `ENTRYPOINT`.
+5. В `.dockerignore` перечислить `bin/` и `obj/`, чтобы они не попадали в контекст сборки.
+
+**Частая ошибка**
+
+Пробрасывать порт 80 по привычке. С .NET 8 приложение в официальном образе слушает 8080 (`ASPNETCORE_HTTP_PORTS=8080`), и `-p 5000:80` не работает.
+
+**Итог:** собираем в `sdk`, запускаем в `aspnet`, между этапами копируем только результат публикации.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+- **Кеш слоёв.** Docker переиспользует слой, если не изменились инструкция и входные файлы, а после первого изменённого пересобирает все следующие. Поэтому `.csproj` копируют до кода: правка в `.cs` не запускает restore.
+- **Образы Microsoft.** Теги `10.0` указывают на Ubuntu 24.04 (Noble); образов на Debian для .NET 10 нет.
+
+| Образ | Что внутри | Для чего |
+|---|---|---|
+| `sdk:10.0` | SDK, MSBuild, компиляторы | сборка и тесты |
+| `aspnet:10.0` | рантайм .NET и ASP.NET Core | веб-приложения |
+| `runtime:10.0` | рантайм .NET | консоль, worker |
+| `runtime-deps:10.0` | только системные библиотеки | self-contained, Native AOT |
+
+**Когда что выбирать**
+
+- **Chiseled** (`aspnet:10.0-noble-chiseled`) — distroless-образ Ubuntu без shell и пакетного менеджера, non-root по умолчанию. ICU и tzdata нет, включён режим инвариантной глобализации; если нужны культуры и часовые пояса — `-noble-chiseled-extra`.
+- **Composite** (`-noble-chiseled-composite`) — фреймворк собран в один ReadyToRun-файл: образ меньше, но версия фреймворка жёстко привязана.
+- **Без Dockerfile** — `dotnet publish /t:PublishContainer`: SDK сам берёт базовый образ по типу проекта, пользователя `app` и порт; вариант задаёт `ContainerFamily`.
+
+**Ловушки**
+
+- В обычных образах пользователь `app` есть, но процесс работает от root, пока не указать `USER $APP_UID`. А non-root не может писать в `/app` и в тома, созданные root.
+- `HEALTHCHECK` через `curl` в chiseled-образе не работает: нет ни curl, ни shell.
+
+**Правило**
+
+Слои — от редко меняющихся к часто меняющимся; финальный образ — минимальный, non-root, с явной версией.
+
+**Итог:** multi-stage, restore отдельным слоем, `aspnet` или chiseled в рантайме и non-root — базовая гигиена образа .NET.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- BuildKit, сборщик Docker по умолчанию, выполняет независимые этапы параллельно. `RUN --mount=type=cache,target=/root/.nuget/packages` сохраняет кеш NuGet между сборками, даже когда слой restore пересобирается.
+- `FROM --platform=$BUILDPLATFORM` и `dotnet publish -a $TARGETARCH` собирают образ для arm64 на x64-агенте без эмуляции: SDK работает на родной архитектуре.
+- `PublishContainer` не нужен Docker-демон: SDK скачивает слои базового образа, добавляет слой с приложением и отправляет образ в реестр (`ContainerRegistry`) или в архив (`ContainerArchiveOutputPath`).
+
+**Цена**
+
+Сжатый образ простого Web API, по замеру dotnet-docker на ноябрь 2025:
+
+| Вариант | Размер |
+|---|---|
+| `aspnet:10.0` | ~92 МБ |
+| `aspnet:10.0-noble-chiseled` | ~53 МБ |
+| Native AOT на `runtime-deps:10.0-noble-chiseled` | ~12 МБ |
+
+Native AOT даёт быстрый старт и меньше памяти, но ограничивает рефлексию и динамическую загрузку кода, а собирается в `sdk:10.0-noble-aot`. Подробно — в теме [Платформа .NET](/sobes/dotnet/platform/).
+
+**Компромиссы**
+
+- Плавающий тег `10.0` приносит патчи безопасности при пересборке, digest — воспроизводимость. Обычно фиксируют digest, а обновляют его Dependabot или Renovate.
+- Chiseled без shell не даёт зайти внутрь: отлаживают отдельным контейнером рядом (`kubectl debug`) или через dotnet-monitor.
+
+**Как проверить в проде**
+
+- `docker history` — вес каждого слоя.
+- Сканер уязвимостей (Trivy, Docker Scout) по образу. В .NET 10 chiseled-образы содержат Chisel manifest, по которому сканеры видят пакеты.
+- `docker image inspect -f "{{ .Config.User }}" образ` — от какого пользователя он запустится.
+
+**Итог:** хороший образ — минимальный, non-root, воспроизводимый и быстро пересобираемый, а chiseled, composite и AOT — это выбор размера против совместимости.
+
+</A>
+
+<Ex>
+
+```dockerfile
+# Этап сборки: SDK нужен только здесь
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+ARG TARGETARCH
+WORKDIR /src
+
+# Сначала только файл проекта: слой restore берётся из кеша, пока не менялись пакеты
+COPY Shop.Api/Shop.Api.csproj Shop.Api/
+RUN dotnet restore Shop.Api/Shop.Api.csproj -a $TARGETARCH
+
+# Потом код и публикация (Release — по умолчанию с .NET 8)
+COPY . .
+RUN dotnet publish Shop.Api/Shop.Api.csproj -a $TARGETARCH --no-restore -o /app
+
+# Этап запуска: без shell и пакетного менеджера, non-root по умолчанию
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled
+WORKDIR /app
+COPY --from=build /app .
+EXPOSE 8080
+ENTRYPOINT ["dotnet", "Shop.Api.dll"]
+```
+
+</Ex>
+
+<Ex title="Без Dockerfile">
+
+```bash
+# SDK сам возьмёт aspnet:10.0-noble-chiseled, пользователя app и порт 8080
+dotnet publish Shop.Api --os linux --arch x64 /t:PublishContainer \
+  -p ContainerRepository=shop-api \
+  -p ContainerFamily=noble-chiseled \
+  -p ContainerImageTag=1.4.2
+
+# Образ уже в локальном Docker
+docker run -p 5000:8080 shop-api:1.4.2
+```
+
+</Ex>
+
+<Next>
+
+- Зачем копировать `.csproj` отдельно от кода? — Чтобы слой restore брался из кеша, пока не менялись зависимости.
+- Почему приложение на .NET 8+ в контейнере не отвечает на порту 80? — Порт по умолчанию — 8080 (`ASPNETCORE_HTTP_PORTS`): непривилегированный порт нужен для работы без root.
+- Чем chiseled отличается от Alpine? — Оба без ICU по умолчанию; Alpine — musl, shell и apk, chiseled — glibc Ubuntu без shell и пакетного менеджера.
+- Когда `PublishContainer` не подойдёт? — Когда в образе нужны `RUN`-шаги: системные пакеты, сертификаты. Тогда Dockerfile или свой базовый образ.
+- Как отлаживать контейнер без shell? — Отладочный контейнер рядом (`kubectl debug`), dotnet-monitor как sidecar, дампы в том.
+
+</Next>
+
+<Src>
+
+- [.NET container images](https://learn.microsoft.com/dotnet/core/docker/container-images)
+- [Containerize a .NET app with dotnet publish](https://learn.microsoft.com/dotnet/core/containers/sdk-publish)
+- [Multi-stage builds — Docker Docs](https://docs.docker.com/build/building/multi-stage/)
+
+</Src>
+
+</Q>
+
+<Q id="quality.docker.compose" level="m">
+
+## Как поднять приложение с зависимостями через docker compose?
+
+<A short l="j">
+
+<T k="docker-compose">Docker Compose</T> описывает в одном файле `compose.yaml` все контейнеры приложения — API, базу, кеш — и поднимает их одной командой `docker compose up`. Сервисы видят друг друга по имени, поэтому в строке подключения пишут `Host=db`, а данные базы хранят в именованном томе.
+
+</A>
+
+<A short l="m">
+
+Compose создаёт для проекта общую сеть с DNS по именам сервисов, тома и контейнеры в порядке `depends_on`. Короткий `depends_on` ждёт только запуска контейнера, поэтому базе задают <T k="container-healthcheck">healthcheck</T> и `condition: service_healthy`, а API всё равно должен повторять подключение. Настройки передают через `environment` и `.env`, пароли — через `secrets`, а вспомогательные сервисы включают <T k="compose-profiles">профилями</T>.
+
+</A>
+
+<A short l="s">
+
+Compose — декларативная оркестрация на одном хосте: отличный стенд для разработки и интеграционных прогонов, но слабый продакшен — нет распределения по узлам, автомасштабирования и выкладки без простоя. Поэтому базовый файл описывает общее, различия окружений уходят в override-файлы и профили, а секреты — в `secrets`, а не в `environment`. Для .NET-решений альтернатива локальной оркестрации — <T k="aspire">Aspire</T>: топология описывается кодом, строки подключения прокидываются автоматически, есть дашборд логов и трассировок, а из той же модели можно сгенерировать compose-файл. Цена Aspire — ещё один слой абстракции и привязка к его модели и релизам.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+Compose-файл `compose.yaml` перечисляет **сервисы** — контейнеры с образом, портами, переменными и томами. `docker compose up -d` создаёт и запускает их все, `docker compose down` останавливает и удаляет контейнеры, а тома оставляет.
+
+**Зачем**
+
+Разработчик одной командой получает API, PostgreSQL и Redis нужных версий, ничего не устанавливая на машину.
+
+**Как пользоваться**
+
+1. Опишите сервисы `api`, `db`, `cache`.
+2. В строке подключения API укажите имя сервиса: `Host=db;Port=5432`.
+3. Данные базы положите в именованный том.
+4. Наружу (`ports`) публикуйте только то, к чему ходите с хоста.
+
+**Частая ошибка**
+
+Писать `localhost` в строке подключения из контейнера к базе. Внутри контейнера `localhost` — он сам, а база доступна как `db`.
+
+**Итог:** compose — описание всего стенда в одном файле, а сервисы общаются по именам внутри общей сети.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+1. Compose читает `compose.yaml`, автоматически добавляет `compose.override.yaml` и подставляет `${VAR}` из `.env` и окружения.
+2. Создаёт сеть проекта: имя сервиса становится DNS-именем. Порты между сервисами публиковать не нужно.
+3. Создаёт тома и запускает контейнеры в порядке `depends_on`, ожидая указанных условий.
+
+**Когда что выбирать**
+
+| Задача | Средство |
+|---|---|
+| Дождаться готовности БД | `healthcheck` и `condition: service_healthy` |
+| Обычные настройки | `environment`, `env_file` |
+| Пароли и ключи | `secrets` — файл в `/run/secrets/имя` |
+| Необязательные сервисы | `profiles` и `--profile tools` |
+| Различия окружений | override-файлы, `-f compose.yaml -f compose.prod.yaml` |
+
+**Ловушки**
+
+- Короткий `depends_on` ждёт старта контейнера, а не готовности Postgres.
+- `healthcheck` выполняется внутри контейнера. В chiseled-образе API нет `curl` и shell — такую проверку не написать.
+- Переменная из `environment` видна в `docker inspect`, для секретов она не годится.
+- `docker compose down -v` удаляет тома вместе с данными базы.
+
+**Правило**
+
+Базовый файл — общий для всех окружений; порты, bind mount исходников и отладочные сервисы — в override или профилях.
+
+**Итог:** compose даёт сеть с именами, порядок запуска по healthcheck и разделение настроек и секретов — этого хватает для локального стенда.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- Compose v2 — плагин `docker compose`, клиент Docker Engine API. Имя проекта (по умолчанию — имя папки) становится префиксом сетей, томов и контейнеров. Поле `version` устарело: Compose всегда проверяет файл по последней схеме.
+- `secrets` в Compose — монтирование файла в `/run/secrets` без шифрования. .NET читает такие файлы через `AddKeyPerFile` — см. [Конфигурация и логирование](/sobes/aspnet/config-logging/).
+- `docker compose watch` по секции `develop.watch` синхронизирует файлы или пересобирает образ при изменении кода.
+
+**Цена**
+
+Один хост: нет распределения по узлам, автомасштабирования, переноса упавшего сервиса на другой сервер и выкладки без простоя. `restart: unless-stopped` перезапустит процесс, но не спасёт от отказа машины.
+
+**Компромиссы**
+
+- **Compose или Aspire.** Aspire (с версии 13 — без «.NET» в названии) описывает стенд кодом в AppHost: `AddPostgres`, `WithReference`, `WaitFor`. Проекты .NET он запускает как обычные процессы, контейнеры — для зависимостей, даёт дашборд OpenTelemetry, а `AddDockerComposeEnvironment` генерирует compose-файл для выкладки. Compose проще и не зависит от стека; Aspire удобнее, когда в решении много сервисов на .NET.
+- **Compose в проде** разумен для одиночного сервера и внутренних инструментов. Для нескольких узлов и SLA — Kubernetes или управляемая платформа.
+
+**Как проверить в проде**
+
+- `docker compose config` — итоговая конфигурация после слияния файлов и подстановки переменных.
+- `docker compose ps` показывает статус healthcheck, `docker compose logs -f api` — логи сервиса.
+
+**Итог:** compose — лучший инструмент для стенда на одной машине; выше — Kubernetes, а для стенда .NET-разработчика есть ещё и Aspire.
+
+</A>
+
+<Ex>
+
+```yaml
+services:
+  api:
+    build: .
+    ports:
+      - "5000:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      # Хост базы — имя сервиса в сети compose
+      ConnectionStrings__Shop: "Host=db;Database=shop;Username=shop"
+    secrets:
+      - db_password                  # файл /run/secrets/db_password
+    depends_on:
+      db:
+        condition: service_healthy   # ждать готовности, а не только старта
+
+  db:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: shop
+      POSTGRES_DB: shop
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+    secrets:
+      - db_password
+    volumes:
+      - pgdata:/var/lib/postgresql   # с postgres:18 — без /data в конце
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shop -d shop"]
+      interval: 5s
+      retries: 10
+
+  adminer:
+    image: adminer
+    profiles: ["tools"]              # только с --profile tools
+    ports:
+      - "8081:8080"
+
+volumes:
+  pgdata:
+
+secrets:
+  db_password:
+    file: ./secrets/db_password.txt
+```
+
+</Ex>
+
+<Next>
+
+- Почему `depends_on` не гарантирует, что база готова? — Короткая форма ждёт только старта контейнера; нужна `condition: service_healthy`, а в приложении — повторы подключения.
+- Почему из контейнера API не подключиться к `localhost:5432`? — `localhost` — сам контейнер; база доступна по имени сервиса.
+- Как разделить настройки разработки и продакшена? — Override-файлы, профили, `.env` для подстановки; итог проверяют `docker compose config`.
+- Чем `secrets` лучше `environment` для пароля? — Файл в `/run/secrets` не виден в `docker inspect` и не наследуется дочерними процессами.
+- Как поднимать базу для интеграционных тестов? — Через Testcontainers из кода теста — см. тему [Тестирование](/sobes/quality/testing/).
+
+</Next>
+
+<Src>
+
+- [Compose file reference: services — Docker Docs](https://docs.docker.com/reference/compose-file/services/)
+- [Secrets in Compose — Docker Docs](https://docs.docker.com/compose/how-tos/use-secrets/)
+- [Deploy to Docker Compose — Aspire](https://aspire.dev/deployment/docker-compose/)
+
+</Src>
+
+</Q>
+
+<Q id="quality.docker.kubernetes" level="s">
+
+## Что нужно знать .NET-разработчику о запуске в Kubernetes?
+
+<A short l="j">
+
+Kubernetes — оркестратор: он запускает контейнеры на кластере серверов, перезапускает упавшие и распределяет трафик между копиями. Приложение живёт в <T k="pod">подах</T>, которые в любой момент могут удалить и создать заново, поэтому от .NET-кода нужны health-эндпоинты для проверок и отказ от хранения данных внутри пода.
+
+</A>
+
+<A short l="m">
+
+Kubernetes опрашивает приложение тремя пробами: <T k="startup-probe">startup</T> ждёт окончания старта, <T k="liveness-probe">liveness</T> перезапускает зависший контейнер, <T k="readiness-probe">readiness</T> убирает под из балансировки, пока он не готов; в ASP.NET Core это разные эндпоинты `MapHealthChecks`. <T k="resource-limits">Requests и limits</T> задают резерв и потолок ресурсов, а .NET читает лимиты: `Environment.ProcessorCount` равен лимиту CPU с округлением вверх, а <T k="heap-hard-limit">предел кучи GC</T> по умолчанию — 75 % лимита памяти. Конфигурация приходит из ConfigMap и Secret, а на остановку после SIGTERM даётся `terminationGracePeriodSeconds` — по умолчанию 30 секунд.
+
+</A>
+
+<A short l="s">
+
+Под — расходный материал: его убивают при деплое, масштабировании, вытеснении с узла и по OOM, поэтому сервис должен быть <T k="stateless-service">stateless</T> — сессии, кеш, файлы и ключи Data Protection лежат снаружи. Главные риски — неверные пробы (liveness с проверкой базы при её сбое перезапускает все поды разом) и расхождение рантайма с лимитами: без CPU limit .NET видит все ядра узла, а с limit приходит троттлинг. Удаление из балансировки идёт параллельно с SIGTERM, поэтому нужна пауза в <T k="prestop-hook">preStop</T>, а сумма паузы и `ShutdownTimeout` должна быть меньше `terminationGracePeriodSeconds`. Всё это проверяют метриками троттлинга, OOMKilled и рестартов, а не на глаз.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+- **Pod** — минимальная единица запуска: один или несколько контейнеров с общим IP, обычно один экземпляр приложения.
+- **Deployment** — описание «нужно 3 копии образа `shop-api:1.4.2`»: создаёт поды и заменяет их при обновлении.
+- **Service** — постоянное имя и IP для набора подов, балансирует запросы между ними.
+- **Ingress** — правила входа HTTP извне: хост, путь, TLS. Его преемник — Gateway API.
+
+**Зачем**
+
+Kubernetes сам держит нужное число копий: упал процесс или сервер — поды создаются заново.
+
+**Как пользоваться**
+
+1. Добавьте в приложение эндпоинты `/healthz/live` и `/healthz/ready`.
+2. Укажите их в манифесте как `livenessProbe` и `readinessProbe`.
+3. Задайте `resources`: сколько CPU и памяти нужно и сколько можно.
+4. Настройки передавайте из ConfigMap и Secret.
+
+**Частая ошибка**
+
+Хранить важное в поде: файлы на диске, сессии в памяти. При следующем деплое под пересоздаётся, и данные пропадают.
+
+**Итог:** Deployment держит нужное число подов, Service даёт им адрес, а приложение помогает пробами и отсутствием состояния.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+| Проба | При сбое | Что проверять |
+|---|---|---|
+| startup | перезапуск; до успеха другие пробы не работают | старт завершён: миграции, прогрев |
+| liveness | перезапуск контейнера | процесс жив, без внешних зависимостей |
+| readiness | под убирают из Service | готов к трафику: БД и кеш доступны |
+
+- В ASP.NET Core `AddHealthChecks()` регистрирует проверки, а `MapHealthChecks` с `Predicate` по тегам публикует разные эндпоинты. Подробно — в теме [Наблюдаемость и диагностика](/sobes/quality/observability/).
+- По умолчанию проба выполняется каждые 10 секунд с таймаутом 1 секунда и срабатывает после 3 неудач подряд.
+- **Requests** — резерв: по ним планировщик выбирает узел. **Limits** — потолок: за превышение памяти — OOMKilled, за превышение CPU — троттлинг.
+
+**Ловушки**
+
+- Liveness с проверкой БД: база легла — перезапускаются все поды, и восстановление затягивается.
+- Долгий старт без startup-пробы: liveness убивает под раньше, чем он поднялся, и он уходит в `CrashLoopBackOff`.
+- ConfigMap и Secret в переменных окружения не обновляются без перезапуска пода. Смонтированные файлы обновляются, но не при `subPath`.
+- Secret по умолчанию лежит в etcd незашифрованным — base64 лишь кодирует.
+
+**Правило**
+
+Liveness — дешёвая и без зависимостей, readiness — про готовность к трафику, startup — для медленного старта.
+
+**Итог:** пробы, ресурсы и конфигурация — три контракта между приложением и Kubernetes, и у каждого свои правила.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- .NET читает cgroups v1 и v2. `Environment.ProcessorCount` — минимум из числа ядер, affinity и CPU limit, округлённого вверх; requests не учитываются. Значение переопределяет `DOTNET_PROCESSOR_COUNT`.
+- Лимит памяти GC считает физической памятью, `GCHeapHardLimit` по умолчанию — 75 % лимита. Подробно — [Сборка мусора и ресурсы](/sobes/dotnet/gc/).
+- При удалении пода контроллер убирает его из EndpointSlice, а kubelet параллельно выполняет preStop и шлёт SIGTERM. Пока балансировщики не обновились, запросы ещё приходят. `preStop: sleep` (стабилен с Kubernetes 1.34) не требует shell — это важно для chiseled-образов. Остановку хоста разбирает [Хостинг и конвейер](/sobes/aspnet/hosting/).
+
+**Цена**
+
+- Без CPU limit под с request 0,5 CPU на 64-ядерном узле видит 64 ядра: Server GC и пул потоков настраиваются под чужие ресурсы.
+- CPU limit режет квоту по периодам: всплески GC и JIT на старте упираются в троттлинг, растут хвостовые задержки.
+
+**Компромиссы**
+
+- Частый выбор — CPU request без limit плюс `DOTNET_PROCESSOR_COUNT`, либо limit целым числом ядер. Для памяти limit обязателен, обычно равный request.
+- Stateless: сессии и кеш — в Redis, файлы — в объектном хранилище, ключи Data Protection — в общем хранилище. Иначе cookie, выданную одним подом, не расшифрует другой. Sticky sessions лишь маскируют проблему.
+
+**Как проверить в проде**
+
+- `kubectl describe pod` — причина рестарта (`OOMKilled`) и сбои проб; `kubectl top pod` — потребление.
+- Метрика `container_cpu_cfs_throttled_periods_total` — троттлинг; dotnet-counters — `dotnet.process.cpu.count` и размер кучи против лимита.
+
+**Итог:** в Kubernetes .NET-сервис честно сообщает о готовности, укладывается в лимиты, которые видит рантайм, корректно останавливается и не хранит состояние в поде.
+
+</A>
+
+<Ex title="Пробы в Program.cs">
+
+```csharp
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddHealthChecks()
+    // liveness: процесс жив, внешние зависимости не проверяем
+    .AddCheck("self", () => HealthCheckResult.Healthy(), tags: ["live"])
+    // readiness: можно ли принимать трафик
+    .AddCheck<DatabaseCheck>("database", tags: ["ready"]);
+
+var app = builder.Build();
+
+app.MapHealthChecks("/healthz/live", new HealthCheckOptions { Predicate = c => c.Tags.Contains("live") });
+app.MapHealthChecks("/healthz/ready", new HealthCheckOptions { Predicate = c => c.Tags.Contains("ready") });
+
+app.Run();
+
+public class DatabaseCheck : IHealthCheck
+{
+    public Task<HealthCheckResult> CheckHealthAsync(
+        HealthCheckContext context, CancellationToken cancellationToken = default)
+    {
+        // Здесь — дешёвый запрос к БД с коротким таймаутом
+        return Task.FromResult(HealthCheckResult.Healthy());
+    }
+}
+```
+
+</Ex>
+
+<Ex title="Deployment и Service">
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shop-api
+spec:
+  replicas: 3
+  selector:
+    matchLabels: { app: shop-api }
+  template:
+    metadata:
+      labels: { app: shop-api }
+    spec:
+      terminationGracePeriodSeconds: 45   # больше, чем preStop + ShutdownTimeout
+      containers:
+        - name: api
+          image: registry.example.com/shop-api:1.4.2
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef: { name: shop-api-config }
+            - secretRef: { name: shop-api-secrets }
+          resources:
+            requests: { cpu: "500m", memory: "512Mi" }
+            limits: { cpu: "2", memory: "512Mi" }   # ProcessorCount = 2, куча GC ≈ 384 МБ
+          startupProbe:
+            httpGet: { path: /healthz/live, port: 8080 }
+            failureThreshold: 30                    # до 30 × 10 секунд на старт
+          livenessProbe:
+            httpGet: { path: /healthz/live, port: 8080 }
+          readinessProbe:
+            httpGet: { path: /healthz/ready, port: 8080 }
+          lifecycle:
+            preStop:
+              sleep: { seconds: 10 }                # дать балансировщикам убрать под
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: shop-api
+spec:
+  selector: { app: shop-api }
+  ports:
+    - port: 80
+      targetPort: 8080
+```
+
+</Ex>
+
+<Next>
+
+- Чем readiness отличается от liveness? — Readiness убирает под из балансировки, liveness перезапускает контейнер.
+- Почему при деплое бывают ошибки 502, хотя приложение обрабатывает SIGTERM? — Удаление из EndpointSlice идёт параллельно с SIGTERM; помогает пауза в preStop.
+- Сколько ядер увидит .NET в поде с `limits.cpu: 1500m`? — Два: лимит округляется вверх.
+- Что будет при превышении memory limit? — Ядро убьёт процесс (OOMKilled, код 137); GC старается держать кучу в пределах 75 % лимита.
+- Как хранить ключи Data Protection в кластере? — В общем хранилище (Redis, БД, blob) через `PersistKeysTo...`, иначе другие поды не прочитают cookie.
+
+</Next>
+
+<Src>
+
+- [Liveness, Readiness, and Startup Probes — Kubernetes](https://kubernetes.io/docs/concepts/configuration/liveness-readiness-startup-probes/)
+- [Health checks in ASP.NET Core](https://learn.microsoft.com/aspnet/core/host-and-deploy/health-checks)
+- [Resource Management for Pods and Containers — Kubernetes](https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/)
+
+</Src>
+
+</Q>

@@ -1,0 +1,838 @@
+---
+title: Testing
+description: Unit tests in xUnit and NUnit, mocks, stubs and fakes, integration tests with WebApplicationFactory and Testcontainers, test strategy, coverage and legacy code.
+sidebar:
+  order: 1
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+How to verify .NET code automatically: unit tests and test doubles, ASP.NET Core integration tests against a real database, and a strategy that balances confidence against run time. Interviewers are not checking attribute syntax here — they want you to explain what to test, with which kind of test, and why.
+
+**Before this topic:** [Dependency injection](/sobes/en/aspnet/di/).
+
+<Q id="quality.test.unit-basics" level="j">
+
+## What is a unit test and how do you write a good one?
+
+<A short l="j">
+
+A <T k="unit-test">unit test</T> is a small automated test that checks one behavior of the code in isolation from the database, the network and files. It follows the <T k="arrange-act-assert">Arrange-Act-Assert</T> pattern — set up the data, call the method, check the result — so it runs in milliseconds and immediately shows what broke.
+
+</A>
+
+<A short l="m">
+
+A unit test checks the behavior of one unit of code through its public API, without external resources, and it must be fast, isolated and repeatable. A good test checks one behavior: a name like `Method_Scenario_Expected`, a single act, a <T k="parameterized-test">parameterized test</T> instead of a loop — `[Fact]` and `[Theory]` in xUnit, `[Test]` and `[TestCase]` in NUnit. The cost of a badly designed test is coupling to implementation details: such tests break on every refactoring.
+
+</A>
+
+<A short l="s">
+
+A unit test is an executable specification of behavior: it is valuable as long as it catches regressions and does not get in the way of refactoring. So you test observable behavior through the public API, not private methods or call order. Everything non-deterministic — time, random numbers, environment — moves behind dependencies such as <T k="time-provider">`TimeProvider`</T>. The choice between <T k="xunit">xUnit</T>, NUnit and MSTest is secondary: what matters more is how the framework instantiates the test class and what it runs in parallel.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+A unit test is a method that calls your code with known data and checks the result. It does not touch the database, network or files, so it runs in milliseconds.
+
+**How to use**
+
+1. **Arrange** — create the object and the data.
+2. **Act** — call the method under test once.
+3. **Assert** — compare the result with the expected value: `Assert.Equal(100m, price)`.
+
+A test name has three parts: the method, the scenario, the expected behavior — `Apply_UnknownCoupon_Throws`. In xUnit a plain test is marked `[Fact]`, and a test with data sets is `[Theory]` plus `[InlineData]`.
+
+**What to test**
+
+Logic with branches: calculations, validation, edge values — zero, an empty string, `null`. Auto-properties and framework code do not need tests.
+
+**Common mistake**
+
+A test that depends on `DateTime.Now` or on run order: green today, red tomorrow.
+
+**Takeaway:** one test, one behavior: arrange, act, assert.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+| Framework | Test and parameters | Test class lifecycle |
+|---|---|---|
+| xUnit | `[Fact]`, `[Theory]` and `[InlineData]` | new instance per test; setup in the constructor, cleanup in `Dispose` |
+| NUnit | `[Test]`, `[TestCase]` | one instance per class; `[SetUp]` and `[TearDown]` around each test |
+| MSTest | `[TestMethod]`, `[DataRow]` | new instance per test; `[TestInitialize]`, `[TestCleanup]` |
+
+- By default xUnit runs different classes in parallel and tests within one class sequentially. NUnit and MSTest run sequentially until you enable parallelism (`[Parallelizable]`, `[assembly: Parallelize]`).
+- In NUnit 4 the main style is `Assert.That(x, Is.EqualTo(y))`, and the classic `Assert.AreEqual` moved to `ClassicAssert`.
+
+**Pitfalls**
+
+- **Shared state in NUnit.** A class field outlives a test, and a test that changes it breaks its neighbors. `[FixtureLifeCycle(LifeCycle.InstancePerTestCase)]` gives you an instance per test.
+- **Several acts in one test.** The first failing assert hides the remaining checks — use `[Theory]` with data sets instead.
+- **Logic in tests.** `if` statements and loops in a test are a place for bugs of their own.
+- **"One assert per test".** The rule is about one logical assertion: checking several fields of one result is fine.
+
+**Rule of thumb**
+
+One behavior per test, verified through the public API. A private method is tested through the public method that calls it.
+
+**Takeaway:** a good unit test is fast, isolated and repeatable, and frameworks differ mainly in the test class lifecycle.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- xUnit creates a class instance per test — isolation is part of the design. Expensive shared resources are shared explicitly: `IClassFixture<T>` per class, `ICollectionFixture<T>` per group of classes, and in v3 `[assembly: AssemblyFixture]` per assembly.
+- xUnit v3 (the `xunit.v3` package) builds the test project as an executable and requires .NET 8+ or .NET Framework 4.7.2+. Its `IAsyncLifetime` uses `ValueTask`, and `TestContext.Current.CancellationToken` signals a cancelled run or a timeout.
+
+**Cost**
+
+- A test coupled to the implementation — call order, private methods, internal fields — fails on a refactoring that does not change behavior. Such false alarms teach the team to distrust tests.
+- A non-deterministic test is worse than no test: people rerun it until it goes green and let real failures slip through with it.
+
+**Trade-offs**
+
+- Determinism comes from dependencies instead of statics: `TimeProvider` (.NET 8+) and `FakeTimeProvider` from `Microsoft.Extensions.TimeProvider.Testing` for time, a fixed seed for random numbers, an explicit `CultureInfo` for formatting.
+- A "unit" is a behavior, not a class. Testing an aggregate together with its value objects, without substitutes, is more robust than a separate test for every small class.
+
+**How to check**
+
+- A test that fails only in the full run depends on shared state or order.
+- Break the line under test on purpose: if the test does not fail, it checks nothing.
+
+**Takeaway:** a unit test checks observable behavior and is deterministic; anything that ties it to the implementation or the environment turns it into noise.
+
+</A>
+
+<Ex>
+
+```csharp
+// NuGet: xunit.v3
+using Xunit;
+
+public class DiscountCalculatorTests
+{
+    [Fact]
+    public void Apply_NoCoupon_ReturnsOriginalPrice()
+    {
+        // Arrange
+        var calculator = new DiscountCalculator();
+
+        // Act
+        var price = calculator.Apply(100m, coupon: null);
+
+        // Assert
+        Assert.Equal(100m, price);
+    }
+
+    // One test, several data sets
+    [Theory]
+    [InlineData("SALE10", 90)]
+    [InlineData("SALE50", 50)]
+    public void Apply_KnownCoupon_ReducesPrice(string coupon, int expected)
+    {
+        var price = new DiscountCalculator().Apply(100m, coupon);
+
+        Assert.Equal(expected, price);
+    }
+
+    [Fact]
+    public void Apply_UnknownCoupon_Throws() =>
+        Assert.Throws<ArgumentException>(() => new DiscountCalculator().Apply(100m, "BOGUS"));
+}
+
+public class DiscountCalculator
+{
+    public decimal Apply(decimal price, string? coupon) => coupon switch
+    {
+        null => price,
+        "SALE10" => price * 0.9m,
+        "SALE50" => price * 0.5m,
+        _ => throw new ArgumentException($"Unknown coupon: {coupon}", nameof(coupon))
+    };
+}
+```
+
+</Ex>
+
+<Ex title="The same in NUnit 4">
+
+```csharp
+// NuGet: NUnit
+using NUnit.Framework;
+
+[TestFixture]
+public class DiscountCalculatorTests
+{
+    [Test]
+    public void Apply_NoCoupon_ReturnsOriginalPrice() =>
+        Assert.That(new DiscountCalculator().Apply(100m, null), Is.EqualTo(100m));
+
+    // Equivalent of [Theory] + [InlineData]
+    [TestCase("SALE10", 90)]
+    [TestCase("SALE50", 50)]
+    public void Apply_KnownCoupon_ReducesPrice(string coupon, int expected) =>
+        Assert.That(new DiscountCalculator().Apply(100m, coupon), Is.EqualTo(expected));
+}
+```
+
+</Ex>
+
+<Next>
+
+- What is the difference between `[Fact]` and `[Theory]`? — `[Fact]` takes no parameters; `[Theory]` runs once per data set from `[InlineData]`, `[MemberData]` or `[ClassData]`.
+- How do you share setup between tests in xUnit? — The constructor for each test, `IClassFixture<T>` for a class, `ICollectionFixture<T>` for several classes.
+- Should you test private methods? — No, test them through the public method; wanting to test a private one is a hint to extract a class.
+- How do you test code that uses `DateTime.Now`? — Inject `TimeProvider` and pass `FakeTimeProvider` in the test.
+- Why does an NUnit test fail only when the whole class runs? — One instance per class: tests share fields.
+
+</Next>
+
+<Src>
+
+- [Best practices for writing unit tests](https://learn.microsoft.com/dotnet/core/testing/unit-testing-best-practices)
+- [What's new in xUnit.net v3](https://xunit.net/docs/getting-started/v3/whats-new)
+- [Unit testing C# with NUnit](https://learn.microsoft.com/dotnet/core/testing/unit-testing-csharp-with-nunit)
+
+</Src>
+
+</Q>
+
+<Q id="quality.test.test-doubles" level="m">
+
+## What are mocks, stubs and fakes, and when should you use them?
+
+<A short l="j">
+
+A <T k="test-double">test double</T> is an object that replaces a real dependency in a test: a <T k="test-stub">stub</T> returns canned data, a <T k="mock-object">mock</T> lets you verify that it was called, and a <T k="test-fake">fake</T> is a simplified working implementation, such as a repository backed by a dictionary. You write them by hand or generate them with a library like NSubstitute or Moq, so you can test a class without a database or network.
+
+</A>
+
+<A short l="m">
+
+Gerard Meszaros names five kinds of test doubles — dummy, stub, spy, mock and fake — but in practice the key distinction is between a stub, which controls inputs, and a mock, which verifies outgoing interactions. A mock is justified when the call is the outcome: sending an email, publishing an event; for query methods a stub is enough, and verifying those calls couples the test to the implementation. NSubstitute and Moq solve the same problem, NSubstitute with terser syntax, and <T k="autofixture">AutoFixture</T> helps generate test data.
+
+</A>
+
+<A short l="s">
+
+Test doubles replace what is slow, non-deterministic or has side effects; everything else is better left real. Too many mocks is a smell: the test restates the implementation, breaks on refactoring and misses integration bugs. Types you do not own — `HttpClient`, `DbContext`, SDKs — are not mocked directly: you wrap them in your own adapter, substitute the adapter in unit tests and cover the adapter itself with an integration test. Choosing libraries is also a licensing question: SponsorLink in Moq (2023) and the paid <T k="fluent-assertions">FluentAssertions</T> 8 (2025) made many teams review their dependencies.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+A test double replaces a real dependency in a test. `OrderService` receives `IEmailSender` through its constructor, so a test can pass a double instead of really sending emails.
+
+**Kinds**
+
+| Kind | What it does |
+|---|---|
+| Stub | returns canned answers |
+| Mock | records calls so the test can verify them |
+| Fake | really works, but in a simplified way: a repository over a dictionary |
+
+**How to use**
+
+- NSubstitute: `Substitute.For<IStockService>()` creates a double, `stock.IsAvailable("SKU-1").Returns(true)` sets an answer, `email.Received(1).Send(...)` verifies a call.
+- Moq: the same with `new Mock<T>()`, `Setup(...)` and `Verify(...)`.
+
+**Common mistake**
+
+Verifying every call to every dependency. If a method only reads data, check the result, not the fact that it was called.
+
+**Takeaway:** a stub provides data, a mock verifies a call, a fake is a simplified working implementation.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+Meszaros's classification from "xUnit Test Patterns":
+
+- **Dummy** — passed only to satisfy a signature, never used.
+- **Stub** — returns canned values: controls inputs.
+- **Spy** — a stub that records calls for checking after the act.
+- **Mock** — verifies interactions: which calls and with which arguments.
+- **Fake** — a simplified working implementation: an in-memory repository, `FakeTimeProvider`.
+
+A library creates an object that can play any of these roles; the test decides which.
+
+**When to choose what**
+
+| Action | NSubstitute | Moq |
+|---|---|---|
+| Create | `Substitute.For<T>()` | `new Mock<T>()`, then `.Object` |
+| Set an answer | `x.Get(1).Returns(5)` | `Setup(x => x.Get(1)).Returns(5)` |
+| Verify a call | `x.Received(1).Get(1)` | `Verify(x => x.Get(1), Times.Once())` |
+
+AutoFixture creates objects filled with arbitrary data (`fixture.Create<Order>()`), with `AutoNSubstituteCustomization` it supplies doubles for interfaces, and `[AutoData]` from `AutoFixture.Xunit3` passes generated arguments into a test.
+
+**Pitfalls**
+
+- **Doubling a class.** Both libraries intercept only interfaces and virtual members: a non-virtual method of a class runs for real.
+- **Verifying queries.** `Received()` on a read method duplicates the implementation and adds nothing to checking the result.
+- **Bulky matchers.** A large lambda in `Arg.Is` is brittle; capture the argument and check it separately.
+
+**Rule of thumb**
+
+Stubs for incoming data, mocks only for outgoing commands with side effects.
+
+**Takeaway:** the test decides the role of a double; mocks belong where the call itself is the expected outcome.
+
+</A>
+
+<A l="s">
+
+**Trade-offs**
+
+- **Classic vs London school.** The classic school substitutes only external and shared dependencies and tests the behavior of a group of classes. The London school isolates every class with mocks: it pinpoints failures more precisely but couples tests to the implementation.
+- **Too many mocks.** Five doubles in a constructor and a check for every call — the test retells the code line by line. That signals a class with too many responsibilities or a test at the wrong level.
+- **Don't mock what you don't own.** A mock of `HttpClient` or an SDK captures your idea of someone else's API, not its behavior. Your own adapter with a narrow interface is substituted in unit tests, and the adapter itself is tested against the real service or an emulator. For the same reason Microsoft advises against mocking `DbContext`: a LINQ query cannot be faked honestly.
+
+**Cost: licensing**
+
+- **Moq and SponsorLink.** In August 2023 Moq 4.20.0 shipped the SponsorLink analyzer: during the build it read the email from the git config and sent its hash to an external service to check sponsorship. After the backlash it was removed in 4.20.2, but some companies banned the package and moved to NSubstitute.
+- **FluentAssertions 8.** Since January 2025 the library ships under the Xceed Community License: free for non-commercial use, a paid per-developer license for commercial use. Version 7 stays under Apache 2.0. Options: stay on 7.x, move to the AwesomeAssertions fork, to Shouldly (`result.ShouldBe(5)`) or to the built-in `Assert`.
+
+**How to check**
+
+A pure refactoring should not change tests. If such a PR touches dozens of tests, they verify the implementation, not the behavior.
+
+**Takeaway:** substitute only what you cannot control and what you do not own behind your own adapter, and vet test libraries for licensing just like production ones.
+
+</A>
+
+<Ex>
+
+```csharp
+// NuGet: xunit.v3, NSubstitute
+using NSubstitute;
+using Xunit;
+
+public class OrderServiceTests
+{
+    private readonly IStockService _stock = Substitute.For<IStockService>(); // stub: provides data
+    private readonly IEmailSender _email = Substitute.For<IEmailSender>();   // mock: we verify the call
+
+    [Fact]
+    public void Place_InStock_SendsConfirmation()
+    {
+        _stock.IsAvailable("SKU-1").Returns(true);
+        var service = new OrderService(_stock, _email);
+
+        var placed = service.Place("SKU-1", "a@b.c");
+
+        Assert.True(placed);
+        _email.Received(1).Send("a@b.c", Arg.Is<string>(s => s.Contains("SKU-1")));
+    }
+
+    [Fact]
+    public void Place_OutOfStock_SendsNothing()
+    {
+        // Unconfigured IsAvailable returns false
+        var placed = new OrderService(_stock, _email).Place("SKU-2", "a@b.c");
+
+        Assert.False(placed);
+        _email.DidNotReceiveWithAnyArgs().Send(default!, default!);
+    }
+}
+
+public interface IStockService { bool IsAvailable(string sku); }
+public interface IEmailSender { void Send(string to, string body); }
+
+public class OrderService(IStockService stock, IEmailSender email)
+{
+    public bool Place(string sku, string customer)
+    {
+        if (!stock.IsAvailable(sku)) return false;
+        email.Send(customer, $"Order for {sku} placed");
+        return true;
+    }
+}
+```
+
+</Ex>
+
+<Ex title="The same with Moq">
+
+```csharp
+// NuGet: Moq
+using Moq;
+
+var stock = new Mock<IStockService>();
+stock.Setup(s => s.IsAvailable("SKU-1")).Returns(true); // stub
+var email = new Mock<IEmailSender>();                    // mock
+
+var placed = new OrderService(stock.Object, email.Object).Place("SKU-1", "a@b.c");
+
+email.Verify(e => e.Send("a@b.c", It.Is<string>(s => s.Contains("SKU-1"))), Times.Once());
+Console.WriteLine(placed); // True
+
+// The same types as in the NSubstitute example
+public interface IStockService { bool IsAvailable(string sku); }
+public interface IEmailSender { void Send(string to, string body); }
+
+public class OrderService(IStockService stock, IEmailSender email)
+{
+    public bool Place(string sku, string customer)
+    {
+        if (!stock.IsAvailable(sku)) return false;
+        email.Send(customer, $"Order for {sku} placed");
+        return true;
+    }
+}
+```
+
+</Ex>
+
+<Next>
+
+- How is a mock different from a stub? — The test asserts nothing on a stub, it only supplies data; on a mock the test verifies the interaction.
+- Can you substitute a non-virtual method of a class? — Not with NSubstitute or Moq: they build proxies (Castle DynamicProxy) and intercept only interfaces and virtual members.
+- Why not mock `DbContext`? — LINQ queries are extension methods over `IQueryable` and cannot be faked honestly; Microsoft recommends testing against a real database or using a repository.
+- What does "don't mock what you don't own" mean? — Wrap the third-party API in your own adapter, substitute the adapter, and cover the adapter with an integration test.
+- What do you do about FluentAssertions after the license change? — Buy a license, pin 7.x, or move to AwesomeAssertions or Shouldly.
+
+</Next>
+
+<Src>
+
+- [Mocks Aren't Stubs — Martin Fowler](https://martinfowler.com/articles/mocksArentStubs.html)
+- [NSubstitute: getting started](https://nsubstitute.github.io/help/getting-started/)
+- [Best practices for writing unit tests: terminology](https://learn.microsoft.com/dotnet/core/testing/unit-testing-best-practices#unit-testing-terminology)
+
+</Src>
+
+</Q>
+
+<Q id="quality.test.integration" level="m">
+
+## How do you write integration tests for ASP.NET Core?
+
+<A short l="j">
+
+An <T k="integration-test">integration test</T> checks several parts of the application together: routing, middleware, DI, serialization and the database. ASP.NET Core provides <T k="web-application-factory">`WebApplicationFactory`</T> in the `Microsoft.AspNetCore.Mvc.Testing` package: it starts the app in memory and gives you an `HttpClient` the test uses to send real HTTP requests.
+
+</A>
+
+<A short l="m">
+
+`WebApplicationFactory<Program>` runs the real `Program.cs` on `TestServer` without a network, and in `ConfigureTestServices` the test substitutes external dependencies: the payment gateway, email, HTTP clients. The database is better left real: Microsoft does not recommend the EF Core InMemory provider for testing, SQLite behaves differently from SQL Server, and <T k="testcontainers">Testcontainers</T> starts a real database engine in Docker. The cost is container start-up time and the need to isolate test data, for example by resetting it with <T k="respawn">Respawn</T>.
+
+</A>
+
+<A short l="s">
+
+An integration test is valuable because it checks the seams unit tests cannot see: DI configuration, filters, serialization, LINQ-to-SQL translation and migrations. So you substitute only what is external and outside your control, and use a real database through Testcontainers — one container per test collection, schema applied once, data reset between tests. The main costs are start-up time and parallelism, so the factory and the container are shared through fixtures. External HTTP services are emulated at the protocol level, for example with <T k="wiremock-net">WireMock.Net</T>, to test timeouts, retries and response parsing.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+An integration test runs almost the whole application and checks that the parts work together: the request reaches the endpoint, data is saved to the database, the response is serialized to JSON.
+
+**How to use**
+
+1. Add the `Microsoft.AspNetCore.Mvc.Testing` package and a reference to the API project to the test project.
+2. Attach the factory to the test class: `IClassFixture<WebApplicationFactory<Program>>`.
+3. Get a client: `var client = factory.CreateClient();`.
+4. Send a request and check the response: `Assert.Equal(HttpStatusCode.OK, response.StatusCode)`.
+
+Before .NET 10 you added `public partial class Program { }` to `Program.cs` so the test could see the class. In .NET 10 a source generator does it for you.
+
+**Common mistake**
+
+Running tests against a shared development database. Tests corrupt each other's data and fail at random.
+
+**Takeaway:** `WebApplicationFactory` starts the app in memory, and the test talks to it over HTTP.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- The factory runs the application's `Program.cs` but swaps Kestrel for `TestServer`: a request goes through the whole pipeline, just without sockets.
+- `ConfigureWebHost` changes the environment (`UseEnvironment("Testing")`) and settings. `ConfigureTestServices` runs after the application's registrations, so that is where you replace services.
+
+**When to choose what**
+
+| Test database | Pro | Con |
+|---|---|---|
+| EF Core InMemory provider | nothing to set up | not relational: no transactions or SQL; Microsoft does not recommend it |
+| SQLite in-memory | fast, no Docker | different SQL dialect, case-sensitive string comparison |
+| Testcontainers | same engine and version as production | needs Docker, container start takes seconds |
+
+**Pitfalls**
+
+- **Calling `AddDbContext` again.** It does not remove the provider configuration from `Program.cs`. In EF Core 9+ you first remove `IDbContextOptionsConfiguration<TContext>`, then register the context again.
+- **Shared data.** Tests write to the same database. Isolation options: unique data per test, a rolled-back transaction, or resetting tables before each test.
+- **Parallelism.** xUnit runs classes in parallel: if they share a database, they share its data.
+
+**Rule of thumb**
+
+Substitute only what is external and outside your control: payments, email, third-party APIs. The database, serialization and DI stay real.
+
+**Takeaway:** the factory runs the real pipeline, the test replaces only external dependencies, and the database is the same engine in a container.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- The factory intercepts host construction in `Program.cs` and applies its own configuration on top of the app. `CreateClient` returns an `HttpClient` whose handler passes the request straight to `TestServer` in the same process.
+- Since .NET 10, `UseKestrel()` starts a real Kestrel on a port instead of `TestServer` — browser tests with Playwright need this.
+
+**Cost**
+
+Host start-up takes hundreds of milliseconds, a PostgreSQL container takes seconds, SQL Server longer. So the factory and the container are created per class or collection through `IClassFixture<T>` and `ICollectionFixture<T>`, and in xUnit v3 per assembly through `[assembly: AssemblyFixture]`.
+
+**Trade-offs**
+
+| Data isolation | Pro | Con |
+|---|---|---|
+| Rolled-back transaction | fast | a request through `HttpClient` runs in its own scope, so a shared transaction cannot reach it |
+| Respawn before each test | schema stays, only data is deleted | tests sharing a database run sequentially |
+| Database per class | full isolation and parallelism | start-up time and memory |
+
+**HTTP clients**
+
+- Unit level: give the typed client an `HttpClient` with a stub handler and check the URL, headers and response parsing.
+- Integration level: WireMock.Net starts an HTTP server with canned responses, delays and errors, and the factory points the client's base address at it. That is how you test timeouts and retries.
+
+**Takeaway:** integration tests check the seams on real infrastructure; shared fixtures and fast data resets keep their cost under control.
+
+</A>
+
+<Ex>
+
+```csharp
+// NuGet: xunit.v3, Microsoft.AspNetCore.Mvc.Testing, Testcontainers.PostgreSql, Npgsql.EntityFrameworkCore.PostgreSQL
+using System.Net;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Testcontainers.PostgreSql;
+using Xunit;
+
+public class OrdersApiTests(ApiFactory factory) : IClassFixture<ApiFactory>
+{
+    [Fact]
+    public async Task GetOrder_Unknown_Returns404()
+    {
+        var client = factory.CreateClient();
+
+        var response = await client.GetAsync("/orders/999", TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+}
+
+// One factory and one container per test class
+public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
+{
+    private readonly PostgreSqlContainer _db = new PostgreSqlBuilder("postgres:17-alpine").Build();
+
+    public async ValueTask InitializeAsync()
+    {
+        await _db.StartAsync();
+        using var scope = Services.CreateScope(); // the app host is built here
+        await scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.MigrateAsync();
+    }
+
+    public override async ValueTask DisposeAsync()
+    {
+        await base.DisposeAsync();
+        await _db.DisposeAsync();
+    }
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder) =>
+        builder.UseEnvironment("Testing").ConfigureTestServices(services =>
+        {
+            // Remove the provider from Program.cs (EF Core 9+) and point at the container
+            services.RemoveAll<IDbContextOptionsConfiguration<AppDbContext>>();
+            services.AddDbContext<AppDbContext>(o => o.UseNpgsql(_db.GetConnectionString()));
+            // External service — a fake
+            services.AddSingleton<IPaymentGateway, FakePaymentGateway>();
+        });
+}
+```
+
+</Ex>
+
+<Ex title="Testing an HTTP client without a network">
+
+```csharp
+// NuGet: xunit.v3
+using System.Globalization;
+using System.Net;
+using Xunit;
+
+public class RatesClientTests
+{
+    [Fact]
+    public async Task GetRate_ParsesApiResponse()
+    {
+        var handler = new StubHandler(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("41.5")
+        });
+        var client = new RatesClient(new HttpClient(handler) { BaseAddress = new Uri("https://rates.test/") });
+
+        var rate = await client.GetRateAsync("USD", TestContext.Current.CancellationToken);
+
+        Assert.Equal(41.5m, rate);
+        Assert.Equal("/rates/USD", handler.LastRequest?.RequestUri?.AbsolutePath);
+    }
+}
+
+public class RatesClient(HttpClient http)
+{
+    public async Task<decimal> GetRateAsync(string currency, CancellationToken ct) =>
+        decimal.Parse(await http.GetStringAsync($"rates/{currency}", ct), CultureInfo.InvariantCulture);
+}
+
+// A stub instead of the network: remembers the request and returns a canned response
+public class StubHandler(HttpResponseMessage response) : HttpMessageHandler
+{
+    public HttpRequestMessage? LastRequest { get; private set; }
+
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+    {
+        LastRequest = request;
+        return Task.FromResult(response);
+    }
+}
+```
+
+</Ex>
+
+<Next>
+
+- Why use `ConfigureTestServices` rather than `ConfigureServices` in the factory? — It is guaranteed to run after the application's registrations, so code in `Program.cs` will not overwrite your replacement.
+- Why not the EF Core InMemory provider? — It is not relational: no transactions, raw SQL or engine-specific functions; Microsoft treats its use in tests as a legacy practice.
+- How do you avoid starting a container per test? — A class, collection or assembly fixture plus a data reset between tests.
+- How do you test an endpoint with `[Authorize]`? — Register a test authentication scheme with your own `AuthenticationHandler` in `ConfigureTestServices`.
+- What does CI need for Testcontainers? — An agent that can run Docker containers.
+
+</Next>
+
+<Src>
+
+- [Integration tests in ASP.NET Core](https://learn.microsoft.com/aspnet/core/test/integration-tests)
+- [Choosing a testing strategy — EF Core](https://learn.microsoft.com/ef/core/testing/choosing-a-testing-strategy)
+- [Testcontainers for .NET](https://dotnet.testcontainers.org/)
+
+</Src>
+
+</Q>
+
+<Q id="quality.test.strategy" level="s">
+
+## How do you build a testing strategy for a project?
+
+<A short l="j">
+
+A testing strategy is the decision about which tests to write and in what proportion. The classic <T k="test-pyramid">test pyramid</T>: many fast unit tests, fewer integration tests and very few end-to-end tests, because the higher the level, the slower and more expensive the test.
+
+</A>
+
+<A short l="m">
+
+The pyramid sets proportions by speed and cost, while Kent C. Dodds's "testing trophy" shifts the weight toward integration tests because they catch more real bugs per line of test code. <T k="code-coverage">Code coverage</T> shows which code no test executed, but it does not prove the executed code is verified — <T k="mutation-testing">mutation testing</T> (Stryker.NET) checks that. Every strategy pays in CI run time and in <T k="flaky-test">flaky tests</T>, which undermine trust in the whole suite.
+
+</A>
+
+<A short l="s">
+
+A strategy is built from risks, not percentages: where a bug costs most and what the cheapest test is that catches it. That gives a portfolio: unit tests for complex logic, integration tests with a real database for the main scenarios, a few end-to-end tests, plus <T k="architecture-test">architecture tests</T> and <T k="contract-test">contract tests</T> at service boundaries. Metrics are feedback, not goals: coverage finds untested code, the mutation score finds empty tests, and flaky tests get fixed, not rerun. Legacy code without tests starts with <T k="characterization-test">characterization tests</T> through <T k="seam">seams</T> — places where behavior can be swapped without editing the logic.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+A testing strategy answers three questions: what to check, with which tests, and when to run them.
+
+**Test levels**
+
+| Level | What it checks | Speed |
+|---|---|---|
+| Unit | one unit of logic | milliseconds |
+| Integration | parts together: API and database | tens of milliseconds to seconds |
+| End-to-end (E2E) | the system as a user sees it | seconds to minutes |
+
+The pyramid: the most unit tests at the bottom, the fewest end-to-end tests at the top.
+
+**How to use**
+
+- A production bug is first reproduced with a test, then fixed.
+- Tests run in CI on every pull request.
+- Coverage is used to find untested code, not to hit a number.
+
+**Common mistake**
+
+Chasing 100% coverage. A test without assertions raises the percentage too.
+
+**Takeaway:** many fast tests, few slow ones, and all of them run automatically.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- **Pyramid** (Mike Cohn): unit tests at the base, integration tests in the middle, UI and E2E at the top.
+- **Trophy** (Kent C. Dodds): static analysis at the base, a thin layer of unit tests, the widest layer of integration tests, E2E on top. For a web API with thin logic, tests through `WebApplicationFactory` give more confidence per line of test.
+
+**Where coverage lies**
+
+coverlet (`dotnet test --collect:"XPlat Code Coverage"`) counts executed lines and branches. But:
+
+- a test with no assert gives 100% line coverage: the code ran but was not checked;
+- line coverage hides branches: an `if` without an `else` is covered by one scenario.
+
+**Mutation testing**
+
+Stryker.NET (`dotnet stryker`) makes small changes to the code — mutants: `>` to `>=`, `&&` to `||`, removing a call. Then it runs the tests. If none fails, the mutant "survived": that behavior is not tested. The share of killed mutants is the mutation score.
+
+**Pitfalls**
+
+- A coverage threshold used as a KPI produces tests written for the percentage.
+- Stryker on a whole project takes many times longer than a normal run. In a PR you run it only on changed code (`--since`).
+
+**Rule of thumb**
+
+Coverage to find untested code, the mutation score to judge test quality on critical logic.
+
+**Takeaway:** pick test proportions by speed and value, and measure test quality with mutations, not with a coverage percentage.
+
+</A>
+
+<A l="s">
+
+**Trade-offs**
+
+- **Portfolio.** Unit tests for branchy domain logic, integration tests with a real database for the main scenarios, E2E for a few critical paths.
+- **Architecture tests** (NetArchTest, ArchUnitNET) pin dependency rules: the domain does not reference EF Core.
+- **Contract tests** (Pact, PactNet): the consumer records its expectations of the API in a contract, and the provider verifies it in its own CI. A breaking change between services shows up without a shared environment.
+
+**Flaky tests**
+
+Causes: time and timeouts, `Task.Delay` instead of waiting for a condition, shared state, parallelism, external services, culture and time zone. The process:
+
+1. Detect: rerun failed tests, track failure history in CI.
+2. Quarantine, with a ticket to fix.
+3. Remove the root cause.
+
+Automatic retry (`Microsoft.Testing.Extensions.Retry`, `--retry-failed-tests`) is a stopgap for integration tests: it hides races that will show up in production too.
+
+**CI run time**
+
+Fast tests on every commit, slow ones in a separate stage filtered by category: `[Trait("Category", "Integration")]` in xUnit, `[Category("Integration")]` in NUnit. Containers per collection, not per test.
+
+**Legacy code without tests**
+
+For Michael Feathers, legacy code is simply code without tests. The process:
+
+1. Find the change point and a place where the result is observable.
+2. Create a seam: a virtual method, an interface parameter, `TimeProvider`.
+3. Pin the current behavior with characterization tests, even if it is odd.
+4. Only then refactor.
+
+The same tests protect a system migration — see [Architecture styles](/sobes/en/arch/styles/).
+
+**Takeaway:** a strategy is a portfolio of tests matched to the project's risks; metrics and CI serve it, not the other way round.
+
+</A>
+
+<Ex>
+
+```csharp
+// NuGet: xunit.v3
+using Xunit;
+
+// Characterization test: pins how the code works now, not how it "should" work
+public class LateFeeCalculatorTests
+{
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(10, 50)]
+    [InlineData(31, 200)] // not 155: that is what production computes, so we pin it as is
+    public void Fee_MatchesCurrentBehavior(int daysLate, int expectedFee)
+    {
+        var due = new DateTime(2026, 1, 1);
+        var calculator = new TestableLateFeeCalculator(now: due.AddDays(daysLate));
+
+        Assert.Equal(expectedFee, calculator.Fee(due));
+    }
+}
+
+// Seam: a subclass replaces the time source without touching the logic
+public class TestableLateFeeCalculator(DateTime now) : LateFeeCalculator
+{
+    protected override DateTime Now() => now;
+}
+
+// Legacy class: the only edit is moving DateTime.Now into a virtual method
+public class LateFeeCalculator
+{
+    protected virtual DateTime Now() => DateTime.Now;
+
+    public int Fee(DateTime dueDate)
+    {
+        var days = (Now() - dueDate).Days;
+        if (days <= 0) return 0;
+        if (days > 30) return 200;
+        return days * 5;
+    }
+}
+```
+
+</Ex>
+
+<Next>
+
+- What coverage percentage do you need? — There is no universal number; coverage of critical logic and of new code in each PR matters more.
+- What does "the mutant survived" mean? — A code change failed no test: the behavior is not checked, or the mutant is equivalent to the original code.
+- How does a contract test differ from an integration test? — It checks the agreement between consumer and provider separately, without running them together.
+- Can you fix a flaky test with retries? — Only temporarily: a retry hides the race instead of removing it.
+- Where do you start testing a legacy module? — With characterization tests around the change point, through a minimal seam.
+
+</Next>
+
+<Src>
+
+- [Unit testing code coverage](https://learn.microsoft.com/dotnet/core/testing/unit-testing-code-coverage)
+- [Stryker.NET configuration](https://stryker-mutator.io/docs/stryker-net/configuration/)
+- [Microsoft.Testing.Platform retry extension](https://learn.microsoft.com/dotnet/core/testing/microsoft-testing-platform-retry)
+
+</Src>
+
+</Q>

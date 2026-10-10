@@ -1,0 +1,142 @@
+continuous-integration:
+  term: Continuous integration (CI)
+  def: >-
+    A practice where developers merge changes into a shared branch often, and every change is built
+    and tested automatically. Integration problems show up within minutes, not on release day.
+  q: continuous integration
+  docs: https://learn.microsoft.com/devops/develop/what-is-continuous-integration
+  wiki: Continuous integration
+continuous-delivery:
+  term: Continuous delivery (CD)
+  def: >-
+    The continuation of CI: every verified build is packaged and deployed to test environments
+    automatically, so it can go to production at any time — after a manual approval.
+  q: continuous delivery
+  docs: https://learn.microsoft.com/devops/deliver/what-is-continuous-delivery
+  wiki: Continuous delivery
+continuous-deployment:
+  term: Continuous deployment
+  def: >-
+    A form of CD with no manual step: every change that passes all pipeline checks goes to
+    production automatically. It requires reliable automated tests, monitoring and fast rollback.
+  q: continuous deployment vs continuous delivery
+  wiki: Continuous deployment
+ci-pipeline:
+  term: CI/CD pipeline
+  def: >-
+    A sequence of steps, described as code, that the CI system runs for every change: restore, build,
+    tests, analysis, publish and deploy. In GitHub Actions it is a YAML workflow, in Jenkins a
+    `Jenkinsfile`.
+  q: CI/CD pipeline
+  docs: https://docs.github.com/actions/get-started/understand-github-actions
+build-artifact:
+  term: Build artifact
+  def: >-
+    The pipeline output that gets stored and deployed: an archive of `dotnet publish` output, a NuGet
+    package or a container image. It is built once and promoted through environments without
+    rebuilding.
+  q: build artifact CI/CD
+  docs: https://docs.github.com/actions/tutorials/store-and-share-data
+roslyn-analyzer:
+  term: Roslyn analyzer
+  def: >-
+    A C# compiler extension that checks code during the build and in the IDE and reports diagnostics
+    such as `CA2016` or `IDE0161`. Code quality analyzers have been part of the .NET SDK since .NET 5.
+  q: .NET Roslyn analyzers code analysis
+  docs: https://learn.microsoft.com/dotnet/fundamentals/code-analysis/overview
+editorconfig:
+  term: .editorconfig
+  def: >-
+    A settings file in the repository shared by the IDE and the build: indentation, code style and
+    analyzer rule severities (`dotnet_diagnostic.CA2016.severity = error`). It applies to its folder
+    and the folders below.
+  q: .NET editorconfig code analysis configuration
+  docs: https://learn.microsoft.com/dotnet/fundamentals/code-analysis/configuration-files
+quality-gate:
+  term: Quality gate
+  def: >-
+    A set of thresholds an analysis result must pass to be considered acceptable, for example no new
+    issues and at least 80% coverage on new code. In SonarQube a failed gate can stop the pipeline
+    and block the PR merge.
+  q: SonarQube quality gate
+  docs: https://docs.sonarsource.com/sonarqube-server/quality-standards-administration/managing-quality-gates/introduction-to-quality-gates
+code-smell:
+  term: Code smell
+  def: >-
+    A sign of a maintainability problem that doesn't break the code right now: an overly long method,
+    duplication, a convoluted condition. SonarQube classifies such issues under maintainability.
+  q: code smell
+  wiki: Code smell
+branch-protection:
+  term: Branch protection
+  def: >-
+    Repository settings that block merging into a branch such as `main` until the required pipeline
+    checks pass and reviewers approve. In GitHub these are protected branches and rulesets.
+  q: GitHub protected branches required status checks
+  docs: https://docs.github.com/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches
+semver:
+  term: Semantic versioning (SemVer)
+  def: >-
+    A `MAJOR.MINOR.PATCH` versioning scheme: major goes up for breaking changes, minor for new
+    backward-compatible features, patch for fixes. A hyphen suffix marks a prerelease, a plus suffix
+    carries build metadata.
+  q: semantic versioning 2.0
+  docs: https://semver.org/
+nuget-feed:
+  term: NuGet feed (package source)
+  def: >-
+    A server or folder NuGet downloads packages from. A company's private feed (Azure Artifacts,
+    GitHub Packages, BaGetter, Nexus) hosts internal packages and often proxies nuget.org.
+  q: private NuGet feed hosting
+  docs: https://learn.microsoft.com/nuget/hosting-packages/overview
+package-lock-file:
+  term: Package lock file (packages.lock.json)
+  def: >-
+    A file with the project's full dependency graph and exact versions, transitive ones included. With
+    `dotnet restore --locked-mode`, restore uses exactly these versions or fails if the graph changed.
+  q: NuGet packages.lock.json locked mode
+  docs: https://learn.microsoft.com/nuget/consume-packages/package-references-in-project-files#locking-dependencies
+nuget-audit:
+  term: NuGet Audit
+  def: >-
+    A check of packages against known vulnerabilities on every restore (.NET 8 SDK+). It reports
+    warnings NU1901–NU1904 by severity; for `net10.0` it checks transitive packages by default.
+  q: NuGetAudit NuGetAuditMode
+  docs: https://learn.microsoft.com/nuget/concepts/auditing-packages
+package-source-mapping:
+  term: Package Source Mapping
+  def: >-
+    A `nuget.config` setting that defines, per package name pattern, which feed a package may come
+    from. It protects against internal packages being replaced by same-named ones from nuget.org
+    (dependency confusion).
+  q: NuGet package source mapping
+  docs: https://learn.microsoft.com/nuget/consume-packages/package-source-mapping
+source-link:
+  term: Source Link
+  def: >-
+    A technology that records the repository URL and commit in the PDB and the package, so the
+    debugger can download the source of the exact library version. Since .NET 8 it is built into the
+    SDK for GitHub, Azure Repos, GitLab and Bitbucket.
+  q: .NET Source Link
+  docs: https://learn.microsoft.com/dotnet/standard/library-guidance/sourcelink
+rolling-deployment:
+  term: Rolling deployment
+  def: >-
+    A strategy where instances behind a load balancer are updated one at a time or in small batches.
+    No extra servers are needed, but the old and new versions run side by side during the rollout.
+  q: rolling deployment strategy
+blue-green-deployment:
+  term: Blue-green deployment
+  def: >-
+    A strategy with two full copies of the environment: the new version is deployed next to the old
+    one with no traffic, passes checks, and the load balancer switches to it. The old copy stays for
+    an instant rollback.
+  q: blue-green deployment
+  docs: https://martinfowler.com/bliki/BlueGreenDeployment.html
+canary-release:
+  term: Canary release
+  def: >-
+    A strategy where the new version first gets a small share of traffic or users. Its errors and
+    latency are compared with the old version, and the share is increased in steps or rolled back.
+  q: canary release deployment
+  docs: https://martinfowler.com/bliki/CanaryRelease.html

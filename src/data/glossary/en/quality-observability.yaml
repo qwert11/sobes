@@ -1,0 +1,174 @@
+observability:
+  term: Observability
+  def: >-
+    The property of a system that lets you infer its internal state from the data it emits: metrics,
+    traces and logs. Unlike monitoring, it also answers questions nobody thought of in advance.
+  q: observability logs metrics traces
+  docs: https://opentelemetry.io/docs/concepts/observability-primer/
+distributed-tracing:
+  term: Distributed tracing
+  def: >-
+    Recording the path of one request through all services as a tree of spans sharing a trace id. It
+    shows where the time goes and where an error happened.
+  q: distributed tracing
+  docs: https://opentelemetry.io/docs/concepts/signals/traces/
+span:
+  term: Span
+  def: >-
+    One operation inside a trace: an incoming request, a SQL query or an HTTP call. A span has a name,
+    a start, a duration, attributes and a link to its parent span. In .NET a span is an `Activity`.
+  q: OpenTelemetry span
+  docs: https://opentelemetry.io/docs/concepts/signals/traces/#spans
+prometheus:
+  term: Prometheus
+  def: >-
+    A monitoring system and time series database. It scrapes metrics from services' HTTP endpoints
+    (pull), stores them and evaluates alerting rules; charts are usually built in Grafana.
+  q: Prometheus monitoring
+  docs: https://prometheus.io/docs/introduction/overview/
+  wiki: Prometheus (software)
+elk-stack:
+  term: ELK (Elasticsearch, Logstash, Kibana)
+  def: >-
+    A stack for collecting, storing and searching logs: Logstash or Beats ship events, Elasticsearch
+    indexes them, Kibana provides search and dashboards. OpenSearch is the open-source fork of
+    Elasticsearch.
+  q: ELK stack logging
+  docs: https://www.elastic.co/elastic-stack
+health-check:
+  term: Health check
+  def: >-
+    An HTTP endpoint that reports an app instance's state: Healthy, Degraded or Unhealthy. The load
+    balancer and orchestrator use it to decide whether to send traffic and whether to restart the
+    process.
+  q: ASP.NET Core health checks
+  docs: https://learn.microsoft.com/aspnet/core/host-and-deploy/health-checks
+health-check-publisher:
+  term: Health check publisher
+  def: >-
+    An `IHealthCheckPublisher` implementation that an ASP.NET Core background service calls
+    periodically with the health report. Used to push status to logs, metrics or a monitoring system
+    without external polling.
+  q: IHealthCheckPublisher ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/host-and-deploy/health-checks#health-check-publisher
+cascading-failure:
+  term: Cascading failure
+  def: >-
+    A failure that spreads through a system: one component's failure overloads or disables others. An
+    example is a readiness probe on a shared database that pulls every instance out of the load
+    balancer at once when the database fails.
+  q: cascading failure
+  docs: https://sre.google/sre-book/addressing-cascading-failures/
+  wiki: Cascading failure
+red-method:
+  term: RED method
+  def: >-
+    A metric set for a request-serving service: Rate (requests per second), Errors and Duration
+    (response time). Proposed by Tom Wilkie as a complement to USE.
+  q: RED method rate errors duration
+use-method:
+  term: USE method
+  def: >-
+    A metric set for every resource: Utilization, Saturation (a queue of waiting work) and Errors.
+    Proposed by Brendan Gregg for performance analysis.
+  q: USE method Brendan Gregg
+  docs: https://www.brendangregg.com/usemethod.html
+golden-signals:
+  term: Four golden signals
+  def: >-
+    The metrics from the Google SRE Book for a user-facing service: latency, traffic, errors and
+    saturation. If you can measure only four things, measure these.
+  q: four golden signals SRE
+  docs: https://sre.google/sre-book/monitoring-distributed-systems/
+metric-instrument:
+  term: Metric instrument
+  def: >-
+    A `System.Diagnostics.Metrics` object that code records measurements through: `Counter<T>`,
+    `UpDownCounter<T>`, `Histogram<T>`, `Gauge<T>` and their observable variants. Created from a `Meter`.
+  q: System.Diagnostics.Metrics instrument types
+  docs: https://learn.microsoft.com/dotnet/core/diagnostics/metrics-instrumentation
+metric-cardinality:
+  term: Metric cardinality
+  def: >-
+    The number of unique combinations of a metric's label values, that is, the number of time series.
+    A label with a user id or a full URL produces millions of series and overloads storage.
+  q: metrics label cardinality
+  docs: https://prometheus.io/docs/practices/naming/#labels
+percentile:
+  term: Percentile (p50, p95, p99)
+  def: >-
+    The value below which a given share of measurements falls: p99 = 200 ms means 99% of requests are
+    faster than 200 ms. In metrics, percentiles are approximated from histogram buckets.
+  q: latency percentile p99
+  wiki: Percentile
+dotnet-trace:
+  term: dotnet-trace
+  def: >-
+    A CLI tool that records an event trace of a running .NET process over EventPipe: stack samples,
+    GC, JIT and exception events. The result opens in PerfView, Visual Studio or speedscope.
+  q: dotnet-trace
+  docs: https://learn.microsoft.com/dotnet/core/diagnostics/dotnet-trace
+eventpipe:
+  term: EventPipe
+  def: >-
+    The tracing mechanism built into the .NET runtime, the same on every OS. dotnet-counters,
+    dotnet-trace and dotnet-monitor work through it without an external profiler.
+  q: .NET EventPipe
+  docs: https://learn.microsoft.com/dotnet/core/diagnostics/eventpipe
+diagnostic-port:
+  term: Diagnostic port
+  def: >-
+    The channel diagnostic tools use to talk to the .NET runtime: a named pipe on Windows or a Unix
+    socket in the temp directory on Linux. In a container, a sidecar needs shared access to it.
+  q: .NET diagnostic port
+  docs: https://learn.microsoft.com/dotnet/core/diagnostics/diagnostic-port
+dotnet-monitor:
+  term: dotnet-monitor
+  def: >-
+    A production tool, usually run as a sidecar container: it captures dumps, traces, logs and metrics
+    of .NET processes through an HTTP API, and collects them on its own via trigger rules and uploads
+    them to storage.
+  q: dotnet-monitor
+  docs: https://learn.microsoft.com/dotnet/core/diagnostics/dotnet-monitor
+sli:
+  term: SLI (service level indicator)
+  def: >-
+    A measurable indicator of service quality, usually the share of good events among all events:
+    successful requests, requests faster than a threshold.
+  q: service level indicator SLI
+  docs: https://sre.google/sre-book/service-level-objectives/
+error-budget:
+  term: Error budget
+  def: >-
+    The allowed share of failures over the SLO window: 100% − SLO. With a 99.9% SLO over 30 days that
+    is about 43 minutes of full downtime. While budget remains, the team spends it on change.
+  q: error budget SRE
+  docs: https://sre.google/workbook/error-budget-policy/
+burn-rate:
+  term: Burn rate
+  def: >-
+    How many times faster than allowed a service consumes its error budget: the error rate divided by
+    1 − SLO. At a burn rate of 1 the budget runs out exactly at the end of the SLO window.
+  q: SLO burn rate alerting
+  docs: https://sre.google/workbook/alerting-on-slos/
+symptom-based-alerting:
+  term: Symptom-based alerting
+  def: >-
+    Alerting on what users see: errors, latency, unavailability. The opposite of a cause-based alert on
+    an internal indicator such as CPU utilization.
+  q: alert on symptoms not causes
+  docs: https://sre.google/sre-book/monitoring-distributed-systems/
+runbook:
+  term: Runbook
+  def: >-
+    Instructions for the on-call engineer for a specific alert: what to check, which actions are safe,
+    whom to escalate to. Its link goes right into the alert.
+  q: runbook on-call alert
+  wiki: Runbook
+blameless-postmortem:
+  term: Blameless postmortem
+  def: >-
+    An incident review without looking for someone to blame: timeline, impact, causes and action items
+    with owners. It asks why the system and processes allowed the mistake to happen.
+  q: blameless postmortem
+  docs: https://sre.google/sre-book/postmortem-culture/

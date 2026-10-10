@@ -1,0 +1,163 @@
+unit-test:
+  term: Модульный тест (unit test)
+  def: >-
+    Автоматический тест, который проверяет одно поведение небольшой части кода в изоляции от базы,
+    сети и файловой системы. Выполняется за миллисекунды.
+  q: unit testing .NET
+  docs: https://learn.microsoft.com/dotnet/core/testing/unit-testing-best-practices
+  wiki: Модульное тестирование
+arrange-act-assert:
+  term: Arrange-Act-Assert (AAA)
+  def: >-
+    Схема теста из трёх шагов: подготовить объекты и данные, выполнить проверяемое действие,
+    проверить результат. Делает тест читаемым и отделяет действие от проверок.
+  q: Arrange Act Assert pattern
+  docs: https://learn.microsoft.com/dotnet/core/testing/unit-testing-best-practices#arrange-your-tests
+parameterized-test:
+  term: Параметризованный тест
+  def: >-
+    Один тестовый метод, который запускается на нескольких наборах входных данных. В xUnit это
+    `[Theory]` с `[InlineData]` или `[MemberData]`, в NUnit — `[TestCase]`, в MSTest — `[DataRow]`.
+  q: xUnit Theory InlineData
+time-provider:
+  term: TimeProvider
+  def: >-
+    Абстракция системного времени в .NET 8+: текущее время, часовой пояс и таймеры. В тестах её
+    заменяют на `FakeTimeProvider` из пакета `Microsoft.Extensions.TimeProvider.Testing` и сдвигают
+    время вручную.
+  q: .NET TimeProvider FakeTimeProvider
+  docs: https://learn.microsoft.com/dotnet/standard/datetime/timeprovider-overview
+xunit:
+  term: xUnit.net
+  def: >-
+    Популярный тестовый фреймворк .NET: `[Fact]` и `[Theory]`, новый экземпляр класса на каждый тест,
+    общие ресурсы через fixture. Текущая линейка — v3, пакет `xunit.v3`.
+  q: xUnit.net v3
+  docs: https://xunit.net/
+test-double:
+  term: Test double (дублёр)
+  def: >-
+    Общее название объекта, который в тесте заменяет настоящую зависимость. Виды по Джерарду
+    Мезаросу — dummy, stub, spy, mock и fake.
+  q: test double Meszaros
+  docs: https://martinfowler.com/bliki/TestDouble.html
+test-stub:
+  term: Стаб (stub)
+  def: >-
+    Дублёр, который возвращает заранее заданные ответы и так управляет входными данными
+    тестируемого кода. Тест по стабу ничего не проверяет.
+  q: test stub vs mock
+  docs: https://martinfowler.com/articles/mocksArentStubs.html
+mock-object:
+  term: Мок (mock object)
+  def: >-
+    Дублёр, по которому тест проверяет взаимодействие: был ли вызов, сколько раз и с какими
+    аргументами. В .NET их создают NSubstitute и Moq.
+  q: mock object unit testing
+  docs: https://martinfowler.com/articles/mocksArentStubs.html
+  wiki: Mock-объект
+test-fake:
+  term: Фейк (fake)
+  def: >-
+    Упрощённая, но рабочая реализация зависимости: репозиторий на словаре, почта в список,
+    `FakeTimeProvider`. Ведёт себя как настоящая, но не годится для продакшена.
+  q: fake object testing
+  docs: https://martinfowler.com/bliki/TestDouble.html
+autofixture:
+  term: AutoFixture
+  def: >-
+    Библиотека, которая генерирует тестовые данные: создаёт объекты с заполненными свойствами, чтобы
+    тест задавал только значимые для него значения. Расширения подставляют дублёров NSubstitute или
+    Moq и передают данные в параметры теста.
+  q: AutoFixture .NET
+  docs: https://github.com/AutoFixture/AutoFixture
+fluent-assertions:
+  term: FluentAssertions
+  def: >-
+    Библиотека проверок в стиле `result.Should().Be(5)`. До версии 7 включительно — Apache 2.0,
+    с версии 8 (2025) — лицензия Xceed, платная для коммерческого использования.
+  q: FluentAssertions license v8
+  docs: https://fluentassertions.com/
+integration-test:
+  term: Интеграционный тест
+  def: >-
+    Тест, который проверяет несколько частей системы вместе: например, HTTP-конвейер, DI и настоящую
+    базу. Медленнее модульного, зато ловит ошибки на стыках.
+  q: integration tests ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/test/integration-tests
+  wiki: Интеграционное тестирование
+web-application-factory:
+  term: WebApplicationFactory
+  def: >-
+    Класс из пакета `Microsoft.AspNetCore.Mvc.Testing`, который запускает приложение ASP.NET Core в
+    памяти на `TestServer` и выдаёт `HttpClient` для запросов к нему. Позволяет подменить сервисы и
+    настройки.
+  q: WebApplicationFactory ASP.NET Core
+  docs: https://learn.microsoft.com/dotnet/api/microsoft.aspnetcore.mvc.testing.webapplicationfactory-1
+testcontainers:
+  term: Testcontainers
+  def: >-
+    Библиотека, которая из кода теста запускает Docker-контейнеры — SQL Server, PostgreSQL, Redis,
+    брокеры — и удаляет их после прогона. Тесты работают с настоящей инфраструктурой той же версии,
+    что в проде.
+  q: Testcontainers for .NET
+  docs: https://dotnet.testcontainers.org/
+respawn:
+  term: Respawn
+  def: >-
+    Библиотека Джимми Богарда, которая быстро очищает тестовую базу между тестами: удаляет данные из
+    таблиц в порядке внешних ключей и не трогает схему.
+  q: Respawn database reset .NET
+  docs: https://github.com/jbogard/Respawn
+wiremock-net:
+  term: WireMock.Net
+  def: >-
+    Эмулятор HTTP-сервисов для .NET: поднимает настоящий HTTP-сервер с заготовленными ответами,
+    задержками и ошибками. Применяется в интеграционных тестах внешних API.
+  q: WireMock.Net
+  docs: https://github.com/wiremock/WireMock.Net
+test-pyramid:
+  term: Пирамида тестов (test pyramid)
+  def: >-
+    Модель Майка Кона: много быстрых модульных тестов, меньше интеграционных и совсем немного
+    сквозных. Чем выше уровень, тем тест медленнее, дороже и хрупче.
+  q: test pyramid
+  docs: https://martinfowler.com/articles/practical-test-pyramid.html
+code-coverage:
+  term: Покрытие кода (code coverage)
+  def: >-
+    Доля строк или ветвей кода, которые выполнились во время тестов. Показывает непроверенный код, но
+    не доказывает, что выполненный код проверен. В .NET его считают coverlet и Microsoft Code
+    Coverage.
+  q: .NET code coverage coverlet
+  docs: https://learn.microsoft.com/dotnet/core/testing/unit-testing-code-coverage
+  wiki: Покрытие кода
+mutation-testing:
+  term: Мутационное тестирование
+  def: >-
+    Способ оценить качество тестов: инструмент вносит в код маленькие изменения (мутанты) и проверяет,
+    падают ли тесты. Выживший мутант — непроверенное поведение. В .NET — Stryker.NET.
+  q: Stryker.NET mutation testing
+  docs: https://stryker-mutator.io/docs/stryker-net/introduction/
+  wiki: Мутационное тестирование
+flaky-test:
+  term: Нестабильный тест (flaky test)
+  def: >-
+    Тест, который на одном и том же коде то проходит, то падает. Обычные причины — время, общее
+    состояние, параллельность, внешние сервисы.
+  q: flaky tests causes
+contract-test:
+  term: Контрактный тест (contract test)
+  def: >-
+    Тест, который проверяет, что поставщик API и его потребитель соблюдают общую договорённость о
+    запросах и ответах. В consumer-driven подходе контракт пишет потребитель; инструмент — Pact
+    (PactNet).
+  q: consumer-driven contract testing Pact
+  docs: https://docs.pact.io/
+seam:
+  term: Шов (seam)
+  def: >-
+    Термин Майкла Фэзерса: место, где можно изменить поведение программы, не редактируя код в этом
+    месте, — виртуальный метод, параметр-интерфейс, конфигурация. Через швы legacy-код покрывают
+    тестами.
+  q: Michael Feathers seam legacy code

@@ -1,0 +1,164 @@
+unit-test:
+  term: Unit test
+  def: >-
+    An automated test that checks one behavior of a small piece of code in isolation from the
+    database, network and file system. It runs in milliseconds.
+  q: unit testing .NET
+  docs: https://learn.microsoft.com/dotnet/core/testing/unit-testing-best-practices
+  wiki: Unit testing
+arrange-act-assert:
+  term: Arrange-Act-Assert (AAA)
+  def: >-
+    A three-step test layout: set up objects and data, perform the action under test, check the
+    result. It keeps the test readable and separates the action from the checks.
+  q: Arrange Act Assert pattern
+  docs: https://learn.microsoft.com/dotnet/core/testing/unit-testing-best-practices#arrange-your-tests
+parameterized-test:
+  term: Parameterized test
+  def: >-
+    One test method that runs against several sets of input data. In xUnit it is `[Theory]` with
+    `[InlineData]` or `[MemberData]`, in NUnit `[TestCase]`, in MSTest `[DataRow]`.
+  q: xUnit Theory InlineData
+time-provider:
+  term: TimeProvider
+  def: >-
+    The .NET 8+ abstraction over system time: current time, time zone and timers. Tests replace it
+    with `FakeTimeProvider` from the `Microsoft.Extensions.TimeProvider.Testing` package and advance
+    time manually.
+  q: .NET TimeProvider FakeTimeProvider
+  docs: https://learn.microsoft.com/dotnet/standard/datetime/timeprovider-overview
+xunit:
+  term: xUnit.net
+  def: >-
+    A popular .NET test framework: `[Fact]` and `[Theory]`, a new class instance per test, shared
+    resources through fixtures. The current line is v3, package `xunit.v3`.
+  q: xUnit.net v3
+  docs: https://xunit.net/
+test-double:
+  term: Test double
+  def: >-
+    The general name for an object that replaces a real dependency in a test. Gerard Meszaros's kinds
+    are dummy, stub, spy, mock and fake.
+  q: test double Meszaros
+  docs: https://martinfowler.com/bliki/TestDouble.html
+  wiki: Test double
+test-stub:
+  term: Stub
+  def: >-
+    A test double that returns predefined answers and so controls the inputs of the code under test.
+    The test asserts nothing on a stub.
+  q: test stub vs mock
+  docs: https://martinfowler.com/articles/mocksArentStubs.html
+mock-object:
+  term: Mock (mock object)
+  def: >-
+    A test double the test uses to verify interactions: whether a call happened, how many times and
+    with which arguments. In .NET they are created with NSubstitute and Moq.
+  q: mock object unit testing
+  docs: https://martinfowler.com/articles/mocksArentStubs.html
+  wiki: Mock object
+test-fake:
+  term: Fake
+  def: >-
+    A simplified but working implementation of a dependency: a repository over a dictionary, email
+    sent to a list, `FakeTimeProvider`. It behaves like the real thing but is not fit for production.
+  q: fake object testing
+  docs: https://martinfowler.com/bliki/TestDouble.html
+autofixture:
+  term: AutoFixture
+  def: >-
+    A library that generates test data: it creates objects with populated properties so the test sets
+    only the values that matter to it. Extensions supply NSubstitute or Moq doubles and pass data into
+    test parameters.
+  q: AutoFixture .NET
+  docs: https://github.com/AutoFixture/AutoFixture
+fluent-assertions:
+  term: FluentAssertions
+  def: >-
+    An assertion library in the `result.Should().Be(5)` style. Up to and including version 7 it is
+    Apache 2.0; from version 8 (2025) it uses the Xceed license, paid for commercial use.
+  q: FluentAssertions license v8
+  docs: https://fluentassertions.com/
+integration-test:
+  term: Integration test
+  def: >-
+    A test that checks several parts of the system together, for example the HTTP pipeline, DI and a
+    real database. Slower than a unit test, but it catches bugs at the seams.
+  q: integration tests ASP.NET Core
+  docs: https://learn.microsoft.com/aspnet/core/test/integration-tests
+  wiki: Integration testing
+web-application-factory:
+  term: WebApplicationFactory
+  def: >-
+    A class from the `Microsoft.AspNetCore.Mvc.Testing` package that runs an ASP.NET Core app in
+    memory on `TestServer` and hands out an `HttpClient` for requests to it. It lets you replace
+    services and settings.
+  q: WebApplicationFactory ASP.NET Core
+  docs: https://learn.microsoft.com/dotnet/api/microsoft.aspnetcore.mvc.testing.webapplicationfactory-1
+testcontainers:
+  term: Testcontainers
+  def: >-
+    A library that starts Docker containers from test code — SQL Server, PostgreSQL, Redis, brokers —
+    and removes them after the run. Tests work against real infrastructure of the same version as
+    production.
+  q: Testcontainers for .NET
+  docs: https://dotnet.testcontainers.org/
+respawn:
+  term: Respawn
+  def: >-
+    Jimmy Bogard's library that quickly cleans a test database between tests: it deletes table data in
+    foreign-key order and leaves the schema alone.
+  q: Respawn database reset .NET
+  docs: https://github.com/jbogard/Respawn
+wiremock-net:
+  term: WireMock.Net
+  def: >-
+    An HTTP service emulator for .NET: it starts a real HTTP server with canned responses, delays and
+    errors. Used in integration tests of external APIs.
+  q: WireMock.Net
+  docs: https://github.com/wiremock/WireMock.Net
+test-pyramid:
+  term: Test pyramid
+  def: >-
+    Mike Cohn's model: many fast unit tests, fewer integration tests and very few end-to-end tests.
+    The higher the level, the slower, more expensive and more brittle the test.
+  q: test pyramid
+  docs: https://martinfowler.com/articles/practical-test-pyramid.html
+code-coverage:
+  term: Code coverage
+  def: >-
+    The share of code lines or branches executed during tests. It reveals untested code but does not
+    prove the executed code is verified. In .NET it is measured by coverlet and Microsoft Code
+    Coverage.
+  q: .NET code coverage coverlet
+  docs: https://learn.microsoft.com/dotnet/core/testing/unit-testing-code-coverage
+  wiki: Code coverage
+mutation-testing:
+  term: Mutation testing
+  def: >-
+    A way to assess test quality: a tool makes small changes to the code (mutants) and checks whether
+    the tests fail. A surviving mutant is untested behavior. In .NET the tool is Stryker.NET.
+  q: Stryker.NET mutation testing
+  docs: https://stryker-mutator.io/docs/stryker-net/introduction/
+  wiki: Mutation testing
+flaky-test:
+  term: Flaky test
+  def: >-
+    A test that sometimes passes and sometimes fails on the same code. Typical causes are time, shared
+    state, parallelism and external services.
+  q: flaky tests causes
+contract-test:
+  term: Contract test
+  def: >-
+    A test that checks that an API provider and its consumer honor a shared agreement about requests
+    and responses. In the consumer-driven approach the consumer writes the contract; the tool is Pact
+    (PactNet).
+  q: consumer-driven contract testing Pact
+  docs: https://docs.pact.io/
+seam:
+  term: Seam
+  def: >-
+    Michael Feathers's term: a place where you can change a program's behavior without editing the
+    code in that place — a virtual method, an interface parameter, configuration. Seams are how
+    legacy code gets covered by tests.
+  q: Michael Feathers seam legacy code
