@@ -1,0 +1,108 @@
+delphi-unicode-string:
+  term: UnicodeString
+  def: >-
+    Delphi's reference-counted string type that stores text as UTF-16. Since Delphi 2009, string is
+    UnicodeString and Char is the two-byte WideChar.
+  q: Delphi UnicodeString
+  docs: https://docwiki.embarcadero.com/RADStudio/en/Unicode_in_RAD_Studio
+utf-16:
+  term: UTF-16
+  def: >-
+    A Unicode encoding where a character takes 2 bytes, and characters outside the Basic
+    Multilingual Plane (such as emoji) take 4 bytes as a surrogate pair. Used by the Windows API,
+    Delphi strings and .NET.
+  q: UTF-16 surrogate pair
+  wiki: UTF-16
+code-page:
+  term: Code page
+  def: >-
+    A table that maps bytes to characters in a single-byte encoding. For Cyrillic on Windows it is
+    usually 1251; characters missing from the table are lost on conversion.
+  q: Windows code page 1251
+  docs: https://learn.microsoft.com/windows/win32/intl/code-pages
+  wiki: Code page
+delphi-tencoding:
+  term: TEncoding
+  def: >-
+    A Delphi RTL class that converts text to bytes and back in a given encoding: UTF-8, UTF-16,
+    ANSI or a specific code page. It can detect and write a BOM.
+  q: Delphi TEncoding
+  docs: https://docwiki.embarcadero.com/Libraries/en/System.SysUtils.TEncoding
+delphi-tbytes:
+  term: TBytes
+  def: >-
+    A dynamic array of bytes (array of Byte) in Delphi. After the move to Unicode, binary data is
+    kept in TBytes rather than in a string, because strings are now two-byte and get re-encoded.
+  q: Delphi TBytes
+  docs: https://docwiki.embarcadero.com/Libraries/en/System.SysUtils.TBytes
+delphi-map-rules:
+  term: Data type mapping rules (MapRules)
+  def: >-
+    The FormatOptions.MapRules collection in FireDAC: each rule replaces the data type returned by
+    the driver with one the application prefers. Used to match field types to the old library during
+    a migration.
+  q: FireDAC MapRules data type mapping
+  docs: https://docwiki.embarcadero.com/RADStudio/en/Data_Type_Mapping_(FireDAC)
+delphi-native-int:
+  term: NativeInt
+  def: >-
+    A Delphi integer type whose size equals the pointer size: 4 bytes on Win32 and 8 bytes on
+    Win64. It holds pointers and object references cast to a number.
+  q: Delphi NativeInt 64-bit
+  docs: https://docwiki.embarcadero.com/Libraries/en/System.NativeInt
+inproc-com:
+  term: In-process COM server
+  def: >-
+    A COM object in a DLL that is loaded into the client's process. Its bitness must therefore match
+    the client's, unlike an out-of-process server in an EXE.
+  q: in-process COM server 32-bit 64-bit
+  docs: https://learn.microsoft.com/windows/win32/com/in-process-servers
+large-address-aware:
+  term: LARGEADDRESSAWARE
+  def: >-
+    A flag in the EXE header that lets a process use addresses above 2 GB. A 32-bit process with
+    this flag gets up to 4 GB of address space on 64-bit Windows.
+  q: IMAGE_FILE_LARGE_ADDRESS_AWARE 4GB
+  docs: https://learn.microsoft.com/cpp/build/reference/largeaddressaware-handle-large-addresses
+wow64:
+  term: WOW64
+  def: >-
+    The 64-bit Windows subsystem that runs 32-bit programs. It redirects their system calls,
+    folders and registry, but 32-bit and 64-bit code never mix within one process.
+  q: WOW64 Windows 32-bit on 64-bit
+  docs: https://learn.microsoft.com/windows/win32/winprog64/running-32-bit-applications
+  wiki: WoW64
+regression-testing:
+  term: Regression testing
+  def: >-
+    Re-checking functionality that already worked after a change. In a migration it confirms that
+    the new version behaves the same as the old one.
+  q: regression testing
+  wiki: Regression testing
+parallel-run:
+  term: Parallel run
+  def: >-
+    The old and new versions of a system run at the same time on the same data. Results are
+    compared, and the old version stays as the rollback path until the new one proves equivalent.
+  q: parallel run migration strategy
+code-freeze:
+  term: Feature freeze
+  def: >-
+    A period when no new functionality is added to a product, only bug fixes. During a migration it
+    avoids porting every new feature into two versions.
+  q: feature freeze code freeze
+  wiki: Freeze (software engineering)
+delphi-conditional-compilation:
+  term: Conditional compilation
+  def: >-
+    The {$IFDEF}, {$IF} and {$ENDIF} directives that include or exclude code at build time. The
+    UNICODE symbol lets one codebase build in both old and new Delphi.
+  q: Delphi conditional compilation IFDEF UNICODE
+  docs: https://docwiki.embarcadero.com/RADStudio/en/Conditional_compilation_(Delphi)
+delphi-thttpclient:
+  term: THTTPClient
+  def: >-
+    An HTTP client from the System.Net.HttpClient unit with no visual components. It uses the
+    platform's native HTTP stack and fits calling REST services from a Delphi client.
+  q: Delphi THTTPClient
+  docs: https://docwiki.embarcadero.com/RADStudio/en/Using_an_HTTP_Client

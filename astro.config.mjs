@@ -64,6 +64,10 @@ export default defineConfig({
           items: [{ autogenerate: { directory: 'front' } }],
         },
         {
+          label: 'Delphi',
+          items: [{ autogenerate: { directory: 'delphi' } }],
+        },
+        {
           label: 'Основа',
           translations: { uk: 'Основа', en: 'Fundamentals' },
           items: [{ autogenerate: { directory: 'basics' } }],

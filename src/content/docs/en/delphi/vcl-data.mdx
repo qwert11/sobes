@@ -1,0 +1,695 @@
+---
+title: VCL and data access
+description: Forms and .dfm, Owner and Parent, TDataSet and fields, ADO, dbExpress and FireDAC, stored procedures, threads without freezing the UI.
+sidebar:
+  order: 2
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+How a VCL application with a database is built: forms and .dfm files, datasets and fields, the ADO and FireDAC libraries with stored procedure calls, and background threads that do not freeze the UI. These questions check whether a candidate understands the mechanism rather than just dropping components on a form.
+
+**Before this topic:** [Object Pascal](/sobes/en/delphi/language/).
+
+<Q id="delphi.vcl.forms" level="j">
+
+## How do VCL forms and components work?
+
+<A short l="j">
+
+A VCL form is a class derived from `TForm`, and the components on it with their property values are stored in a <T k="dfm-file">.dfm file</T> that is read when the form is created. The form's code is mostly event handlers: methods the VCL calls when the user clicks a button, opens or closes a window.
+
+</A>
+
+<A short l="m">
+
+The designer saves the components' published properties to the .dfm, and when the form is created, <T k="component-streaming">component streaming</T> creates components by class name and assigns their properties and handlers. A component has two different "parents": the <T k="component-owner">Owner</T> is responsible for freeing memory, and the <T k="parent-control">Parent</T> is the windowed control it is drawn inside. That gives the lifecycle rule: the calling code creates and frees a <T k="modal-form">modal form</T>, while a modeless form frees itself with `Action := caFree` in `OnClose`.
+
+</A>
+
+<A short l="s">
+
+A form is an ordinary class, and the .dfm is a serialized component tree that the form constructor reads with `TReader`, binding it to published fields by name. Ownership (Owner) and visual nesting (Parent) are two independent trees, and mixing them up leads to leaks or access to a freed object. In a large application the main cost is auto-creating every form in the .dpr plus global form variables: startup is slower and forms implicitly depend on each other. So forms are created on demand, and repeated UI pieces move into <T k="vcl-frame">frames</T> or form inheritance.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **Form** — a `TForm1 = class(TForm)` class in a .pas unit plus a .dfm file with the same name.
+- **.dfm** — the form's components and their property values, usually as text.
+- **Event** — a property that references a method: `OnClick` calls `Button1Click` on a click.
+
+**Form lifecycle**
+
+1. `OnCreate` — components have been loaded from the .dfm.
+2. `OnShow` — the form is appearing on screen.
+3. `OnClose` — the `Action` parameter decides the form's fate: `caHide` — hide it, `caFree` — free it, `caNone` — do not close.
+4. `OnDestroy` — the form is being destroyed.
+
+`ShowModal` waits until the form closes and returns `ModalResult`, while `Show` returns control immediately.
+
+**Common mistake**
+
+Calling `Free` on a form inside its own event handler: the handler has not finished yet and will touch freed memory. That is what `Release` and `Action := caFree` are for.
+
+**Takeaway:** a form is a class plus a .dfm, and event handlers define its behavior.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+1. The .dfm stores published properties whose values differ from the one given in the `default` directive.
+2. The form constructor finds the .dfm resource (linked by `{$R *.dfm}`) and reads it.
+3. For each `object` a component of the right class is created, properties are assigned via RTTI, and the published form field with the same name starts pointing to it.
+4. A line like `OnClick = btnOkClick` is bound to a published form method by name. Rename the method only in code and the form will not load.
+
+**Owner and Parent**
+
+| | Owner | Parent |
+|---|---|---|
+| Responsible for | freeing and the `Components` list | display and position on screen |
+| How to set | `Create(AOwner)` | the `Parent` property |
+| Who can be one | any `TComponent` | only a `TWinControl` |
+
+A Parent also frees its child controls, but its main role is visual.
+
+**Pitfalls**
+
+- A control created in code without a `Parent` is not visible.
+- `Create(nil)` without `Free` is a leak. `Create(Self)` for a dialog created on every call piles up objects until the owner closes.
+- `Free` on a form from its own handler — use `Release`: it waits until the form's handlers and messages are done.
+
+**Rule of thumb**
+
+A modal dialog: `Create(nil)` and `ShowModal` inside `try..finally Free`. A modeless window: `Action := caFree` in `OnClose`.
+
+**Takeaway:** the .dfm restores objects via RTTI, the Owner handles memory, the Parent handles display.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- `TReader` creates components, assigns properties and, after the whole form is read, calls `Loaded` on every component.
+- References between components (`DataSource = dsOrders`) are resolved after all objects are read, so their order in the .dfm does not matter.
+- The creation order of non-visual components does matter: a saved `Connected = True` or `Active = True` opens the connection and queries right when the form is created.
+- A descendant form stores only its differences from the ancestor in the .dfm (`inherited`), and a frame on a form stores only its differences too (`inline`).
+
+**Cost**
+
+- `Application.CreateForm` for every form in the .dpr: all .dfm files are read at startup, and the forms with their open queries live until the program exits.
+- A global `Form1` variable encourages "one form reads another form's fields" coupling. Such code is hard to test and to move.
+- A binary .dfm cannot be diffed in Git; a text one can be read and merged.
+
+**Trade-offs**
+
+- **A frame** is a reusable piece of UI with code. Changes to the frame show up on every form, except properties overridden on a particular form.
+- **Form inheritance** gives a shared skeleton: buttons, validation, error handling. A deep hierarchy is fragile: changing the ancestor breaks descendants.
+- **A data module** (`TDataModule`) separates connections and queries from the form, so they can be used without UI.
+
+**How to check in production**
+
+- Leaked forms and components show up with `ReportMemoryLeaksOnShutdown := True` or FastMM in FullDebugMode.
+- A binary .dfm starts with the `TPF0` signature — an easy way to find files worth converting to text.
+
+**Takeaway:** a form is a serialized object graph; manage its lifetime explicitly instead of relying on auto-creation.
+
+</A>
+
+<Ex>
+
+```pascal
+procedure TMainForm.btnEditOrderClick(Sender: TObject);
+var
+  Dlg: TOrderDialog;
+begin
+  Dlg := TOrderDialog.Create(nil);   // no owner: we free it ourselves
+  try
+    Dlg.OrderId := 42;
+    if Dlg.ShowModal = mrOk then     // waits for closing and returns ModalResult
+      RefreshOrders;
+  finally
+    Dlg.Free;
+  end;
+end;
+
+procedure TMainForm.FormCreate(Sender: TObject);
+var
+  Btn: TButton;
+begin
+  Btn := TButton.Create(Self);       // Owner = the form, it will free the button
+  Btn.Parent := pnlTools;            // without a Parent the button is invisible
+  Btn.Caption := 'Refresh';
+end;
+
+procedure TReportForm.FormClose(Sender: TObject; var Action: TCloseAction);
+begin
+  Action := caFree;                  // a modeless form frees itself
+end;
+```
+
+</Ex>
+
+<Ex title=".dfm fragment">
+
+```text
+object OrderDialog: TOrderDialog
+  Caption = 'Order'
+  OnCreate = FormCreate
+  object btnOk: TButton
+    Caption = 'OK'
+    ModalResult = 1
+  end
+end
+```
+
+`ModalResult = 1` is `mrOk`: clicking the button closes the form, and `ShowModal` returns `mrOk`.
+
+</Ex>
+
+<Next>
+
+- How does Owner differ from Parent? — The Owner frees the component and keeps it in `Components`; the Parent is the windowed control the control is drawn inside.
+- What does `Application.CreateForm` do? — Creates a form owned by `Application`; the first form created this way becomes the main form.
+- Why can't you call `Free` in the form's own handler? — The handler is still running; `Release` defers destruction until message processing is done.
+- How does a frame differ from form inheritance? — A frame is an embeddable piece of UI; inheritance is a shared ancestor for the whole form.
+- What happens if the .dfm references a handler that no longer exists in code? — The form will not load: the binding goes by the published method name.
+
+</Next>
+
+<Src>
+
+- [Vcl.Controls.TControl.Parent](https://docwiki.embarcadero.com/Libraries/en/Vcl.Controls.TControl.Parent)
+- [Vcl.Forms.TCustomForm.OnClose](https://docwiki.embarcadero.com/Libraries/en/Vcl.Forms.TCustomForm.OnClose)
+- [Working with Frames](https://docwiki.embarcadero.com/RADStudio/en/Working_with_Frames)
+
+</Src>
+
+</Q>
+
+<Q id="delphi.vcl.dataset" level="m">
+
+## How does working with data through TDataSet work?
+
+<A short l="j">
+
+<T k="tdataset">`TDataSet`</T> is the base class of all Delphi datasets: result rows with a current record, which you walk with `First` and `Next` and whose fields you read via `FieldByName`. <T k="data-aware-control">Data-aware controls</T> (`TDBGrid`, `TDBEdit`) connect to it through `TDataSource` and display and edit the current record by themselves.
+
+</A>
+
+<A short l="m">
+
+`TDataSet` is a <T k="dataset-state">state</T> machine: an open dataset is in `dsBrowse`, `Edit` and `Insert` move it to `dsEdit` and `dsInsert`, and `Post` or `Cancel` bring it back, firing events such as `BeforePost`. Fields are `TField` objects: <T k="persistent-fields">persistent</T> ones are created in the designer and give typed access, while calculated and <T k="lookup-field">lookup fields</T> are computed on the client. The cost is that every move notifies all linked controls, so bulk record loops are wrapped in `DisableControls` and `EnableControls`.
+
+</A>
+
+<A short l="s">
+
+`TDataSet` is a shared cursor contract with a record buffer, states and events, so a form works the same way with ADO, FireDAC and `TClientDataSet`. Dataset events are convenient for business logic but easily turn into hidden side effects: a server query in `AfterScroll` runs on every move through the grid. <T k="cached-updates">Cached updates</T> accumulate changes on the client and apply them as a batch in a short transaction. The cost is that conflicts with other users' changes surface only in `ApplyUpdates`, and they have to be handled explicitly.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+`TDataSet` is a set of rows with a cursor: at any moment one record is current. `TADOQuery`, `TFDQuery`, `TClientDataSet` and other datasets inherit from it.
+
+**How the components connect**
+
+1. A query (`TFDQuery` or `TADOQuery`) fetches rows from the database.
+2. `TDataSource` links the dataset to controls.
+3. A `TDBGrid` or `TDBEdit` with its `DataSource` and `DataField` properties displays and edits the data.
+
+**How to use**
+
+- Navigation: `First`, `Next`, `Prior`, `Last`; end of data is `Eof`.
+- Reading: `FieldByName('Amount').AsCurrency`.
+- Changing: `Edit`, assign fields, `Post`. A new record: `Append` or `Insert`.
+
+**Common mistake**
+
+Assigning a field value without `Edit`: the dataset is in `dsBrowse`, and you get "Dataset not in edit or insert mode". Another classic is forgetting `Next` in a `while not Eof` loop and getting an infinite loop.
+
+**Takeaway:** `TDataSet` is a cursor over rows, and `TDataSource` connects controls to it.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+1. `Open` moves the dataset from `dsInactive` to `dsBrowse`.
+2. `Edit` gives `dsEdit`, `Insert` or `Append` gives `dsInsert`. A new record fires `OnNewRecord` — the place for default values.
+3. `Post` writes the changes. `BeforePost` is the place for validation: an exception there cancels the post. `Cancel` discards the buffer.
+4. Moving fires `BeforeScroll` and `AfterScroll`. If the record was being edited, moving first performs an implicit `Post`.
+
+**Kinds of fields**
+
+| Kind | Where the value comes from |
+|---|---|
+| Dynamic | created on `Open` from the result columns |
+| Persistent | defined in the Fields Editor and stored in the .dfm |
+| Calculated | the `OnCalcFields` handler |
+| Lookup | another dataset by key (`LookupDataSet`) |
+
+**Pitfalls**
+
+- If a dataset has persistent fields, dynamic ones are not created by default: a new query column cannot be found via `FieldByName`.
+- A persistent field's type must match the column type: after the type changes in the database, the dataset will not open.
+- `DisableControls` without `try..finally`: after an exception the grid stays frozen. In a master-detail setup it also stops the detail dataset from refreshing.
+- Do not modify the dataset in `OnCalcFields`: with `AutoCalcFields = True` that is infinite recursion.
+
+**Rule of thumb**
+
+Validation goes in `BeforePost`. Bulk loops go between `DisableControls` and `EnableControls` in `try..finally`. Heavy work does not belong in `AfterScroll`.
+
+**Takeaway:** a dataset is a state machine with events, and most bugs are a wrong state or an extra event.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- The dataset keeps a record buffer the size of the grid's visible part, while the full result is held by the specific library: the ADO client cursor or FireDAC's internal storage.
+- Controls are linked to the dataset through `TDataSource` and `TDataLink` objects. The dataset broadcasts record and state change notifications to them, and `DisableControls` increments a counter that silences this broadcast.
+- A field's `OldValue` and `CurValue` are read through the temporary states `dsOldValue` and `dsCurValue` — conflict resolution is built on them.
+
+**Cached updates**
+
+| Library | How to enable and apply |
+|---|---|
+| FireDAC | `CachedUpdates := True`, then `ApplyUpdates` and `CommitUpdates` |
+| ADO | `LockType := ltBatchOptimistic`, then `UpdateBatch` |
+| `TClientDataSet` | the `Delta` log, `ApplyUpdates` through a provider |
+
+FireDAC's `ApplyUpdates` does not raise an exception; it returns the error count and does not start a transaction itself. So it is wrapped in `StartTransaction` and `Commit`.
+
+**Cost**
+
+- An `AfterScroll` handler with a server query means dozens of queries while scrolling the grid.
+- A lookup field searches the lookup table for every record. For a large lookup table a JOIN on the server is cheaper.
+
+**Trade-offs**
+
+Cached updates reduce locking and round trips, but the data gets stale: between reading and `ApplyUpdates` another user may have changed it. The defense is a WHERE condition on the key or on all fields (`UpdateOptions.UpdateMode` in FireDAC).
+
+**How to check in production**
+
+How many queries a form generates is visible in SQL Server Profiler or Extended Events, and for FireDAC in the FDMonitor trace.
+
+**Takeaway:** `TDataSet` hides queries behind events, and cached updates postpone conflicts rather than remove them.
+
+</A>
+
+<Ex>
+
+```pascal
+procedure TOrdersForm.RecalcTotal;
+var
+  Mark: TBookmark;
+  Total: Currency;
+begin
+  Total := 0;
+  Mark := qryOrders.Bookmark;        // remember the current record
+  qryOrders.DisableControls;         // the grid does not repaint on every row
+  try
+    qryOrders.First;
+    while not qryOrders.Eof do
+    begin
+      Total := Total + qryOrdersAmount.AsCurrency; // persistent field from the .dfm
+      qryOrders.Next;
+    end;
+    qryOrders.Bookmark := Mark;      // go back to the user's record
+  finally
+    qryOrders.EnableControls;        // counter back to zero — controls refresh
+  end;
+  lblTotal.Caption := CurrToStr(Total);
+end;
+
+procedure TOrdersForm.qryOrdersBeforePost(DataSet: TDataSet);
+begin
+  if qryOrdersAmount.AsCurrency <= 0 then
+    raise Exception.Create('Amount must be positive'); // Post cancelled, record stays in dsEdit
+end;
+```
+
+</Ex>
+
+<Next>
+
+- How does `TDataSource` differ from `TDataSet`? — The dataset holds data; `TDataSource` only links it to controls and can disable them via `Enabled`.
+- What happens on `Next` in the `dsEdit` state? — The dataset implicitly calls `Post` if the record was modified, or `Cancel` if not.
+- How does a calculated field differ from a lookup field? — A calculated field is computed by your code in `OnCalcFields`; a lookup field takes its value from another dataset by key.
+- Why `DisableControls` if there is `BlockReadSize`? — `BlockReadSize` also skips control updates but keeps refreshing detail datasets.
+- How do you inspect errors after FireDAC's `ApplyUpdates`? — Check the returned error count, then use `FilterChanges` with `rtHasErrors` and `RowError`, or an `OnReconcileError` handler.
+
+</Next>
+
+<Src>
+
+- [Data.DB.TDataSetState](https://docwiki.embarcadero.com/Libraries/en/Data.DB.TDataSetState)
+- [Data.DB.TDataSet.DisableControls](https://docwiki.embarcadero.com/Libraries/en/Data.DB.TDataSet.DisableControls)
+- [Caching Updates (FireDAC)](https://docwiki.embarcadero.com/RADStudio/en/Caching_Updates_(FireDAC))
+
+</Src>
+
+</Q>
+
+<Q id="delphi.vcl.ado-firedac" level="m">
+
+## ADO, dbExpress and FireDAC: how do they differ and how do you call stored procedures?
+
+<A short l="j">
+
+These are three data access libraries sharing the `TDataSet` model: <T k="ado-dbgo">ADO (dbGo)</T> wraps the Microsoft ADO COM library, <T k="dbexpress">dbExpress</T> offers lightweight unidirectional datasets, and <T k="firedac">FireDAC</T> is the main library for new projects. You call a <T k="stored-procedure">stored procedure</T> with `TADOStoredProc` or `TFDStoredProc`: set the name, fill in the parameters and call `ExecProc`, or `Open` if the procedure returns rows.
+
+</A>
+
+<A short l="m">
+
+ADO talks to SQL Server through COM and an OLE DB provider, dbExpress is deprecated and gives only forward-only read-only datasets, and FireDAC works through Microsoft's ODBC driver and adds fetch control, <T k="array-dml">Array DML</T>, <T k="firedac-macro">macros</T> and tracing. `TFDStoredProc` asks the server for the parameter list by procedure name, and with SQL Server the parameter names start with `@`. The cost is an extra metadata round trip: in hot code the component is prepared once, and parameters can be described manually.
+
+</A>
+
+<A short l="s">
+
+Choosing a library means choosing the layer under `TDataSet`: ADO depends on COM and an OLE DB provider, dbExpress is officially deprecated, and FireDAC gives one API, fetch tuning, connection pooling and tracing. For an application with thousands of procedure calls three things matter: the cost of fetching parameter metadata, the fetch mode (`FetchOptions.Mode`, `RowsetSize`) and batching through Array DML instead of an `ExecProc` loop. Moving from ADO to FireDAC changes behavior in the details — parameter names, field types, cursors — so it is verified with tracing and result comparison, not by swapping components by name.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+| Library | How it works |
+|---|---|
+| ADO (dbGo) | `TADO*` components on top of Microsoft ADO (COM) |
+| dbExpress | lightweight drivers, forward-only datasets; deprecated |
+| FireDAC | `TFD*` components, one API for many DBMSs |
+
+**How to call a procedure**
+
+1. Put a connection (`TADOConnection` or `TFDConnection`) and a procedure component on the form.
+2. Set the name: `ProcedureName` in ADO, `StoredProcName` in FireDAC.
+3. Get the parameter list: `Parameters.Refresh` in ADO, `Prepare` in FireDAC.
+4. Fill in the input parameters and call `ExecProc`, or `Open` if the procedure returns rows.
+5. After execution, read the output parameters.
+
+**Common mistake**
+
+Calling `Open` for a procedure that returns no rows, or `ExecProc` for one that does. FireDAC reports an error in both cases.
+
+**Takeaway:** to a form all three libraries are a `TDataSet`, and a procedure is called through its name, parameters and `ExecProc` or `Open`.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- **ADO** — `TADOConnection` with a connection string to an OLE DB provider; datasets `TADOQuery`, `TADOStoredProc`, `TADOCommand`. The default cursor is client-side (`CursorLocation = clUseClient`): the whole result comes to the client.
+- **dbExpress** — `TSQLConnection`, `TSQLQuery`. Datasets are unidirectional and not editable; a grid needs a `TDataSetProvider` plus `TClientDataSet` pair.
+- **FireDAC** — `TFDConnection` with `DriverID=MSSQL`. It reaches SQL Server through the ODBC Driver for SQL Server; the docs recommend version 18.
+
+**What FireDAC adds**
+
+- **Fetching.** `FetchOptions.Mode`: the default `fmOnDemand` pulls rows in chunks of `RowsetSize` (50), `fmAll` fetches everything on `Open`.
+- **Array DML.** One command with parameter arrays instead of a loop: `Params.ArraySize` and `Execute`.
+- **Macros.** `&Name` or `!Name` substitute into the SQL text what cannot be a parameter, such as a table name.
+- **Monitoring.** `TFDMoniRemoteClientLink` and `MonitorBy=Remote` show every command and its timing in the FDMonitor tool.
+
+**Pitfalls**
+
+- SQL Server parameters in FireDAC are named with `@` (`@CustomerId`). `ResourceOptions.UnifyParams` removes the prefix.
+- FireDAC does not support procedure parameters with default values: fill them in explicitly.
+- A macro is text substitution, so user input in it is SQL injection.
+
+**Rule of thumb**
+
+New code on FireDAC, values only through parameters, bulk writes through Array DML.
+
+**Takeaway:** all three libraries give you a `TDataSet`, but only FireDAC is still developed, and only it controls fetching, batching and tracing.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- `TFDStoredProc.Prepare` with `fiMeta` in `FetchOptions.Items` asks the server for the parameter description — a separate round trip. ADO does the same in `Parameters.Refresh`. So the component is prepared once, and in hot code parameters are described manually.
+- On SQL Server `fmOnDemand` uses a server-side static cursor, while `fmAll` uses a fast forward-only cursor and frees the connection for the next command right away.
+- MARS is enabled by default in the MSSQL driver, and the docs warn about a possible performance hit.
+- Array DML on SQL Server runs natively, and errors are collected for all rows of the array.
+
+**Trade-offs**
+
+| Concern | ADO | FireDAC |
+|---|---|---|
+| Dependencies | COM and an OLE DB provider | the SQL Server ODBC driver |
+| Bulk writes | a loop of calls or a batch on a client cursor | Array DML |
+| Diagnostics | server-side tracing | FDMonitor on the client plus server-side tracing |
+
+**Cost of switching**
+
+Replacing ADO with FireDAC is not renaming components: parameter names and types, field type mapping and cursors all differ. It is a separate task, covered in [Delphi 6 → 12/13 migration](/sobes/en/delphi/migration/).
+
+**How to check in production**
+
+- FDMonitor or `TFDMoniFlatFileClientLink` record the text, parameters and timing of every command.
+- On the server, Extended Events or Query Store show which procedures are called most often and run longest.
+
+**Takeaway:** data access speed is decided by metadata, fetch mode and batching, not by the choice of component.
+
+</A>
+
+<Ex>
+
+```pascal
+// FireDAC: SQL Server parameter names start with @
+FDStoredProc1.StoredProcName := 'dbo.OrderCreate';
+FDStoredProc1.Prepare;                          // asks the server for the parameter list
+FDStoredProc1.ParamByName('@CustomerId').AsInteger := 42;
+FDStoredProc1.ExecProc;                         // a procedure without a result set
+NewOrderId := FDStoredProc1.ParamByName('@OrderId').AsInteger; // OUTPUT parameter
+
+// ADO: the same
+ADOStoredProc1.ProcedureName := 'dbo.OrderCreate';
+ADOStoredProc1.Parameters.Refresh;              // also a metadata round trip
+ADOStoredProc1.Parameters.ParamByName('@CustomerId').Value := 42;
+ADOStoredProc1.ExecProc;
+NewOrderId := ADOStoredProc1.Parameters.ParamByName('@OrderId').Value;
+
+// Array DML: the whole array in one command instead of an ExecSQL loop
+FDQuery1.SQL.Text := 'insert into dbo.ItemTag (ItemId, Tag) values (:ItemId, :Tag)';
+FDQuery1.Params.ArraySize := Length(Tags);
+for I := 0 to High(Tags) do
+begin
+  FDQuery1.Params[0].AsIntegers[I] := Tags[I].ItemId;
+  FDQuery1.Params[1].AsStrings[I] := Tags[I].Name;
+end;
+FDQuery1.Execute(FDQuery1.Params.ArraySize, 0);
+```
+
+</Ex>
+
+<Next>
+
+- Why can't a dbExpress dataset be edited in a grid? — It is unidirectional and does not buffer rows; you need a `TClientDataSet` via `TDataSetProvider`.
+- How do you get a procedure's RETURN value? — A parameter with `ParamType = ptResult`; in SQL Server it is named `@RETURN_VALUE`.
+- How does a macro differ from a parameter? — A parameter sends the value separately from the text; a macro changes the SQL text itself before it is sent.
+- When `fmAll` and when `fmOnDemand`? — `fmAll` for small results and to free the connection immediately; `fmOnDemand` for large lists that are scrolled in parts.
+- The procedure returns several result sets — how do you read them? — `NextRecordSet` in FireDAC, `NextRecordset` in ADO.
+
+</Next>
+
+<Src>
+
+- [Executing Stored Procedures (FireDAC)](https://docwiki.embarcadero.com/RADStudio/en/Executing_Stored_Procedures_(FireDAC))
+- [Array DML (FireDAC)](https://docwiki.embarcadero.com/RADStudio/en/Array_DML_(FireDAC))
+- [Connect to Microsoft SQL Server (FireDAC)](https://docwiki.embarcadero.com/RADStudio/en/Connect_to_Microsoft_SQL_Server_(FireDAC))
+
+</Src>
+
+</Q>
+
+<Q id="delphi.vcl.threads" level="s">
+
+## How do you work with threads in a VCL application without breaking the UI?
+
+<A short l="j">
+
+In the VCL the whole UI runs on the <T k="vcl-main-thread">main thread</T>, which runs the <T k="message-loop">message loop</T>: while it executes a long query, the window does not repaint and is "not responding". Long work moves to a <T k="tthread">`TThread`</T> or a `TTask`, and results are shown through `TThread.Synchronize` or `TThread.Queue`, because controls must not be touched from another thread.
+
+</A>
+
+<A short l="m">
+
+The VCL is not thread-safe, so controls are changed only from the main thread: `Synchronize` runs code there and waits for it to finish, while `Queue` puts code in a queue and returns immediately. For database work each thread has its own connection: a FireDAC connection and its datasets can be used by only one thread at a time. `Application.ProcessMessages` in a long loop is not a substitute for a thread: the window comes alive, but it opens the door to <T k="reentrancy">reentrancy</T> into event handlers.
+
+</A>
+
+<A short l="s">
+
+The main thread only takes input and paints, while database work runs in the background on its own pooled connection, and results come back to the UI through `Queue`. The hard part is lifetime: a form can close before the thread finishes, so you need cooperative cancellation (`Terminate`, `ITask.Cancel`) and waiting for the thread before the form is destroyed. `Synchronize` from a thread the main thread is waiting for on a lock gives a deadlock, and `ProcessMessages` gives reentrancy and access to freed objects. The <T k="parallel-programming-library">PPL</T> makes starting tasks easier but does not change these rules.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+- **The main thread** creates windows and processes their messages: clicks, key presses, repaints.
+- **A background thread** is a `TThread` or a `TTask`. It does long work without stopping the message loop.
+
+**Why**
+
+A 10-second query in a button handler freezes the window for 10 seconds. Windows shows "Not responding", and the user clicks again.
+
+**How to use**
+
+1. Start the work in the background: `TThread.CreateAnonymousThread(...).Start` or `TTask.Run(...)`.
+2. To show the result, pass code to `TThread.Synchronize` or `TThread.Queue` — it runs on the main thread.
+3. While the work is running, disable the start button.
+
+**Common mistake**
+
+Changing `Label1.Caption` or `ProgressBar1.Position` directly from a background thread. Sometimes it "works", and then the application hangs or crashes in a random place.
+
+**Takeaway:** UI on the main thread, long work in the background, results through `Synchronize` or `Queue`.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+| | `Synchronize` | `Queue` |
+|---|---|---|
+| Background thread | waits until the main thread runs the code | continues immediately |
+| Good for | an answer from the UI, such as a dialog choice | progress, logs, notifications |
+
+Called from the main thread, `Queue` runs the code immediately; `ForceQueue` always queues it.
+
+**Ways to start**
+
+- **A `TThread` descendant** with an `Execute` method — full control: `Terminate`, `WaitFor`, and `OnTerminate`, which runs on the main thread.
+- **`TThread.CreateAnonymousThread`** — for one-off work. The thread frees itself (`FreeOnTerminate`), so do not touch the reference after `Start`.
+- **The PPL** (`System.Threading`): `TTask.Run` for a task on the thread pool, `TTask.Future<T>` for a task with a result, `TParallel.For` for a parallel loop.
+
+**Pitfalls**
+
+- **`ProcessMessages`.** While it processes the queue, the user can click the button again or close the form, and the handler carries on with a freed form.
+- **Shared connection.** Two threads on one `TFDConnection` give an AV or the SQL Server error "Connection is busy with results for another command".
+- **ADO in a thread** is COM: `Execute` must start with `CoInitialize(nil)` and end with `CoUninitialize`.
+- **Variable capture.** An anonymous method captures the variable, not its value: a `Queue` inside a loop may show the counter's next value.
+
+**Rule of thumb**
+
+UI only from the main thread, a background thread has its own connection, progress goes through `Queue`.
+
+**Takeaway:** `Synchronize` waits for the main thread, `Queue` does not, and each thread has its own database connection.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- `Synchronize` and `Queue` put the call into a shared queue and wake the main thread. It runs the queue in `CheckSynchronize` when it returns to the message loop, and until then a thread in `Synchronize` is stuck.
+- `TTask` runs on the thread pool. `ITask.Cancel` only marks the task; the code itself calls `TTask.CurrentTask.CheckCanceled`, which raises `EOperationCancelled`.
+- `TTask.WaitForAll` and reading `IFuture<T>.Value` on the main thread block it just like a synchronous query.
+
+**Cost**
+
+- A connection per thread means sessions on the server. The FireDAC pool (`Pooled=True` in a connection definition, `POOL_MaximumItems` defaulting to 50) reuses physical connections. Set `FDManager.Active := True` before starting threads.
+- A `Queue` per row floods the main thread's queue. Update progress every N rows or on a timer.
+
+**Trade-offs**
+
+- **Cancellation.** `Terminated` is checked only between commands. To abort a command that is already running, FireDAC offers `AbortJob` on its connection.
+- **Deadlock.** The main thread waits on a critical section or an event, while the background thread holding it calls `Synchronize` — each waits for the other.
+- **Closing the form.** In `OnCloseQuery` threads are stopped with `Terminate` and `WaitFor`, and pending calls are removed with `TThread.RemoveQueuedEvents`. Otherwise a late `Queue` touches a freed form.
+
+**How to check in production**
+
+- madExcept and EurekaLog can detect a frozen main thread and save the stacks of all threads.
+- Log `TThread.Current.ThreadID` to see which thread the code ran on.
+
+**Takeaway:** a thread alone does not make an app responsive: you need its own connection, cancellation, waiting on close and no UI outside the main thread.
+
+</A>
+
+<Ex>
+
+```pascal
+procedure TStockWorker.Execute;
+var
+  Conn: TFDConnection;
+  Proc: TFDStoredProc;
+  Batch: Integer;
+begin
+  Conn := TFDConnection.Create(nil);         // the thread has its own connection
+  Proc := TFDStoredProc.Create(nil);
+  try
+    Conn.ConnectionDefName := 'Shop_Pooled'; // a definition with Pooled=True
+    Proc.Connection := Conn;
+    Proc.StoredProcName := 'dbo.RecalcStock';
+    Proc.Prepare;
+    for Batch := 1 to 100 do
+    begin
+      if Terminated then Exit;               // cooperative cancellation, finally frees everything
+      Proc.ParamByName('@BatchNo').AsInteger := Batch;
+      Proc.ExecProc;
+      ReportProgress(Batch);
+    end;
+  finally
+    Proc.Free;
+    Conn.Free;
+  end;
+end;
+
+procedure TStockWorker.ReportProgress(Value: Integer);
+begin
+  // Value is a parameter: each call has its own copy, not a shared loop counter
+  TThread.Queue(Self, procedure
+    begin
+      MainForm.ProgressBar1.Position := Value; // runs on the main thread
+    end);
+end;
+```
+
+On close, the form calls `Worker.Terminate` and `Worker.WaitFor`, then `TThread.RemoveQueuedEvents(Worker)` so that no calls referring to it remain in the queue.
+
+</Ex>
+
+<Next>
+
+- How does `Synchronize` differ from `Queue`? — The first waits for the code to run on the main thread; the second queues it and does not wait.
+- Why is `Application.ProcessMessages` dangerous? — Reentrancy: other handlers run in the middle of your code, and the form may get closed.
+- Can one `TFDConnection` be used from two threads? — Only strictly one at a time; in practice, one connection per thread plus a pool.
+- How do you cancel a query that is already running? — `AbortJob` on the FireDAC connection; the `Terminated` flag is checked only between commands.
+- What does ADO need in a background thread? — `CoInitialize` at the start of `Execute` and `CoUninitialize` at the end, because ADO is COM.
+
+</Next>
+
+<Src>
+
+- [System.Classes.TThread.Synchronize](https://docwiki.embarcadero.com/Libraries/en/System.Classes.TThread.Synchronize)
+- [System.Classes.TThread.Queue](https://docwiki.embarcadero.com/Libraries/en/System.Classes.TThread.Queue)
+- [Multithreading (FireDAC)](https://docwiki.embarcadero.com/RADStudio/en/Multithreading_(FireDAC))
+
+</Src>
+
+</Q>

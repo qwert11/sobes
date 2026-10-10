@@ -1,0 +1,149 @@
+dfm-file:
+  term: Form file (.dfm)
+  def: >-
+    A resource describing a form's components and the values of their published properties. It is
+    linked to the unit by the `{$R *.dfm}` directive and read when the form is created; it can be
+    text or binary.
+  q: Delphi dfm form file
+  docs: https://docwiki.embarcadero.com/RADStudio/en/Form_Designer
+component-streaming:
+  term: Component streaming
+  def: >-
+    The VCL mechanism that saves components' published properties to a .dfm and restores them:
+    `TReader` creates objects by class name and assigns properties via RTTI.
+  q: Delphi component streaming TReader dfm
+  docs: https://docwiki.embarcadero.com/Libraries/en/System.Classes.TReader
+component-owner:
+  term: Component owner (Owner)
+  def: >-
+    The component passed to the `Create(AOwner)` constructor. It keeps a list of its components in
+    `Components` and frees them when it is destroyed.
+  q: Delphi TComponent Owner
+  docs: https://docwiki.embarcadero.com/Libraries/en/System.Classes.TComponent.Owner
+parent-control:
+  term: Parent control (Parent)
+  def: >-
+    The windowed control (`TWinControl`) inside which a control is displayed. It positions and
+    paints its child controls and also frees them along with itself.
+  q: Delphi TControl Parent
+  docs: https://docwiki.embarcadero.com/Libraries/en/Vcl.Controls.TControl.Parent
+modal-form:
+  term: Modal form
+  def: >-
+    A window that blocks the application's other windows until it is closed. In the VCL it is opened
+    with `ShowModal`, which returns `ModalResult`.
+  q: Delphi ShowModal ModalResult
+  docs: https://docwiki.embarcadero.com/Libraries/en/Vcl.Forms.TCustomForm.ShowModal
+vcl-frame:
+  term: Frame (TFrame)
+  def: >-
+    A container with components and code that is designed separately and embedded in several forms.
+    Changes to the frame show up everywhere it is used, except properties overridden on a form.
+  q: Delphi TFrame
+  docs: https://docwiki.embarcadero.com/RADStudio/en/Working_with_Frames
+tdataset:
+  term: TDataSet
+  def: >-
+    The abstract base class of Delphi datasets: a cursor over rows, fields, states, events and
+    navigation. ADO, FireDAC, dbExpress datasets and `TClientDataSet` inherit from it.
+  q: Delphi TDataSet
+  docs: https://docwiki.embarcadero.com/Libraries/en/Data.DB.TDataSet
+data-aware-control:
+  term: Data-aware control
+  def: >-
+    A visual component (`TDBGrid`, `TDBEdit`, `TDBLookupComboBox`) that displays and edits the
+    fields of a dataset's current record through a `TDataSource`.
+  q: Delphi data-aware controls TDataSource
+  docs: https://docwiki.embarcadero.com/Libraries/en/Data.DB.TDataSource
+dataset-state:
+  term: Dataset state (State)
+  def: >-
+    The value of the `State` property — `dsBrowse`, `dsEdit`, `dsInsert` and others — that defines
+    what can be done with the current record. `Edit`, `Insert`, `Post` and `Cancel` switch states.
+  q: Delphi TDataSetState
+  docs: https://docwiki.embarcadero.com/Libraries/en/Data.DB.TDataSetState
+persistent-fields:
+  term: Persistent fields
+  def: >-
+    `TField` objects created in the Fields Editor and stored in the .dfm. They give typed access and
+    let you add calculated and lookup fields, but must match the query columns by name and type.
+  q: Delphi persistent fields Fields Editor
+  docs: https://docwiki.embarcadero.com/RADStudio/en/Persistent_Field_Components
+lookup-field:
+  term: Lookup field
+  def: >-
+    A field whose value comes from another dataset by key: the `KeyFields` values are looked up in
+    the `LookupKeyFields` of `LookupDataSet`, and `LookupResultField` is displayed.
+  q: Delphi lookup field LookupDataSet
+  docs: https://docwiki.embarcadero.com/Libraries/en/Data.DB.TField.LookupDataSet
+cached-updates:
+  term: Cached updates
+  def: >-
+    A mode in which record changes accumulate in a client-side log and are sent to the database in
+    one `ApplyUpdates` call instead of on every `Post`.
+  q: FireDAC cached updates ApplyUpdates
+  docs: https://docwiki.embarcadero.com/RADStudio/en/Caching_Updates_(FireDAC)
+ado-dbgo:
+  term: ADO (dbGo)
+  def: >-
+    Delphi's `TADOConnection`, `TADOQuery` and `TADOStoredProc` components on top of the Microsoft
+    ActiveX Data Objects COM library. They reach SQL Server through an OLE DB provider.
+  q: Delphi dbGo ADO components
+  docs: https://docwiki.embarcadero.com/RADStudio/en/Working_with_ADO_Components
+dbexpress:
+  term: dbExpress
+  def: >-
+    A Delphi library of lightweight drivers with unidirectional datasets that neither buffer nor
+    edit rows. Embarcadero has deprecated it and recommends migrating to FireDAC.
+  q: Delphi dbExpress unidirectional dataset
+  docs: https://docwiki.embarcadero.com/RADStudio/en/Using_dbExpress_Datasets
+firedac:
+  term: FireDAC
+  def: >-
+    RAD Studio's universal data access library with `TFDConnection`, `TFDQuery` and `TFDStoredProc`
+    components. It provides fetch control, Array DML, macros, connection pooling and tracing.
+  q: FireDAC overview
+  docs: https://docwiki.embarcadero.com/RADStudio/en/FireDAC
+array-dml:
+  term: Array DML
+  def: >-
+    Executing one parameterized command with arrays of parameter values: the DBMS runs it for each
+    row of the array while the client talks to the server once. In FireDAC — `Params.ArraySize` and
+    `Execute`.
+  q: FireDAC Array DML
+  docs: https://docwiki.embarcadero.com/RADStudio/en/Array_DML_(FireDAC)
+firedac-macro:
+  term: FireDAC macro (substitution variable)
+  def: >-
+    Substitution into the SQL text before it is sent to the server: `&Name` or `!Name`. Used where a
+    parameter does not work, such as a table name; user input never goes into a macro.
+  q: FireDAC macros substitution variables
+  docs: https://docwiki.embarcadero.com/RADStudio/en/Preprocessing_Command_Text_(FireDAC)
+vcl-main-thread:
+  term: VCL main thread
+  def: >-
+    The thread in which windows are created and the application's message loop runs. The VCL is not
+    thread-safe, so controls are changed only from this thread.
+  q: Delphi VCL main thread Synchronize
+  docs: https://docwiki.embarcadero.com/RADStudio/en/Using_the_Main_VCL_Thread
+tthread:
+  term: TThread
+  def: >-
+    Delphi's class for a background thread: code goes in `Execute`, `Terminate` requests a stop, and
+    `Synchronize` and `Queue` pass code to the main thread.
+  q: Delphi TThread
+  docs: https://docwiki.embarcadero.com/Libraries/en/System.Classes.TThread
+parallel-programming-library:
+  term: Parallel Programming Library (PPL)
+  def: >-
+    The `System.Threading` unit: `TTask` and `ITask` tasks, `IFuture<T>` tasks with a result and
+    `TParallel.For` parallel loops, all running on a thread pool.
+  q: Delphi Parallel Programming Library TTask
+  docs: https://docwiki.embarcadero.com/RADStudio/en/Using_the_Parallel_Programming_Library
+reentrancy:
+  term: Reentrancy
+  def: >-
+    A handler being called again while its previous call has not finished yet. In the VCL it happens
+    with `Application.ProcessMessages` inside an event handler.
+  q: Delphi Application.ProcessMessages reentrancy
+  docs: https://docwiki.embarcadero.com/Libraries/en/Vcl.Forms.TApplication.ProcessMessages

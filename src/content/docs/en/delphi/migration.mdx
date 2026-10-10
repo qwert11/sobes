@@ -1,0 +1,881 @@
+---
+title: Migrating Delphi 6 → 12/13
+description: Unicode, moving from ADO to FireDAC, 64-bit, planning a large client migration and gradually moving features to .NET services.
+sidebar:
+  order: 3
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+How to move a large client from Delphi 6 to Delphi 12/13: what Unicode breaks, how FireDAC differs from ADO, what changes in 64-bit, how to plan the migration without stopping the business and how to move features to .NET services step by step. In an interview this checks whether you know where a migration silently corrupts data and how to catch it before users do.
+
+**Before this topic:** [Object Pascal](/sobes/en/delphi/language/), [VCL and data access](/sobes/en/delphi/vcl-data/).
+
+<Q id="delphi.mig.unicode" level="m">
+
+## What broke with the switch to Unicode in Delphi 2009, and how do you fix it?
+
+<A short l="j">
+
+Since Delphi 2009, `string` is <T k="delphi-unicode-string">`UnicodeString`</T> encoded as <T k="utf-16">UTF-16</T>, and `Char` takes 2 bytes instead of 1. So any code that treated a character as a byte breaks: buffers, writing to files and streams, calls into old DLLs.
+
+</A>
+
+<A short l="m">
+
+In Delphi 6, `string` was `AnsiString` — bytes in a Windows <T k="code-page">code page</T>; since Delphi 2009 it is `UnicodeString`: `Char` = `WideChar`, `PChar` = `PWideChar`, and WinAPI calls go to the W versions. Code that used a string as a byte buffer or computed sizes with `SizeOf` still compiles but corrupts data. The fix is an explicit boundary: everything inside the program is `string`, text becomes bytes at the edges through <T k="delphi-tencoding">`TEncoding`</T>, and binary data lives in <T k="delphi-tbytes">`TBytes`</T>.
+
+</A>
+
+<A short l="s">
+
+The danger of Unicode is not compile errors but silent data corruption: the compiler inserts implicit `AnsiString` ↔ `string` conversions on its own and loses characters outside the code page. So you first enable warnings W1057–W1060 and go through each one, then find every boundary — files, streams, DLLs, sockets, hashes, BLOBs — and make the encoding explicit at each. The cost is reviewing every place where a string was really bytes, plus compatibility with what the old version has already written: files, password hashes, exchanges with other systems.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+In Delphi 6, `string` is `AnsiString`: one byte per character, text in the Windows code page, usually 1251 for Cyrillic. Since Delphi 2009, `string` is `UnicodeString`: two bytes per character, UTF-16 encoding.
+
+**What changed**
+
+| Type | Delphi 6 | Delphi 2009+ |
+|---|---|---|
+| `string` | `AnsiString` | `UnicodeString` |
+| `Char` | `AnsiChar`, 1 byte | `WideChar`, 2 bytes |
+| `PChar` | `PAnsiChar` | `PWideChar` |
+
+**How to use**
+
+- Everyday string work — concatenation, `Copy`, `Pos`, `Length` — stays the same.
+- Code where a string is really bytes breaks: writing to a stream, WinAPI buffers, calls into old DLLs.
+
+**Common mistake**
+
+Computing the size of a character buffer with `SizeOf`. It returns bytes, while `Length` returns characters, and under Unicode these are different numbers.
+
+**Takeaway:** since Delphi 2009 a character is 2 bytes, and everything that assumed it was one byte has to be checked.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- `AnsiString` now carries its code page: `type Cp1251String = type AnsiString(1251)`. When you assign between `AnsiString` and `string`, the compiler inserts a conversion.
+- WinAPI functions without a suffix (`GetWindowText`) now map to the W versions. They expect `PWideChar`, and buffer sizes are in characters.
+
+**Before — after — what to do**
+
+| In Delphi 6 | What breaks | What to do |
+|---|---|---|
+| `Stream.Write(S[1], Length(S))` | only half the string is written | bytes from `TEncoding`, `TStreamWriter` |
+| `SizeOf(Buf)` on a `Char` array | size is twice the buffer | `Length(Buf)` |
+| string as a byte buffer | bytes change during conversion | `TBytes` |
+| `PChar` in a third-party DLL import | the DLL gets UTF-16 instead of ANSI | `PAnsiChar` and `AnsiString` |
+| `Ch in ['a'..'z']` | warning W1050 | `CharInSet` |
+
+**Pitfalls**
+
+- **Hashes and signatures.** An MD5 of a string is now computed over different bytes, so old password hashes no longer match. Pin the hash encoding explicitly to whatever it was before.
+- **Pointer math via `PChar`.** The step is now 2 bytes. For byte arithmetic use `PByte`.
+- **Third-party components.** The Delphi 6 version either won't build or builds with the same bugs inside.
+
+**Rule of thumb**
+
+`string` inside the program, an explicit encoding at the boundary, `TBytes` for binary data.
+
+**Takeaway:** find every place where text turns into bytes and make the encoding explicit there.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- `UnicodeString` and `AnsiString` share a header: code page, element size, reference count, length. `UTF8String` is `AnsiString(65001)`, and `RawByteString` accepts any `AnsiString` without re-encoding.
+- The compiler inserts implicit conversions. You don't see them in the code, they cost an allocation and a copy, and narrowing to ANSI replaces characters missing from the code page with `?`.
+- `Length` counts UTF-16 elements. A character outside the Basic Multilingual Plane, such as an emoji, takes two `Char`s — a surrogate pair.
+
+**Cost**
+
+- Reviewing every boundary: files, streams, sockets, WinAPI buffers, DLLs, BLOB fields, hashes.
+- Cyrillic and Latin strings take twice the memory; for a desktop client this is usually unnoticeable.
+
+**Trade-offs**
+
+- **The quick path** — declare problem strings as `AnsiString`. It works, but ANSI spreads further and every VCL call adds a conversion.
+- **The right path** — Unicode inside and an explicit encoding at the boundary. Slower, but no debt is left behind.
+- **Don't change external formats silently.** If a partner expects a file in 1251, write 1251 through `TEncoding.GetEncoding(1251)`.
+
+**How to check in production**
+
+1. Enable warnings W1057–W1060 in the project and go through each one.
+2. Run scenarios with text outside code page 1251: CJK characters, emoji.
+3. Compare files and exports written by the old and new versions byte by byte.
+
+**Takeaway:** a Unicode migration is a hunt for every boundary where text becomes bytes, with an explicit encoding at each one.
+
+</A>
+
+<Ex title="Delphi 6: a string as bytes">
+
+```pascal
+// string = AnsiString: 1 character = 1 byte
+procedure SaveText(Stream: TStream; const S: string);
+begin
+  Stream.WriteBuffer(S[1], Length(S));  // under Unicode writes half the string
+end;
+
+function WinDir: string;
+var
+  Buf: array[0..MAX_PATH] of Char;
+begin
+  // under Unicode SizeOf(Buf) is twice the number of characters in the buffer
+  SetString(Result, Buf, GetWindowsDirectory(Buf, SizeOf(Buf)));
+end;
+
+// the old DLL expects ANSI, but under Unicode PChar = PWideChar
+function LegacyCheck(Code: PChar): Integer; stdcall; external 'legacy.dll';
+```
+
+</Ex>
+
+<Ex title="Delphi 12: an explicit encoding at the boundary">
+
+```pascal
+procedure SaveText(Stream: TStream; const S: string);
+var
+  Bytes: TBytes;
+begin
+  Bytes := TEncoding.UTF8.GetBytes(S);  // the encoding is explicit
+  if Length(Bytes) > 0 then
+    Stream.WriteBuffer(Bytes[0], Length(Bytes));
+end;
+
+function WinDir: string;
+var
+  Buf: array[0..MAX_PATH] of Char;
+begin
+  SetString(Result, Buf, GetWindowsDirectory(Buf, Length(Buf)));  // size in characters
+end;
+
+function LegacyCheck(Code: PAnsiChar): Integer; stdcall; external 'legacy.dll';
+// call: LegacyCheck(PAnsiChar(AnsiString(S)))
+```
+
+`AnsiString(S)` converts the string to the system code page. If the DLL expects a specific encoding, declare an `AnsiString(1251)` type. For an old file format, use `TEncoding.GetEncoding(1251)` instead of `TEncoding.UTF8`; that instance must be freed.
+
+</Ex>
+
+<Next>
+
+- How is `RawByteString` different from `AnsiString`? — It doesn't re-encode on assignment, so it works as a parameter that accepts a string in any code page.
+- How many `Char`s does an emoji take? — Two: a UTF-16 surrogate pair, so `Length` is not the number of visible characters.
+- How does `TStringList.LoadFromFile` read old ANSI files? — By the BOM if there is one; without a BOM, in `DefaultEncoding`, which is the system ANSI code page by default.
+- How do you keep password hashes compatible? — Hash the bytes in the old encoding: `TEncoding.GetEncoding(1251).GetBytes(...)`.
+- What do you do with a third-party component that has no Unicode version? — Upgrade it, replace it, or port it from source; an abandoned component is a permanent risk.
+
+</Next>
+
+<Src>
+
+- [Unicode in RAD Studio](https://docwiki.embarcadero.com/RADStudio/en/Unicode_in_RAD_Studio)
+- [Enabling Applications for Unicode](https://docwiki.embarcadero.com/RADStudio/en/Enabling_Applications_for_Unicode)
+- [Marco Cantù — Delphi and Unicode (white paper)](https://www.embarcadero.com/images/dm/technical-papers/delphi-and-unicode-marco-cantu.pdf)
+
+</Src>
+
+</Q>
+
+<Q id="delphi.mig.firedac" level="m">
+
+## How do you move the data layer from ADO to FireDAC, and what should you check?
+
+<A short l="j">
+
+<T k="firedac">FireDAC</T> is the modern data access library in Delphi, and it replaces the ADO components (<T k="ado-dbgo">dbGo</T>): `TADOQuery` → `TFDQuery`, `TADOStoredProc` → `TFDStoredProc`. The components look alike, but field types, parameters and defaults differ, so after the swap every form and every procedure call has to be checked.
+
+</A>
+
+<A short l="m">
+
+The mechanical part — renaming components in .pas and <T k="dfm-file">.dfm</T> files — is done by the `reFind` utility with the dbGo migration script, but ADO and FireDAC map MS SQL types to fields differently and describe <T k="stored-procedure">stored procedure</T> parameters differently. You close those gaps with <T k="delphi-map-rules">data type mapping rules</T> (`FormatOptions.MapRules`) and connection-wide options, not by editing every form. The cost is silent differences like trimmed spaces or a different date type, and only automated comparison of the old and new versions catches them.
+
+</A>
+
+<A short l="s">
+
+Moving to FireDAC changes semantics, not just names: field types, rules for strings and NULL, transaction mode, how procedure parameters are obtained. That's why it's a separate stage after moving to the new Delphi with the old ADO — so you never change two things at once — and it's configured centrally on `TFDConnection`. Equivalence is proven by automated comparison: for every procedure you compare parameter names, types, directions and sizes, then the results of calls on the same data. The cost is a comparison tool and runs on a copy of the production database, but without them users find the differences.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+FireDAC is the main database access library in modern Delphi. The ADO components (dbGo) still ship with the product, but new features go into FireDAC.
+
+**Component mapping**
+
+| ADO (dbGo) | FireDAC |
+|---|---|
+| `TADOConnection` | `TFDConnection` |
+| `TADOQuery`, `TADODataSet` | `TFDQuery` |
+| `TADOStoredProc` | `TFDStoredProc` |
+| `TADOCommand` | `TFDCommand` |
+| `TADOTable` | `TFDTable` |
+
+**How to use**
+
+1. Replace the components in .pas and .dfm files — by hand or with `reFind`.
+2. Set up `TFDConnection` for MS SQL Server.
+3. Open every form and check its fields and parameters.
+
+**Common mistake**
+
+Assuming everything works once the names are replaced. If a field type changed, the form fails on open with `Type mismatch for field`.
+
+**Takeaway:** components map one to one, but behavior has to be checked on every form.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+| What | ADO | FireDAC |
+|---|---|---|
+| Procedure parameters | `Parameters`, `Direction` | `Params`, `ParamType` |
+| Parameters from metadata | `Parameters.Refresh` | `Prepare` with `fiMeta` in `FetchOptions.Items` |
+| Transactions | `BeginTrans`, `CommitTrans` | `StartTransaction`, `Commit` |
+
+**What to check, step by step**
+
+1. **Field types.** `nvarchar` → `TWideStringField`, `nvarchar(max)` → `TWideMemoField`. <T k="persistent-fields">Persistent fields</T> in the .dfm must match what FireDAC returns; close the gaps with `MapRules`.
+2. **Procedure parameters.** Name, type, direction, size. FireDAC doesn't support default values from the procedure declaration — pass every parameter.
+3. **Strings and NULL.** `StrsTrim` (`True` by default) trims trailing spaces from `CHAR`/`NCHAR`; `StrsEmpty2Null` turns empty strings into NULL.
+4. **Date and time.** With an old ODBC driver, `datetime2`, `date` and `time` come back as strings — you need a current driver.
+5. **Identity columns.** `IDENTITY` is recognized as `TFDAutoIncField`; check that the new value is visible after `Post`.
+6. **Transactions.** By default FireDAC runs in <T k="autocommit">autocommit</T> mode; code with explicit transactions moves to `StartTransaction`/`Commit`/`Rollback`.
+
+**Pitfalls**
+
+- `ResourceOptions.UnifyParams = True` strips `@` from parameter names, and `ParamByName('@Id')` stops finding the parameter.
+- A trigger without `SET NOCOUNT ON` causes `Update command updated [N] instead of [1] record`.
+
+**Rule of thumb**
+
+Close differences with connection settings, not with edits to forms.
+
+**Takeaway:** names change mechanically, while types, parameters and transactions are checked against a list and by comparison.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- FireDAC talks to MS SQL Server through Microsoft's ODBC driver, ADO through an OLE DB provider. Hence different field and parameter types for the same columns.
+- `MapRules` are applied when a command is prepared, and the first matching rule wins. Set them on `TFDConnection` and you change the behavior of every dataset at once.
+- Parameters from metadata cost a server round trip at `Prepare`. Without `fiMeta` you describe them by hand — which is what you do when the metadata is wrong, e.g. for `VARCHAR` without a size.
+
+**Why automated comparison is needed**
+
+1. Capture a description of every call from both versions: procedure, parameters with type, direction and size.
+2. Normalize the differences: `pdInput` ↔ `ptInput`, `pdReturnValue` ↔ `ptResult`, `@` in names.
+3. Diff them and investigate every mismatch.
+4. Run scenarios on a copy of the production database and compare the results and the data written.
+
+Manually checking a thousand forms is a sample; the comparison reruns after every change.
+
+**Cost**
+
+- A comparison tool and a copy of the database for test runs.
+- ODBC Driver 18 encrypts the connection and validates the server certificate by default — infrastructure work before the first run.
+
+**Trade-offs**
+
+- Delphi 12 with ADO first, then FireDAC: slower, but each stage is verified on its own.
+- `MapRules` that keep the old types are faster than recreating persistent fields, but they lock the old types into the new code.
+
+**How to check in production**
+
+Tracing SQL Server (Extended Events) through the same scenario in the old and new versions shows which calls reached the server and with which parameters.
+
+**Takeaway:** FireDAC changes data access semantics, so equivalence is proven by automated comparison, not by manual testing.
+
+</A>
+
+<Ex title="Delphi 6: ADO">
+
+```pascal
+ADOStoredProc1.ProcedureName := 'dbo.GetOrderTotal';
+ADOStoredProc1.Parameters.Refresh;  // parameters from server metadata
+ADOStoredProc1.Parameters.ParamByName('@OrderId').Value := OrderId;
+ADOStoredProc1.ExecProc;
+Total := ADOStoredProc1.Parameters.ParamByName('@Total').Value;
+```
+
+</Ex>
+
+<Ex title="Delphi 12: FireDAC">
+
+```pascal
+// Connection-wide settings: datetime as TDateTimeField, don't trim CHAR spaces
+FDConnection1.FormatOptions.OwnMapRules := True;
+with FDConnection1.FormatOptions.MapRules.Add do
+begin
+  SourceDataType := dtDateTimeStamp;
+  TargetDataType := dtDateTime;
+end;
+FDConnection1.FormatOptions.StrsTrim := False;
+
+FDStoredProc1.StoredProcName := 'dbo.GetOrderTotal';
+FDStoredProc1.Prepare;  // with fiMeta in FetchOptions.Items, Params are filled automatically
+FDStoredProc1.ParamByName('@OrderId').AsInteger := OrderId;
+FDStoredProc1.ExecProc;
+Total := FDStoredProc1.ParamByName('@Total').AsCurrency;
+```
+
+The `dtDateTimeStamp` → `dtDateTime` rule and `StrsTrim := False` come from the official BDE migration example. Whether you need them is decided by comparing field types and data between the old and new versions.
+
+</Ex>
+
+<Next>
+
+- What does `reFind` do? — Replaces component and property names in .pas and .dfm files using a regex script; for dbGo there is a script and the `FireDAC.ADO.Migrate.pas` unit.
+- Why did a `datetime2` column come back as a string? — An old SQL Server ODBC driver doesn't know SQL Server 2008 types; install a current driver.
+- What happens to `ParamByName('@Id')` after `UnifyParams := True`? — The parameter isn't found: the `@` prefix is stripped from names.
+- Why does a procedure fail with `Data too large for variable`? — The parameter is declared as `VARCHAR` without a size; drop `fiMeta` and set `Size` by hand.
+- Do you need a particular Delphi edition? — Per the edition matrix, FireDAC client/server drivers, MS SQL included, come with Enterprise and up or as a separate pack for Professional.
+
+</Next>
+
+<Src>
+
+- [Migrating dbGo Applications to FireDAC](https://docwiki.embarcadero.com/RADStudio/en/Migrating_dbGo_Applications_to_FireDac)
+- [Data Type Mapping (FireDAC)](https://docwiki.embarcadero.com/RADStudio/en/Data_Type_Mapping_(FireDAC))
+- [MS SQL Server Questions (FireDAC)](https://docwiki.embarcadero.com/RADStudio/en/MS_SQL_Server_Questions_(FireDAC))
+
+</Src>
+
+</Q>
+
+<Q id="delphi.mig.64bit" level="m">
+
+## What do you need to watch for when moving to 64-bit?
+
+<A short l="j">
+
+In a 64-bit program a pointer takes 8 bytes, while `Integer` stays 4 bytes. So code that stored pointers or objects in an `Integer` breaks; for such values there is <T k="delphi-native-int">`NativeInt`</T>, which is always the size of a pointer.
+
+</A>
+
+<A short l="m">
+
+Win64 grows pointers, `NativeInt` and handles to 8 bytes but keeps `Integer`, `Cardinal` and `LongInt` at 4, so casting a pointer to `Integer` now truncates it. The usual breakages are `Tag := Integer(Obj)`, Windows message parameters (`WPARAM`, `LPARAM`), inline assembler mixed into Pascal code, and third-party DLLs and <T k="inproc-com">in-process COM servers</T>, which must be 64-bit. The cost is reviewing low-level code and finding 64-bit versions of every dependency.
+
+</A>
+
+<A short l="s">
+
+Moving to Win64 is first a question of dependencies, not code: a 32-bit DLL, OLE DB provider or COM component can't be loaded into a 64-bit process. The code is fixed by pattern — `NativeInt`, `LPARAM`, `SetWindowLongPtr` — but a dependency may have no 64-bit version at all. So you first decide whether the client needs 64-bit at all: if a 32-bit process gets enough with 4 GB and the <T k="large-address-aware">`LARGEADDRESSAWARE`</T> flag, it's better to stay on Win32 and spend the time on Unicode and FireDAC.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+A 64-bit program can address more memory, and every pointer in it takes 8 bytes instead of 4.
+
+**What changes**
+
+| Type | Win32 | Win64 |
+|---|---|---|
+| `Pointer`, object references | 4 bytes | 8 bytes |
+| `NativeInt`, `NativeUInt` | 4 bytes | 8 bytes |
+| `Integer`, `Cardinal`, `LongInt` | 4 bytes | 4 bytes |
+
+**How to use**
+
+- A pointer or object stored as an integer — only `NativeInt`: `Tag := NativeInt(Obj)`.
+- The size of a pointer is `SizeOf(Pointer)`, not the number 4.
+- Add the Windows 64-bit platform in the Project Manager; Win32 and Win64 build into separate EXEs.
+
+**Common mistake**
+
+`Integer(Obj)` still compiles on Win64 but cuts off the upper 4 bytes of the address. The bug only shows up when an address lands above 4 GB, so tests often miss it.
+
+**Takeaway:** on Win64 a pointer is 8 bytes and `Integer` is still 4; anywhere one was stored in the other has to be fixed.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- Pointers, `NativeInt`, `THandle`, `HWND`, `WPARAM`, `LPARAM`, `LRESULT` are 8 bytes; `Integer` and `LongInt` on Windows are 4 bytes.
+- On Win64 `Extended` is an alias for `Double`: 8 bytes instead of 10. High-precision calculations may differ in the last digit, and binary files containing `Extended` become incompatible.
+- You can't mix assembler and Pascal in one function: a function is either entirely `asm` or entirely Pascal.
+
+**Before — after**
+
+| Before | After |
+|---|---|
+| `Tag := Integer(Obj)` | `Tag := NativeInt(Obj)` |
+| `SendMessage(..., Integer(@Buf))` | `LPARAM(@Buf)` |
+| `SetWindowLong(..., GWL_WNDPROC, ...)` | `SetWindowLongPtr(..., GWLP_WNDPROC, ...)` |
+| `Message.Result := Integer(Self)` | `LRESULT(Self)` |
+| `Count * 4` for an array of pointers | `Count * SizeOf(Pointer)` |
+
+**Pitfalls**
+
+- **Dependencies.** DLLs, `.obj` files and in-process COM servers must be 64-bit. An out-of-process COM server (an EXE) works with either bitness.
+- **Components.** Design-time packages must match the IDE's bitness, and you need 64-bit versions to build.
+- **Database driver.** FireDAC needs the 64-bit SQL Server ODBC driver; ADO needs a 64-bit OLE DB provider.
+
+**Rule of thumb**
+
+Inventory dependencies first, then fix the code.
+
+**Takeaway:** Win64 code is fixed by pattern, but a dependency without a 64-bit version can block the move entirely.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- A 32-bit process on 64-bit Windows runs under <T k="wow64">WOW64</T> and gets 2 GB of address space, or up to 4 GB with the `IMAGE_FILE_LARGE_ADDRESS_AWARE` flag. In Delphi the flag is set with the `{$SetPEFlags IMAGE_FILE_LARGE_ADDRESS_AWARE}` directive.
+- A process has one bitness: a 32-bit DLL can't be loaded into a 64-bit process, and vice versa.
+- Runtime function patching and IA-32 assembler have to be rewritten for x64 by hand.
+
+**When 64-bit isn't needed**
+
+- The client has enough memory: forms, grids and reports fit into a few hundred megabytes.
+- A key dependency has no 64-bit version: a report generator, a hardware driver, a COM library.
+
+You need 64-bit when the client runs out of memory or when a dependency ships only as 64-bit.
+
+**Trade-offs**
+
+- Two platforms double the builds and the testing. If the move is needed, make it a separate stage after Unicode and FireDAC.
+- A 32-bit dependency with no replacement is moved into a separate helper process and called via inter-process communication.
+
+**How to check in production**
+
+- A test machine with the `AllocationPreference` = `0x100000` registry setting: Windows allocates memory top-down, so truncated pointers crash immediately rather than after 4 GB.
+- Comparing Win32 and Win64 calculation results on the same data catches differences caused by `Extended`.
+
+**Takeaway:** decide on 64-bit based on dependencies and memory, not fashion; if it brings the client nothing, postpone it.
+
+</A>
+
+<Ex title="Delphi 6, Win32: a pointer in an Integer">
+
+```pascal
+ListView1.Tag := Integer(Customer);           // on Win64 the address gets truncated
+SendMessage(Edit1.Handle, WM_SETTEXT, 0, Integer(PChar(Title)));
+OldProc := Pointer(SetWindowLong(Handle, GWL_WNDPROC, Integer(@NewWndProc)));
+P := Pointer(Integer(P) + 10);                // arithmetic through Integer
+Move(Src^, Dst^, Count * 4);                  // 4 is the "pointer size"
+```
+
+</Ex>
+
+<Ex title="Delphi 12: Win32 and Win64">
+
+```pascal
+ListView1.Tag := NativeInt(Customer);         // Tag is of type NativeInt
+SendMessage(Edit1.Handle, WM_SETTEXT, 0, LPARAM(PChar(Title)));
+OldProc := Pointer(SetWindowLongPtr(Handle, GWLP_WNDPROC, LONG_PTR(@NewWndProc)));
+P := PByte(P) + 10;                           // PByte supports pointer arithmetic
+Move(Src^, Dst^, Count * SizeOf(Pointer));
+```
+
+</Ex>
+
+<Next>
+
+- How many bytes is `Integer` on Win64? — 4; `NativeInt`, pointers and handles are 8.
+- Why did calculation results differ between Win32 and Win64? — On Win64 `Extended` is `Double`, so precision is lower.
+- Can a 64-bit client call a 32-bit DLL? — Not in its own process; only through a separate 32-bit helper process.
+- What does `LARGEADDRESSAWARE` give you? — A 32-bit process on 64-bit Windows can use up to 4 GB instead of 2.
+- Does assembler work on Win64? — Only functions written entirely in `asm`; mixing with Pascal isn't allowed, and the code has to be rewritten for x64.
+
+</Next>
+
+<Src>
+
+- [Converting 32-bit Delphi Applications to 64-bit Windows](https://docwiki.embarcadero.com/RADStudio/en/Converting_32-bit_Delphi_Applications_to_64-bit_Windows)
+- [64-bit Windows Application Development](https://docwiki.embarcadero.com/RADStudio/en/64-bit_Windows_Application_Development)
+- [Rules for Using Pointers — Win32 apps](https://learn.microsoft.com/windows/win32/winprog64/rules-for-using-pointers)
+
+</Src>
+
+</Q>
+
+<Q id="delphi.mig.strategy" level="s">
+
+## How do you plan the migration of a large Delphi client without stopping the business?
+
+<A short l="j">
+
+A large client is migrated in parts: first you list the units, forms and third-party components, then move and verify them stage by stage. The old version keeps running until the new one passes testing with real users.
+
+</A>
+
+<A short l="m">
+
+The plan starts with an inventory: units and forms, third-party components and their replacements, procedure calls, external dependencies. Then come stages, each changing one thing — compiler and Unicode, then ADO to FireDAC, then the rest — and after each, an automated comparison with the old version and <T k="regression-testing">regression testing</T>. The cost is a period when changes have to go into both versions.
+
+</A>
+
+<A short l="s">
+
+A migration is a project with managed risk: it runs in stages, each of which can be released and rolled back. The foundation is an inventory with an assessment of every component, the rule "one kind of change per stage", and automated comparison of versions: .dfm files, field mapping, procedure calls with parameters. Release goes through a <T k="parallel-run">parallel run</T>: both versions work against one database, a pilot group moves first, and the old version stays as the rollback path. The main trade-offs are a <T k="code-freeze">feature freeze</T> versus two branches, and where to stop improving: the goal is the same functionality on a new platform, not a rewrite.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+Migrating a client means moving the same application to a new Delphi version while keeping its behavior. Users should get the same forms, calculations and reports.
+
+**How to use: stages**
+
+1. List the units, forms and third-party components.
+2. Find replacements for components that don't exist for the new Delphi.
+3. Build the project in the new version and fix the compile errors.
+4. Check forms and reports against the old version.
+5. Give the new version to a small group of users and keep the old one for rollback.
+
+**Common mistake**
+
+Improving code and UI along the way. Then, when something differs, you can't tell whether the migration or the improvement caused it.
+
+**Takeaway:** migrate in stages, compare with the old version and keep the ability to roll back.
+
+</A>
+
+<A l="m">
+
+**Inventory**
+
+| What | What to find out |
+|---|---|
+| Units and forms | how many, who owns them, how often they're used |
+| Third-party components | is there a version for Delphi 12/13 and source code; what replaces it (RX Library — JVCL or standard VCL) |
+| Data access | every query and procedure call with its parameters |
+| External dependencies | DLLs, COM, reports, hardware |
+
+**When to choose what**
+
+- **Feature freeze.** Simplest, but the business waits. Fits when the migration takes weeks.
+- **Two branches.** New features go into the old branch and are regularly ported to the new one. You need frequent merges and automated drift checks.
+- **One codebase for both compilers.** Differences are handled with <T k="delphi-conditional-compilation">conditional compilation</T> (`{$IFDEF UNICODE}`). Branches never drift, but the code fills up with conditions.
+
+**Pitfalls**
+
+- The new IDE adds properties like `ExplicitWidth` to .dfm files on save, so forms are compared after normalization.
+- Binary .dfm files are first converted to text with the `convert.exe` utility that ships with Delphi.
+- Forms on high-DPI monitors scale differently than in Delphi 6.
+
+**Rule of thumb**
+
+One stage, one kind of change — and every stage has an automated check and a rollback.
+
+**Takeaway:** the inventory sets the scope, stages limit the risk, and comparison with the old version proves nothing was lost.
+
+</A>
+
+<A l="s">
+
+**Stages**
+
+1. Inventory and assessment: components, procedures, dependencies, business-critical forms.
+2. Build in Delphi 12/13 with the old ADO: Unicode, component replacement, no behavior changes.
+3. Move from ADO to FireDAC under automated comparison.
+4. If needed — 64-bit, VCL styles, high DPI.
+
+**Automated checks**
+
+- **Forms.** Compare .dfm files: component set, properties, event handlers.
+- **Mapping.** Persistent fields and their types, `DataField` and `DataSource` on controls.
+- **Procedure calls.** Name and parameters with type, direction and size, then results on a copy of the production database.
+- **Behavior.** <T k="characterization-test">Characterization tests</T> for calculations: inputs from production, the old version's output as the expected result.
+
+**Cost**
+
+- Two branches, or one codebase with conditions, for the whole migration.
+- Comparison tools, a copy of the production database and users' time for acceptance.
+
+**Trade-offs**
+
+- **Big bang versus staged.** One big release is easier to plan, but a rollback means the whole version. Staged takes longer, but every step is small.
+- **Parallel run.** Both versions work against one database, the pilot group on the new one. Schema changes must be backward compatible, or rollback becomes impossible.
+
+**How to check in production: readiness and rollback**
+
+- The pilot group has worked through a full business cycle, including month-end close.
+- No new errors in the log, and support tickets haven't gone up.
+- Rollback means starting the old EXE; it works as long as the schema is compatible with both versions.
+
+**Takeaway:** migrating without stopping the business means small reversible stages, automated comparison with the old version and readiness criteria set in advance.
+
+</A>
+
+<Ex title="Parameter snapshot: ADO (Delphi 6)">
+
+```pascal
+uses SysUtils, TypInfo, DB, ADODB;
+
+// Describe procedure parameters to compare with the new version's snapshot
+function DescribeParams(Proc: TADOStoredProc): string;
+var
+  I: Integer;
+  P: TParameter;
+begin
+  Result := Proc.ProcedureName;
+  for I := 0 to Proc.Parameters.Count - 1 do
+  begin
+    P := Proc.Parameters[I];
+    Result := Result + sLineBreak + Format('%s %s %s %d', [P.Name,
+      GetEnumName(TypeInfo(TParameterDirection), Ord(P.Direction)),
+      GetEnumName(TypeInfo(TFieldType), Ord(P.DataType)), P.Size]);
+  end;
+end;
+```
+
+</Ex>
+
+<Ex title="Parameter snapshot: FireDAC (Delphi 12)">
+
+```pascal
+uses System.SysUtils, System.TypInfo, Data.DB, FireDAC.Comp.Client, FireDAC.Stan.Param;
+
+function DescribeParams(Proc: TFDStoredProc): string;
+var
+  I: Integer;
+  P: TFDParam;
+begin
+  Result := Proc.StoredProcName;
+  for I := 0 to Proc.Params.Count - 1 do
+  begin
+    P := Proc.Params[I];
+    Result := Result + sLineBreak + Format('%s %s %s %d', [P.Name,
+      GetEnumName(TypeInfo(TParamType), Ord(P.ParamType)),
+      GetEnumName(TypeInfo(TFieldType), Ord(P.DataType)), P.Size]);
+  end;
+end;
+```
+
+Snapshots from both versions are normalized (`pdInput` ↔ `ptInput`, `pdReturnValue` ↔ `ptResult`) and compared with a plain diff. Every mismatched line is something to investigate before release.
+
+</Ex>
+
+<Next>
+
+- Why not move to FireDAC together with Delphi 12? — Two sources of differences at once: you can't tell what broke the behavior.
+- What replaces RX Library? — Its components were merged into JVCL; some are covered by standard VCL components.
+- How do you know the new version is ready? — The pilot completed a full business cycle, the comparison shows no differences, and errors and tickets are no higher than with the old one.
+- How do you roll back? — Bring back the old EXE; that's why schema changes during the migration must be backward compatible.
+- What happens to features during the migration? — Freeze them, run two branches, or keep one codebase with conditional compilation; the choice depends on how long the migration takes.
+
+</Next>
+
+<Src>
+
+- [Importing or Migrating Existing Projects into RAD Studio](https://docwiki.embarcadero.com/RADStudio/en/Importing_or_Migrating_Existing_Projects_into_RAD_Studio)
+- [Migrating to FireDAC](https://docwiki.embarcadero.com/RADStudio/en/Migrating_to_FireDAC)
+- [Strangler Fig pattern](https://learn.microsoft.com/azure/architecture/patterns/strangler-fig)
+
+</Src>
+
+</Q>
+
+<Q id="delphi.mig.to-dotnet" level="s">
+
+## How do you gradually move features from a Delphi client to .NET services?
+
+<A short l="j">
+
+Features move one at a time: a .NET service implements, say, a calculation or a lookup, and the Delphi client calls the service over HTTP instead of running SQL directly. The old code is deleted only once the new path is verified, so the client keeps working throughout.
+
+</A>
+
+<A short l="m">
+
+This is the <T k="strangler-fig">strangler fig</T> for a fat client: the service takes over features one by one, and the client calls it over <T k="rest">REST</T> with <T k="delphi-thttpclient">`THTTPClient`</T> or `TRESTClient`. The transitional state is a <T k="shared-database">shared database</T>: the service and the client work with the same tables, but each table has a single writing owner. The main risk is duplicated logic: one rule in a procedure, the client and the service drifts apart on the very first change.
+
+</A>
+
+<A short l="s">
+
+First decide where the boundary is: logic in stored procedures can stay in the database and the service simply calls it; logic from form event handlers moves into the service; the UI stays in Delphi. You move vertical slices — a whole feature — behind an <T k="anti-corruption-layer">anti-corruption layer</T> and a <T k="feature-toggle">feature flag</T>, and for calculations you compare results in parallel. The cost is a network hop on every call, authenticating client users in the service, and a period when a rule lives in two places. So every feature has one source of truth and a removal date for the old path.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+Gradual migration: the new system grows next to the old one and takes over features one by one. The pattern is covered in [Architecture styles](/sobes/en/arch/styles/).
+
+**How to use**
+
+1. Pick a small feature: a lookup, a calculation, a report.
+2. Implement it in a .NET service with an HTTP API.
+3. In the Delphi client, replace the SQL query with a service call.
+4. Compare the results of the old and new paths.
+5. Delete the old code from the client.
+
+**Common mistake**
+
+Copying a rule into the service and keeping it in the client "just in case". A month later a fix lands in only one place, and the answers diverge.
+
+**Takeaway:** move one feature at a time, and every rule must end up with a single owner.
+
+</A>
+
+<A l="m">
+
+**Where to draw the boundary**
+
+| Where the logic is now | What to do |
+|---|---|
+| Stored procedures | keep them in the database, the service calls them; rewrite later |
+| Form event handlers in the client | move into the service — the main win |
+| UI and data entry | stay in Delphi |
+
+**How it works**
+
+- The client calls the service through `THTTPClient` (`System.Net.HttpClient`) or the `TRESTClient`, `TRESTRequest`, `TRESTResponse` components from the REST Client Library.
+- A shared database is a transitional state: the service and the client work with the same tables, but only one of them may write to a given table.
+- Read-only features are easier to move: they don't change data, and results are easy to compare.
+
+**Pitfalls**
+
+- **Duplicated logic.** A rule lives in two places; the old path needs a removal date.
+- **A synchronous call on the UI thread.** The form freezes while the service responds. You need timeouts and a background call (`TTask.Run`) that returns to the UI through `TThread.Queue`.
+- **Service unavailable.** The client must say so clearly instead of crashing with an exception.
+
+**Rule of thumb**
+
+One rule, one owner; one table, one writer.
+
+**Takeaway:** the service takes over features one by one, the client calls it over HTTP, and the shared database lasts only until data ownership moves.
+
+</A>
+
+<A l="s">
+
+**Boundary trade-offs**
+
+- Logic in procedures is already shared by every client. Move it into the service for testability, scaling or a different data source; otherwise the service just calls it.
+- The service gets its own database once nothing but the service writes to those tables. Until then it's a shared database behind an ACL, so the old schema doesn't leak into the new model.
+
+**Under the hood of a call**
+
+- Authenticating the client's user in the service is a separate task: a Windows domain account or a token.
+- Old client versions live for a long time, so the API contract changes only compatibly or through a new version.
+
+**Cost**
+
+- Network latency and failures where there used to be a local SQL query.
+- Two implementations and their comparison during the transition.
+
+**How to check in production**
+
+- **Parallel run for calculations.** The client computes the old way and also calls the service; mismatches are logged, and the user sees the old result.
+- **Service metrics.** Latency and errors per endpoint, and the client version in the `User-Agent` header — so you know when the old path can be removed.
+- **Rollback.** A flag per branch or user group restores the old path without a new release.
+
+**Takeaway:** moving to .NET is a strangler fig with an explicit boundary, one owner for each rule and table, and result comparison before the old path is removed.
+
+</A>
+
+<Ex title="Before: the client computes it">
+
+```pascal
+// The client computes stock with direct SQL against the shared database
+function GetStock(const Sku: string): Integer;
+begin
+  StockQuery.SQL.Text := 'SELECT SUM(Qty) FROM StockMoves WHERE Sku = :Sku';
+  StockQuery.Parameters.ParamByName('Sku').Value := Sku;
+  StockQuery.Open;
+  try
+    Result := StockQuery.Fields[0].AsInteger;
+  finally
+    StockQuery.Close;
+  end;
+end;
+```
+
+</Ex>
+
+<Ex title="After: the client calls a .NET service">
+
+```pascal
+uses System.SysUtils, System.JSON, System.NetEncoding, System.Net.HttpClient;
+
+function GetStock(const Sku: string): Integer;
+var
+  Client: THTTPClient;
+  Resp: IHTTPResponse;
+  Json: TJSONValue;
+begin
+  Client := THTTPClient.Create;
+  try
+    Client.ConnectionTimeout := 3000;  // ms; the default is one minute
+    Client.ResponseTimeout := 5000;
+    Resp := Client.Get('https://stock.internal/api/stock?sku=' + TNetEncoding.URL.Encode(Sku));
+    if Resp.StatusCode <> 200 then
+      raise Exception.CreateFmt('Stock service returned HTTP %d', [Resp.StatusCode]);
+    Json := TJSONObject.ParseJSONValue(Resp.ContentAsString(TEncoding.UTF8));
+    if Json = nil then
+      raise Exception.Create('Stock service returned invalid JSON');
+    try
+      Result := Json.GetValue<Integer>('quantity');
+    finally
+      Json.Free;
+    end;
+  finally
+    Client.Free;
+  end;
+end;
+```
+
+The function signature didn't change, so the forms aren't touched. Switching between the old and new implementations fits neatly behind a flag.
+
+</Ex>
+
+<Next>
+
+- Where should business logic live after the migration? — In the service; database procedures stay where they give every client a shared entry point, until they're moved.
+- Can the service write to tables the client writes to? — As a transitional state, only with one writer per table; otherwise you get conflicts and duplicated logic.
+- How do you keep the form responsive during an HTTP call? — Call in `TTask.Run`, update the UI through `TThread.Queue`, and set timeouts.
+- `THTTPClient` or `TRESTClient`? — `THTTPClient` is lower-level with no components on the form; `TRESTClient` is more convenient for JSON and can be configured in the designer.
+- When do you delete the old path in the client? — When old client versions are gone from the metrics and the parallel run shows no mismatches for a full business cycle.
+
+</Next>
+
+<Src>
+
+- [Strangler Fig pattern](https://learn.microsoft.com/azure/architecture/patterns/strangler-fig)
+- [Using an HTTP Client](https://docwiki.embarcadero.com/RADStudio/en/Using_an_HTTP_Client)
+- [REST Client Library](https://docwiki.embarcadero.com/RADStudio/en/REST_Client_Library)
+
+</Src>
+
+</Q>

@@ -1,0 +1,135 @@
+delphi-unit:
+  term: Модуль Delphi (unit)
+  def: >-
+    Файл `.pas` — одиниця компіляції Delphi. Секція `interface` оголошує те, що бачать інші модулі, `implementation` містить код, а необов'язкові `initialization` і `finalization` виконуються під час запуску й завершення програми.
+  q: Delphi unit interface implementation
+  docs: https://docwiki.embarcadero.com/RADStudio/Florence/en/Programs_and_Units_(Delphi)
+delphi-property:
+  term: Властивість Delphi (property)
+  def: >-
+    Член класу, який виглядає як поле, але читається й записується через специфікатори `read` і `write`: напряму з поля або через метод. Без `write` властивість доступна лише для читання.
+  q: Delphi property read write
+  docs: https://docwiki.embarcadero.com/RADStudio/Florence/en/Properties_(Delphi)
+delphi-visibility:
+  term: Видимість членів класу в Delphi
+  def: >-
+    Розділи `private`, `protected`, `public` і `published`. `private` і `protected` у Delphi видно всьому модулю, тому для доступу лише з класу є `strict private` і `strict protected`, а `published` додатково генерує RTTI.
+  q: Delphi strict private published visibility
+  docs: https://docwiki.embarcadero.com/RADStudio/Florence/en/Classes_and_Objects_(Delphi)
+delphi-vmt:
+  term: Таблиця віртуальних методів Delphi (VMT)
+  def: >-
+    Структура класу зі слотами адрес усіх його віртуальних методів, зокрема успадкованих. Кожен об'єкт починається з вказівника на VMT свого класу, і виклик `virtual`-методу бере адресу з потрібного слота.
+  q: Delphi VMT virtual method table
+  docs: https://docwiki.embarcadero.com/RADStudio/Florence/en/Methods_(Delphi)
+  wiki: Таблиця віртуальних методів
+delphi-dynamic-method:
+  term: Динамічний метод (dynamic)
+  def: >-
+    Перевизначуваний метод, який викликається через таблицю DMT: вона зберігає лише методи, оголошені або перевизначені в самому класі. За змістом рівний `virtual`, але заощаджує пам'ять ціною повільнішого виклику.
+  q: Delphi virtual vs dynamic methods
+  docs: https://docwiki.embarcadero.com/RADStudio/Florence/en/Methods_(Delphi)
+delphi-reintroduce:
+  term: reintroduce
+  def: >-
+    Директива методу, яка явно приховує віртуальний метод предка з тим самим ім'ям і придушує попередження W1010. Аналог модифікатора `new` у C#.
+  q: Delphi reintroduce directive
+  docs: https://docwiki.embarcadero.com/RADStudio/Florence/en/Methods_(Delphi)
+delphi-reference-counting:
+  term: Підрахунок посилань у Delphi (reference counting)
+  def: >-
+    Модель часу життя, у якій значення має лічильник посилань: компілятор збільшує його під час присвоєння й зменшує, коли посилання зникає, а на нулі пам'ять звільняється. У Delphi так живуть рядки, динамічні масиви, інтерфейси й анонімні методи.
+  q: Delphi reference counting strings interfaces
+  docs: https://docwiki.embarcadero.com/RADStudio/Florence/en/Memory_Management
+  wiki: Підрахунок посилань
+delphi-owner:
+  term: Власник компонента (Owner)
+  def: >-
+    Компонент, переданий у конструктор `TComponent.Create(AOwner)`. Власник зберігає список своїх компонентів і звільняє їх у своєму деструкторі, тому кнопки форми звільняються разом із формою.
+  q: Delphi TComponent Owner free
+  docs: https://docwiki.embarcadero.com/Libraries/Florence/en/System.Classes.TComponent.Owner
+delphi-managed-type:
+  term: Керований тип Delphi (managed type)
+  def: >-
+    Тип, часом життя якого керує компілятор: довгі рядки, динамічні масиви, інтерфейси, варіанти, а також записи з полями таких типів. Компілятор сам ініціалізує їх, рахує посилання й звільняє через неявний `try..finally`.
+  q: Delphi managed types strings dynamic arrays
+  docs: https://docwiki.embarcadero.com/RADStudio/Florence/en/Memory_Management
+delphi-arc:
+  term: ARC у Delphi (Automatic Reference Counting)
+  def: >-
+    Модель, у якій об'єкти, як і рядки, звільнялися за лічильником посилань. Її використовували мобільні компілятори Delphi та, із 10.2 Tokyo, компілятор Linux; у 10.4 Sydney для об'єктів її прибрали на всіх платформах.
+  q: Delphi ARC mobile compilers 10.4 unified memory management
+  docs: https://docwiki.embarcadero.com/RADStudio/Sydney/en/What%27s_New
+delphi-fastmm:
+  term: FastMM
+  def: >-
+    Менеджер пам'яті Delphi для Win32 і Win64, вбудований за замовчуванням із Delphi 2006. Уміє повідомляти про витоки під час виходу (`ReportMemoryLeaksOnShutdown`), а повна версія в налагоджувальному режимі ловить звернення до звільненої пам'яті.
+  q: FastMM Delphi FullDebugMode
+  docs: https://docwiki.embarcadero.com/RADStudio/Florence/en/Configuring_the_Memory_Manager
+delphi-iinterface:
+  term: IInterface
+  def: >-
+    Базовий інтерфейс Delphi, від якого успадковуються всі інші; на Windows збігається з COM-інтерфейсом `IUnknown`. Оголошує `QueryInterface` для запиту інших інтерфейсів і `_AddRef` та `_Release` для підрахунку посилань.
+  q: Delphi IInterface QueryInterface _AddRef _Release
+  docs: https://docwiki.embarcadero.com/RADStudio/Florence/en/Object_Interfaces_(Delphi)
+delphi-tinterfacedobject:
+  term: TInterfacedObject
+  def: >-
+    Базовий клас RTL з потокобезпечною реалізацією `IInterface`: рахує інтерфейсні посилання й знищує об'єкт, коли лічильник доходить до нуля. Нащадків тримають лише через інтерфейсні змінні й не звільняють через `Free`.
+  q: Delphi TInterfacedObject reference counting
+  docs: https://docwiki.embarcadero.com/Libraries/Florence/en/System.TInterfacedObject
+delphi-interface-guid:
+  term: GUID інтерфейсу
+  def: >-
+    16-байтний ідентифікатор в оголошенні інтерфейсу: `['{...}']`. Потрібен для `QueryInterface`, оператора `as` і функції `Supports`; без нього компілятор видає помилку E2232. У редакторі генерується поєднанням Ctrl+Shift+G.
+  q: Delphi interface GUID Supports
+  docs: https://docwiki.embarcadero.com/RADStudio/Florence/en/Object_Interfaces_(Delphi)
+delphi-weak-reference:
+  term: Слабке посилання [weak]
+  def: >-
+    Атрибут інтерфейсного посилання, який не збільшує лічильник посилань. Коли об'єкт знищується, рантайм обнуляє всі такі посилання; за це платять обліком слабких посилань. На Win32 і Win64 доступний із Delphi 10.1 Berlin.
+  q: Delphi weak attribute interface reference
+  docs: https://blog.marcocantu.com/blog/2016-april-weak-unsafe-interface-references.html
+delphi-unsafe-reference:
+  term: Небезпечне посилання [unsafe]
+  def: >-
+    Атрибут посилання, який повністю вимикає для нього підрахунок посилань: ні `_AddRef`, ні обнулення під час знищення об'єкта. Безкоштовне, але після знищення об'єкта вказує на звільнену пам'ять.
+  q: Delphi unsafe attribute reference counting
+  docs: https://blog.marcocantu.com/blog/2016-april-weak-unsafe-interface-references.html
+delphi-generics:
+  term: Generics у Delphi
+  def: >-
+    Узагальнені типи й методи з параметрами типу: `TList<T>`, `TDictionary<TKey, TValue>`. З'явилися в Delphi 2009; компілятор створює код для кожного набору аргументів типу й перевіряє обмеження на кшталт `class` або `constructor`.
+  q: Delphi generics constraints
+  docs: https://docwiki.embarcadero.com/RADStudio/Florence/en/Overview_of_Generics
+delphi-anonymous-method:
+  term: Анонімний метод (anonymous method)
+  def: >-
+    Процедура або функція без імені, яку можна присвоїти змінній типу `reference to procedure` або передати параметром. Це замикання: воно захоплює зовнішні змінні (не значення) і подовжує їм життя. З'явилися в Delphi 2009.
+  q: Delphi anonymous methods variable capture
+  docs: https://docwiki.embarcadero.com/RADStudio/Florence/en/Anonymous_Methods_in_Delphi
+  wiki: Замикання (програмування)
+delphi-inline-variable:
+  term: Inline-змінна (inline variable)
+  def: >-
+    Змінна, оголошена просто серед операторів: `var I := 0;`. Видима до кінця свого блоку `begin..end`, а тип може виводитися з ініціалізатора. З'явилася в Delphi 10.3 Rio.
+  q: Delphi inline variable declaration type inference
+  docs: https://docwiki.embarcadero.com/RADStudio/Florence/en/Inline_Variable_Declaration
+delphi-managed-record:
+  term: Custom managed record
+  def: >-
+    Запис з операторами `Initialize`, `Finalize` і, за потреби, `Assign`, які компілятор викликає автоматично під час створення, знищення й копіювання. Дає змогу писати RAII-обгортки. З'явився в Delphi 10.4 Sydney.
+  q: Delphi custom managed records Initialize Finalize
+  docs: https://docwiki.embarcadero.com/RADStudio/Florence/en/Custom_Managed_Records
+delphi-extended-rtti:
+  term: Розширений RTTI та атрибути
+  def: >-
+    Інформація про типи під час виконання з модуля `System.Rtti`: поля, методи й властивості класу, а не лише `published`. Зберігає атрибути на кшталт `[Test]`, за якими працюють серіалізатори, ORM і DUnitX. З'явився в Delphi 2010.
+  q: Delphi extended RTTI attributes TRttiContext
+  docs: https://docwiki.embarcadero.com/RADStudio/Florence/en/Working_with_RTTI
+delphi-conditional-operator:
+  term: Умовний оператор if у виразах
+  def: >-
+    Тернарний оператор Delphi 13: `X := if A > B then A else B;`. Працює всередині будь-якого виразу, а його тип — спільний тип обох гілок.
+  q: Delphi 13 if conditional operator ternary
+  docs: https://docwiki.embarcadero.com/RADStudio/Florence/en/Conditional_Operators_(Delphi)

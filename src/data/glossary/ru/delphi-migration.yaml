@@ -1,0 +1,105 @@
+delphi-unicode-string:
+  term: UnicodeString
+  def: >-
+    Строковый тип Delphi с подсчётом ссылок, в котором текст хранится в UTF-16. С Delphi 2009 тип
+    string — это UnicodeString, а Char — двухбайтовый WideChar.
+  q: Delphi UnicodeString
+  docs: https://docwiki.embarcadero.com/RADStudio/en/Unicode_in_RAD_Studio
+utf-16:
+  term: UTF-16
+  def: >-
+    Кодировка Unicode, в которой символ занимает 2 байта, а символы вне базовой плоскости (например
+    эмодзи) — 4 байта, суррогатную пару. Ею пользуются Windows API, строки Delphi и .NET.
+  q: UTF-16 surrogate pair
+  wiki: UTF-16
+code-page:
+  term: Кодовая страница (code page)
+  def: >-
+    Таблица, которая сопоставляет байтам символы однобайтовой кодировки. Для кириллицы в Windows
+    это обычно 1251; символы, которых нет в таблице, при преобразовании теряются.
+  q: Windows code page 1251
+  docs: https://learn.microsoft.com/windows/win32/intl/code-pages
+  wiki: Кодовая страница
+delphi-tencoding:
+  term: TEncoding
+  def: >-
+    Класс RTL Delphi для преобразования текста в байты и обратно в заданной кодировке: UTF-8,
+    UTF-16, ANSI или конкретная кодовая страница. Умеет распознавать и записывать BOM.
+  q: Delphi TEncoding
+  docs: https://docwiki.embarcadero.com/Libraries/en/System.SysUtils.TEncoding
+delphi-tbytes:
+  term: TBytes
+  def: >-
+    Динамический массив байтов (array of Byte) в Delphi. С переходом на Unicode двоичные данные
+    хранят в TBytes, а не в строке, потому что строка теперь двухбайтовая и перекодируется.
+  q: Delphi TBytes
+  docs: https://docwiki.embarcadero.com/Libraries/en/System.SysUtils.TBytes
+delphi-map-rules:
+  term: Правила отображения типов (MapRules)
+  def: >-
+    Коллекция FormatOptions.MapRules в FireDAC: каждое правило заменяет тип данных, который вернул
+    драйвер, на тип, удобный приложению. Ими подгоняют типы полей под старую библиотеку при миграции.
+  q: FireDAC MapRules data type mapping
+  docs: https://docwiki.embarcadero.com/RADStudio/en/Data_Type_Mapping_(FireDAC)
+delphi-native-int:
+  term: NativeInt
+  def: >-
+    Целый тип Delphi, размер которого равен размеру указателя: 4 байта в Win32 и 8 байт в Win64.
+    В нём хранят указатели и ссылки на объекты, приведённые к числу.
+  q: Delphi NativeInt 64-bit
+  docs: https://docwiki.embarcadero.com/Libraries/en/System.NativeInt
+inproc-com:
+  term: Внутрипроцессный COM-сервер (in-process COM server)
+  def: >-
+    COM-объект в DLL, который загружается в процесс клиента. Поэтому его разрядность должна совпадать
+    с разрядностью клиента, в отличие от внепроцессного сервера в EXE.
+  q: in-process COM server 32-bit 64-bit
+  docs: https://learn.microsoft.com/windows/win32/com/in-process-servers
+large-address-aware:
+  term: LARGEADDRESSAWARE
+  def: >-
+    Флаг в заголовке EXE, который разрешает процессу использовать адреса выше 2 ГБ. 32-битный процесс
+    с этим флагом на 64-битной Windows получает до 4 ГБ адресного пространства.
+  q: IMAGE_FILE_LARGE_ADDRESS_AWARE 4GB
+  docs: https://learn.microsoft.com/cpp/build/reference/largeaddressaware-handle-large-addresses
+wow64:
+  term: WOW64
+  def: >-
+    Подсистема 64-битной Windows, которая запускает 32-битные программы. Она перенаправляет их
+    системные вызовы, папки и реестр, но 32-битный и 64-битный код в одном процессе не смешиваются.
+  q: WOW64 Windows 32-bit on 64-bit
+  docs: https://learn.microsoft.com/windows/win32/winprog64/running-32-bit-applications
+  wiki: WoW64
+regression-testing:
+  term: Регрессионное тестирование
+  def: >-
+    Повторная проверка уже работавшей функциональности после изменений. При миграции им убеждаются,
+    что новая версия ведёт себя так же, как старая.
+  q: regression testing
+  wiki: Регрессионное тестирование
+parallel-run:
+  term: Параллельная эксплуатация (parallel run)
+  def: >-
+    Старая и новая версии системы работают одновременно на одних данных. Результаты сравнивают, а
+    старая версия остаётся путём отката, пока новая не докажет эквивалентность.
+  q: parallel run migration strategy
+code-freeze:
+  term: Заморозка фич (feature freeze)
+  def: >-
+    Период, когда в продукт не добавляют новую функциональность, а только исправляют ошибки. При
+    миграции так избегают переноса каждой новой фичи в две версии.
+  q: feature freeze code freeze
+delphi-conditional-compilation:
+  term: Условная компиляция
+  def: >-
+    Директивы {$IFDEF}, {$IF} и {$ENDIF}, которые включают или исключают участки кода при сборке.
+    Символ UNICODE позволяет держать один исходный код для старой и новой Delphi.
+  q: Delphi conditional compilation IFDEF UNICODE
+  docs: https://docwiki.embarcadero.com/RADStudio/en/Conditional_compilation_(Delphi)
+delphi-thttpclient:
+  term: THTTPClient
+  def: >-
+    HTTP-клиент из модуля System.Net.HttpClient без визуальных компонентов. Использует
+    системный стек HTTP платформы и подходит для вызова REST-сервисов из Delphi-клиента.
+  q: Delphi THTTPClient
+  docs: https://docwiki.embarcadero.com/RADStudio/en/Using_an_HTTP_Client

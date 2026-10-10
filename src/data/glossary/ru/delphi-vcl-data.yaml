@@ -1,0 +1,149 @@
+dfm-file:
+  term: Файл формы (.dfm)
+  def: >-
+    Ресурс с описанием компонентов формы и значений их published-свойств. Подключается к модулю
+    директивой `{$R *.dfm}` и читается при создании формы; бывает текстовым и бинарным.
+  q: Delphi dfm form file
+  docs: https://docwiki.embarcadero.com/RADStudio/en/Form_Designer
+component-streaming:
+  term: Потоковая загрузка компонентов (streaming)
+  def: >-
+    Механизм VCL, который сохраняет published-свойства компонентов в .dfm и восстанавливает их:
+    `TReader` создаёт объекты по именам классов и присваивает свойства через RTTI.
+  q: Delphi component streaming TReader dfm
+  docs: https://docwiki.embarcadero.com/Libraries/en/System.Classes.TReader
+component-owner:
+  term: Владелец компонента (Owner)
+  def: >-
+    Компонент, переданный в конструктор `Create(AOwner)`. Хранит список своих компонентов в
+    `Components` и освобождает их при своём уничтожении.
+  q: Delphi TComponent Owner
+  docs: https://docwiki.embarcadero.com/Libraries/en/System.Classes.TComponent.Owner
+parent-control:
+  term: Родительский контрол (Parent)
+  def: >-
+    Оконный контрол (`TWinControl`), внутри которого отображается контрол. Отвечает за положение
+    и отрисовку дочерних контролов и тоже освобождает их вместе с собой.
+  q: Delphi TControl Parent
+  docs: https://docwiki.embarcadero.com/Libraries/en/Vcl.Controls.TControl.Parent
+modal-form:
+  term: Модальная форма
+  def: >-
+    Окно, которое блокирует остальные окна приложения до своего закрытия. В VCL его открывает
+    `ShowModal`, который возвращает `ModalResult`.
+  q: Delphi ShowModal ModalResult
+  docs: https://docwiki.embarcadero.com/Libraries/en/Vcl.Forms.TCustomForm.ShowModal
+vcl-frame:
+  term: Фрейм (TFrame)
+  def: >-
+    Контейнер с компонентами и кодом, который проектируют отдельно и вставляют в несколько форм.
+    Изменения фрейма видны во всех местах использования, кроме свойств, переопределённых на форме.
+  q: Delphi TFrame
+  docs: https://docwiki.embarcadero.com/RADStudio/en/Working_with_Frames
+tdataset:
+  term: TDataSet
+  def: >-
+    Абстрактный базовый класс наборов данных в Delphi: курсор по строкам, поля, состояния, события
+    и навигация. От него наследуются наборы ADO, FireDAC, dbExpress и `TClientDataSet`.
+  q: Delphi TDataSet
+  docs: https://docwiki.embarcadero.com/Libraries/en/Data.DB.TDataSet
+data-aware-control:
+  term: Data-aware контрол
+  def: >-
+    Визуальный компонент (`TDBGrid`, `TDBEdit`, `TDBLookupComboBox`), который через `TDataSource`
+    показывает и редактирует поля текущей записи набора данных.
+  q: Delphi data-aware controls TDataSource
+  docs: https://docwiki.embarcadero.com/Libraries/en/Data.DB.TDataSource
+dataset-state:
+  term: Состояние набора данных (State)
+  def: >-
+    Значение свойства `State` — `dsBrowse`, `dsEdit`, `dsInsert` и другие, — которое определяет, что
+    можно делать с текущей записью. Методы `Edit`, `Insert`, `Post` и `Cancel` переключают состояния.
+  q: Delphi TDataSetState
+  docs: https://docwiki.embarcadero.com/Libraries/en/Data.DB.TDataSetState
+persistent-fields:
+  term: Постоянные поля (persistent fields)
+  def: >-
+    Объекты `TField`, созданные в Fields Editor и сохранённые в .dfm. Дают типизированный доступ и
+    позволяют добавить вычисляемые и lookup-поля, но должны совпадать с колонками запроса по имени
+    и типу.
+  q: Delphi persistent fields Fields Editor
+  docs: https://docwiki.embarcadero.com/RADStudio/en/Persistent_Field_Components
+lookup-field:
+  term: Lookup-поле
+  def: >-
+    Поле, значение которого берётся из другого набора по ключу: значения `KeyFields` ищутся в
+    `LookupKeyFields` набора `LookupDataSet`, а показывается `LookupResultField`.
+  q: Delphi lookup field LookupDataSet
+  docs: https://docwiki.embarcadero.com/Libraries/en/Data.DB.TField.LookupDataSet
+cached-updates:
+  term: Кешированные обновления (cached updates)
+  def: >-
+    Режим, в котором изменения записей копятся в журнале на клиенте и отправляются в базу одним
+    вызовом `ApplyUpdates`, а не при каждом `Post`.
+  q: FireDAC cached updates ApplyUpdates
+  docs: https://docwiki.embarcadero.com/RADStudio/en/Caching_Updates_(FireDAC)
+ado-dbgo:
+  term: ADO (dbGo)
+  def: >-
+    Компоненты Delphi `TADOConnection`, `TADOQuery`, `TADOStoredProc` поверх COM-библиотеки Microsoft
+    ActiveX Data Objects. К SQL Server обращаются через OLE DB-провайдер.
+  q: Delphi dbGo ADO components
+  docs: https://docwiki.embarcadero.com/RADStudio/en/Working_with_ADO_Components
+dbexpress:
+  term: dbExpress
+  def: >-
+    Библиотека лёгких драйверов Delphi с однонаправленными наборами без буферизации и
+    редактирования. Embarcadero объявила её устаревшей и рекомендует переходить на FireDAC.
+  q: Delphi dbExpress unidirectional dataset
+  docs: https://docwiki.embarcadero.com/RADStudio/en/Using_dbExpress_Datasets
+firedac:
+  term: FireDAC
+  def: >-
+    Универсальная библиотека доступа к данным RAD Studio с компонентами `TFDConnection`, `TFDQuery`,
+    `TFDStoredProc`. Даёт управление выборкой, Array DML, макросы, пул соединений и трассировку.
+  q: FireDAC overview
+  docs: https://docwiki.embarcadero.com/RADStudio/en/FireDAC
+array-dml:
+  term: Array DML
+  def: >-
+    Выполнение одной параметризованной команды с массивами значений параметров: СУБД выполняет её
+    для каждой строки массива, а клиент обращается к серверу один раз. В FireDAC — `Params.ArraySize`
+    и `Execute`.
+  q: FireDAC Array DML
+  docs: https://docwiki.embarcadero.com/RADStudio/en/Array_DML_(FireDAC)
+firedac-macro:
+  term: Макрос FireDAC (substitution variable)
+  def: >-
+    Подстановка в текст SQL до отправки на сервер: `&Name` или `!Name`. Нужна там, где параметр не
+    работает, например для имени таблицы; ввод пользователя в макрос не подставляют.
+  q: FireDAC macros substitution variables
+  docs: https://docwiki.embarcadero.com/RADStudio/en/Preprocessing_Command_Text_(FireDAC)
+vcl-main-thread:
+  term: Главный поток VCL
+  def: >-
+    Поток, в котором создаются окна и работает цикл сообщений приложения. VCL не потокобезопасна,
+    поэтому контролы меняют только из него.
+  q: Delphi VCL main thread Synchronize
+  docs: https://docwiki.embarcadero.com/RADStudio/en/Using_the_Main_VCL_Thread
+tthread:
+  term: TThread
+  def: >-
+    Класс Delphi для фонового потока: код пишется в `Execute`, остановку запрашивает `Terminate`, а
+    код в главный поток передают `Synchronize` и `Queue`.
+  q: Delphi TThread
+  docs: https://docwiki.embarcadero.com/Libraries/en/System.Classes.TThread
+parallel-programming-library:
+  term: Parallel Programming Library (PPL)
+  def: >-
+    Модуль `System.Threading`: задачи `TTask` и `ITask`, задачи с результатом `IFuture<T>` и
+    параллельные циклы `TParallel.For`, которые выполняются на пуле потоков.
+  q: Delphi Parallel Programming Library TTask
+  docs: https://docwiki.embarcadero.com/RADStudio/en/Using_the_Parallel_Programming_Library
+reentrancy:
+  term: Повторный вход (reentrancy)
+  def: >-
+    Ситуация, когда обработчик вызывается снова, пока предыдущий вызов ещё не завершился. В VCL
+    возникает при `Application.ProcessMessages` внутри обработчика события.
+  q: Delphi Application.ProcessMessages reentrancy
+  docs: https://docwiki.embarcadero.com/Libraries/en/Vcl.Forms.TApplication.ProcessMessages

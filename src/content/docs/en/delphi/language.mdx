@@ -1,0 +1,751 @@
+---
+title: Object Pascal
+description: Units and classes, memory management, interfaces and reference counting, generics, anonymous methods and what is new in Delphi 12 and 13.
+sidebar:
+  order: 1
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+How the Delphi language works: units and classes, manual memory management, reference-counted interfaces and the features added since Delphi 7. Interviewers often ask how this compares to .NET, so every answer here draws the parallel with C#.
+
+**Before this topic:** [Types and memory](/sobes/en/dotnet/types-memory/).
+
+<Q id="delphi.lang.basics" level="j">
+
+## What is an Object Pascal program made of?
+
+<A short l="j">
+
+A Delphi program is a `.dpr` project file plus a set of <T k="delphi-unit">units</T>: each unit has a public `interface` part and a hidden `implementation` part, and units pull each other in through `uses`. Classes inside units combine fields, methods and <T k="delphi-property">properties</T> (`property`), and the `private`, `protected`, `public` and `published` sections control access to them.
+
+</A>
+
+<A short l="m">
+
+A unit is a compilation unit: `interface` declares what other units can see, `implementation` holds the code, and `initialization` and `finalization` run at program start-up and shutdown. Two units cannot reference each other from their `interface` sections, but a cycle is fine if at least one of the references goes through the `implementation` `uses` clause. Polymorphism comes from `virtual` and `dynamic` methods with `override`, and since `private` in Delphi is visible to the whole unit, real encapsulation needs <T k="delphi-visibility">`strict private`</T>.
+
+</A>
+
+<A short l="s">
+
+The `interface`/`implementation` boundary drives dependencies and rebuilds: changing only `implementation` does not force client units to recompile. Virtual methods are called through the <T k="delphi-vmt">VMT</T> — fast, but every class's table holds slots for all its ancestors; <T k="delphi-dynamic-method">dynamic methods</T> save memory at the cost of a lookup on each call. A method with the same signature but no `override` hides the ancestor method instead of overriding it, and <T k="delphi-reintroduce">`reintroduce`</T> makes that hiding explicit. `published` is not just "even more public": the compiler emits RTTI for it, and that RTTI is what loads `.dfm` files.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+The project (`.dpr`) is the main program; a unit (`.pas`) is a file with types and routines, split into sections.
+
+| Section | What goes there |
+|---|---|
+| `interface` | declarations visible to other units |
+| `implementation` | method bodies and hidden details |
+| `initialization`, `finalization` | code run at start-up and at shutdown |
+
+**How to use**
+
+1. Add a unit to `uses` — the declarations in its `interface` become available.
+2. Declare a class with fields, methods and properties. A property binds a name to a field or a method: `property Number: string read FNumber write SetNumber;`.
+3. Split members by visibility: `private` and `protected` for the implementation, `public` for everyone, `published` for the Object Inspector.
+
+**Common mistake**
+
+Declaring a method in a descendant with the same signature but without `override`. The compiler warns, and a call through an ancestor-typed variable still runs the ancestor's method.
+
+**Takeaway:** a program is a set of units with a public `interface` and a hidden `implementation`, and classes expose their data through properties.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- **Section order.** Units' `initialization` sections run in the order the units appear in `uses`; `finalization` sections run in reverse.
+- **Circular references.** Two units cannot list each other in their `interface` `uses` clauses. A cycle is allowed if at least one reference sits in an `implementation` `uses` clause.
+- **Visibility.** `private` and `protected` are visible to the whole unit that declares the class — friendship at unit level. `strict private` limits access to the class itself, `strict protected` to the class and its descendants.
+- **`published`.** Same visibility as `public`, but the compiler generates RTTI. The class must be compiled with `{$M+}` or descend from `TPersistent`.
+
+**When to choose what**
+
+| Binding | How it is called | When |
+|---|---|---|
+| static (default) | address known at compile time | the method is never overridden |
+| `virtual` | through the VMT | regular polymorphism |
+| `dynamic` | through a DMT lookup | many methods, rarely overridden |
+
+**Pitfalls**
+
+- **Hiding instead of overriding.** A method with the same signature and no `override` hides the ancestor method, and the compiler reports W1010. If hiding is intentional, use `reintroduce`.
+- **Bypassing a property.** Because `private` is unit-wide, another class in the same unit can write straight to the field and skip the setter.
+
+**Rule of thumb**
+
+Fields go in `strict private`, access goes through properties, polymorphism goes through `virtual` and `override`.
+
+**Takeaway:** a unit is the boundary of visibility and compilation, and `strict private` plus `override` keep classes predictable.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- Each unit compiles to a `.dcu`. If only `implementation` changed, client units are not recompiled: they depend only on the interface.
+- An object starts with a pointer to its class, which is the VMT. It holds the addresses of all virtual methods of the class and its ancestors, so a `virtual` call is a single indirection.
+- The DMT holds only the methods the class itself declares or overrides. A `dynamic` call searches up the ancestor chain: smaller tables, slower calls. The VCL relies on them, and on message methods, for window messages.
+- `published` properties go into RTTI. The `.dfm` stream uses it to restore form property values, and the Object Inspector uses it to display them.
+
+**Cost**
+
+- Long `interface` `uses` clauses slow down builds and create cycles that then have to be moved into `implementation`. Since Delphi 12 the compiler can export the `uses` graph in GraphViz format.
+- Unit-wide `private` encourages units thousands of lines long where classes reach into each other's fields.
+
+**Trade-offs**
+
+- `dynamic` pays off in hierarchies like the VCL: hundreds of overridable methods in a base class and hundreds of descendants. In application code `virtual` is almost always enough.
+- `final` on a method and `sealed` on a class prohibit overriding and inheritance. That documents intent and gives the compiler room to optimize.
+
+**How to check in production**
+
+- Treat W1010 as a build error: each one may be a missing `override`.
+- Cross-unit dependencies show up in the `uses` graph the compiler exports, or in third-party analyzers.
+
+**Takeaway:** the `interface`/`implementation` boundary sets dependencies and rebuild cost, and choosing between `virtual`, `dynamic` and `reintroduce` is an explicit decision about intent and cost.
+
+</A>
+
+<Ex>
+
+```pascal
+unit Docs;
+
+interface
+
+type
+  TDocument = class
+  strict private
+    FNumber: string;                     // visible only inside the class
+    procedure SetNumber(const Value: string);
+  protected
+    function GetKind: string; virtual;   // a slot in the VMT
+  public
+    property Number: string read FNumber write SetNumber;
+    property Kind: string read GetKind;  // read-only
+  end;
+
+  TInvoice = class(TDocument)
+  protected
+    function GetKind: string; override;  // replaces the ancestor's slot
+  end;
+
+implementation
+
+uses
+  System.SysUtils;                       // needed only by the implementation
+
+procedure TDocument.SetNumber(const Value: string);
+begin
+  FNumber := Trim(Value);
+end;
+
+function TDocument.GetKind: string;
+begin
+  Result := 'Document';
+end;
+
+function TInvoice.GetKind: string;
+begin
+  Result := 'Invoice';
+end;
+
+end.
+```
+
+A `TDocument` variable that points to a `TInvoice` returns `'Invoice'` from `Kind`: the property reads through the virtual `GetKind`.
+
+</Ex>
+
+<Next>
+
+- How is `private` in Delphi different from `private` in C#? — In Delphi it is visible to the whole unit; the C# equivalent is `strict private`.
+- When do `initialization` and `finalization` run? — At start-up in `uses` order, and at shutdown in reverse order.
+- How do you break a circular unit reference? — Move one of the references to the `implementation` `uses` clause, or extract the shared part into a third unit.
+- How does `virtual` differ from `dynamic`? — Same semantics; `virtual` is faster (VMT), `dynamic` saves memory (DMT).
+- What is `reintroduce` for? — To hide an ancestor's virtual method on purpose and silence W1010, for example on a constructor with different parameters.
+
+</Next>
+
+<Src>
+
+- [Programs and Units (Delphi)](https://docwiki.embarcadero.com/RADStudio/Florence/en/Programs_and_Units_(Delphi))
+- [Classes and Objects (Delphi)](https://docwiki.embarcadero.com/RADStudio/Florence/en/Classes_and_Objects_(Delphi))
+- [Methods (Delphi)](https://docwiki.embarcadero.com/RADStudio/Florence/en/Methods_(Delphi))
+
+</Src>
+
+</Q>
+
+<Q id="delphi.lang.memory" level="m">
+
+## How is memory managed in Delphi?
+
+<A short l="j">
+
+A class instance is created on the heap with `Create` and freed manually with `Free`, so the code in between is wrapped in `try..finally`. There is no garbage collector, but strings, dynamic arrays and interfaces free themselves through <T k="delphi-reference-counting">reference counting</T>, and VCL components are freed by their <T k="delphi-owner">Owner</T>.
+
+</A>
+
+<A short l="m">
+
+Delphi has three memory models: objects are freed manually (`Create` and `Free` in `try..finally`), components are freed by their owner's destructor, and <T k="delphi-managed-type">managed types</T> — strings, dynamic arrays, interfaces — are freed by a reference count the compiler maintains. Local records and numbers live on the stack and disappear when the routine returns. The price of the manual model is leaks and use-after-free, which is why debug builds turn on `ReportMemoryLeaksOnShutdown`.
+
+</A>
+
+<A short l="s">
+
+Memory in Delphi is deterministic: an object lives exactly until `Free`, a managed type until its count drops to zero, with no <T k="garbage-collector">garbage collector</T> pauses and no finalizers. Mobile platforms and Linux once managed objects with <T k="delphi-arc">ARC</T>, but 10.4 Sydney dropped that model for the sake of code compatibility. Determinism costs developer responsibility: leaks, double frees and dangling references are caught with `try..finally` discipline and <T k="delphi-fastmm">FastMM</T> in debug mode. Unlike the .NET GC, reference counting never reclaims cycles.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+Delphi has no garbage collector for objects. Whoever creates an object frees it.
+
+**How to use**
+
+1. Create the object before `try`: `List := TStringList.Create;`.
+2. Work with it inside `try`.
+3. Free it in `finally`: `List.Free;`. The `finally` block runs even when an exception is raised.
+
+**What frees itself**
+
+- Strings and dynamic arrays — through reference counting.
+- An object behind an interface reference — when the last reference goes away.
+- A component with an owner: `TButton.Create(Form)` is freed together with the form.
+- Local numbers and records — when the routine returns.
+
+**Common mistake**
+
+Calling `Create` inside `try`. If the constructor fails, `finally` calls `Free` on an uninitialized variable — an access violation.
+
+**Takeaway:** objects are freed manually in `try..finally`, while strings, arrays and interfaces are freed by the compiler.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- **`Free` and `Destroy`.** `Free` checks the reference for `nil` and calls the virtual destructor `Destroy`. You never call `Destroy` directly; descendants override it and call `inherited` inside.
+- **`FreeAndNil`.** Frees the object and sets the variable to `nil`. Use it when the reference outlives the object: a class field or a global variable.
+- **Owner.** `TComponent.Create(AOwner)` adds the component to the owner's list, and the owner's destructor frees the whole list. That is how a form frees its buttons and queries.
+- **Managed types.** For strings, dynamic arrays, interfaces and variants the compiler updates the count and adds an implicit `try..finally`. A string is copied only when modified (copy-on-write).
+
+**When to choose what**
+
+| What | Delphi | .NET |
+|---|---|---|
+| Freeing an object | `Free`, immediately and deterministically | GC, whenever it decides |
+| Files, connections | destructor | `IDisposable` and `using` |
+| Strings and arrays | reference counting | GC |
+| Circular references | leak under reference counting | collected by the GC |
+
+**Pitfalls**
+
+- **Use after `Free`.** The access violation shows up later, not immediately: the memory may already belong to another object.
+- **Dangling fields.** A component freed manually removes itself from its owner's list, but a form field that referenced it still points to freed memory.
+
+**Rule of thumb**
+
+Every `Create` without an owner gets its own `try..finally` with `Free`. In debug builds, set `ReportMemoryLeaksOnShutdown := True`.
+
+**Takeaway:** objects are freed manually, components through their owner, managed types through reference counting.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- All dynamic memory — objects, strings, arrays — comes from the memory manager. On Win32 and Win64 that is FastMM, built in since Delphi 2006 in a reduced edition; on macOS, Linux, iOS and Android it is the POSIX memory manager.
+- For managed local variables the compiler adds an implicit `try..finally` that finalizes them at the end of the routine. Those instructions run even when no exception occurs.
+- String reference counts and the `TInterfacedObject` count change atomically: thread-safe, but not free on a hot path.
+
+**ARC history**
+
+The mobile compilers (iOS, Android), and from 10.2 Tokyo the Linux compiler, reference-counted objects too: `Free` only cleared the reference, and `DisposeOf` ran the destructor immediately. 10.4 Sydney unified the model: objects are freed manually on every platform again, and reference counting remains for strings and interfaces. Mobile code written with ARC in mind starts leaking after the upgrade.
+
+**Trade-offs**
+
+- Determinism versus safety: no GC pauses or finalizers, but any ownership mistake becomes a leak or memory corruption.
+- Moving an object to interface references removes the manual `Free`, but brings reference-counting pitfalls and cycles.
+
+**How to check in production**
+
+- `ReportMemoryLeaksOnShutdown := True` in debug builds lists the leaked classes when the program closes.
+- The full FastMM in debug mode (FullDebugMode in FastMM4) catches access to freed memory and logs the call stack of the allocation.
+- In production, memory growth shows in the process's Private Bytes, and `GetMemoryManagerState` gives block statistics from inside the application.
+
+**Takeaway:** memory in Delphi is predictable and cheap, and correct ownership rests on discipline plus FastMM.
+
+</A>
+
+<Ex>
+
+```pascal
+program MemoryDemo;
+
+{$APPTYPE CONSOLE}
+
+uses
+  System.Classes;
+
+var
+  List: TStringList;
+  Owner, Child: TComponent;
+  S1, S2: string;
+begin
+  ReportMemoryLeaksOnShutdown := True;  // FastMM reports leaks on exit
+
+  List := TStringList.Create;           // create before try
+  try
+    List.Add('order-1');
+  finally
+    List.Free;                          // runs even on an exception
+  end;
+
+  Owner := TComponent.Create(nil);
+  Child := TComponent.Create(Owner);    // the owner will free Child
+  Child.Name := 'Child';
+  Owner.Free;                           // Owner's destructor frees Child too
+
+  S1 := StringOfChar('a', 3);           // heap string, reference count = 1
+  S2 := S1;                             // the reference is copied, count = 2
+  S2[1] := 'x';                         // copy-on-write: S2 gets its own copy
+  Writeln(S1, ' ', S2);                 // aaa xaa
+end.
+```
+
+</Ex>
+
+<Next>
+
+- Why is `Create` placed before `try`? — If the constructor fails, `finally` must not free an uninitialized variable.
+- What happens if a constructor raises an exception? — Delphi calls the destructor on the half-built object, so `Destroy` must cope with uninitialized fields.
+- When do you need `FreeAndNil`? — When the reference outlives the object and is later checked for `nil`: a field or a global variable.
+- Where does a record live? — Wherever its variable lives: a local one on the stack, an object field on the heap inside the object.
+- What happened to ARC in 10.4? — It was removed for objects on all platforms; strings, arrays and interfaces are still reference-counted.
+
+</Next>
+
+<Src>
+
+- [Memory Management](https://docwiki.embarcadero.com/RADStudio/Florence/en/Memory_Management)
+- [Configuring the Memory Manager](https://docwiki.embarcadero.com/RADStudio/Florence/en/Configuring_the_Memory_Manager)
+- [System.SysUtils.FreeAndNil](https://docwiki.embarcadero.com/Libraries/Florence/en/System.SysUtils.FreeAndNil)
+
+</Src>
+
+</Q>
+
+<Q id="delphi.lang.interfaces" level="m">
+
+## How do interfaces and reference counting work, and what are the pitfalls?
+
+<A short l="j">
+
+An interface is a set of methods without an implementation that a class promises to implement. Interface references are counted: the compiler calls `_AddRef` on assignment and `_Release` when a reference goes away, and an object based on <T k="delphi-tinterfacedobject">`TInterfacedObject`</T> destroys itself when no references are left. That is why you never call `Free` on such an object.
+
+</A>
+
+<A short l="m">
+
+Every interface inherits from <T k="delphi-iinterface">`IInterface`</T> with `QueryInterface`, `_AddRef` and `_Release`, and the class decides what counting does: `TInterfacedObject` destroys itself at zero, `TComponent` does not count at all. The main pitfalls are mixing an object reference and an interface reference to the same object, so it gets destroyed while the object reference is still in use, and cycles whose counts never reach zero. For `as` and `Supports` to work, the interface needs a <T k="delphi-interface-guid">GUID</T>.
+
+</A>
+
+<A short l="s">
+
+Reference counting is deterministic but local: it cannot see cycles and knows nothing about object references. So each object gets exactly one ownership model: either interfaces only, or `Free` with a non-counting class such as `TComponent` or `TNoRefCountObject`. Back references are marked <T k="delphi-weak-reference">`[weak]`</T>, which is cleared when the object dies but needs runtime tracking, or <T k="delphi-unsafe-reference">`[unsafe]`</T>, which is free but can dangle. Two more traps: a `const` parameter that receives a freshly created object, and `Supports` on an object whose count is still zero.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+An interface describes what an object can do, not how: `ILogger = interface procedure Log(const Msg: string); end;`. A class lists the interfaces it implements: `TFileLogger = class(TInterfacedObject, ILogger)`.
+
+**Why**
+
+- Code depends on an abstraction: in a test, `TFileLogger` is swapped for a stub.
+- The object's lifetime is managed automatically, without `Free`.
+
+**How to use**
+
+1. Derive the class from `TInterfacedObject` — it already implements reference counting.
+2. Keep the object only in an interface-typed variable: `Logger := TFileLogger.Create;`, where `Logger: ILogger`.
+3. Never call `Free`: the object is destroyed when the last reference goes out of scope or is set to `nil`.
+
+**Common mistake**
+
+Storing the object in a `TFileLogger` variable, passing it on as `ILogger` and then calling `Free`. By then the count has already destroyed the object, and `Free` frees it a second time.
+
+**Takeaway:** a reference-counted object is held only through interfaces, and it frees itself.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+1. Assigning to an interface variable calls `_AddRef` on the new object and `_Release` on the old one.
+2. When the variable goes out of scope, the compiler calls `_Release` in an implicit `try..finally`.
+3. `TInterfacedObject._Release` decrements `RefCount` and calls `Destroy` at zero.
+4. `TComponent._AddRef` and `_Release` return -1 and do nothing unless the component wraps a COM object. The owner manages a component's lifetime.
+
+**Pitfalls**
+
+- **Mixed references.** The object is created into an object variable (`RefCount = 0`), assigned to an interface and released: the count goes 1 → 0, the object is destroyed, and the object variable dangles.
+- **Cycles.** A document holds its lines through an interface, the lines hold the document through `IDocument` — the counts never reach zero, and both objects leak.
+- **No GUID.** Without `['{...}']` in the declaration, `as`, `Supports` and `QueryInterface` do not work: the compiler reports E2232.
+- **Interfaces on components.** An interface reference to a form does not keep the form alive: once the form is freed, the reference dangles.
+
+**When to choose what**
+
+| Task | Solution |
+|---|---|
+| The object lives while something references it | a `TInterfacedObject` descendant, interface variables only |
+| The object lives by its owner or until `Free` | `TComponent` or `TNoRefCountObject` |
+| A back reference from child to parent | `[weak]` or `[unsafe]` |
+
+**Rule of thumb**
+
+One ownership model per object. Check for an interface with `Supports(Intf, IFoo, Foo)` and its out parameter, not with a hard cast.
+
+**Takeaway:** reference counting works as long as only interfaces point to the object and the graph has no cycles.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- An interface variable points to the interface's method table inside the object. `IInterface` is the same as COM's `IUnknown`, so Delphi interfaces work with COM without wrappers.
+- `TInterfacedObject` changes its count atomically: references can cross threads, but every assignment costs an interlocked instruction.
+- `[weak]` (on Win32 and Win64 since 10.1 Berlin) does not increment the count, and the runtime clears such references when the object is destroyed. To do that it keeps track of weak references, which costs memory and synchronization.
+- `[unsafe]` is a reference with no counting and no clearing — essentially a pointer.
+
+**Cost**
+
+- A `const` parameter of an interface type does not call `_AddRef`. If you pass `TFoo.Create` straight into the call, the count may never go up and the object leaks. Embarcadero closed the report on this as "by design".
+- `Supports(Obj, IFoo)` on an object with a count of zero raises it to 1 and drops it back to 0 — the object is destroyed. The documentation warns about this explicitly.
+- An anonymous method is also a reference-counted object. If it captures an interface reference to the object whose field stores the method, you get a cycle.
+
+**Trade-offs**
+
+| Back reference | Pro | Con |
+|---|---|---|
+| `[weak]` | clears itself | runtime tracking |
+| `[unsafe]` | free | dangles after the object dies |
+| object reference instead of an interface | simple | dangles too, needs manual discipline |
+
+**How to check in production**
+
+- Cycles show up in the `ReportMemoryLeaksOnShutdown` report as pairs of leaked objects that reference each other.
+- FastMM in debug mode catches a method call on a freed object — the typical trace of mixed references.
+- In code review, look for `Free` on `TInterfacedObject` descendants and for `Supports` called on object variables.
+
+**Takeaway:** reference counting is cheap and deterministic, but it cannot see cycles or object references, so ownership has to be designed explicitly.
+
+</A>
+
+<Ex>
+
+```pascal
+program InterfaceDemo;
+
+{$APPTYPE CONSOLE}
+
+type
+  ILogger = interface
+    ['{6A1E2B7C-3D4F-4A5B-9C8D-1E2F3A4B5C6D}']  // the GUID is needed for as and Supports
+    procedure Log(const Msg: string);
+  end;
+
+  TConsoleLogger = class(TInterfacedObject, ILogger)
+  public
+    procedure Log(const Msg: string);
+    destructor Destroy; override;
+  end;
+
+procedure TConsoleLogger.Log(const Msg: string);
+begin
+  Writeln(Msg);
+end;
+
+destructor TConsoleLogger.Destroy;
+begin
+  Writeln('destroyed');
+  inherited;
+end;
+
+procedure Run;
+var
+  Obj: TConsoleLogger;
+  Logger: ILogger;
+begin
+  Obj := TConsoleLogger.Create;     // RefCount = 0
+  Logger := Obj;                    // _AddRef: RefCount = 1
+  Logger := nil;                    // _Release: 0 → destroyed
+  // Obj now dangles: Obj.Free would free the memory a second time
+
+  Logger := TConsoleLogger.Create;  // correct: interface reference only
+  Logger.Log('ok');                 // ok
+end;                                // Logger goes out of scope: destroyed
+
+begin
+  Run;
+end.
+```
+
+</Ex>
+
+<Next>
+
+- How does `IInterface` differ from `IUnknown`? — It is the same interface; `IInterface` is the platform-neutral name.
+- Why does an interface need a GUID? — For `QueryInterface`: without it `as` and `Supports` do not work (E2232).
+- Why was the object destroyed when you called `Supports`? — Its count was zero: `Supports` raised it to 1 and released it back to 0.
+- How does `[weak]` differ from `[unsafe]`? — `[weak]` is cleared when the object dies and needs tracking; `[unsafe]` is a raw pointer.
+- Does `TComponent` count references? — No, its `_AddRef` and `_Release` return -1; the owner manages its lifetime.
+
+</Next>
+
+<Src>
+
+- [Object Interfaces (Delphi)](https://docwiki.embarcadero.com/RADStudio/Florence/en/Object_Interfaces_(Delphi))
+- [System.SysUtils.Supports](https://docwiki.embarcadero.com/Libraries/Florence/en/System.SysUtils.Supports)
+- [Marco Cantù: Weak and Unsafe Interface References in Delphi 10.1 Berlin](https://blog.marcocantu.com/blog/2016-april-weak-unsafe-interface-references.html)
+
+</Src>
+
+</Q>
+
+<Q id="delphi.lang.modern" level="s">
+
+## What has modern Delphi added, and how do you use it in legacy code?
+
+<A short l="j">
+
+Modern Delphi added <T k="delphi-generics">generics</T> (`TList<T>`, `TDictionary<TKey, TValue>`), <T k="delphi-anonymous-method">anonymous methods</T>, <T k="delphi-inline-variable">inline variables</T> with type inference (10.3) and a ternary `if ... then ... else` operator inside expressions (Delphi 13). In old code they replace `TList` with type casts and long `var` blocks at the top of a routine.
+
+</A>
+
+<A short l="m">
+
+Generics give type-safe collections without casting to `TObject`, and anonymous methods are closures that capture variables, not values, and extend their lifetime. Inline variables (10.3) are declared where they are needed, with type inference and block scope, and <T k="delphi-managed-record">managed records</T> (10.4) call `Initialize` and `Finalize` automatically, RAII-style. Bring them into old code as you touch it: every feature raises the minimum compiler version.
+
+</A>
+
+<A short l="s">
+
+The language has moved step by step towards C#: generics and closures (2009), attributes and <T k="delphi-extended-rtti">extended RTTI</T> (2010), inline variables (10.3), managed records (10.4), multiline strings (12) and the <T k="delphi-conditional-operator">conditional `if` operator</T> (13). In legacy code the main risk is semantics, not syntax: a closure captures a variable by reference, and every generic instantiation adds code to the exe. So new features go in at the edges — new units and tests — rather than through a mass rewrite of working code.
+
+</A>
+
+<A l="j">
+
+**What it is**
+
+| Feature | Version | Why |
+|---|---|---|
+| generics | Delphi 2009 | type-safe collections |
+| anonymous methods | Delphi 2009 | code as a parameter |
+| attributes and extended RTTI | Delphi 2010 | metadata for serialization and tests |
+| inline variables | 10.3 Rio | `var I := 0;` right in the code |
+| managed records | 10.4 Sydney | automatic `Initialize` and `Finalize` |
+| conditional operator | 13 Florence | `X := if A > B then A else B;` |
+
+**How to use**
+
+- Instead of `TList` with a `TOrder(List[I])` cast — `TObjectList<TOrder>`, which frees its items itself.
+- Instead of a separate method for a single call — an anonymous method, such as a comparison function for sorting.
+- Instead of a thirty-line `var` block — a variable declared in place: `for var Item in Orders do`.
+
+**Common mistake**
+
+Adding new syntax to a unit that is still built with an old compiler. Delphi 7 knows neither generics nor inline variables.
+
+**Takeaway:** modern Delphi means generics, closures, inline variables and managed records; use them where the code is built with a new compiler.
+
+</A>
+
+<A l="m">
+
+**How it works**
+
+- **Generics.** The compiler generates code for each set of type arguments. Constraints: `class`, `record`, `constructor`, an interface or a base class; Delphi 13 added `interface` and `unmanaged`.
+- **Anonymous methods.** Their type is `reference to procedure` or `reference to function`, a managed, reference-counted type. Captured local variables move from the stack to the heap. The variable is captured, not its value.
+- **Inline variables.** Visible from the point of declaration to the end of their `begin..end` block; the type is inferred from the initializer.
+- **Managed records.** `class operator Initialize` and `Finalize` run when the record comes into and goes out of existence, `Assign` runs on `:=` assignment.
+
+**When to choose what**
+
+| Old technique | Replacement |
+|---|---|
+| `TList` and a `TOrder(List[I])` cast | `TObjectList<TOrder>` |
+| a form method just for one handler | an anonymous method |
+| a record with `Init` and `Done` that people forget to call | a managed record |
+
+**Pitfalls**
+
+- **Capturing in a loop.** All anonymous methods created in a loop see the same variable and its value at call time, not at creation time. To freeze the value, create the closure in a helper function that takes it as a parameter.
+- **Events.** You cannot assign an anonymous method to an event like `OnClick`: an event is a `procedure of object`, not a `reference to`.
+
+**Rule of thumb**
+
+New syntax goes into new units and into functions you are rewriting anyway, not into a mass replacement.
+
+**Takeaway:** generics and closures remove type casts and throwaway methods, but a closure captures the variable, not the value.
+
+</A>
+
+<A l="s">
+
+**Under the hood**
+
+- An anonymous method compiles to a method of a hidden frame object. The frame stores the captured variables, is reference-counted and lives as long as any reference to the closure.
+- Extended RTTI (`System.Rtti`, `TRttiContext`) describes fields, methods and properties and stores attributes. The RTL's JSON serialization and DUnitX are built on it.
+- Generic code is instantiated for each set of type arguments: no boxing, but a bigger exe and longer builds.
+
+**Versions 12 and 13**
+
+- **12 Athens (November 2023):** string literals longer than 255 characters and multiline strings in triple quotes `'''`; IEEE-compliant NaN comparisons.
+- **13 Florence (September 2025):** the conditional `if ... then ... else` operator in expressions; `is not` and `not in`; `NameOf`, as in C#; the `noreturn` directive; `{$PUSHOPT}` and `{$POPOPT}`; a full-featured 64-bit IDE.
+- **13.1 (March 2026):** a new Windows on Arm (Arm64EC) target platform.
+
+**Cost**
+
+- Every new construct raises the minimum compiler version. A unit shared by old and new branches either stays on the old syntax or wraps the new one in `{$IF CompilerVersion >= ...}`.
+- Closures extend the lifetime of captured variables and can form a cycle with their owner.
+
+**Trade-offs**
+
+- Rewriting working code for the sake of syntax is risk with no business value. New features go into new code and into functions that are changing anyway.
+- Managed records and attributes make code shorter but hide logic: the calls are not visible in the code, and attribute mistakes only surface at run time.
+
+**How to check in production**
+
+- Closure leaks show up in the `ReportMemoryLeaksOnShutdown` report as unfreed frame objects.
+- Unicode, 64-bit and the strategy for moving off old versions are covered in [Migrating Delphi 6 → 12/13](/sobes/en/delphi/migration/).
+
+**Takeaway:** modern Object Pascal is close to C#, but in legacy code it goes in at the edges, with an eye on the minimum compiler version and closure semantics.
+
+</A>
+
+<Ex>
+
+```pascal
+program ModernDemo;
+
+{$APPTYPE CONSOLE}
+
+uses
+  System.SysUtils, System.Generics.Collections;
+
+procedure Run;
+var
+  Total: Integer;
+  AddTo: TProc<Integer>;
+begin
+  var Stock := TDictionary<string, Integer>.Create;  // type inferred (10.3+)
+  try
+    Stock.Add('milk', 3);
+    Stock.Add('bread', 2);
+
+    Total := 0;
+    AddTo := procedure(Value: Integer)
+      begin
+        Total := Total + Value;    // captures the variable Total, not its value
+      end;
+
+    for var Pair in Stock do       // Pair: TPair<string, Integer>, visible only in the loop
+      AddTo(Pair.Value);
+
+    Writeln(Total);                                             // 5
+    Writeln(if Total > 4 then 'big order' else 'small order');  // big order (Delphi 13+)
+  finally
+    Stock.Free;                    // a generic collection is an ordinary object
+  end;
+end;
+
+begin
+  Run;
+end.
+```
+
+</Ex>
+
+<Ex title="Managed record (10.4+)">
+
+```pascal
+type
+  TScopeLog = record
+    Name: string;
+    class operator Initialize(out Dest: TScopeLog);
+    class operator Finalize(var Dest: TScopeLog);
+  end;
+
+class operator TScopeLog.Initialize(out Dest: TScopeLog);
+begin
+  Dest.Name := 'scope';
+  Writeln('enter');
+end;
+
+class operator TScopeLog.Finalize(var Dest: TScopeLog);
+begin
+  Writeln('leave ', Dest.Name);
+end;
+
+procedure PostDocument;
+var
+  Log: TScopeLog;           // Initialize: enter
+begin
+  Log.Name := 'post';
+  Writeln('posting');       // posting
+end;                        // Finalize, even on an exception: leave post
+```
+
+In Delphi 13 the parameter can be omitted: `class operator Initialize;` and `class operator Finalize;` work with an implicit `Self`.
+
+</Ex>
+
+<Next>
+
+- Does an anonymous method capture a value or a variable? — The variable; it moves to the heap and lives as long as the closure.
+- Can you assign an anonymous method to an `OnClick` event? — No: an event is a `procedure of object`, an anonymous method is a `reference to procedure`.
+- How does a managed record differ from a plain record with a string field? — The compiler finalizes both, but only a managed record runs your own code on creation, copy and destruction.
+- How are attributes used in tests? — DUnitX finds tests by `[TestFixture]` and `[Test]` through RTTI.
+- How do you write code that builds in both 10.x and 13? — Avoid the new syntax or wrap it in `{$IF CompilerVersion >= ...}`.
+
+</Next>
+
+<Src>
+
+- [Anonymous Methods in Delphi](https://docwiki.embarcadero.com/RADStudio/Florence/en/Anonymous_Methods_in_Delphi)
+- [Custom Managed Records](https://docwiki.embarcadero.com/RADStudio/Florence/en/Custom_Managed_Records)
+- [What's New in RAD Studio 13 Florence](https://docwiki.embarcadero.com/RADStudio/Florence/en/What%27s_New)
+
+</Src>
+
+</Q>

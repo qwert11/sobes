@@ -1,0 +1,135 @@
+delphi-unit:
+  term: Delphi unit
+  def: >-
+    A `.pas` file, the compilation unit of Delphi. The `interface` section declares what other units can see, `implementation` holds the code, and the optional `initialization` and `finalization` sections run at program start-up and shutdown.
+  q: Delphi unit interface implementation
+  docs: https://docwiki.embarcadero.com/RADStudio/Florence/en/Programs_and_Units_(Delphi)
+delphi-property:
+  term: Delphi property
+  def: >-
+    A class member that looks like a field but is read and written through `read` and `write` specifiers, either directly from a field or through a method. Without `write` the property is read-only.
+  q: Delphi property read write
+  docs: https://docwiki.embarcadero.com/RADStudio/Florence/en/Properties_(Delphi)
+delphi-visibility:
+  term: Class member visibility in Delphi
+  def: >-
+    The `private`, `protected`, `public` and `published` sections. In Delphi `private` and `protected` are visible to the whole unit, so `strict private` and `strict protected` exist for class-only access, while `published` also generates RTTI.
+  q: Delphi strict private published visibility
+  docs: https://docwiki.embarcadero.com/RADStudio/Florence/en/Classes_and_Objects_(Delphi)
+delphi-vmt:
+  term: Delphi virtual method table (VMT)
+  def: >-
+    A per-class structure with slots holding the addresses of all its virtual methods, inherited ones included. Every object starts with a pointer to its class's VMT, and a `virtual` call takes the address from the right slot.
+  q: Delphi VMT virtual method table
+  docs: https://docwiki.embarcadero.com/RADStudio/Florence/en/Methods_(Delphi)
+  wiki: Virtual method table
+delphi-dynamic-method:
+  term: Dynamic method
+  def: >-
+    An overridable method called through the DMT, a table that holds only the methods declared or overridden in the class itself. Semantically the same as `virtual`, but it saves memory at the cost of slower calls.
+  q: Delphi virtual vs dynamic methods
+  docs: https://docwiki.embarcadero.com/RADStudio/Florence/en/Methods_(Delphi)
+delphi-reintroduce:
+  term: reintroduce
+  def: >-
+    A method directive that explicitly hides an ancestor's virtual method of the same name and suppresses warning W1010. The counterpart of the `new` modifier in C#.
+  q: Delphi reintroduce directive
+  docs: https://docwiki.embarcadero.com/RADStudio/Florence/en/Methods_(Delphi)
+delphi-reference-counting:
+  term: Reference counting in Delphi
+  def: >-
+    A lifetime model where a value carries a count of references: the compiler increments it on assignment and decrements it when a reference goes away, and the memory is freed at zero. Strings, dynamic arrays, interfaces and anonymous methods live this way in Delphi.
+  q: Delphi reference counting strings interfaces
+  docs: https://docwiki.embarcadero.com/RADStudio/Florence/en/Memory_Management
+  wiki: Reference counting
+delphi-owner:
+  term: Component owner (Owner)
+  def: >-
+    The component passed to the `TComponent.Create(AOwner)` constructor. The owner keeps a list of its components and frees them in its destructor, which is why a form's buttons are freed together with the form.
+  q: Delphi TComponent Owner free
+  docs: https://docwiki.embarcadero.com/Libraries/Florence/en/System.Classes.TComponent.Owner
+delphi-managed-type:
+  term: Delphi managed type
+  def: >-
+    A type whose lifetime the compiler manages: long strings, dynamic arrays, interfaces, variants and records with fields of such types. The compiler initializes them, maintains their reference counts and frees them through an implicit `try..finally`.
+  q: Delphi managed types strings dynamic arrays
+  docs: https://docwiki.embarcadero.com/RADStudio/Florence/en/Memory_Management
+delphi-arc:
+  term: ARC in Delphi (Automatic Reference Counting)
+  def: >-
+    A model in which objects, like strings, were freed by reference counting. Delphi's mobile compilers used it, as did the Linux compiler from 10.2 Tokyo; 10.4 Sydney removed it for objects on all platforms.
+  q: Delphi ARC mobile compilers 10.4 unified memory management
+  docs: https://docwiki.embarcadero.com/RADStudio/Sydney/en/What%27s_New
+delphi-fastmm:
+  term: FastMM
+  def: >-
+    Delphi's memory manager for Win32 and Win64, built in by default since Delphi 2006. It can report leaks on exit (`ReportMemoryLeaksOnShutdown`), and the full version in debug mode catches access to freed memory.
+  q: FastMM Delphi FullDebugMode
+  docs: https://docwiki.embarcadero.com/RADStudio/Florence/en/Configuring_the_Memory_Manager
+delphi-iinterface:
+  term: IInterface
+  def: >-
+    The base Delphi interface that all others inherit from; on Windows it is the same as the COM interface `IUnknown`. It declares `QueryInterface` to ask for other interfaces, and `_AddRef` and `_Release` for reference counting.
+  q: Delphi IInterface QueryInterface _AddRef _Release
+  docs: https://docwiki.embarcadero.com/RADStudio/Florence/en/Object_Interfaces_(Delphi)
+delphi-tinterfacedobject:
+  term: TInterfacedObject
+  def: >-
+    An RTL base class with a thread-safe `IInterface` implementation: it counts interface references and destroys the object when the count reaches zero. Descendants are held only through interface variables and never freed with `Free`.
+  q: Delphi TInterfacedObject reference counting
+  docs: https://docwiki.embarcadero.com/Libraries/Florence/en/System.TInterfacedObject
+delphi-interface-guid:
+  term: Interface GUID
+  def: >-
+    A 16-byte identifier in an interface declaration: `['{...}']`. It is required for `QueryInterface`, the `as` operator and the `Supports` function; without it the compiler reports error E2232. The editor generates one with Ctrl+Shift+G.
+  q: Delphi interface GUID Supports
+  docs: https://docwiki.embarcadero.com/RADStudio/Florence/en/Object_Interfaces_(Delphi)
+delphi-weak-reference:
+  term: Weak reference [weak]
+  def: >-
+    An attribute on an interface reference that does not increment the reference count. When the object is destroyed, the runtime sets all such references to `nil`, at the cost of tracking weak references. Available on Win32 and Win64 since Delphi 10.1 Berlin.
+  q: Delphi weak attribute interface reference
+  docs: https://blog.marcocantu.com/blog/2016-april-weak-unsafe-interface-references.html
+delphi-unsafe-reference:
+  term: Unsafe reference [unsafe]
+  def: >-
+    An attribute that turns off reference counting for a reference entirely: no `_AddRef`, no clearing when the object is destroyed. It costs nothing, but after the object dies it points to freed memory.
+  q: Delphi unsafe attribute reference counting
+  docs: https://blog.marcocantu.com/blog/2016-april-weak-unsafe-interface-references.html
+delphi-generics:
+  term: Generics in Delphi
+  def: >-
+    Generic types and methods with type parameters: `TList<T>`, `TDictionary<TKey, TValue>`. Introduced in Delphi 2009; the compiler generates code for each set of type arguments and checks constraints such as `class` or `constructor`.
+  q: Delphi generics constraints
+  docs: https://docwiki.embarcadero.com/RADStudio/Florence/en/Overview_of_Generics
+delphi-anonymous-method:
+  term: Anonymous method
+  def: >-
+    A nameless procedure or function that can be assigned to a `reference to procedure` variable or passed as a parameter. It is a closure: it captures outer variables (not values) and extends their lifetime. Introduced in Delphi 2009.
+  q: Delphi anonymous methods variable capture
+  docs: https://docwiki.embarcadero.com/RADStudio/Florence/en/Anonymous_Methods_in_Delphi
+  wiki: Closure (computer programming)
+delphi-inline-variable:
+  term: Inline variable
+  def: >-
+    A variable declared among the statements: `var I := 0;`. It is visible to the end of its `begin..end` block, and its type can be inferred from the initializer. Introduced in Delphi 10.3 Rio.
+  q: Delphi inline variable declaration type inference
+  docs: https://docwiki.embarcadero.com/RADStudio/Florence/en/Inline_Variable_Declaration
+delphi-managed-record:
+  term: Custom managed record
+  def: >-
+    A record with `Initialize`, `Finalize` and optionally `Assign` operators that the compiler calls automatically on creation, destruction and copy. It enables RAII-style wrappers. Introduced in Delphi 10.4 Sydney.
+  q: Delphi custom managed records Initialize Finalize
+  docs: https://docwiki.embarcadero.com/RADStudio/Florence/en/Custom_Managed_Records
+delphi-extended-rtti:
+  term: Extended RTTI and attributes
+  def: >-
+    Run-time type information from the `System.Rtti` unit covering a class's fields, methods and properties, not just `published` ones. It stores attributes such as `[Test]` that serializers, ORMs and DUnitX rely on. Introduced in Delphi 2010.
+  q: Delphi extended RTTI attributes TRttiContext
+  docs: https://docwiki.embarcadero.com/RADStudio/Florence/en/Working_with_RTTI
+delphi-conditional-operator:
+  term: Conditional if operator
+  def: >-
+    Delphi 13's ternary operator: `X := if A > B then A else B;`. It works inside any expression, and its type is the common type of both branches.
+  q: Delphi 13 if conditional operator ternary
+  docs: https://docwiki.embarcadero.com/RADStudio/Florence/en/Conditional_Operators_(Delphi)

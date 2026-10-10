@@ -1,0 +1,695 @@
+---
+title: VCL и доступ к данным
+description: Формы и .dfm, Owner и Parent, TDataSet и поля, ADO, dbExpress и FireDAC, хранимые процедуры, потоки без зависания интерфейса.
+sidebar:
+  order: 2
+---
+
+import Q from '@/components/Q.astro';
+import A from '@/components/A.astro';
+import Ex from '@/components/Ex.astro';
+import Next from '@/components/Next.astro';
+import Src from '@/components/Src.astro';
+import T from '@/components/T.astro';
+
+Как устроено VCL-приложение с базой данных: формы и .dfm, наборы данных и поля, библиотеки ADO и FireDAC с вызовом хранимых процедур, фоновые потоки без зависания интерфейса. На этих вопросах проверяют, понимает ли кандидат механизм, а не только умеет раскладывать компоненты по форме.
+
+**Перед этой темой:** [Object Pascal](/sobes/delphi/language/).
+
+<Q id="delphi.vcl.forms" level="j">
+
+## Как устроены формы и компоненты VCL?
+
+<A short l="j">
+
+Форма VCL — класс-наследник `TForm`, а компоненты на ней и значения их свойств хранятся в <T k="dfm-file">файле .dfm</T>, который читается при создании формы. Код формы — в основном обработчики событий: методы, которые VCL вызывает, когда пользователь щёлкает кнопку, открывает или закрывает окно.
+
+</A>
+
+<A short l="m">
+
+Дизайнер сохраняет в .dfm published-свойства компонентов, а при создании формы <T k="component-streaming">потоковая загрузка</T> создаёт компоненты по именам классов и присваивает им свойства и обработчики. У компонента два разных «родителя»: <T k="component-owner">Owner</T> отвечает за освобождение памяти, а <T k="parent-control">Parent</T> — за то, внутри какого оконного контрола он рисуется. Отсюда правило жизненного цикла: <T k="modal-form">модальную форму</T> создаёт и освобождает вызывающий код, а немодальная освобождает себя сама через `Action := caFree` в `OnClose`.
+
+</A>
+
+<A short l="s">
+
+Форма — обычный класс, а .dfm — сериализованное дерево компонентов, которое конструктор формы читает через `TReader` и связывает с published-полями по именам. Владение (Owner) и визуальная вложенность (Parent) — два независимых дерева, и путаница между ними даёт утечки или обращение к освобождённому объекту. В большом приложении главная цена — автосоздание всех форм в .dpr и глобальные переменные форм: старт медленнее, а формы неявно зависят друг от друга. Поэтому формы создают по требованию, а повторяющиеся куски интерфейса выносят во <T k="vcl-frame">фреймы</T> или в наследование форм.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+- **Форма** — класс `TForm1 = class(TForm)` в модуле .pas плюс одноимённый файл .dfm.
+- **.dfm** — компоненты формы и значения их свойств, обычно в текстовом виде.
+- **Событие** — свойство-ссылка на метод: `OnClick` вызовет `Button1Click` при щелчке.
+
+**Жизненный цикл формы**
+
+1. `OnCreate` — компоненты загружены из .dfm.
+2. `OnShow` — форма появляется на экране.
+3. `OnClose` — параметр `Action` решает судьбу формы: `caHide` — скрыть, `caFree` — освободить, `caNone` — не закрывать.
+4. `OnDestroy` — форма уничтожается.
+
+`ShowModal` ждёт закрытия формы и возвращает `ModalResult`, а `Show` сразу возвращает управление.
+
+**Частая ошибка**
+
+Вызвать `Free` для формы в её собственном обработчике: он ещё не закончился и обратится к освобождённой памяти. Для этого есть `Release` и `Action := caFree`.
+
+**Итог:** форма — это класс плюс .dfm, а её поведение задают обработчики событий.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+1. В .dfm попадают published-свойства, значение которых отличается от указанного в директиве `default`.
+2. Конструктор формы находит ресурс .dfm (его подключает `{$R *.dfm}`) и читает его.
+3. Для каждого `object` создаётся компонент нужного класса, свойства присваиваются через RTTI, а одноимённое published-поле формы начинает указывать на него.
+4. Строка `OnClick = btnOkClick` связывается с published-методом формы по имени. Метод переименовали только в коде — форма не загрузится.
+
+**Owner и Parent**
+
+| | Owner | Parent |
+|---|---|---|
+| Отвечает за | освобождение и список `Components` | отображение и положение на экране |
+| Как задать | `Create(AOwner)` | свойство `Parent` |
+| Кто может быть | любой `TComponent` | только `TWinControl` |
+
+Parent тоже освобождает свои дочерние контролы, но его главная роль — визуальная.
+
+**Ловушки**
+
+- Контрол, созданный в коде без `Parent`, не виден.
+- `Create(nil)` без `Free` — утечка. `Create(Self)` для диалога, который создают при каждом вызове, копит объекты до закрытия владельца.
+- `Free` формы из её обработчика — нужен `Release`: он дождётся окончания обработчиков и сообщений формы.
+
+**Правило**
+
+Модальный диалог — `Create(nil)` и `ShowModal` внутри `try..finally Free`. Немодальное окно — `Action := caFree` в `OnClose`.
+
+**Итог:** .dfm восстанавливает объекты через RTTI, Owner отвечает за память, Parent — за отображение.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- `TReader` создаёт компоненты, присваивает свойства и после чтения всей формы вызывает у каждого компонента `Loaded`.
+- Ссылки между компонентами (`DataSource = dsOrders`) разрешаются после чтения всех объектов, поэтому их порядок в .dfm не важен.
+- Важен порядок создания невизуальных компонентов: сохранённые `Connected = True` и `Active = True` открывают соединение и запросы прямо при создании формы.
+- Наследник формы хранит в .dfm только отличия от предка (`inherited`), фрейм на форме — тоже только отличия (`inline`).
+
+**Цена**
+
+- `Application.CreateForm` для всех форм в .dpr: все .dfm читаются на старте, а формы и их открытые запросы живут до выхода из программы.
+- Глобальная переменная `Form1` поощряет связи «форма читает поля другой формы». Такой код трудно тестировать и переносить.
+- Бинарный .dfm не сравнивается в Git, текстовый — читается и мержится.
+
+**Компромиссы**
+
+- **Фрейм** — переиспользуемый кусок интерфейса с кодом. Изменения фрейма видны на всех формах, кроме свойств, переопределённых на конкретной форме.
+- **Наследование форм** даёт общий каркас: кнопки, проверки, обработку ошибок. Глубокая иерархия хрупка: правка предка ломает потомков.
+- **Data module** (`TDataModule`) отделяет соединения и запросы от формы, и их можно использовать без UI.
+
+**Как проверить в проде**
+
+- Утечки форм и компонентов покажет `ReportMemoryLeaksOnShutdown := True` или FastMM в режиме FullDebugMode.
+- Бинарный .dfm начинается с сигнатуры `TPF0` — так легко найти файлы, которые стоит перевести в текст.
+
+**Итог:** форма — сериализованный граф объектов; её временем жизни нужно управлять явно, а не полагаться на автосоздание.
+
+</A>
+
+<Ex>
+
+```pascal
+procedure TMainForm.btnEditOrderClick(Sender: TObject);
+var
+  Dlg: TOrderDialog;
+begin
+  Dlg := TOrderDialog.Create(nil);   // без владельца: освобождаем сами
+  try
+    Dlg.OrderId := 42;
+    if Dlg.ShowModal = mrOk then     // ждёт закрытия и возвращает ModalResult
+      RefreshOrders;
+  finally
+    Dlg.Free;
+  end;
+end;
+
+procedure TMainForm.FormCreate(Sender: TObject);
+var
+  Btn: TButton;
+begin
+  Btn := TButton.Create(Self);       // Owner = форма, она освободит кнопку
+  Btn.Parent := pnlTools;            // без Parent кнопку не видно
+  Btn.Caption := 'Refresh';
+end;
+
+procedure TReportForm.FormClose(Sender: TObject; var Action: TCloseAction);
+begin
+  Action := caFree;                  // немодальная форма освободит себя сама
+end;
+```
+
+</Ex>
+
+<Ex title="Фрагмент .dfm">
+
+```text
+object OrderDialog: TOrderDialog
+  Caption = 'Order'
+  OnCreate = FormCreate
+  object btnOk: TButton
+    Caption = 'OK'
+    ModalResult = 1
+  end
+end
+```
+
+`ModalResult = 1` — это `mrOk`: щелчок по кнопке закроет форму, и `ShowModal` вернёт `mrOk`.
+
+</Ex>
+
+<Next>
+
+- Чем Owner отличается от Parent? — Owner освобождает компонент и хранит его в `Components`, Parent — оконный контрол, внутри которого контрол рисуется.
+- Что делает `Application.CreateForm`? — Создаёт форму с владельцем `Application`; первая созданная так форма становится главной.
+- Почему нельзя вызвать `Free` в обработчике самой формы? — Обработчик ещё выполняется; `Release` откладывает уничтожение до конца обработки сообщений.
+- Чем фрейм отличается от наследования форм? — Фрейм — встраиваемый кусок интерфейса, наследование — общий предок для формы целиком.
+- Что будет, если в .dfm остался обработчик, которого нет в коде? — Форма не загрузится: связь идёт по имени published-метода.
+
+</Next>
+
+<Src>
+
+- [Vcl.Controls.TControl.Parent](https://docwiki.embarcadero.com/Libraries/en/Vcl.Controls.TControl.Parent)
+- [Vcl.Forms.TCustomForm.OnClose](https://docwiki.embarcadero.com/Libraries/en/Vcl.Forms.TCustomForm.OnClose)
+- [Working with Frames](https://docwiki.embarcadero.com/RADStudio/en/Working_with_Frames)
+
+</Src>
+
+</Q>
+
+<Q id="delphi.vcl.dataset" level="m">
+
+## Как устроена работа с данными через TDataSet?
+
+<A short l="j">
+
+<T k="tdataset">`TDataSet`</T> — базовый класс всех наборов данных Delphi: строки результата с текущей записью, по которым ходят методами `First` и `Next` и читают поля через `FieldByName`. <T k="data-aware-control">Data-aware контролы</T> (`TDBGrid`, `TDBEdit`) подключаются к нему через `TDataSource` и сами показывают и редактируют текущую запись.
+
+</A>
+
+<A short l="m">
+
+`TDataSet` — машина <T k="dataset-state">состояний</T>: открытый набор находится в `dsBrowse`, `Edit` и `Insert` переводят его в `dsEdit` и `dsInsert`, а `Post` или `Cancel` возвращают обратно и вызывают события вроде `BeforePost`. Поля — объекты `TField`: <T k="persistent-fields">постоянные</T> создаются в дизайнере и дают типизированный доступ, а вычисляемые и <T k="lookup-field">lookup-поля</T> считаются на клиенте. Цена — каждое перемещение уведомляет все связанные контролы, поэтому массовый проход по записям оборачивают в `DisableControls` и `EnableControls`.
+
+</A>
+
+<A short l="s">
+
+`TDataSet` — общий контракт курсора с буфером записей, состояниями и событиями, поэтому форма одинаково работает с ADO, FireDAC и `TClientDataSet`. События набора удобны для бизнес-логики, но легко становятся скрытыми побочными эффектами: запрос к серверу в `AfterScroll` выполняется при каждом перемещении по сетке. <T k="cached-updates">Кешированные обновления</T> копят изменения на клиенте и применяют их пакетом в короткой транзакции. Цена — конфликты с чужими изменениями всплывают только в `ApplyUpdates`, и их нужно обрабатывать явно.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+`TDataSet` — набор строк с курсором: в каждый момент одна запись текущая. От него наследуются `TADOQuery`, `TFDQuery`, `TClientDataSet` и другие наборы.
+
+**Как связаны компоненты**
+
+1. Запрос (`TFDQuery` или `TADOQuery`) получает строки из базы.
+2. `TDataSource` связывает набор с контролами.
+3. `TDBGrid` или `TDBEdit` со свойствами `DataSource` и `DataField` показывает и редактирует данные.
+
+**Как пользоваться**
+
+- Перемещение: `First`, `Next`, `Prior`, `Last`; конец набора — `Eof`.
+- Чтение: `FieldByName('Amount').AsCurrency`.
+- Изменение: `Edit`, присвоить поля, `Post`. Новая запись — `Append` или `Insert`.
+
+**Частая ошибка**
+
+Присвоить значение полю без `Edit`: набор в `dsBrowse`, и будет исключение «Dataset not in edit or insert mode». Вторая классика — забыть `Next` в цикле `while not Eof` и получить вечный цикл.
+
+**Итог:** `TDataSet` — курсор по строкам, а `TDataSource` подключает к нему контролы.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+1. `Open` переводит набор из `dsInactive` в `dsBrowse`.
+2. `Edit` даёт `dsEdit`, `Insert` или `Append` — `dsInsert`. Для новой записи срабатывает `OnNewRecord` — место для значений по умолчанию.
+3. `Post` записывает изменения. `BeforePost` — место проверок: исключение в нём отменяет запись. `Cancel` откатывает буфер.
+4. Перемещение вызывает `BeforeScroll` и `AfterScroll`. Если запись редактировалась, перемещение сначала неявно выполняет `Post`.
+
+**Виды полей**
+
+| Вид | Откуда значение |
+|---|---|
+| Динамические | создаются при `Open` по колонкам результата |
+| Постоянные | заданы в Fields Editor и лежат в .dfm |
+| Вычисляемые | обработчик `OnCalcFields` |
+| Lookup | другой набор по ключу (`LookupDataSet`) |
+
+**Ловушки**
+
+- Если у набора есть постоянные поля, динамические по умолчанию не создаются: новую колонку запроса не найти через `FieldByName`.
+- Тип постоянного поля должен совпадать с типом колонки: после смены типа в базе набор не откроется.
+- `DisableControls` без `try..finally`: после исключения сетка останется замороженной. У master-detail он ещё и останавливает обновление detail-набора.
+- В `OnCalcFields` нельзя менять набор: при `AutoCalcFields = True` это бесконечная рекурсия.
+
+**Правило**
+
+Проверки — в `BeforePost`. Массовый проход — между `DisableControls` и `EnableControls` в `try..finally`. Тяжёлой работе не место в `AfterScroll`.
+
+**Итог:** набор — машина состояний с событиями, и большинство ошибок — это неверное состояние или лишнее событие.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- Набор держит буфер записей размером с видимую часть сетки, а весь результат хранит конкретная библиотека: клиентский курсор ADO, внутреннее хранилище FireDAC.
+- Контролы связаны с набором через `TDataSource` и объекты `TDataLink`. Набор рассылает им уведомления о смене записи и состояния, а `DisableControls` увеличивает счётчик и глушит эту рассылку.
+- `OldValue` и `CurValue` поля читаются через временные состояния `dsOldValue` и `dsCurValue` — на них строится разрешение конфликтов.
+
+**Кешированные обновления**
+
+| Библиотека | Как включить и применить |
+|---|---|
+| FireDAC | `CachedUpdates := True`, затем `ApplyUpdates` и `CommitUpdates` |
+| ADO | `LockType := ltBatchOptimistic`, затем `UpdateBatch` |
+| `TClientDataSet` | журнал `Delta`, `ApplyUpdates` через провайдер |
+
+`ApplyUpdates` в FireDAC не бросает исключение, а возвращает число ошибок и сам не открывает транзакцию. Поэтому его оборачивают в `StartTransaction` и `Commit`.
+
+**Цена**
+
+- Обработчик `AfterScroll` с запросом к серверу — десятки запросов при пролистывании сетки.
+- Lookup-поле ищет значение в справочнике для каждой записи. Для большого справочника дешевле JOIN на сервере.
+
+**Компромиссы**
+
+Кешированные обновления сокращают блокировки и обращения к серверу, но данные устаревают: между чтением и `ApplyUpdates` их мог изменить другой пользователь. Защита — условие WHERE по ключу или по всем полям (`UpdateOptions.UpdateMode` в FireDAC).
+
+**Как проверить в проде**
+
+Сколько запросов порождает работа с формой, видно в SQL Server Profiler или Extended Events, а для FireDAC — в трассировке FDMonitor.
+
+**Итог:** `TDataSet` прячет запросы за событиями, а кешированные обновления откладывают конфликты, но не отменяют их.
+
+</A>
+
+<Ex>
+
+```pascal
+procedure TOrdersForm.RecalcTotal;
+var
+  Mark: TBookmark;
+  Total: Currency;
+begin
+  Total := 0;
+  Mark := qryOrders.Bookmark;        // запомнить текущую запись
+  qryOrders.DisableControls;         // сетка не перерисовывается на каждой строке
+  try
+    qryOrders.First;
+    while not qryOrders.Eof do
+    begin
+      Total := Total + qryOrdersAmount.AsCurrency; // постоянное поле из .dfm
+      qryOrders.Next;
+    end;
+    qryOrders.Bookmark := Mark;      // вернуться к записи пользователя
+  finally
+    qryOrders.EnableControls;        // счётчик снова ноль — контролы обновятся
+  end;
+  lblTotal.Caption := CurrToStr(Total);
+end;
+
+procedure TOrdersForm.qryOrdersBeforePost(DataSet: TDataSet);
+begin
+  if qryOrdersAmount.AsCurrency <= 0 then
+    raise Exception.Create('Amount must be positive'); // Post отменён, запись в dsEdit
+end;
+```
+
+</Ex>
+
+<Next>
+
+- Чем `TDataSource` отличается от `TDataSet`? — Набор держит данные, а `TDataSource` только связывает его с контролами и может отключить их свойством `Enabled`.
+- Что произойдёт при `Next` в состоянии `dsEdit`? — Набор неявно выполнит `Post`, если запись изменена, или `Cancel`, если нет.
+- Чем вычисляемое поле отличается от lookup? — Вычисляемое считает ваш код в `OnCalcFields`, lookup берёт значение из другого набора по ключу.
+- Зачем `DisableControls`, если есть `BlockReadSize`? — `BlockReadSize` тоже не обновляет контролы, но продолжает обновлять detail-наборы.
+- Как разобрать ошибки после `ApplyUpdates` в FireDAC? — По числу ошибок в результате, затем `FilterChanges` с `rtHasErrors` и `RowError` или обработчик `OnReconcileError`.
+
+</Next>
+
+<Src>
+
+- [Data.DB.TDataSetState](https://docwiki.embarcadero.com/Libraries/en/Data.DB.TDataSetState)
+- [Data.DB.TDataSet.DisableControls](https://docwiki.embarcadero.com/Libraries/en/Data.DB.TDataSet.DisableControls)
+- [Caching Updates (FireDAC)](https://docwiki.embarcadero.com/RADStudio/en/Caching_Updates_(FireDAC))
+
+</Src>
+
+</Q>
+
+<Q id="delphi.vcl.ado-firedac" level="m">
+
+## ADO, dbExpress и FireDAC: чем отличаются и как вызывать хранимые процедуры?
+
+<A short l="j">
+
+Это три библиотеки доступа к данным с общей моделью `TDataSet`: <T k="ado-dbgo">ADO (dbGo)</T> — обёртка над COM-библиотекой Microsoft ADO, <T k="dbexpress">dbExpress</T> — лёгкие однонаправленные наборы, <T k="firedac">FireDAC</T> — основная библиотека для новых проектов. <T k="stored-procedure">Хранимую процедуру</T> вызывают компонентом `TADOStoredProc` или `TFDStoredProc`: задают имя, заполняют параметры и вызывают `ExecProc`, а если процедура возвращает строки — `Open`.
+
+</A>
+
+<A short l="m">
+
+ADO ходит к SQL Server через COM и OLE DB-провайдер, dbExpress устарел и даёт только наборы для чтения вперёд, а FireDAC работает через ODBC-драйвер Microsoft и даёт управление выборкой, <T k="array-dml">Array DML</T>, <T k="firedac-macro">макросы</T> и трассировку. `TFDStoredProc` по имени процедуры сам запрашивает у сервера список параметров, и у SQL Server их имена начинаются с `@`. Цена — лишнее обращение за метаданными: в горячем коде компонент готовят один раз, а параметры можно описать вручную.
+
+</A>
+
+<A short l="s">
+
+Выбор библиотеки — выбор слоя под `TDataSet`: ADO зависит от COM и OLE DB-провайдера, dbExpress объявлен устаревшим, а FireDAC даёт один API, настройку выборки, пул соединений и трассировку. Для приложения с тысячами вызовов процедур важны три вещи: стоимость получения метаданных параметров, режим выборки (`FetchOptions.Mode`, `RowsetSize`) и пакетная отправка через Array DML вместо цикла с `ExecProc`. Переход с ADO на FireDAC меняет поведение в мелочах — именах параметров, типах полей, курсорах, — поэтому его проверяют трассировкой и сравнением результатов, а не заменой компонентов по имени.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+| Библиотека | Как работает |
+|---|---|
+| ADO (dbGo) | компоненты `TADO*` поверх Microsoft ADO (COM) |
+| dbExpress | лёгкие драйверы, наборы только вперёд; устарел |
+| FireDAC | компоненты `TFD*`, один API для многих СУБД |
+
+**Как вызвать процедуру**
+
+1. Положите на форму соединение (`TADOConnection` или `TFDConnection`) и компонент процедуры.
+2. Задайте имя: `ProcedureName` у ADO, `StoredProcName` у FireDAC.
+3. Получите список параметров: `Parameters.Refresh` у ADO, `Prepare` у FireDAC.
+4. Заполните входные параметры и вызовите `ExecProc` или `Open`, если процедура возвращает строки.
+5. После выполнения прочитайте выходные параметры.
+
+**Частая ошибка**
+
+Вызвать `Open` для процедуры без набора строк или `ExecProc` для процедуры, которая его возвращает. FireDAC в обоих случаях сообщит об ошибке.
+
+**Итог:** для формы все три библиотеки — `TDataSet`, а процедура вызывается через имя, параметры и `ExecProc` или `Open`.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+- **ADO** — `TADOConnection` со строкой подключения к OLE DB-провайдеру, наборы `TADOQuery`, `TADOStoredProc`, `TADOCommand`. Курсор по умолчанию клиентский (`CursorLocation = clUseClient`): весь результат приходит на клиент.
+- **dbExpress** — `TSQLConnection`, `TSQLQuery`. Наборы однонаправленные и не редактируются, для сетки нужна связка `TDataSetProvider` и `TClientDataSet`.
+- **FireDAC** — `TFDConnection` с `DriverID=MSSQL`. К SQL Server ходит через ODBC Driver for SQL Server, документация рекомендует версию 18.
+
+**Что даёт FireDAC**
+
+- **Выборка.** `FetchOptions.Mode`: `fmOnDemand` по умолчанию тянет строки порциями по `RowsetSize` (50), `fmAll` — всё сразу при `Open`.
+- **Array DML.** Одна команда с массивами параметров вместо цикла: `Params.ArraySize` и `Execute`.
+- **Макросы.** `&Name` или `!Name` подставляют в текст SQL то, что нельзя передать параметром, например имя таблицы.
+- **Мониторинг.** `TFDMoniRemoteClientLink` и `MonitorBy=Remote` показывают в утилите FDMonitor каждую команду и её время.
+
+**Ловушки**
+
+- Параметры SQL Server в FireDAC называются с `@` (`@CustomerId`). `ResourceOptions.UnifyParams` убирает префикс.
+- FireDAC не поддерживает параметры процедур со значениями по умолчанию: заполняйте их явно.
+- Макрос — подстановка текста, поэтому ввод пользователя в нём — SQL-инъекция.
+
+**Правило**
+
+Новый код — на FireDAC, значения — только параметрами, массовая запись — через Array DML.
+
+**Итог:** все три библиотеки дают `TDataSet`, но развивается только FireDAC, и только он управляет выборкой, пакетами и трассировкой.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- `TFDStoredProc.Prepare` при `fiMeta` в `FetchOptions.Items` запрашивает описание параметров у сервера — это отдельное обращение. ADO делает то же в `Parameters.Refresh`. Поэтому компонент готовят один раз, а в горячем коде параметры описывают вручную.
+- На SQL Server `fmOnDemand` использует серверный статический курсор, а `fmAll` — быстрый forward-only и сразу освобождает соединение для следующей команды.
+- MARS в драйвере MSSQL включён по умолчанию, и документация предупреждает о возможной потере производительности.
+- Array DML на SQL Server выполняется нативно, а ошибки собираются по всем строкам массива.
+
+**Компромиссы**
+
+| Вопрос | ADO | FireDAC |
+|---|---|---|
+| Зависимости | COM и OLE DB-провайдер | ODBC-драйвер SQL Server |
+| Массовая запись | цикл вызовов или batch на клиентском курсоре | Array DML |
+| Диагностика | трассировка на сервере | FDMonitor на клиенте и трассировка на сервере |
+
+**Цена перехода**
+
+Замена ADO на FireDAC — не переименование компонентов: различаются имена и типы параметров, отображение типов полей, курсоры. Это отдельная задача, о ней — в теме [Миграция Delphi 6 → 12/13](/sobes/delphi/migration/).
+
+**Как проверить в проде**
+
+- FDMonitor или `TFDMoniFlatFileClientLink` записывают текст, параметры и время каждой команды.
+- На сервере Extended Events или Query Store показывают, какие процедуры вызываются чаще и работают дольше.
+
+**Итог:** скорость доступа к данным решают метаданные, режим выборки и пакетность, а не выбор компонента.
+
+</A>
+
+<Ex>
+
+```pascal
+// FireDAC: имена параметров SQL Server начинаются с @
+FDStoredProc1.StoredProcName := 'dbo.OrderCreate';
+FDStoredProc1.Prepare;                          // запрос списка параметров у сервера
+FDStoredProc1.ParamByName('@CustomerId').AsInteger := 42;
+FDStoredProc1.ExecProc;                         // процедура без набора строк
+NewOrderId := FDStoredProc1.ParamByName('@OrderId').AsInteger; // OUTPUT-параметр
+
+// ADO: то же самое
+ADOStoredProc1.ProcedureName := 'dbo.OrderCreate';
+ADOStoredProc1.Parameters.Refresh;              // тоже обращение к серверу за метаданными
+ADOStoredProc1.Parameters.ParamByName('@CustomerId').Value := 42;
+ADOStoredProc1.ExecProc;
+NewOrderId := ADOStoredProc1.Parameters.ParamByName('@OrderId').Value;
+
+// Array DML: весь массив одной командой вместо цикла с ExecSQL
+FDQuery1.SQL.Text := 'insert into dbo.ItemTag (ItemId, Tag) values (:ItemId, :Tag)';
+FDQuery1.Params.ArraySize := Length(Tags);
+for I := 0 to High(Tags) do
+begin
+  FDQuery1.Params[0].AsIntegers[I] := Tags[I].ItemId;
+  FDQuery1.Params[1].AsStrings[I] := Tags[I].Name;
+end;
+FDQuery1.Execute(FDQuery1.Params.ArraySize, 0);
+```
+
+</Ex>
+
+<Next>
+
+- Почему набор dbExpress нельзя редактировать в сетке? — Он однонаправленный и не буферизует строки; нужен `TClientDataSet` через `TDataSetProvider`.
+- Как получить RETURN-значение процедуры? — Параметр с `ParamType = ptResult`; у SQL Server он называется `@RETURN_VALUE`.
+- Чем макрос отличается от параметра? — Параметр передаёт значение отдельно от текста, макрос меняет сам текст SQL до отправки.
+- Когда `fmAll`, а когда `fmOnDemand`? — `fmAll` — для небольших результатов и чтобы сразу освободить соединение, `fmOnDemand` — для больших списков, которые листают частями.
+- Процедура возвращает несколько наборов строк — как их прочитать? — `NextRecordSet` в FireDAC, `NextRecordset` в ADO.
+
+</Next>
+
+<Src>
+
+- [Executing Stored Procedures (FireDAC)](https://docwiki.embarcadero.com/RADStudio/en/Executing_Stored_Procedures_(FireDAC))
+- [Array DML (FireDAC)](https://docwiki.embarcadero.com/RADStudio/en/Array_DML_(FireDAC))
+- [Connect to Microsoft SQL Server (FireDAC)](https://docwiki.embarcadero.com/RADStudio/en/Connect_to_Microsoft_SQL_Server_(FireDAC))
+
+</Src>
+
+</Q>
+
+<Q id="delphi.vcl.threads" level="s">
+
+## Как работать с потоками в VCL-приложении и не сломать UI?
+
+<A short l="j">
+
+В VCL весь интерфейс работает в <T k="vcl-main-thread">главном потоке</T>, который крутит <T k="message-loop">цикл сообщений</T>: пока он выполняет долгий запрос, окно не перерисовывается и «не отвечает». Долгую работу выносят в <T k="tthread">`TThread`</T> или задачу `TTask`, а результат показывают через `TThread.Synchronize` или `TThread.Queue`, потому что трогать контролы из другого потока нельзя.
+
+</A>
+
+<A short l="m">
+
+VCL не потокобезопасна, поэтому контролы меняют только из главного потока: `Synchronize` выполняет код там и ждёт завершения, а `Queue` ставит код в очередь и сразу возвращается. Для работы с базой у каждого потока своё соединение: соединение FireDAC и его наборы в каждый момент может использовать только один поток. `Application.ProcessMessages` в долгом цикле поток не заменяет: окно оживает, но открывается дорога <T k="reentrancy">повторному входу</T> в обработчики.
+
+</A>
+
+<A short l="s">
+
+Главный поток только принимает ввод и рисует, а работа с базой идёт в фоне со своим соединением из пула, и результаты возвращаются в UI через `Queue`. Основная сложность — время жизни: форма может закрыться раньше потока, поэтому нужны кооперативная отмена (`Terminate`, `ITask.Cancel`) и ожидание потока перед уничтожением формы. `Synchronize` из потока, которого главный поток ждёт на блокировке, даёт взаимоблокировку, а `ProcessMessages` — повторный вход и обращение к освобождённым объектам. <T k="parallel-programming-library">PPL</T> упрощает запуск задач, но этих правил не отменяет.
+
+</A>
+
+<A l="j">
+
+**Что это**
+
+- **Главный поток** создаёт окна и обрабатывает их сообщения: щелчки, нажатия клавиш, перерисовку.
+- **Фоновый поток** — `TThread` или задача `TTask`. Он делает долгую работу, не останавливая цикл сообщений.
+
+**Зачем**
+
+Запрос на 10 секунд в обработчике кнопки на 10 секунд замораживает окно. Windows пишет «Не отвечает», а пользователь щёлкает ещё раз.
+
+**Как пользоваться**
+
+1. Запустите работу в фоне: `TThread.CreateAnonymousThread(...).Start` или `TTask.Run(...)`.
+2. Чтобы показать результат, передайте код в `TThread.Synchronize` или `TThread.Queue` — он выполнится в главном потоке.
+3. Пока работа идёт, отключите кнопку запуска.
+
+**Частая ошибка**
+
+Менять `Label1.Caption` или `ProgressBar1.Position` прямо из фонового потока. Иногда это «работает», а потом приложение зависает или падает в случайном месте.
+
+**Итог:** интерфейс — в главном потоке, долгая работа — в фоне, результат — через `Synchronize` или `Queue`.
+
+</A>
+
+<A l="m">
+
+**Как устроено**
+
+| | `Synchronize` | `Queue` |
+|---|---|---|
+| Фоновый поток | ждёт, пока главный выполнит код | сразу продолжает работу |
+| Подходит для | ответа из UI, например выбора в диалоге | прогресса, лога, уведомлений |
+
+Из главного потока `Queue` выполняет код сразу; `ForceQueue` всегда ставит его в очередь.
+
+**Способы запуска**
+
+- **Наследник `TThread`** с методом `Execute` — полный контроль: `Terminate`, `WaitFor`, `OnTerminate`, который выполняется в главном потоке.
+- **`TThread.CreateAnonymousThread`** — для разовой работы. Поток освобождает себя сам (`FreeOnTerminate`), после `Start` его ссылку трогать нельзя.
+- **PPL** (`System.Threading`): `TTask.Run` — задача на пуле потоков, `TTask.Future<T>` — задача с результатом, `TParallel.For` — параллельный цикл.
+
+**Ловушки**
+
+- **`ProcessMessages`.** Пока он обрабатывает очередь, пользователь может снова нажать кнопку или закрыть форму, и обработчик продолжит работу с освобождённой формой.
+- **Общее соединение.** Два потока на одном `TFDConnection` дают AV или ошибку SQL Server «Connection is busy with results for another command».
+- **ADO в потоке** — это COM: в начале `Execute` нужен `CoInitialize(nil)`, в конце — `CoUninitialize`.
+- **Захват переменной.** Анонимный метод захватывает переменную, а не значение: `Queue` внутри цикла может показать уже следующее значение счётчика.
+
+**Правило**
+
+UI — только из главного потока, у фонового потока — своё соединение, прогресс — через `Queue`.
+
+**Итог:** `Synchronize` ждёт главный поток, `Queue` — нет, а соединение с базой у каждого потока своё.
+
+</A>
+
+<A l="s">
+
+**Под капотом**
+
+- `Synchronize` и `Queue` кладут вызов в общую очередь и будят главный поток. Он выполняет её в `CheckSynchronize`, когда возвращается в цикл сообщений, а до тех пор поток в `Synchronize` стоит.
+- `TTask` выполняется на пуле потоков. `ITask.Cancel` только помечает задачу, а код сам вызывает `TTask.CurrentTask.CheckCanceled`, который бросит `EOperationCancelled`.
+- `TTask.WaitForAll` и чтение `IFuture<T>.Value` в главном потоке блокируют его так же, как синхронный запрос.
+
+**Цена**
+
+- Соединение на поток — это сессии на сервере. Пул FireDAC (`Pooled=True` в определении соединения, `POOL_MaximumItems` по умолчанию 50) переиспользует физические соединения. `FDManager.Active := True` выставляют до запуска потоков.
+- `Queue` на каждую строку заваливает очередь главного потока. Прогресс обновляют раз в N строк или по таймеру.
+
+**Компромиссы**
+
+- **Отмена.** `Terminated` проверяется только между командами. Прервать уже выполняемую команду FireDAC позволяет `AbortJob` у её соединения.
+- **Взаимоблокировка.** Главный поток ждёт критическую секцию или событие, а фоновый, держа её, вызывает `Synchronize` — оба ждут друг друга.
+- **Закрытие формы.** В `OnCloseQuery` потоки останавливают через `Terminate` и `WaitFor`, а невыполненные вызовы снимают `TThread.RemoveQueuedEvents`. Иначе запоздалый `Queue` обратится к освобождённой форме.
+
+**Как проверить в проде**
+
+- madExcept и EurekaLog умеют ловить зависание главного потока и сохраняют стеки всех потоков.
+- В лог пишите `TThread.Current.ThreadID`, чтобы видеть, в каком потоке выполнялся код.
+
+**Итог:** поток сам по себе не делает приложение отзывчивым: нужны своё соединение, отмена, ожидание при закрытии и никакого UI вне главного потока.
+
+</A>
+
+<Ex>
+
+```pascal
+procedure TStockWorker.Execute;
+var
+  Conn: TFDConnection;
+  Proc: TFDStoredProc;
+  Batch: Integer;
+begin
+  Conn := TFDConnection.Create(nil);         // у потока своё соединение
+  Proc := TFDStoredProc.Create(nil);
+  try
+    Conn.ConnectionDefName := 'Shop_Pooled'; // определение с Pooled=True
+    Proc.Connection := Conn;
+    Proc.StoredProcName := 'dbo.RecalcStock';
+    Proc.Prepare;
+    for Batch := 1 to 100 do
+    begin
+      if Terminated then Exit;               // кооперативная отмена, finally всё освободит
+      Proc.ParamByName('@BatchNo').AsInteger := Batch;
+      Proc.ExecProc;
+      ReportProgress(Batch);
+    end;
+  finally
+    Proc.Free;
+    Conn.Free;
+  end;
+end;
+
+procedure TStockWorker.ReportProgress(Value: Integer);
+begin
+  // Value — параметр: у каждого вызова своя копия, а не общий счётчик цикла
+  TThread.Queue(Self, procedure
+    begin
+      MainForm.ProgressBar1.Position := Value; // выполнится в главном потоке
+    end);
+end;
+```
+
+Форма при закрытии вызывает `Worker.Terminate` и `Worker.WaitFor`, а затем `TThread.RemoveQueuedEvents(Worker)`, чтобы в очереди не осталось обращений к ней.
+
+</Ex>
+
+<Next>
+
+- Чем `Synchronize` отличается от `Queue`? — Первый ждёт выполнения кода в главном потоке, второй ставит код в очередь и не ждёт.
+- Почему `Application.ProcessMessages` опасен? — Повторный вход: посреди вашего кода выполняются другие обработчики, форму могут закрыть.
+- Можно ли использовать один `TFDConnection` из двух потоков? — Только строго поочерёдно; на практике — своё соединение на поток и пул.
+- Как отменить уже выполняемый запрос? — `AbortJob` у соединения FireDAC; флаг `Terminated` проверяется только между командами.
+- Что нужно ADO в фоновом потоке? — `CoInitialize` в начале `Execute` и `CoUninitialize` в конце, потому что ADO — это COM.
+
+</Next>
+
+<Src>
+
+- [System.Classes.TThread.Synchronize](https://docwiki.embarcadero.com/Libraries/en/System.Classes.TThread.Synchronize)
+- [System.Classes.TThread.Queue](https://docwiki.embarcadero.com/Libraries/en/System.Classes.TThread.Queue)
+- [Multithreading (FireDAC)](https://docwiki.embarcadero.com/RADStudio/en/Multithreading_(FireDAC))
+
+</Src>
+
+</Q>
