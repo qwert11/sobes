@@ -202,3 +202,16 @@ load-testing:
     способности, рост задержек и точку деградации. Инструменты — k6, NBomber, JMeter, bombardier.
   q: load testing ASP.NET Core
   docs: https://learn.microsoft.com/aspnet/core/test/load-tests
+http:
+  term: HTTP
+  def: >-
+    Протокол «запрос — ответ» поверх TCP, на котором работает веб: клиент шлёт метод, путь и заголовки, сервер отвечает кодом состояния и телом. Состояния между запросами протокол не хранит, поэтому сессию переносят в куки, токены или заголовки.
+  q: протокол HTTP
+  docs: https://developer.mozilla.org/docs/Web/HTTP
+  wiki: HTTP
+http-client:
+  term: HttpClient
+  def: >-
+    Класс .NET для исходящих HTTP-запросов. Создавать его на каждый запрос нельзя — сокеты копятся в `TIME_WAIT`; держать один статический экземпляр тоже плохо — он не замечает смену DNS. Штатный способ — `IHttpClientFactory`.
+  q: HttpClient правильное использование
+  docs: https://learn.microsoft.com/dotnet/fundamentals/networking/http/httpclient-guidelines

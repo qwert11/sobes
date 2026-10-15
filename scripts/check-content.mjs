@@ -41,6 +41,10 @@ for (const lang of LANGS) {
       if (typeof entry?.term !== 'string' || typeof entry?.def !== 'string') {
         err(rel, `«${key}»: нужны строковые поля term и def`);
       }
+      if (entry?.forms !== undefined) {
+        const bad = !Array.isArray(entry.forms) || entry.forms.some((f) => typeof f !== 'string' || !f.trim());
+        if (bad) err(rel, `«${key}»: forms — список непустых строк`);
+      }
       if (glossary[lang].has(key)) warn(rel, `ключ «${key}» уже есть в ${glossary[lang].get(key)}`);
       else glossary[lang].set(key, rel);
     }

@@ -5,6 +5,7 @@ garbage-collector:
   q: .NET garbage collector
   docs: https://learn.microsoft.com/dotnet/standard/garbage-collection/fundamentals
   wiki: Сборка мусора
+  forms: ['Сборщик мусора', 'garbage collector', 'GC', 'трассирующий сборщик', 'сборка мусора']
 gc-root:
   term: Корень GC (GC root)
   def: >-
@@ -23,6 +24,7 @@ idisposable:
     Интерфейс с единственным методом `Dispose` для детерминированного освобождения ресурсов: файлов, сокетов, соединений, неуправляемой памяти. Вызывается явно или через `using`.
   q: IDisposable C#
   docs: https://learn.microsoft.com/dotnet/api/system.idisposable
+  forms: ['IDisposable', 'Dispose']
 unmanaged-resource:
   term: Неуправляемый ресурс (unmanaged resource)
   def: >-
@@ -156,3 +158,16 @@ heap-hard-limit:
     Максимальный объём памяти, который может занять куча GC. В контейнере с лимитом памяти по умолчанию равен большему из 20 МБ и 75 % лимита; задаётся через `GCHeapHardLimit` или `GCHeapHardLimitPercent`.
   q: GCHeapHardLimit
   docs: https://learn.microsoft.com/dotnet/core/runtime-config/garbage-collector
+gc-collect:
+  term: GC.Collect
+  def: >-
+    Ручной запуск сборки мусора. В коде приложения почти всегда вреден: выжившие объекты продвигаются в старшие поколения, а самонастройка порогов сбивается. Уместен в тестах, бенчмарках и диагностике — обычно вместе с `GC.WaitForPendingFinalizers`.
+  q: GC.Collect когда вызывать
+  docs: https://learn.microsoft.com/dotnet/api/system.gc.collect
+safe-point:
+  term: Безопасная точка (safe point)
+  def: >-
+    Место в коде, где рантайм точно знает, где лежат ссылки, и может остановить поток для сборки. Блокирующая сборка ждёт, пока потоки дойдут до таких точек; поток в нативном коде не останавливают, но вернуться в управляемый код до конца сборки он не сможет.
+  q: .NET GC safe point suspension
+  docs: https://learn.microsoft.com/dotnet/standard/garbage-collection/fundamentals
+  forms: ['безопасная точка', 'safe point', 'безопасных точках']

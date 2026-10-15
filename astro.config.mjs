@@ -1,6 +1,8 @@
 // @ts-check
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
+import { satteri } from '@astrojs/markdown-satteri';
+import glossaryAutolink from './src/plugins/glossary-autolink.mjs';
 
 // Уровень ответа и режим карточек выставляются до первой отрисовки,
 // чтобы при загрузке страницы не мигали чужие уровни.
@@ -9,6 +11,8 @@ const bootScript = `try{var d=document.documentElement,s=localStorage;d.dataset.
 export default defineConfig({
   site: 'https://qwert11.github.io',
   base: '/sobes',
+  // Термины глоссария размечаются на сборке в каждом блоке ответа: см. src/plugins/glossary-autolink.mjs.
+  markdown: { processor: satteri({ mdastPlugins: [glossaryAutolink] }) },
   integrations: [
     starlight({
       title: {

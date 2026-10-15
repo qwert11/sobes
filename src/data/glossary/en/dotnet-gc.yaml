@@ -5,6 +5,7 @@ garbage-collector:
   q: .NET garbage collector
   docs: https://learn.microsoft.com/dotnet/standard/garbage-collection/fundamentals
   wiki: Garbage collection (computer science)
+  forms: ['garbage collector', 'GC', 'tracing collector']
 gc-root:
   term: GC root
   def: >-
@@ -23,6 +24,7 @@ idisposable:
     An interface with a single `Dispose` method for deterministic release of resources: files, sockets, connections, unmanaged memory. Called explicitly or through `using`.
   q: IDisposable C#
   docs: https://learn.microsoft.com/dotnet/api/system.idisposable
+  forms: ['IDisposable', 'Dispose']
 unmanaged-resource:
   term: Unmanaged resource
   def: >-
@@ -156,3 +158,15 @@ heap-hard-limit:
     The maximum amount of memory the GC heap may take. In a container with a memory limit it defaults to the larger of 20 MB and 75% of the limit; set it with `GCHeapHardLimit` or `GCHeapHardLimitPercent`.
   q: GCHeapHardLimit
   docs: https://learn.microsoft.com/dotnet/core/runtime-config/garbage-collector
+gc-collect:
+  term: GC.Collect
+  def: >-
+    A manual garbage collection. In application code it almost always hurts: survivors are promoted to older generations and the self-tuned budgets are thrown off. It belongs in tests, benchmarks and diagnostics, usually next to `GC.WaitForPendingFinalizers`.
+  q: GC.Collect when to call
+  docs: https://learn.microsoft.com/dotnet/api/system.gc.collect
+safe-point:
+  term: Safe point
+  def: >-
+    A place in the code where the runtime knows exactly where references live and can suspend the thread for a collection. A blocking collection waits for threads to reach one; a thread in native code is not suspended but cannot return to managed code until the collection ends.
+  q: .NET GC safe point suspension
+  docs: https://learn.microsoft.com/dotnet/standard/garbage-collection/fundamentals
