@@ -20,25 +20,7 @@ OAuth 2.0 roles and flows, tokens and their lifetime, OpenID Connect sign-in in 
 
 ## What is OAuth 2.0 and how does OpenID Connect differ from it?
 
-<A short l="j">
-
-<T k="oauth2">OAuth 2.0</T> is a delegated access protocol: the user lets an app call an API on their behalf, and the app gets an <T k="access-token">access token</T> instead of the password. <T k="openid-connect">OpenID Connect</T> (OIDC) is a sign-in layer on top of OAuth 2.0: the app also gets an <T k="id-token">ID token</T> that tells it who signed in.
-
-</A>
-
-<A short l="m">
-
-OAuth 2.0 (RFC 6749) answers "what is the app allowed to do": the <T k="authorization-server">authorization server</T> issues the client an access token limited by <T k="oauth-scope">scopes</T>, and the API validates it. OAuth does not define who the user is — OIDC adds that: the `openid` scope, the ID token, the UserInfo endpoint and provider metadata. That is why sign-in is built on OIDC: "signing in" with an access token alone is dangerous, because that token is meant for the API, not the client.
-
-</A>
-
-<A short l="s">
-
-The core of OAuth is separation of roles: only the authorization server sees the password, and the client gets a token limited by scope and lifetime. The API trusts the authorization server's signature, not the client, and to the client the access token is an opaque string. OIDC standardizes authentication on top of OAuth: the ID token is addressed to the client (`aud` equals `client_id`) and carries `sub`, the issuer, the sign-in time and a `nonce` against substitution. The cost is redirects, signing keys and a dependency on the provider; the payoff is one sign-in for every app.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -65,10 +47,6 @@ The core of OAuth is separation of roles: only the authorization server sees the
 Treating an access token as proof of sign-in. It is meant for the API; the ID token is what says who signed in.
 
 **Takeaway:** OAuth gives an app access, OIDC tells it who the user is.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -97,10 +75,6 @@ Treating an access token as proof of sign-in. It is meant for the API; the ID to
 User authentication — OIDC; API access — an access token with a narrow scope.
 
 **Takeaway:** OIDC is OAuth 2.0 plus the ID token, UserInfo and discovery — standard sign-in on top of standard access.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -175,25 +149,7 @@ User authentication — OIDC; API access — an access token with a narrow scope
 
 ## What OAuth flows are there and when do you use each?
 
-<A short l="j">
-
-A flow (grant type) is the scenario a client follows to get a token. When a user signs in, you use <T k="authorization-code-flow">authorization code</T> with <T k="pkce">PKCE</T>; when a service calls a service, <T k="client-credentials">client credentials</T>; implicit and password sign-in are obsolete.
-
-</A>
-
-<A short l="m">
-
-You pick a flow by two questions: is there a user, and can the client keep a secret. A user in a browser gets authorization code with PKCE, where the browser only sees a one-time code; a service gets client credentials; a device without a browser gets <T k="device-code-flow">device code</T>. Implicit puts the token straight into the URL and the password flow shows the password to the client: RFC 9700 discourages the first and forbids the second, and the OAuth 2.1 draft drops both.
-
-</A>
-
-<A short l="s">
-
-Flows differ in which channel carries the token and how the client proves it is the one that started the sign-in. Authorization code only lets a one-time code through the browser, and PKCE binds its redemption to whoever started the flow. RFC 9700 requires PKCE for <T k="public-client">public clients</T> and recommends it for <T k="confidential-client">confidential ones</T>, and treats implicit and the password flow as unsafe: a token in the URL, a password in the client. The cost of doing it right is redirects and exact `redirect_uri` registration; the payoff is that tokens stay out of browser history and proxy logs.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -213,10 +169,6 @@ A flow (grant type) is the scenario a client follows to get a token. The choice 
 Picking the password flow (`grant_type=password`) because it is "simpler": the app collects the username and password itself. Then the client sees the password, and MFA and single sign-on stop working. Current guidance forbids this flow.
 
 **Takeaway:** a user means authorization code with PKCE, a service means client credentials.
-
-</A>
-
-<A l="m">
 
 **How it works: authorization code + PKCE**
 
@@ -242,10 +194,6 @@ Picking the password flow (`grant_type=password`) because it is "simpler": the a
 Authorization code + PKCE for every client with a user, client credentials for services, device code for devices without a browser. Implicit and password have no place in new code.
 
 **Takeaway:** only a one-time code passes through the browser, and PKCE guarantees that the client redeeming it is the one that started the sign-in.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -341,25 +289,7 @@ Console.WriteLine(challenge.Length); // 43
 
 ## What kinds of tokens are there and how do you manage their lifetime?
 
-<A short l="j">
-
-An access token grants access to an API and lives for minutes, a <T k="refresh-token">refresh token</T> lets the client get a new access token without signing in again, and an ID token only tells the client who signed in. That is why access tokens are kept short and refresh tokens are stored most carefully.
-
-</A>
-
-<A short l="m">
-
-An access token is limited by scopes — what is allowed — and <T k="token-audience">audience</T> — which API it is for; a refresh token is exchanged for a new pair at `/token`, and an ID token is only needed at sign-in. A short-lived access token limits the damage from a leak, and <T k="refresh-token-rotation">refresh token rotation</T> issues a new refresh token on every refresh and detects reuse of the old one. The cost is frequent calls to the authorization server and refresh logic in the client.
-
-</A>
-
-<A short l="s">
-
-Token lifetime is a trade-off between revocation and scale. The API validates a JWT locally by its signature but cannot revoke it before `exp`; an <T k="opaque-token">opaque token</T> can be revoked instantly but needs <T k="token-introspection">introspection</T> at the authorization server. So access tokens are kept short, and the session is managed through the refresh token: rotation with reuse detection, an absolute lifetime and <T k="token-revocation">revocation</T> on sign-out. For public clients RFC 9700 requires rotation or binding the refresh token to the client's key.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -380,10 +310,6 @@ Token lifetime is a trade-off between revocation and scale. The API validates a 
 Issuing access tokens for a whole day "to avoid dealing with refresh". A stolen token then works for a day, and if it is a JWT it cannot be revoked.
 
 **Takeaway:** the access token is short-lived and for the API, the refresh token is long-lived and only for the authorization server, the ID token is for the client at sign-in.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -411,10 +337,6 @@ JWT structure and validation are covered in [JWT and API protection](/sobes/en/s
 A short access token with a precise audience, a rotated refresh token, and revocation on sign-out.
 
 **Takeaway:** scope and audience limit what a token can do and where, while a short lifetime and rotation limit how long it can be abused.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -503,25 +425,7 @@ The `/token`, `/revoke` and `/introspect` URLs differ between providers: take th
 
 ## How do you add OpenID Connect sign-in to ASP.NET Core?
 
-<A short l="j">
-
-OIDC sign-in is built from two <T k="authentication-scheme">authentication schemes</T>: the OIDC scheme takes the user to the provider and processes the response, and the cookie scheme keeps the session. You configure `Authority`, `ClientId`, the secret and `ResponseType = "code"`, and the handler reads endpoint URLs and keys from the discovery document itself.
-
-</A>
-
-<A short l="m">
-
-`AddOpenIdConnect` is a remote handler: on <T k="auth-challenge">challenge</T> it sends the browser to `/authorize`, and on the `/signin-oidc` callback it exchanges the code for tokens, validates the ID token and signs in with the cookie scheme. PKCE is on by default but only for `ResponseType = code`, and the default there is `id_token`; since .NET 9 <T k="pushed-authorization-request">PAR</T> kicks in automatically if the provider supports it. The decisions are yours: whether to store tokens in the cookie (`SaveTokens`), whether to rename <T k="claim">claims</T> (`MapInboundClaims`), and who refreshes the access token — the handler does not.
-
-</A>
-
-<A short l="s">
-
-The OIDC handler keeps sign-in state — the return URL and `code_verifier` — in the `state` parameter encrypted with <T k="data-protection">Data Protection</T>, while correlation and nonce cookies bind the callback to the browser. So a server farm needs shared Data Protection keys, otherwise a callback that lands on another node fails. The session lives in the cookie, not in the token: you configure its lifetime, access token refresh and sign-out at the provider. The cost of `SaveTokens` is a big cookie on every request; `SessionStore` moves it to the server.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -542,10 +446,6 @@ OIDC sign-in in ASP.NET Core is two authentication schemes working together:
 Keeping `ClientSecret` in `appsettings.json` in the repository. In development the secret goes to user secrets, in production to a secret store.
 
 **Takeaway:** the OIDC scheme performs sign-in, the cookie scheme remembers it.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -576,10 +476,6 @@ Keeping `ClientSecret` in `appsettings.json` in the repository. In development t
 `ResponseType = code`, the secret outside the repository, `MapInboundClaims = false` with explicit `NameClaimType` and `RoleClaimType`.
 
 **Takeaway:** the OIDC handler performs sign-in and validates the ID token; the session, token storage and refresh are yours to configure.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -682,25 +578,7 @@ app.Run();
 
 ## How do you secure an SPA: tokens in the browser or a BFF?
 
-<A short l="j">
-
-An SPA can get tokens itself, using authorization code with PKCE in the browser, or hand sign-in to a server following the <T k="bff">BFF</T> pattern — then the browser only holds a cookie. Any script can steal a token from `localStorage` during an <T k="xss">XSS</T> attack, which is why BFF is recommended for business apps.
-
-</A>
-
-<A short l="m">
-
-A BFF is the SPA's server side on the same site: it signs in via OIDC as a confidential client, keeps the tokens and gives the browser an HttpOnly cookie with <T k="samesite-cookie">SameSite</T>. A client that lives entirely in the browser, for example with angular-oauth2-oidc, is easier to deploy, but its tokens are reachable from JavaScript, and <T k="silent-renew">silent renew</T> through an iframe breaks wherever <T k="third-party-cookies">third-party cookies</T> are blocked. The cost of a BFF is your own server with an API proxy and <T k="csrf">CSRF</T> protection, since authentication is cookie-based again.
-
-</A>
-
-<A short l="s">
-
-RFC 10017 (2026) ranks three SPA architectures — BFF, token-mediating backend and a client entirely in the browser — and recommends BFF for business apps that handle personal data. Storage location is not what decides it: with XSS, a script can run a silent sign-in in a hidden iframe and get fresh tokens, and <T k="dpop">DPoP</T> does not stop that. A BFF does not remove XSS but limits the damage: the attacker can act only from the open tab and cannot walk away with a refresh token. The cost is a server in the path of every request, CSRF protection and session scaling.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -718,10 +596,6 @@ If a foreign script gets onto the page (XSS), it reads the token from `localStor
 Thinking that `sessionStorage` instead of `localStorage` solves the problem. A script on the page can read both.
 
 **Takeaway:** the fewer tokens the browser sees, the less XSS can steal, and a BFF never gives them to the browser at all.
-
-</A>
-
-<A l="m">
 
 **How it works: BFF**
 
@@ -749,10 +623,6 @@ Thinking that `sessionStorage` instead of `localStorage` solves the problem. A s
 A business app with personal data — BFF. Tokens in the browser — when there is no server and the risk is acceptable: PKCE, short tokens, refresh token rotation.
 
 **Takeaway:** a BFF trades token theft via XSS for CSRF protection, which is easier to solve.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 

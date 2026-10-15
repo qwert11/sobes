@@ -20,25 +20,7 @@ How code gets from a pull request to production: what steps a pipeline has, whic
 
 ## What are CI and CD, and what steps make up a .NET pipeline?
 
-<A short l="j">
-
-<T k="continuous-integration">Continuous integration</T> (CI) means every change is built and tested automatically, and <T k="continuous-delivery">continuous delivery</T> (CD) means a verified build is automatically brought to a "ready to deploy" state. So a mistake shows up minutes after the push, not on release day.
-
-</A>
-
-<A short l="m">
-
-CI is the practice of merging into a shared branch often, with every pull request and commit going through a <T k="ci-pipeline">pipeline</T>: restore, build, test, code analysis. CD continues from there: it publishes an <T k="build-artifact">artifact</T> and promotes it through environments; continuous delivery leaves the production deployment to a human, while <T k="continuous-deployment">continuous deployment</T> ships every green change on its own. The cost is that the pipeline becomes code you have to maintain: a slow or flaky pipeline is one the team starts working around.
-
-</A>
-
-<A short l="s">
-
-A pipeline is code in the repository (YAML or a `Jenkinsfile`) that turns a commit into an immutable, versioned artifact and promotes it through environments. The core principle is build once and deploy the same artifact everywhere, changing only configuration; otherwise you tested one thing and shipped another. PR checks have to finish in minutes, so heavy runs move to nightly or release builds. Choosing between delivery and deployment depends not on the tool but on the maturity of your tests, monitoring and rollback.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -64,10 +46,6 @@ Rebuilding the project for every environment. Then production gets a different b
 
 **Takeaway:** CI checks every change; CD takes a verified build all the way to deployment.
 
-</A>
-
-<A l="m">
-
 **How it works**
 
 - The pipeline is described as code in the repository: `.github/workflows/*.yml` in GitHub Actions, a `Jenkinsfile` in Jenkins. It is versioned and reviewed like any other code.
@@ -92,10 +70,6 @@ Rebuilding the project for every environment. Then production gets a different b
 On a PR: fast checks, and no merge without a green status. On `main`: build the artifact once and promote it through the environments.
 
 **Takeaway:** a pipeline is versioned code: on a PR it verifies, on `main` it builds one artifact for every environment.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -210,25 +184,7 @@ pipeline {
 
 ## How do you keep track of code quality automatically?
 
-<A short l="j">
-
-Quality is checked on every pull request without a human: <T k="roslyn-analyzer">analyzers</T> find problems during the build, tests produce <T k="code-coverage">coverage</T>, and SonarQube compares the result against a <T k="quality-gate">quality gate</T> — a set of thresholds. If a threshold is not met, the PR can't be merged.
-
-</A>
-
-<A short l="m">
-
-The checks come in layers: during the build, Roslyn analyzers and nullable warnings with rules from <T k="editorconfig">`.editorconfig`</T> and `TreatWarningsAsErrors`; in the pipeline, `dotnet format --verify-no-changes` and SonarQube with a coverage report. The "Sonar way" quality gate looks only at new code: no new issues, at least 80% coverage on new code, at most 3% duplication. The check status becomes mandatory in <T k="branch-protection">branch protection rules</T> along with code review; the cost is false-positive noise, so rules are turned on gradually.
-
-</A>
-
-<A short l="s">
-
-An automated check is worth something when it blocks the merge: an analyzer error in the build is cheaper than an issue on a dashboard nobody opens. So strictness lives in the code (`TreatWarningsAsErrors`, `AnalysisLevel`, severities in `.editorconfig`), and SonarQube keeps what is only visible at project level: coverage, duplication, <T k="code-smell">code smells</T>, security hotspots. Focusing on new code lets you put a strict gate on a legacy project without rewriting the old code. The cost is false positives and suppressions, which also need review.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -252,10 +208,6 @@ Chasing 100% coverage. Coverage shows which code ran, not that its result was ch
 
 **Takeaway:** analyzers, tests and the quality gate check every PR; code review covers what can't be automated.
 
-</A>
-
-<A l="m">
-
 **How it works**
 
 1. **Build.** Roslyn analyzers are on by default since .NET 5. `AnalysisLevel` picks the rule set: `latest-recommended` is stricter than the default. `IDExxxx` style rules run in a command-line build only with `EnforceCodeStyleInBuild`.
@@ -275,10 +227,6 @@ Chasing 100% coverage. Coverage shows which code ran, not that its result was ch
 Whatever can be checked in the build, check in the build. SonarQube holds the thresholds on new code; branch protection makes the checks mandatory.
 
 **Takeaway:** strictness lives in the build, thresholds in SonarQube, enforcement in branch protection.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -392,25 +340,7 @@ stage('Quality gate') {
 
 ## How do you manage packages and versions?
 
-<A short l="j">
-
-Versions follow <T k="semver">SemVer</T> — `MAJOR.MINOR.PATCH`: major goes up for breaking changes, minor for new features, patch for fixes. Your own libraries are published to a private <T k="nuget-feed">NuGet feed</T>, and projects reference them as regular packages instead of copying `.dll` files.
-
-</A>
-
-<A short l="m">
-
-Internal libraries live in a private feed, versions of all packages are set in one place with Central Package Management, and a <T k="package-lock-file">lock file</T> plus `dotnet restore --locked-mode` in CI guarantee that restore picks exactly the same versions. <T k="nuget-audit">NuGetAudit</T> warns about vulnerable packages on every restore. The build version is computed from git tags (MinVer, GitVersion) rather than edited by hand; the cost is discipline around tags and branches.
-
-</A>
-
-<A short l="s">
-
-Dependencies are a supply chain: where a package came from, which version it is, and whether you can rebuild the same thing a year later. So there is one feed that proxies nuget.org, <T k="package-source-mapping">Package Source Mapping</T> prevents internal names from being hijacked, lock files make restore reproducible, and NuGetAudit checks transitive packages too. A package version following SemVer is a contract with consumers, and <T k="source-link">Source Link</T> takes the debugger to the exact commit. The cost is that a fresh advisory can break the build at a bad moment, so you decide up front which severity levels block the pipeline.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -428,10 +358,6 @@ Dependencies are a supply chain: where a package came from, which version it is,
 Re-uploading a changed package under the same version. Everyone's `~/.nuget/packages` cache already holds the old one, and builds start to diverge.
 
 **Takeaway:** SemVer tells consumers what changed, and a private feed serves internal packages the same way nuget.org does.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -460,10 +386,6 @@ Re-uploading a changed package under the same version. Everyone's `~/.nuget/pack
 One feed, versions in `Directory.Packages.props`, a lock file and `--locked-mode` for applications, the version from a tag.
 
 **Takeaway:** lock files give reproducibility, the audit gives safety, SemVer from tags gives clarity.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -553,25 +475,7 @@ One feed, versions in `Directory.Packages.props`, a lock file and `--locked-mode
 
 ## What deployment strategies are there, and how do you roll back?
 
-<A short l="j">
-
-A deployment strategy defines how the new version replaces the old one: <T k="rolling-deployment">rolling</T> updates servers one at a time, <T k="blue-green-deployment">blue-green</T> keeps two copies and switches traffic, <T k="canary-release">canary</T> first gives the new version to a small share of users. A rollback returns to the previous version, and it should be as well-rehearsed a step as the deployment itself.
-
-</A>
-
-<A short l="m">
-
-Rolling is cheap, but for a while both versions run; blue-green gives an instant switch and rollback at the price of double resources; canary limits how many users are affected but needs metrics to compare versions. <T k="feature-toggle">Feature flags</T> separate deploying code from turning a feature on, so a rollback often comes down to switching a flag off. The database schema meanwhile changes via <T k="expand-contract">expand/contract</T>; otherwise rolling back the code runs into an incompatible schema.
-
-</A>
-
-<A short l="s">
-
-A safe release means a small blast radius, decisions driven by metrics, and rollback without a new build. Every strategy except stop-and-replace assumes two versions run at the same time, so compatibility of schema, API and messages with the previous version is a hard requirement. On IIS without an orchestrator, zero downtime comes from several servers or two sites behind a load balancer, while `app_offline.htm` is a short planned outage of one site. In containers a <T k="readiness-probe">readiness check</T> lets traffic reach a new instance, and rollback starts automatically when errors and latency go up.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -595,10 +499,6 @@ A deployment strategy is the order in which the new version reaches the servers 
 Assuming rollback is easy until the database changes. If the new version dropped a column, the old code no longer works with that database.
 
 **Takeaway:** pick a strategy by the cost of downtime, and test the rollback in advance.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -626,10 +526,6 @@ Assuming rollback is easy until the database changes. If the new version dropped
 Every release is compatible with the previous one in schema, API and messages. Then any strategy works, and rolling back the code doesn't require rolling back the database.
 
 **Takeaway:** a strategy is a trade-off between resource cost, rollback speed and the number of users affected.
-
-</A>
-
-<A l="s">
 
 **Under the hood: IIS and containers**
 

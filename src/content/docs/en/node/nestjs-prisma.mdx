@@ -20,25 +20,7 @@ A NestJS and Prisma backend through the eyes of a .NET developer: modules and DI
 
 ## How is a NestJS application structured?
 
-<A short l="j">
-
-NestJS is a framework for server applications on Node.js and TypeScript where code is split into <T k="nest-module">modules</T>: controllers handle HTTP requests, while <T k="nest-provider">providers</T> hold the logic and get their dependencies through the constructor. It is essentially the ASP.NET Core setup of "controllers, services and <T k="dependency-injection">dependency injection</T>", except registration happens through the `@Module()` and `@Injectable()` decorators.
-
-</A>
-
-<A short l="m">
-
-An application is a tree of modules rooted at `AppModule`: a module declares controllers and providers, imports other modules and exports what it lets them use. The container learns constructor parameter types from <T k="nest-decorator-metadata">decorator metadata</T>, so an interface can only be injected through a <T k="nest-injection-token">token</T>. Providers are singletons by default; the `REQUEST` <T k="nest-injection-scope">scope</T> gives an instance per request, but it makes the whole chain of consumers request-scoped and costs performance.
-
-</A>
-
-<A short l="s">
-
-NestJS is a structure and DI layer on top of an HTTP library: Express 5 or Fastify 5 handles requests through a <T k="nest-platform-adapter">platform adapter</T>, and the whole graph of modules and providers is built at startup. The upside is that a dependency error fails the boot rather than a request; the downside is that DI relies on metadata, which interfaces don't have. The key differences from ASP.NET Core are singleton by default and module encapsulation, and request context travels through <T k="nest-async-local-storage">`AsyncLocalStorage`</T> rather than request scope, which rebuilds the chain on every request.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -61,10 +43,6 @@ NestJS is a backend framework for Node.js and TypeScript. It sets the applicatio
 Forgetting a provider in `providers` or not exporting it from another module. The app won't start: `Nest can't resolve dependencies of the OrdersController (?)`.
 
 **Takeaway:** a module groups controllers and providers, and the container wires them through constructors.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -95,10 +73,6 @@ Forgetting a provider in `providers` or not exporting it from another module. Th
 One module per business area, only `exports` go outside, interfaces go through tokens.
 
 **Takeaway:** DI in NestJS rests on constructor metadata and module boundaries; whatever the metadata can't express gets a token.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -196,25 +170,7 @@ void bootstrap();
 
 ## How is a request processed in NestJS: middleware, guards, interceptors, pipes, exception filters?
 
-<A short l="j">
-
-A request goes through a chain: <T k="nest-middleware">middleware</T>, then <T k="nest-guard">guards</T> decide whether to let it in, <T k="nest-interceptor">interceptors</T> wrap the handler, <T k="nest-pipe">pipes</T> validate and transform the arguments, and only then is the controller method called. An exception at any step is turned into a response by <T k="nest-exception-filter">exception filters</T>. That's why the request body is checked by `ValidationPipe` with a <T k="dto">DTO</T> class, and permissions by a guard.
-
-</A>
-
-<A short l="m">
-
-The order is fixed: middleware, guards, interceptors before the handler, pipes, the handler, interceptors after, and on an exception — exception filters; within each layer global ones run first, then controller-level, then route-level. Each layer knows more than the previous one: middleware sees only the request, a guard knows which handler will run, an interceptor also gets the result. It resembles ASP.NET Core filters, but validation in NestJS is explicit: without `ValidationPipe` with `whitelist`, extra body fields reach your code.
-
-</A>
-
-<A short l="s">
-
-The pipeline is a set of extension points with growing context: a guard returns 403 before the body is parsed, a pipe returns 400 before the logic runs, an interceptor owns the result and the timing, and a filter turns an exception into a response. Global elements are registered as `APP_GUARD`, `APP_PIPE`, `APP_FILTER` providers rather than with `app.useGlobal...()`: that way they get DI and work in e2e tests. The cost of class-validator is reflection on every request and decorators that duplicate types; NestJS 12 adds an alternative — Standard Schema (Zod, Valibot) right in `@Body()`.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -239,10 +195,6 @@ Between the incoming request and the controller method NestJS calls several kind
 Declaring a DTO as an interface or a `type`. They don't exist at runtime, so `ValidationPipe` lets any body through unchecked.
 
 **Takeaway:** a guard decides "let it in or not", a pipe — "is the data valid", a filter — "how to answer an error".
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -275,10 +227,6 @@ Declaring a DTO as an interface or a `type`. They don't exist at runtime, so `Va
 - Without `whitelist` an `isAdmin` field from the body reaches the repository — mass assignment.
 
 **Takeaway:** a request goes middleware → guards → interceptors → pipes → handler → interceptors, and an exception is caught by the nearest filter.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -425,25 +373,7 @@ export class CoreModule {}
 
 ## How do you work with the database through Prisma?
 
-<A short l="j">
-
-Prisma is an <T k="orm">ORM</T> for Node.js and TypeScript: models are described in a <T k="prisma-schema">`schema.prisma`</T> file, a typed client is generated from it, and <T k="prisma-migrate">Prisma Migrate</T> creates SQL migrations. In code you write `prisma.user.findMany({ include: { orders: true } })` and get objects with exact types — much like EF Core, but without change tracking.
-
-</A>
-
-<A short l="m">
-
-`schema.prisma` is the source of truth: `prisma migrate dev` writes an SQL migration from it, `prisma generate` builds the <T k="prisma-client">client</T>, and in production `prisma migrate deploy` only applies ready-made migrations. The client is a query builder with no change tracker: every call is a separate query, relations are loaded with `include` or `select`, and <T k="n-plus-one">N+1</T> comes from `await` inside a loop. In Prisma 7 the client runs without the Rust engine and talks to the database through a <T k="prisma-driver-adapter">driver adapter</T> such as `@prisma/adapter-pg`.
-
-</A>
-
-<A short l="s">
-
-Prisma is schema-first: the model lives in its own DSL and the client is generated code, so types are exact down to `select` fields, but every schema change needs `generate`. Prisma 7 has no Rust engine: a TypeScript client builds the SQL, the driver holds connections and the pool, and CLI configuration moved to `prisma.config.ts`. The cost: no unit of work or lazy loading, complex SQL goes to `$queryRaw` or TypedSQL, and long <T k="prisma-interactive-transaction">interactive transactions</T> hold a pool connection. As of October 2026 Prisma 8 is a release candidate, and production stays on 7.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -466,10 +396,6 @@ Prisma is an ORM for Node.js and TypeScript. Models are described not as classes
 Editing `schema.prisma` and forgetting `prisma generate`. The client doesn't know about the new field, and TypeScript complains even though the column already exists in the database.
 
 **Takeaway:** the schema is the source of truth, migrate changes the database, generate changes the client.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -503,10 +429,6 @@ Editing `schema.prisma` and forgetting `prisma generate`. The client doesn't kno
 - A unique constraint violation arrives as a `PrismaClientKnownRequestError` with code `P2002`; map it to 409 in an exception filter.
 
 **Takeaway:** `migrate dev` is for development, `deploy` is for production, and N+1 is fixed with nested `select` and `_count`.
-
-</A>
-
-<A l="s">
 
 **Under the hood (Prisma 7)**
 
@@ -644,25 +566,7 @@ export class OrdersRepository {
 
 ## How do you get a NestJS service ready for production?
 
-<A short l="j">
-
-You validate settings at startup with `@nestjs/config`, write <T k="structured-logging">structured logs</T> as JSON with pino, expose a <T k="health-check">health check</T> with `@nestjs/terminus` and call `app.enableShutdownHooks()` so database connections are closed on shutdown. Behaviour is verified with e2e tests on `@nestjs/testing`.
-
-</A>
-
-<A short l="m">
-
-Configuration means `ConfigModule.forRoot` with a schema: without `DATABASE_URL` the process fails at startup rather than on the first request. Logging means `nestjs-pino` — JSON to stdout with a request id. Terminus serves liveness and readiness, checking the database through `PrismaHealthIndicator`, and on SIGTERM `enableShutdownHooks()` runs the shutdown <T k="nest-lifecycle-hooks">lifecycle hooks</T>. The cost is that you switch all of this on yourself: out of the box NestJS gives you a console logger and doesn't listen for signals.
-
-</A>
-
-<A short l="s">
-
-Production readiness means a predictable start, observability and <T k="graceful-shutdown">graceful shutdown</T>. Config is validated by a schema at startup, logs are pino JSON, <T k="readiness-probe">readiness</T> checks the database and liveness checks only the process. On SIGTERM Terminus first holds a pause returning 503 from the health check, then the HTTP server closes, and only then does Prisma release its connections; all of it must fit into `terminationGracePeriodSeconds`. Fastify and caching bring performance, and e2e tests via <T k="nest-testing-module">`Test.createTestingModule`</T> against a real PostgreSQL bring confidence.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -682,10 +586,6 @@ Reading `process.env.X` all over the code. A typo in a variable name shows up in
 
 **Takeaway:** validated config, JSON logs, a health check and shutdown hooks are the minimum for production.
 
-</A>
-
-<A l="m">
-
 **How it works**
 
 1. **Configuration.** `validationSchema` checks variables at startup. In NestJS 12 any Standard Schema works, for example Zod.
@@ -704,10 +604,6 @@ Reading `process.env.X` all over the code. A typo in a variable name shows up in
 Config with a schema, logs as pino to stdout, readiness with the database, liveness without it, shutdown through shutdown hooks.
 
 **Takeaway:** NestJS gives you the building blocks, but config validation, logging, health checks and shutdown are switched on explicitly.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 

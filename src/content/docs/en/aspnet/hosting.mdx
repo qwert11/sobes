@@ -20,25 +20,7 @@ The path of a request in ASP.NET Core: which server accepts it, how it flows thr
 
 ## What is Kestrel, and why put IIS or a reverse proxy in front of it?
 
-<A short l="j">
-
-<T k="kestrel">Kestrel</T> is ASP.NET Core's built-in cross-platform web server: it runs inside the app process and feeds requests into the middleware pipeline. It often sits behind a <T k="reverse-proxy">reverse proxy</T> (IIS, Nginx, YARP) that accepts traffic from the network, holds the TLS certificates and shares port 443 between several apps.
-
-</A>
-
-<A short l="m">
-
-Kestrel is a server built on sockets and `System.IO.Pipelines` with HTTP/1.1, HTTP/2 and HTTP/3, and Microsoft supports it both at the edge and behind a proxy. A proxy adds what Kestrel lacks: one port shared by several processes, load balancing, and a single place for TLS and request filtering. The cost is an extra network hop and configuring <T k="forwarded-headers">forwarded headers</T>; otherwise the app sees the proxy's IP and `http` instead of `https`.
-
-</A>
-
-<A short l="s">
-
-The choice is not "Kestrel or IIS" but where the trust boundary is and who terminates TLS. In containers Kestrel sits behind an ingress or a cloud load balancer; on Windows Server it sits behind IIS, and with in-process hosting there is no Kestrel at all — `IISHttpServer` takes its place. A proxy gives you <T k="tls-termination">TLS termination</T>, limits and filtering at the edge, but adds latency, a second HTTP parse and buffering that gets in the way of streaming. So the proxy is configured explicitly: timeouts, buffers and the list of trusted addresses for `X-Forwarded-For`.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -61,10 +43,6 @@ The choice is not "Kestrel or IIS" but where the trust boundary is and who termi
 Forgetting forwarded headers. The app sees the proxy's IP instead of the client's and `http` instead of `https`, and `UseHttpsRedirection` ends up in a redirect loop.
 
 **Takeaway:** Kestrel handles HTTP inside the app; the proxy guards the entry point from the network and shares it between sites.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -93,10 +71,6 @@ Forgetting forwarded headers. The app sees the proxy's IP instead of the client'
 One app and nowhere else to terminate TLS — Kestrel can face the network itself. Several sites on one IP or centralized TLS — put a proxy in front and configure forwarded headers.
 
 **Takeaway:** a proxy is an infrastructure decision, and configuring forwarded headers is a mandatory part of it.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -179,25 +153,7 @@ app.Run();
 
 ## What is middleware, and why does its order matter?
 
-<A short l="j">
-
-<T k="middleware">Middleware</T> is a step in the <T k="request-pipeline">request pipeline</T> that receives an `HttpContext`, does its work and either calls the next step or responds itself. Registration order in `Program.cs` is execution order, which is why the exception handler goes first and authorization goes before the endpoints.
-
-</A>
-
-<A short l="m">
-
-The pipeline is a chain of <T k="request-delegate">`RequestDelegate`</T> delegates: the request travels through it in registration order and the response in reverse. `Use` adds a step that calls `next`, `Run` adds a <T k="terminal-middleware">terminal</T> step, `Map` and `MapWhen` create a branch, and a step that doesn't call `next` <T k="short-circuit">short-circuits</T> the pipeline. Order drives both security and cost: static files served before authentication don't pay for it, and an exception handler in the middle won't catch errors from steps above it.
-
-</A>
-
-<A short l="s">
-
-The pipeline is built once when the host starts: `IApplicationBuilder.Build()` folds the list of middleware factories into a single delegate, and every request runs through that ready-made chain. Order is a contract: a step sees only what the steps above it did and catches exceptions only from the steps below it. Hence the documented rules: `UseForwardedHeaders` first, `UseExceptionHandler` early, `UseCors` before `UseAuthentication` and `UseAuthorization`, `UseRateLimiter` with endpoint policies after `UseRouting`. Short-circuiting saves work, but once the response has started, headers and status can't change, so code after `next` checks `Response.HasStarted`.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -224,10 +180,6 @@ Cross-cutting concerns — errors, HTTPS, static files, authentication, compress
 Placing `UseExceptionHandler` after other middleware. It won't catch exceptions from the steps above it.
 
 **Takeaway:** the request passes through middleware in registration order, the response in reverse.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -258,10 +210,6 @@ Placing `UseExceptionHandler` after other middleware. It won't catch exceptions 
 First whatever must see every request and catch every error, then whatever cheaply cuts off unneeded work, then security, then business logic.
 
 **Takeaway:** middleware order is processing order, so it determines both security and performance.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -347,25 +295,7 @@ app.Run();
 
 ## How does an app start and stop: Generic Host and `WebApplicationBuilder`?
 
-<A short l="j">
-
-The <T k="generic-host">host</T> is the object that assembles configuration, logging and the DI container, starts the web server and shuts the app down. In `Program.cs` you set it up with `WebApplication.CreateBuilder`, and `app.Run()` starts the app and waits for a stop signal, after which in-flight requests get up to 30 seconds to finish.
-
-</A>
-
-<A short l="m">
-
-`WebApplicationBuilder` (.NET 6+) is a linear wrapper over the Generic Host: `CreateBuilder` wires up configuration, logging and the server, `Build()` builds the container, and `Run()` starts the <T k="hosted-service">hosted services</T> in registration order and then the server. On Ctrl+C or SIGTERM the host fires `ApplicationStopping`, the server stops accepting connections and waits for in-flight requests, and hosted services stop in reverse order. All of this is bounded by `HostOptions.ShutdownTimeout` — 30 seconds since .NET 6, 5 before that.
-
-</A>
-
-<A short l="s">
-
-The host is the root DI container, an <T k="host-lifetime">`IHostLifetime`</T> that turns OS signals into shutdown, and a list of `IHostedService` instances where the web server is just one of them. <T k="graceful-shutdown">Graceful shutdown</T> only works if its budget matches the environment: `docker stop` waits 10 seconds, Kubernetes 30, an IIS app pool 90, and `ShutdownTimeout` has to fit inside them. A long `StartAsync` delays opening the port, and synchronous `ApplicationStopping` callbacks eat into the shutdown budget. .NET 8 added `IHostedLifecycleService` and concurrent service startup, and .NET 10 marks `WebHostBuilder` obsolete.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -392,10 +322,6 @@ The host (Generic Host) owns everything the app needs:
 Registering services after `builder.Build()`. The container is already built, and the call throws `InvalidOperationException`: the service collection is now read-only.
 
 **Takeaway:** `CreateBuilder` configures, `Build` assembles, `Run` starts and waits for shutdown.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -424,10 +350,6 @@ Registering services after `builder.Build()`. The container is already built, an
 Do long initialization with `await` before `app.Run()` or in a `BackgroundService`, not in `StartAsync`. If requests can take longer than 30 seconds, set `ShutdownTimeout` explicitly.
 
 **Takeaway:** the host starts services in order, stops them in reverse, and gives shutdown a limited time.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -513,25 +435,7 @@ app.Run(); // blocks the thread until the host stops
 
 ## How do you write custom middleware, and how do the options differ in lifetime?
 
-<A short l="j">
-
-You write custom middleware as a lambda in `app.Use`, as a class with a `RequestDelegate` constructor and an `InvokeAsync` method, or as a class that implements <T k="imiddleware">`IMiddleware`</T>. A class is plugged in with `app.UseMiddleware<T>()`, and it must call `next` unless it responds itself.
-
-</A>
-
-<A short l="m">
-
-A lambda and a <T k="convention-based-middleware">convention-based class</T> are created once when the pipeline is built and live like singletons, while `IMiddleware` is resolved from DI on every request. So <T k="service-lifetime">scoped dependencies</T> such as `DbContext` are passed to a convention-based class as `InvokeAsync` parameters, whereas `IMiddleware` takes them in its constructor but must itself be registered in the container. The cost of `IMiddleware` is a container resolution per request and no way to pass arguments through `UseMiddleware`.
-
-</A>
-
-<A short l="s">
-
-When the pipeline is built, `UseMiddleware<T>` creates a convention-based class once via `ActivatorUtilities`, and for extra `InvokeAsync` parameters it builds a delegate that pulls them from `context.RequestServices`. For `IMiddleware`, an <T k="middleware-factory">`IMiddlewareFactory`</T> is called on every request and fetches an instance from the request scope. The main trap is a scoped service in a convention-based constructor: in Development the app fails to start because of <T k="scope-validation">scope validation</T>, while in production the service silently lives for the app's lifetime and is shared across threads. Pick a convention-based class for hot paths, and `IMiddleware` for a strict contract and testability.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -551,10 +455,6 @@ Custom middleware is a pipeline step with your own logic: timing, a correlation 
 Forgetting `await next(context)`. The request goes no further, and the client gets an empty 200 response.
 
 **Takeaway:** a lambda for a couple of lines, a class with a `UseXxx` extension method for reusable logic.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -581,10 +481,6 @@ Forgetting `await next(context)`. The request goes no further, and the client ge
 The constructor is for singletons and settings; `InvokeAsync` is for everything scoped to a request.
 
 **Takeaway:** a convention-based class lives as long as the app; `IMiddleware` lives for one request.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -674,25 +570,7 @@ public class RequestInfo { public string Id { get; set; } = ""; }
 
 ## How does endpoint routing work, and how is a route chosen?
 
-<A short l="j">
-
-<T k="endpoint-routing">Routing</T> matches the URL and HTTP method to an <T k="endpoint">endpoint</T> — a handler such as `app.MapGet("/orders/{id:int}", ...)`. The <T k="route-template">template</T> defines parameters and <T k="route-constraint">constraints</T>: `{id:int}` matches `/orders/5`, while `/orders/abc` gets a 404.
-
-</A>
-
-<A short l="m">
-
-Routing is two pieces of middleware: `UseRouting` selects the endpoint and stores it on `HttpContext`, and `UseEndpoints` executes it. Middleware between them can see the selected endpoint and its <T k="endpoint-metadata">metadata</T> — that's how authorization, CORS and rate limiting work. Since .NET 6, `WebApplication` adds `UseRouting` at the start of the pipeline and `UseEndpoints` at the end for you, and among several matching templates the most specific wins, not the first one registered.
-
-</A>
-
-<A short l="s">
-
-An endpoint is a `RequestDelegate` plus a metadata collection, and every dispatching and security-policy decision is made in routing, not in middleware that parses the path as a string. Matching runs on an automaton (DFA) whose cost depends on path length, not route count; then constraints, `MatcherPolicy` and a final pick by `Order` and <T k="route-precedence">template precedence</T> apply. Ambiguity is only detected at request time — `AmbiguousMatchException`. The expensive parts are regex constraints, complex segments and thousands of routes with a parameter in the first segment: the automaton bloats in memory.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -716,10 +594,6 @@ Parameter values arrive as handler arguments: `(int id) => ...`.
 Validating input with route constraints. A bad value gives a 404, when the client needs a 400 with a clear message.
 
 **Takeaway:** a route picks a handler by URL and method; constraints tell routes apart but don't validate input.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -750,10 +624,6 @@ If two endpoints tie on precedence, the request fails with `AmbiguousMatchExcept
 Move a shared prefix and shared metadata into `MapGroup` (.NET 7+). Make "allow or not" decisions from endpoint metadata, not from the path string.
 
 **Takeaway:** `UseRouting` selects the endpoint, middleware after it works with its metadata, `UseEndpoints` executes it.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -833,25 +703,7 @@ sealed class AuditAttribute : Attribute { }
 
 ## In-process vs out-of-process in IIS: how does the ASP.NET Core Module work, and which should you pick?
 
-<A short l="j">
-
-The <T k="ancm">ASP.NET Core Module (ANCM)</T> is a native IIS module that launches an ASP.NET Core app. With <T k="in-process-hosting">in-process</T> hosting (the default since ASP.NET Core 3.0) the app runs inside the IIS worker process `w3wp.exe`; with <T k="out-of-process-hosting">out-of-process</T> it runs in a separate process with Kestrel, and IIS forwards requests to it.
-
-</A>
-
-<A short l="m">
-
-In-process handles the request in `w3wp.exe` through `IISHttpServer` without a network hop, so it delivers noticeably higher throughput. Out-of-process starts a separate process with Kestrel on a random port and proxies requests to it over HTTP via loopback, but in return the app process doesn't depend on the IIS worker process. The price of in-process is a set of restrictions: one app per <T k="app-pool">application pool</T>, pool bitness must match the app, and no single-file publishing.
-
-</A>
-
-<A short l="s">
-
-ANCM is a native shim with a handler per model: in-process boots CoreCLR inside `w3wp.exe`, while out-of-process starts a child process with `ASPNETCORE_PORT` and `ASPNETCORE_TOKEN` and proxies requests carrying that token. In-process, the app lives and dies with `w3wp`: <T k="app-pool-recycling">app pool recycling</T>, a `web.config` edit and `app_offline.htm` all restart it, and during an overlapped recycle two copies run side by side for a while. In-process is the default; out-of-process is for single-file publishing, consistent Kestrel behavior with containers, or isolation from `w3wp`. Cold starts after recycling are removed with Application Initialization, `startMode="AlwaysRunning"` and a disabled idle timeout.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -871,10 +723,6 @@ The ASP.NET Core Module is an IIS module from the <T k="hosting-bundle">.NET Hos
 Putting two in-process apps into one pool. The second fails to start with error 500.35: each app needs its own pool.
 
 **Takeaway:** in-process means the app lives inside IIS; out-of-process means IIS acts as a proxy in front of Kestrel.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -903,10 +751,6 @@ Putting two in-process apps into one pool. The second fails to start with error 
 In-process by default, one pool per app. Out-of-process only for a concrete reason.
 
 **Takeaway:** in-process is faster and simpler; out-of-process gives you a separate process with Kestrel at the cost of an extra network hop.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 

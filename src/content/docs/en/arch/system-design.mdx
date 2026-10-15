@@ -20,25 +20,7 @@ A system design round tests not your knowledge of a particular technology but yo
 
 ## How do you approach a system design problem in an interview?
 
-<A short l="j">
-
-System design is an open-ended problem: in 45–60 minutes you design a system from a vague prompt such as "build a URL shortener". You solve it step by step — requirements, load estimate, API and data, diagram, bottlenecks — and the interviewer grades your reasoning, not a "correct" answer.
-
-</A>
-
-<A short l="m">
-
-The solution starts with <T k="non-functional-requirements">non-functional requirements</T>: how many users, what latency, which matters more — availability or consistency. A <T k="back-of-envelope">back-of-the-envelope estimate</T> turns them into <T k="rps">RPS</T>, data volume and traffic, and the numbers drive the design: is one database enough, do you need a cache, sharding, a queue. The classic mistake is drawing microservices and Kafka right away without knowing whether that load needs them.
-
-</A>
-
-<A short l="s">
-
-The interviewer watches how you handle uncertainty: you state assumptions out loud, derive the architecture from numbers and name the cost of every decision. So you first agree on scope and <T k="slo">SLOs</T>, then build the simplest design that works, and only then go deep on one or two bottlenecks the interviewer picks. A strong answer ends with what breaks first at ten times the load and how you would see it in production.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -61,10 +43,6 @@ Drawing in silence. The interviewer grades your reasoning, so say every decision
 
 **Takeaway:** requirements and numbers first, then the diagram, then the bottlenecks.
 
-</A>
-
-<A l="m">
-
 **How it works**
 
 1. **Functional requirements.** 3–5 core scenarios: "create a short link", "follow it". Everything else is explicitly out of scope.
@@ -86,10 +64,6 @@ Drawing in silence. The interviewer grades your reasoning, so say every decision
 Every box on the diagram is justified by a requirement or a number from the estimate.
 
 **Takeaway:** requirements give numbers, numbers give the design, the design gives bottlenecks to discuss.
-
-</A>
-
-<A l="s">
 
 **What is actually assessed**
 
@@ -153,25 +127,7 @@ Assumptions: 100M new links per month, 100:1 read/write ratio,
 
 ## How do you scale a web system?
 
-<A short l="j">
-
-Vertical scaling means a bigger server; <T k="horizontal-scaling">horizontal scaling</T> means more servers behind a <T k="load-balancer">load balancer</T>. Horizontal scaling has almost no ceiling, but it requires services that keep no state in their own memory: sessions and files move to shared storage.
-
-</A>
-
-<A short l="m">
-
-First you make services <T k="stateless-service">stateless</T>: the session goes to Redis or into the token, files go to object storage, and then you just add instances behind an L4 or L7 load balancer. Reads are offloaded by caching at several levels — a <T k="cdn">CDN</T>, an application cache, database replicas — while writes hit a single primary that only sharding can scale further. Peaks that need not be processed immediately go into a queue, and workers drain it at a steady rate.
-
-</A>
-
-<A short l="s">
-
-Scaling is a hunt for the next bottleneck: stateless services scale almost linearly, so the limit is almost always in the state — the database, the cache, an external provider. Reads are cheapest to scale with caches and replicas at the cost of stale data; writes with <T k="sharding">sharding</T> at the cost of cross-shard queries and transactions. <T k="queue-based-load-leveling">Queue-based load leveling</T> turns a peak into latency, while unbounded autoscaling just moves the peak to the database. Measure each layer separately: RPS per instance, cache hit ratio, replica lag, queue depth.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -195,10 +151,6 @@ The load balancer sends one user's requests to different servers. If the cart li
 Turning on sticky sessions instead of moving state out. When a server dies, its users lose their sessions, and load is spread unevenly.
 
 **Takeaway:** horizontal scaling starts with moving state out of the service.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -230,10 +182,6 @@ Layers along the request path:
 Scale what the metrics show is saturated. Sharding comes last: it is the most expensive to build.
 
 **Takeaway:** services scale by copying, reads by caches and replicas, writes by shards, peaks by queues.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -301,25 +249,7 @@ How many API instances:
 
 ## What are CAP, PACELC and eventual consistency, and how do they affect design?
 
-<A short l="j">
-
-The <T k="cap-theorem">CAP theorem</T> says that when the network between nodes breaks, a distributed system has to choose: answer every request (availability) or answer only with up-to-date data (consistency). <T k="eventual-consistency">Eventual consistency</T> means replicas may diverge for a while, but once writes stop they converge to the same value.
-
-</A>
-
-<A short l="m">
-
-CAP (Brewer's conjecture, proved by Gilbert and Lynch in 2002) states that during a network partition you cannot keep both <T k="linearizability">linearizability</T> and a response from every non-failing node. "Pick two of three" is a simplification: you do not get to choose partitions, so the only choice is between C and A while the fault lasts. <T k="pacelc">PACELC</T> (Abadi) adds that even without faults you trade latency against consistency — and that choice shapes replica and <T k="quorum">quorum</T> settings every day.
-
-</A>
-
-<A short l="s">
-
-CAP is narrow: linearizability versus availability during a network partition, which is why "CP" and "AP" labels on databases explain little. It is more practical to pick a consistency level per operation: a payment — a linearizable write through a leader and refusal during a partition; a cart — availability and conflict merging; a feed — eventual with <T k="read-your-writes">read-your-writes</T> for the author. The price of strong consistency is coordination latency on every operation, not just unavailability during rare partitions.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -338,10 +268,6 @@ The link between data centres goes down. A node can refuse the request and keep 
 Saying "we choose CA". Networks fail whether we like it or not, so a distributed system only chooses between C and A for the duration of the outage.
 
 **Takeaway:** when the network splits, the system either refuses or answers with possibly stale data.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -369,10 +295,6 @@ Saying "we choose CA". Networks fail whether we like it or not, so a distributed
 Choose the consistency level per operation, not for the whole system.
 
 **Takeaway:** CAP is about behaviour during a partition; PACELC is about the everyday cost of consistency.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -439,25 +361,7 @@ Partition: node A sees only itself, nodes B and C see each other
 
 ## Why do you need an API Gateway, and what should and shouldn't it do?
 
-<A short l="j">
-
-An <T k="api-gateway">API Gateway</T> is a single entry point in front of a set of services: the client knows one address, and the gateway forwards each request to the right service. Along the way it handles what every service needs: validating tokens, limiting request rates, writing logs.
-
-</A>
-
-<A short l="m">
-
-A gateway is an L7 reverse proxy with three roles: routing, aggregating several calls into one, and offloading cross-cutting concerns — TLS, authentication, <T k="rate-limiting">rate limiting</T>, logging. It decouples clients from how the system is split into services, but adds a network hop and becomes a critical component. Business logic does not belong there; client-specific needs go into a <T k="backends-for-frontends">BFF</T>. In .NET gateways are built on <T k="yarp">YARP</T>; off-the-shelf options include Azure API Management and Kong.
-
-</A>
-
-<A short l="s">
-
-The gateway owns north-south traffic — requests from outside: the trust boundary, policies, API versions, client quotas and the start of distributed tracing. Its main risks are being a <T k="single-point-of-failure">single point of failure</T> and becoming a "smart gateway": move business rules or orchestration into it, and every service release drags a gateway release along. So the gateway stays thin and runs as several instances across zones. Service-to-service (east-west) traffic is left to a <T k="service-mesh">service mesh</T> or to libraries inside the services.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -478,10 +382,6 @@ The gateway is configured with routes "path → group of service instances": for
 Writing business logic in the gateway: "if the order total is over 1000, call an extra check". The gateway passes and protects requests; services make the decisions.
 
 **Takeaway:** the gateway is the single door into the system: it routes and protects but does not solve business problems.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -511,10 +411,6 @@ Writing business logic in the gateway: "if the order total is over 1000, call an
 The gateway knows about protocols and policies, not about the business domain.
 
 **Takeaway:** the gateway routes, protects and observes; anything that needs business rules stays in the services.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -617,25 +513,7 @@ app.Run();
 
 ## Design a bulk notification service (SMS, email, push) with peak campaigns.
 
-<A short l="j">
-
-The service accepts a send request, puts messages in a queue, and workers send them through providers — an SMS gateway, an email service, FCM and APNs for push — and store delivery statuses. The queue is needed because a campaign for a million recipients is created in seconds, while a provider accepts a limited number of messages per second.
-
-</A>
-
-<A short l="m">
-
-Intake is separated from sending: the API validates the campaign, a background job expands it into messages and writes them to priority queues so that verification codes never wait behind marketing. Senders stay within each provider's rate limits, retry with backoff and fail over to a backup provider, while statuses arrive later: via callbacks or <T k="delivery-receipt">delivery receipts</T> over <T k="smpp">SMPP</T>. Delivery is at-least-once, so duplicates are suppressed by <T k="idempotency">idempotency</T> on the message id.
-
-</A>
-
-<A short l="s">
-
-The main constraint is not our code but the external providers: their messages-per-second limits, latency and outages. So the architecture is built around priority queues, a <T k="token-bucket">token bucket</T> per provider, <T k="failover">failover</T> driven by error rate, and send windows based on the recipient's time zone. The most expensive mistakes are duplicates and messages to people who unsubscribed, so deduplication and the opt-out check sit right before sending. Capacity is planned from the peak: a million SMS at 500 per second takes over half an hour, and the business should hear that in advance.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -653,10 +531,6 @@ A service that sends messages to a large number of recipients: verification code
 Sending directly inside the HTTP request handler. A campaign for 100,000 recipients will not fit in a timeout, and a provider outage will lose part of the messages.
 
 **Takeaway:** a queue separates accepting the request from sending, and statuses are stored separately.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -679,10 +553,6 @@ The message path:
 Every message has a stable id from creation to final status: deduplication, retries and status reconciliation all key on it.
 
 **Takeaway:** priority queues, per-provider rate limiting and idempotency on the message id are the skeleton of any notification service.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 

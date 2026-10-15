@@ -20,25 +20,7 @@ Which collection to pick, what happens inside `List<T>` and `Dictionary`, when a
 
 ## What collections does .NET have, and how do you choose one?
 
-<A short l="j">
-
-A collection is an object that holds a group of items; the main ones are arrays, `List<T>`, `Dictionary<TKey, TValue>`, `HashSet<T>`, `Queue<T>` and `Stack<T>`. They differ in which operation is fast, so you pick by what the code does most often: access by index, look up by key, check uniqueness or process items in order.
-
-</A>
-
-<A short l="m">
-
-Every collection trades operation speed against memory, and the choice starts with the <T k="big-o">asymptotic complexity</T> of the main operation. Indexing an array or `List<T>` is O(1), key lookup in the <T k="hash-table">hash tables</T> `Dictionary` and `HashSet` is O(1) on average, in `SortedDictionary` it is O(log n), and `List<T>.Contains` is O(n). So frequent searching in a list is a signal to switch collections, and ordered keys cost you a logarithm and tree nodes.
-
-</A>
-
-<A short l="s">
-
-A collection is a data structure with known asymptotics, but in production constants and memory matter too. Arrays and `List<T>` are one contiguous block and play well with the CPU cache, while `LinkedList<T>` and trees allocate a node object per item: allocations, GC pressure, cache misses. That is why `LinkedList<T>` almost never beats `List<T>`, and a hash table with a dozen items can lose to a linear scan. A contested choice is confirmed with a benchmark on real data.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -61,10 +43,6 @@ A collection holds a group of items. Operation speed is written with O: O(1) tim
 Keeping everything in a `List<T>` and calling `Contains` in a loop. Each check is O(n), while `HashSet<T>` does it in O(1).
 
 **Takeaway:** choose the collection by the operation the code performs most often.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -94,10 +72,6 @@ Keeping everything in a `List<T>` and calling `Contains` in a loop. Each check i
 Start with `List<T>` or `Dictionary`. Reach for a specialized collection when you can name the operation it speeds up.
 
 **Takeaway:** pick a collection by its dominant operation and that operation's complexity, not by habit.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -178,25 +152,7 @@ Console.WriteLine(string.Join(",", sorted.Keys)); // a,b — keys in order
 
 ## How does `List<T>` grow, and what is Capacity?
 
-<A short l="j">
-
-`Capacity` is the length of the internal array of a `List<T>`, that is, how many items fit without resizing, while `Count` is how many were actually added. When the array is full, the list allocates a new one twice as large and copies the items, so if you know the size in advance, pass it to the constructor.
-
-</A>
-
-<A short l="m">
-
-`Capacity` is the size of the internal array: an empty list does not allocate one, the first `Add` creates an array of 4, and after that the capacity doubles. Thanks to doubling, `Add` is <T k="amortized-complexity">amortized</T> O(1): the rare O(n) copy is spread across many cheap additions. The cost is latency spikes during growth and up to half of the array left empty, so a known size is set via the constructor or `EnsureCapacity`.
-
-</A>
-
-<A short l="s">
-
-`Capacity` is the length of the internal array, and the "4, then ×2" scheme is a CoreLib implementation detail: the docs only promise O(1) when there is room and O(n) when the list has to grow. Every growth step means a new array, a copy and garbage from the old one; arrays of 85,000 bytes or more go to the <T k="loh">LOH</T>, which is collected only together with generation 2. That is why on <T k="hot-path">hot paths</T> you set the capacity up front, reuse lists via `Clear()`, and call `TrimExcess` only when the list will not grow again.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -219,10 +175,6 @@ An array cannot be extended. So `List<T>` keeps spare room and grows when that r
 Treating `Capacity` as a size limit. The list grows on its own; `Capacity` only shows how much room is already allocated.
 
 **Takeaway:** `Count` is how many items there are, `Capacity` is how many fit without copying.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -252,10 +204,6 @@ With doubling, n additions copy fewer than n items in total. So `Add` is O(1) on
 Know the size — set it right away. Don't know it — don't guess, and let the list grow.
 
 **Takeaway:** doubling makes `Add` cheap on average, and a preset capacity removes copying entirely.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -338,25 +286,7 @@ Console.WriteLine(presized.Capacity); // 1000
 
 ## What is deferred execution in LINQ, and why is enumerating a query twice dangerous?
 
-<A short l="j">
-
-A <T k="linq">LINQ</T> query such as `Where` or `Select` does not run when it is declared but when its result is enumerated — in `foreach`, `ToList()` or `Count()`; that is <T k="deferred-execution">deferred execution</T>. Every new enumeration runs the query again, so enumerating twice doubles the work and can give a different result.
-
-</A>
-
-<A short l="m">
-
-LINQ methods that return `IEnumerable<T>` only describe a query, which then runs on every enumeration. A second pass repeats all the work — predicates, sorting, a database query, reading a file — and sees the source as it is now. If you need the result more than once, you <T k="materialization">materialize</T> it with `ToList()` or `ToArray()`, paying for the copy in memory.
-
-</A>
-
-<A short l="s">
-
-Deferred execution is a lazy pipeline: items flow through the chain of operators one by one, there are no intermediate collections, and `First` or `Take` stop early. But laziness moves the work, side effects and exceptions to the moment of enumeration, sometimes past the lifetime of a `DbContext` or an open file. Multiple enumeration means double work and double SQL queries; analyzer CA1851 catches it, and the fix is a single materialization or an API that takes `IReadOnlyCollection<T>`.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -379,10 +309,6 @@ You can build a query piece by piece without spending memory on intermediate lis
 Calling `Count()` and then `foreach` over the same query. The query runs twice. If you need the result several times, store it with `ToList()`.
 
 **Takeaway:** a query runs on every enumeration, not when it is declared.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -411,10 +337,6 @@ Calling `Count()` and then `foreach` over the same query. The query runs twice. 
 If you accept an `IEnumerable<T>`, enumerate it exactly once. Need more — materialize at the start of the method.
 
 **Takeaway:** a lazy query runs as many times as it is enumerated.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -495,25 +417,7 @@ Console.WriteLine(snapshot.Count); // 3 — the snapshot does not change
 
 ## How does `Dictionary<TKey, TValue>` work, and why must Equals and GetHashCode agree?
 
-<A short l="j">
-
-`Dictionary<TKey, TValue>` is a hash table of key-value pairs: it uses the key's hash code (the number returned by `GetHashCode`) to jump straight to a slot, then confirms the key with `Equals`. That is why keys that are equal by `Equals` must return the same hash code; otherwise the dictionary looks in the wrong place and does not find the value.
-
-</A>
-
-<A short l="m">
-
-Inside there is an array of buckets and an array of entries: the key's hash picks a bucket, and entries in the same bucket (<T k="hash-collision">collisions</T>) are chained and compared with `Equals`. Hence the contract: equal objects have equal hash codes, and a key's hash must not change while the key is in the dictionary. Breaking it does not break compilation — `TryGetValue` simply returns `false` for a key that is in the dictionary.
-
-</A>
-
-<A short l="s">
-
-In .NET Core it is two arrays: buckets holding the index where each chain starts, and entries holding the hash, key, value and index of the next entry; the size is a prime, and when full the table roughly doubles and redistributes every entry. Removed slots go to a free list and get reused, which is why enumeration order is not guaranteed. The quality of `GetHashCode` determines chain length: a bad hash degrades lookup to O(n), and for strings the dictionary switches from a fast hash to a randomized one when chains get long.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -530,10 +434,6 @@ In .NET Core it is two arrays: buckets holding the index where each chain starts
 Overriding only `Equals` in a key class. The dictionary compares hash codes from `GetHashCode` first, and two "equal" objects with different hashes never find each other. The easiest fix is a `record`: it generates both methods for you.
 
 **Takeaway:** a dictionary searches by `GetHashCode` and confirms with `Equals`, so the two must agree.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -564,10 +464,6 @@ The contract: if `a.Equals(b)`, the hashes are equal. The reverse is not require
 Keys are immutable, and `Equals` and `GetHashCode` use the same fields.
 
 **Takeaway:** the hash picks the bucket, `Equals` confirms the match, and a bug in either one breaks lookup.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -647,25 +543,7 @@ readonly record struct Sku(int ShopId, string Code);
 
 ## How does `IEnumerable<T>` differ from `IQueryable<T>`?
 
-<A short l="j">
-
-`IEnumerable<T>` is a sequence you iterate in memory, and LINQ methods on it run as ordinary C# code in your process. `IQueryable<T>` describes a query against an external source, such as a database through EF Core, so `Where` becomes SQL and only the needed rows come back into memory.
-
-</A>
-
-<A short l="m">
-
-`Enumerable` takes `Func<T, bool>` delegates and runs them in memory, while `Queryable` takes <T k="expression-tree">expression trees</T> `Expression<Func<T, bool>>` — code described as objects — and only extends the query. On enumeration the <T k="query-provider">query provider</T> translates the tree into the source's language, which for EF Core is SQL. The boundary is the danger: after `AsEnumerable()`, or once the query is passed around as `IEnumerable<T>`, everything else runs in memory after the data has been loaded.
-
-</A>
-
-<A short l="s">
-
-`IQueryable<T>` is an `Expression`, an `ElementType` and a `Provider`: `Queryable` operators only grow the tree via `Provider.CreateQuery`, and `GetEnumerator` or `Provider.Execute` runs it. That gives you server-side filtering, but the abstraction leaks: not everything translates to SQL, the database defines string and `null` semantics, and EF Core throws on an untranslatable expression anywhere except the final `Select`. The client-side cost is building and comparing the tree on every call; EF caches queries by tree shape, and for hot paths there is `EF.CompileAsyncQuery`.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -686,10 +564,6 @@ To filter data where it lives. `db.Users.Where(u => u.IsActive)` becomes SQL wit
 Calling `ToList()` or `AsEnumerable()` before the filter. Then the whole table is loaded and `Where` runs in memory.
 
 **Takeaway:** `IEnumerable<T>` runs LINQ in your process, `IQueryable<T>` runs it in the data source.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -716,10 +590,6 @@ Calling `ToList()` or `AsEnumerable()` before the filter. Then the whole table i
 Accept filters as `Expression<Func<T, bool>>`, and switch to memory explicitly and as late as possible.
 
 **Takeaway:** the static type of the query decides whether LINQ runs in the database or in memory.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -812,25 +682,7 @@ Console.WriteLine(db.Users.Where(u => u.IsActive).ToQueryString()); // the SQL t
 
 ## How does `yield return` work, and what does the compiler generate?
 
-<A short l="j">
-
-A method with `yield return` is an <T k="iterator">iterator</T>: it returns the items of a sequence one at a time, as `foreach` asks for them. Unlike a normal method, its body does not run when called; it starts on the first enumeration and pauses at every `yield return`, so no intermediate list is needed.
-
-</A>
-
-<A short l="m">
-
-The compiler turns an iterator into a hidden class that implements `IEnumerable<T>` and `IEnumerator<T>`: parameters and locals become its fields, and the body becomes a <T k="state-machine">state machine</T> inside `MoveNext()`. Each `MoveNext` runs the code up to the next `yield return` and remembers where it stopped. The price of laziness is that argument checks and exceptions fire only on the first enumeration, and `finally` runs only on completion or `Dispose`.
-
-</A>
-
-<A short l="s">
-
-The generated class stores the state number, the current value, locals hoisted into fields and the creating thread's id: the first `GetEnumerator` on that thread returns the object itself, later calls return a fresh copy. So calling an iterator is at least one allocation, and every item costs two interface calls, `MoveNext` and `Current`. For business code that is invisible; on a hot path a hand-written struct enumerator avoids these costs, and argument validation goes into a regular wrapper method.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -853,10 +705,6 @@ An iterator is a method that returns `IEnumerable<T>` and produces items with `y
 Expecting an argument check at the top of an iterator to fire on the call. The exception is thrown only on the first enumeration.
 
 **Takeaway:** an iterator is a lazy method that runs in chunks between `yield return` statements.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -886,10 +734,6 @@ The asynchronous version is called an <T k="async-stream">async stream</T>; canc
 Split an iterator into two methods: a public one validates arguments immediately and returns the result of a private iterator, for example a local function.
 
 **Takeaway:** an iterator is a compiler-generated state machine class, and all its effects happen during enumeration.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -1008,25 +852,7 @@ sealed class EvensIterator(int max) : IEnumerable<int>, IEnumerator<int>
 
 ## How do ReadOnly, Immutable and Frozen collections differ?
 
-<A short l="j">
-
-A read-only collection only forbids changes through itself, an <T k="immutable-collection">immutable</T> collection never changes, and a <T k="frozen-collection">frozen</T> one (.NET 8) is an immutable collection built for fast lookup. The key difference is the guarantee: the owner of the underlying list can still change a read-only wrapper, while an immutable collection returns a new instance on every "change", so it is safe to hand to anyone.
-
-</A>
-
-<A short l="m">
-
-`IReadOnlyList<T>` is just an interface that can be cast back to `List<T>`, and `ReadOnlyCollection<T>` is a wrapper that sees changes to the underlying list. `ImmutableArray<T>` and `ImmutableList<T>` guarantee the data will not change: the first reads in O(1) and copies everything on a change, the second is a tree with O(log n) for every operation. `FrozenDictionary` and `FrozenSet` analyze the keys at creation and pay with expensive construction for fast lookup, so you build them once.
-
-</A>
-
-<A short l="s">
-
-These are three different guarantees: read-only is a consumer contract, immutable is immutability of the data, which can be shared across threads without locks, and frozen is immutability plus read optimization. Immutable trees use <T k="structural-sharing">structural sharing</T>: `ImmutableList<T>.Add` creates O(log n) new nodes instead of copying everything, but indexing is also O(log n) and every node is an object for the GC. Hence the choice: read-only interfaces in a public API, `ImmutableArray<T>` for snapshots, and `Frozen*` for lookup tables that live as long as the process.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -1051,10 +877,6 @@ To hand data out and be sure nobody corrupts it.
 Calling `Add` on an immutable collection and ignoring the result. The original collection does not change: `Add` returned a new one.
 
 **Takeaway:** read-only protects data from the consumer, immutable protects it from everyone, and frozen also speeds up lookup.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -1084,10 +906,6 @@ Calling `Add` on an immutable collection and ignoring the result. The original c
 The docs recommend `ImmutableArray<T>` when changes are rare or there are few items, and `ImmutableList<T>` when changes are frequent.
 
 **Takeaway:** read-only is an access restriction, immutable is a data guarantee, frozen is the guarantee plus read speed.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -1163,25 +981,7 @@ Console.WriteLine(frozen.Contains(2));       // True
 
 ## When is LINQ slow, and how do you measure it?
 
-<A short l="j">
-
-LINQ is slower than a plain loop because every query creates helper objects and calls a lambda for each item. The difference matters only in hot spots, and most of the losses usually come from mistakes: enumerating a query twice, `Count()` instead of `Any()`, searching a `List<T>` inside `Where`.
-
-</A>
-
-<A short l="m">
-
-The cost of LINQ to Objects is allocations (iterators, delegates, closures) plus interface and delegate calls for every item. Algorithmic mistakes usually dwarf that: multiple enumeration, `Contains` on a list inside `Where`, `GroupBy` just to count. So you fix the algorithm first and replace LINQ with a loop only where BenchmarkDotNet and a profiler have shown a hot spot.
-
-</A>
-
-<A short l="s">
-
-LINQ overhead is iterator and delegate objects, interface calls to `MoveNext` and `Current`, and a delegate call per item, but the runtime keeps shrinking it. In .NET 9 operators gained span-based fast paths for arrays and `List<T>`, and in .NET 10 the JIT learned to <T k="devirtualization">devirtualize</T> array interfaces and, with <T k="escape-analysis">escape analysis</T>, to stack-allocate delegates and enumerators. That is why conclusions from older articles need re-checking: decisions are made from a profile (dotnet-trace, PerfView) and BenchmarkDotNet on the target runtime version.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -1203,10 +1003,6 @@ In ordinary code the difference is invisible. In a loop with millions of iterati
 Measuring speed with `Stopwatch` in a Debug build. The result will be wrong; the right tool is BenchmarkDotNet in Release.
 
 **Takeaway:** LINQ is not expensive by itself, only in hot loops and when it does extra work.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -1237,10 +1033,6 @@ Rewrite only what you have measured:
 3. Compare LINQ and the loop on realistic data sizes using `[Params]`.
 
 **Takeaway:** first remove extra work, then measure, and only then rewrite LINQ.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 

@@ -20,25 +20,7 @@ How a database keeps data intact under concurrent load: what a transaction guara
 
 ## What is a transaction and what does ACID mean?
 
-<A short l="j">
-
-A <T k="transaction">transaction</T> is a group of operations that runs as a single unit: either all of it is committed (`COMMIT`) or all of it is rolled back (`ROLLBACK`). The <T k="acid">ACID</T> properties — atomicity, consistency, isolation and durability — guarantee, for example, that a transfer never debits one account without crediting the other.
-
-</A>
-
-<A short l="m">
-
-ACID describes how the database delivers that: atomicity and durability through the <T k="write-ahead-log">transaction log</T>, isolation through locks or row versions, consistency through schema constraints. By default SQL Server runs in <T k="autocommit">autocommit</T> mode, and without <T k="xact-abort">`SET XACT_ABORT ON`</T> many errors cancel only the failing statement, not the whole transaction. So an explicit transaction without error handling can commit half of the work.
-
-</A>
-
-<A short l="s">
-
-The price of ACID is in the log: on `COMMIT` SQL Server waits until the log records are on disk, writes data pages later, and after a crash rebuilds the database from the log. That makes transaction size a performance question: thousands of tiny autocommits are bound by log flushes, while one long transaction holds locks, blocks log truncation and takes a long time to roll back. <T k="accelerated-database-recovery">ADR</T> (SQL Server 2019+) makes rollback instant, and delayed durability trades part of the D for lower commit latency.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -61,10 +43,6 @@ Assuming any error rolls the whole transaction back. In SQL Server a `CHECK` vio
 
 **Takeaway:** a transaction is all or nothing, and ACID spells out what exactly the database guarantees.
 
-</A>
-
-<A l="m">
-
 **How it works**
 
 - **Modes.** Autocommit is the default in SQL Server and SqlClient. An explicit transaction is `BEGIN TRAN` … `COMMIT`. An implicit one is `SET IMPLICIT_TRANSACTIONS ON`: the transaction starts by itself, but you must end it yourself.
@@ -81,10 +59,6 @@ Assuming any error rolls the whole transaction back. In SQL Server a `CHECK` vio
 A procedure with a transaction starts with `SET XACT_ABORT ON`, keeps the body in `BEGIN TRY`, and in `CATCH` does `IF @@TRANCOUNT > 0 ROLLBACK` and `THROW`.
 
 **Takeaway:** atomicity in SQL Server is not automatic: without `XACT_ABORT` and error handling a transaction commits half the work.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -163,25 +137,7 @@ END CATCH;
 
 ## What isolation levels are there and which anomalies do they prevent?
 
-<A short l="j">
-
-An <T k="isolation-level">isolation level</T> defines what a transaction sees of the changes made by concurrent transactions. The standard defines four levels, from READ UNCOMMITTED to SERIALIZABLE: the higher the level, the fewer anomalies such as a <T k="dirty-read">dirty read</T>, but the more waiting; SQL Server defaults to READ COMMITTED.
-
-</A>
-
-<A short l="m">
-
-The levels differ in which anomalies they allow: READ COMMITTED prevents only dirty reads, REPEATABLE READ also prevents <T k="non-repeatable-read">non-repeatable reads</T>, and SERIALIZABLE also prevents <T k="phantom-read">phantoms</T>. In SQL Server without row versioning this is done with locks: the higher the level, the longer read locks are held and the more often sessions wait. A <T k="lost-update">lost update</T> in the "read, compute, write" pattern is not caught by READ COMMITTED; you prevent it with an atomic `UPDATE` or a lock taken on read.
-
-</A>
-
-<A short l="s">
-
-An isolation level is a trade-off between correctness and concurrency, and in lock-based SQL Server it sets how long read locks live: until the row is read, until the end of the transaction, or over the whole key range. Write locks are held until the end of the transaction at every level, so READ UNCOMMITTED doesn't speed up writes. SERIALIZABLE doesn't mean serial execution, only a result equivalent to some serial order, and you pay for it with range locks and deadlocks. That is why the level is raised selectively, for a specific transaction or table.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -203,10 +159,6 @@ SQL Server defaults to READ COMMITTED: no dirty reads, the other anomalies are p
 Adding `WITH (NOLOCK)` "for speed". That is READ UNCOMMITTED: the query reads data that may later be rolled back.
 
 **Takeaway:** the isolation level decides which anomalies you accept for the sake of concurrency.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -237,10 +189,6 @@ In SQL Server without row versioning, the levels differ in their read (S) locks.
 Keep READ COMMITTED and add protection against a specific anomaly selectively: an atomic statement, a hint on one table or a row version check.
 
 **Takeaway:** each higher level holds read locks longer and closes one more anomaly at the cost of waiting.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -313,25 +261,7 @@ COMMIT;
 
 ## What are RCSI and SNAPSHOT in SQL Server and how do they relate to MVCC in PostgreSQL?
 
-<A short l="j">
-
-<T k="rcsi">RCSI</T> and <T k="snapshot-isolation">SNAPSHOT</T> are SQL Server modes in which reads take no row locks and instead get the latest committed <T k="row-versioning">row version</T>. So reads don't wait for writes and don't block them; in PostgreSQL every read works this way — that is <T k="mvcc">MVCC</T>.
-
-</A>
-
-<A short l="m">
-
-Both modes are built on row versions: on a change, the previous version is copied to the <T k="version-store">version store</T>, and a reader picks the one it needs. RCSI is READ COMMITTED with a snapshot as of the start of each statement, enabled by a database option; SNAPSHOT gives a snapshot for the whole transaction and fails with error 3960 if a row was changed after the snapshot began. The cost is space for versions and up to 14 bytes per row, while PostgreSQL pays for the same with versions inside the table and VACUUM.
-
-</A>
-
-<A short l="s">
-
-RCSI and SNAPSHOT make reads in SQL Server optimistic: readers and writers stop blocking each other, but writers still conflict. RCSI is a change of default that Microsoft recommends for most applications unless the code relies on blocking reads; SNAPSHOT is a deliberate choice that requires retrying on 3960 and carries the risk of <T k="write-skew">write skew</T>. Conceptually RCSI matches PostgreSQL's READ COMMITTED and SNAPSHOT matches its REPEATABLE READ, but SQL Server keeps old versions separately while PostgreSQL keeps them right in the table.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -356,10 +286,6 @@ Without versions, a `SELECT` under READ COMMITTED waits for the writing transact
 Thinking versions remove all locking. Two `UPDATE`s of the same row still wait for each other.
 
 **Takeaway:** with row versions, readers don't wait for writers and writers don't wait for readers.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -387,10 +313,6 @@ Thinking versions remove all locking. Two `UPDATE`s of the same row still wait f
 RCSI is a sensible default for OLTP. SNAPSHOT is for long consistent reads such as reports, or where you are ready to retry the transaction on 3960.
 
 **Takeaway:** RCSI is a per-statement snapshot without conflicts, SNAPSHOT is a per-transaction snapshot with write-conflict detection.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -467,25 +389,7 @@ UPDATE dbo.Stock SET Qty = Qty - 1 WHERE ProductId = 1;
 
 ## How do locks and deadlocks work in SQL Server and how do you avoid them?
 
-<A short l="j">
-
-A lock is a marker a transaction places to protect a row, page or table, and its <T k="lock-mode">mode</T> defines compatibility: a read takes a shared (S) lock, a write an exclusive (X) one, and an incompatible request waits. A <T k="deadlock">deadlock</T> is two transactions waiting for each other in a cycle; SQL Server finds the cycle, rolls one of them back with error 1205, and that transaction has to be retried.
-
-</A>
-
-<A short l="m">
-
-SQL Server locks resources hierarchically — a key or row, a page, a table — and places <T k="intent-lock">intent locks</T> (IS, IX) on the upper levels to check conflicts quickly. The U mode is taken while looking for rows to modify: it is compatible with S but not with another U, which prevents conversion deadlocks. Deadlocks are reduced with a consistent access order, short transactions and indexes, but never fully eliminated, so a retry on 1205 is mandatory.
-
-</A>
-
-<A short l="s">
-
-Locks are a shared server resource: a statement that piles up thousands of locks on a table triggers <T k="lock-escalation">escalation</T> to a table lock, and long transactions turn rare waits into blocking chains. Deadlocks are analyzed with the <T k="deadlock-graph">deadlock graph</T> from the `system_health` session and fixed at the cause — access order, a missing index, the "read then modify" pattern — rather than hidden behind retries. <T k="nolock">`NOLOCK`</T> is not a cure: it doesn't touch writer conflicts and pays for the missing waits with wrong data, while the honest fix for readers is RCSI.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -515,10 +419,6 @@ Not handling 1205. The victim transaction is already rolled back, and without a 
 
 **Takeaway:** a deadlock is a mutual wait on locks that the server breaks by rolling back one transaction.
 
-</A>
-
-<A l="m">
-
 **How it works**
 
 - **Granularity.** Locks are taken on an index key or row, a page, a table. Before X on a row, the server places IX on the page and the table, so a request to lock the table doesn't have to check every row.
@@ -537,10 +437,6 @@ Not handling 1205. The victim transaction is already rolled back, and without a 
 One access order for tables, short transactions without external calls, indexes for `UPDATE` and `DELETE` predicates, retry the transaction on 1205.
 
 **Takeaway:** almost every deadlock is a different access order or a lock conversion, fixed with ordering, an index or `UPDLOCK`.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -636,25 +532,7 @@ ORDER BY deadlock_time DESC;
 
 ## Optimistic or pessimistic concurrency: how do you protect data and retry transactions from .NET?
 
-<A short l="j">
-
-<T k="pessimistic-concurrency">Pessimistic concurrency</T> locks the data first and then changes it, while <T k="optimistic-concurrency">optimistic concurrency</T> takes no locks on read and checks on write that nobody changed the row, for example via a <T k="rowversion">`rowversion`</T> column. The optimistic approach suits rare conflicts like editing a product card, the pessimistic one suits hot rows like stock levels.
-
-</A>
-
-<A short l="m">
-
-The optimistic scheme is `UPDATE ... WHERE Id = @id AND RowVer = @rv` plus a check that exactly one row changed; on a conflict the data is reloaded or shown to the user. The pessimistic one is `SELECT ... WITH (UPDLOCK)` in a short transaction, and for "check, then insert" it is `UPDLOCK, HOLDLOCK`, otherwise two sessions insert a duplicate. Both are combined with retrying the whole transaction on 1205 and 3960, and a retry is safe only if the operation is <T k="idempotency">idempotent</T>.
-
-</A>
-
-<A short l="s">
-
-The choice is between the cost of waiting and the cost of retrying: with frequent conflicts on hot rows it is cheaper to wait on a lock, with rare ones to check the version and occasionally retry. In .NET an explicit `DbTransaction` is simpler and more predictable, while <T k="transaction-scope">`TransactionScope`</T> opens SERIALIZABLE by default, loses its transaction after `await` without `TransactionScopeAsyncFlowOption.Enabled`, and needs a <T k="distributed-transaction">distributed transaction</T> as soon as a second connection is open at the same time. The whole unit of work is retried with backoff and jitter, and an unknown `COMMIT` outcome after a dropped connection is handled with an idempotency key.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -673,10 +551,6 @@ The choice is between the cost of waiting and the cost of retrying: with frequen
 Keeping a transaction open while the user edits a form. Locks hang for minutes, while this scenario calls for the optimistic approach.
 
 **Takeaway:** the pessimistic approach waits up front, the optimistic one checks at write time.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -699,10 +573,6 @@ Keeping a transaction open while the user edits a form. Locks hang for minutes, 
 - Lock timeout 1222 cancels only the statement, and the transaction stays open: roll it back explicitly.
 
 **Takeaway:** one row and arithmetic — an atomic `UPDATE`; long editing — `rowversion`; complex logic on hot data — `UPDLOCK` in a short transaction.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 

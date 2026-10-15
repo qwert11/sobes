@@ -20,25 +20,7 @@ How an app decides what an already authenticated user may do: roles and claims, 
 
 ## What is role-based access control (RBAC) and how does it look in ASP.NET Core?
 
-<A short l="j">
-
-<T k="rbac">RBAC</T> (role-based access control) is a model where permissions are granted to roles rather than to users, and users are added to the roles they need. In ASP.NET Core that is the `[Authorize(Roles = "Admin")]` attribute or a `RequireAuthorization` call on an <T k="endpoint">endpoint</T>: a user without the role is denied, and `[AllowAnonymous]` opens the endpoint to everyone.
-
-</A>
-
-<A short l="m">
-
-RBAC splits two links — "user to role" and "role to permissions" — so moving an employee means changing roles, not editing dozens of permissions. In ASP.NET Core a bare `[Authorize]` applies the <T k="default-policy">default policy</T> (sign-in required), `Roles = "A,B"` requires any one of the roles, several attributes require all of them, and an endpoint with no authorization metadata is open unless a <T k="fallback-policy">fallback policy</T> is set. The cost is that roles are hard-coded as strings, and checking "who you are" replaces checking "what you may do".
-
-</A>
-
-<A short l="s">
-
-The NIST RBAC model describes users, roles, permissions and sessions, with role hierarchies and separation of duties on top; `[Authorize(Roles)]` implements only the core level — a membership check via `IsInRole` over claims. The secure default is a fallback policy with `RequireAuthenticatedUser`: a forgotten attribute becomes a denial rather than a hole, and public endpoints are marked explicitly. The trade-off: roles are fine for coarse boundaries, but code should check a permission through a named policy, and roles in a cookie or token go stale until it is reissued.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -61,10 +43,6 @@ Access is managed by groups instead of user by user, and a role's contents show 
 Forgetting `[Authorize]` on a new controller: an endpoint without the attribute is open to everyone. A fallback policy that requires sign-in wherever nothing else is said protects against this.
 
 **Takeaway:** permissions go into roles, roles go to users, and ASP.NET Core checks them with an attribute or `RequireAuthorization`.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -93,10 +71,6 @@ Forgetting `[Authorize]` on a new controller: an endpoint without the attribute 
 A fallback policy with `RequireAuthenticatedUser`, an explicit `AllowAnonymous` for public endpoints, and policy names instead of role lists in attributes.
 
 **Takeaway:** no metadata — the fallback policy, `[Authorize]` — the default policy, `Roles` — an `IsInRole` check.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -176,25 +150,7 @@ app.Run();
 
 ## What is claims-based identity?
 
-<A short l="j">
-
-A <T k="claim">claim</T> is a statement about a user in the form of a type-value pair: name, email, department, role. All claims live in `HttpContext.User` of type <T k="claims-principal">`ClaimsPrincipal`</T>, and the app makes decisions based on them, so a role is just a claim of a special type.
-
-</A>
-
-<A short l="m">
-
-A user is described by a set of statements from a trusted issuer: `ClaimsPrincipal` holds one or more <T k="claims-identity">`ClaimsIdentity`</T> objects, one per authentication method, and each holds its own claims. The authentication scheme issues claims at sign-in, <T k="claims-transformation">`IClaimsTransformation`</T> can add app data to them, and a role is a claim of the `RoleClaimType` type that `IsInRole` reads. The cost is that claims stay a snapshot from sign-in time and make every request bigger.
-
-</A>
-
-<A short l="s">
-
-Claims separate "what the issuer asserts about the user" from "what the user may do": the app trusts the issuer's signature and doesn't query the user directory on every request. That is also the risk: a claim is a snapshot, and without an extra mechanism it can't be revoked before the cookie or token expires. `IClaimsTransformation` adds app data to the principal, but it runs on every authentication, sometimes several times per request, so it must be idempotent and cache its database calls. The boundary: stable identity facts go in the token, fast-changing permissions stay in the app.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -217,10 +173,6 @@ Whoever authenticated the user issues them. A login form writes claims into a co
 Putting fast-changing data in claims: remaining vacation days, a list of requests. It won't update until the user signs in again.
 
 **Takeaway:** claims are statements about the user, and a role is one of them.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -252,10 +204,6 @@ After successful authentication ASP.NET Core calls `IClaimsTransformation.Transf
 Stable identity facts go in the token or cookie; app data is added inside the app.
 
 **Takeaway:** a principal is a set of identities, an identity is a set of claims, and a role is a claim that `IsInRole` reads.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -358,25 +306,7 @@ public class DepartmentClaimsTransformation(EmployeeDirectory directory) : IClai
 
 ## How does policy-based authorization work?
 
-<A short l="j">
-
-A <T k="authorization-policy">policy</T> is a named access rule: you register it in `Program.cs` and apply it by name with `[Authorize(Policy = "CanApprove")]` or `RequireAuthorization("CanApprove")`. So the rule "who can approve requests" changes in one place rather than in every controller.
-
-</A>
-
-<A short l="m">
-
-A policy is a list of <T k="authorization-requirement">requirements</T>, and <T k="authorization-handler">handlers</T> with dependencies from DI decide each one: all requirements must succeed, while one requirement needs just one successful handler, as long as nobody called `Fail`. Access to a specific object — "only the author can edit" — is checked as <T k="resource-based-authorization">resource-based authorization</T> through `IAuthorizationService.AuthorizeAsync(User, document, policy)`, because attributes run before the data is loaded. The cost is that the rule is spread across classes and a check in code is easy to forget in a new method.
-
-</A>
-
-<A short l="s">
-
-Policies separate where a rule is applied (an attribute, an endpoint, a service call) from the decision logic (handlers in DI), so a rule becomes an ordinary testable class and `AddAuthorizationBuilder` keeps all rules in one place. A resource check is an `AuthorizationHandler<TRequirement, TResource>` plus an `AuthorizeAsync` call in code; for someone else's object you often return 404 instead of 403 so as not to reveal that it exists, and for middleware denials `IAuthorizationMiddlewareResultHandler` controls that. The cost: handlers run on every check with no result cache, and lists ("my documents") can't be checked this way — their permissions move into the query condition.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -397,10 +327,6 @@ The rule is described once. If auditors also need access, you change the policy 
 Not registering the handler in DI. Then nobody handles the requirement, and the policy always denies.
 
 **Takeaway:** a policy is a named set of requirements applied by name.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -432,10 +358,6 @@ An attribute is checked before the data is loaded. So "only the author can edit"
 A simple condition — `RequireRole`, `RequireClaim`, `RequireAssertion`. Need services or the object — a requirement and a handler.
 
 **Takeaway:** a policy is AND across requirements and OR across handlers, and an object check is an `AuthorizeAsync` call in code.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -541,25 +463,7 @@ public class AdminHandler : AuthorizationHandler<EditDocumentRequirement>
 
 ## When is RBAC not enough: ABAC, ReBAC and external policy engines?
 
-<A short l="j">
-
-When permissions depend on more than a job title, you end up with too many roles — that is <T k="role-explosion">role explosion</T>. Then you use <T k="abac">ABAC</T>, where the decision is based on attributes of the user, the object and the context ("a manager sees requests from their own department"), or <T k="rebac">ReBAC</T>, where it is based on relationships ("whoever a folder is shared with sees its documents").
-
-</A>
-
-<A short l="m">
-
-RBAC answers "who are you" but not "whose object is this": the rule "a manager approves requests from their own department" needs a separate role per department. ABAC (NIST SP 800-162) computes the decision from attributes of the subject, object, operation and environment, while ReBAC computes it from a relationship graph, like Google <T k="zanzibar">Zanzibar</T> and its open-source followers OpenFGA and SpiceDB. In ASP.NET Core ABAC maps onto policy handlers, and an external engine is worth it when many services share the rules — at the cost of a network call and one more point of failure.
-
-</A>
-
-<A short l="s">
-
-Choosing a model means choosing where the decision data lives: roles in the token, attributes on the user and the object, relationships in a separate graph. The decision can move to an external <T k="policy-decision-point">policy decision point</T> (OPA, OpenFGA), leaving the app as the enforcement point: that gives uniform rules and auditing, but costs latency, data synchronization and expensive "what can I access" queries. So coarse checks happen at the gateway, precise ones in the service, and lists are filtered in the query or with database <T k="row-level-security">row-level security</T>.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -580,10 +484,6 @@ Choosing a model means choosing where the decision data lives: roles in the toke
 Solving every new rule with a new role. A year later there are more roles than users, and nobody remembers what each one grants.
 
 **Takeaway:** roles are for coarse boundaries; attributes and relationships are for "my own" and "shared with me" rules.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -615,10 +515,6 @@ Solving every new rule with a new role. A year later there are more roles than u
 Start with roles and policies, implement ABAC in handlers, and bring in an external engine when many services share the rules.
 
 **Takeaway:** RBAC is "who you are", ABAC is "what attributes you and the object have", ReBAC is "how you are related to the object".
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -743,25 +639,7 @@ COMMIT;
 
 ## How would you design a centralized access management system for many internal applications?
 
-<A short l="j">
-
-It is a separate service with a catalog of all apps and their permissions: an employee submits a request, their manager and the app owner approve it, and the system grants the permissions and records who got what and when. The core principle is <T k="least-privilege">least privilege</T>: grant only what the job needs and take it away once it is no longer needed.
-
-</A>
-
-<A short l="m">
-
-The central system (an IGA product category, identity governance and administration) holds a catalog of apps, permissions and roles, routes requests through approval, grants permissions to apps and reviews them regularly (<T k="access-review">access review</T>). The key architectural decision is how permissions reach an app — as claims at sign-in or via a call to a permission service — and how fast a revocation gets there. The cost of centralizing is that the permission service becomes a critical dependency, so decisions are cached and granting is made asynchronous and retryable.
-
-</A>
-
-<A short l="s">
-
-The core of the system is the desired state of access (who should have which permissions, on what grounds and until when) plus the loops that bring reality in line with it: <T k="provisioning">provisioning</T> into AD and apps, reconciliation, expiry-based revocation, reviews. Security rules — least privilege, <T k="separation-of-duties">separation of duties</T>, <T k="just-in-time-access">just-in-time access</T> — are checked when a request is submitted, not after the fact. The main trade-off is delivery: claims in a token are fast but stale until reissued, an online call is fresh but adds latency and a point of failure; so coarse roles usually ride in the token, while fine-grained permissions are fetched with a cache and event-driven invalidation.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -785,10 +663,6 @@ An access management system is one place that shows every app in the company and
 Granting but never revoking. An employee moves to another department, the old permissions stay, and after a few moves they can access almost everything — that is <T k="privilege-creep">privilege creep</T>.
 
 **Takeaway:** request, approval, grant, log and review — in one place for every app.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -817,10 +691,6 @@ Granting but never revoking. An employee moves to another department, the old pe
 Every permission has an owner, a justification and an expiry, and whatever the system granted it can revoke.
 
 **Takeaway:** catalog, requests, granting, delivery, audit and review — drop any one of them and access sprawls.
-
-</A>
-
-<A l="s">
 
 **Component diagram**
 

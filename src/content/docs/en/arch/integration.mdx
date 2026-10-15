@@ -20,25 +20,7 @@ How systems exchange data: synchronously or through messages and files, over whi
 
 ## How does synchronous integration differ from asynchronous, and when do you pick each?
 
-<A short l="j">
-
-Synchronous integration is request-response: the caller sends a request and waits for the answer, while asynchronous integration sends a message through a <T k="message-broker">broker</T> or a file and keeps working without waiting for it to be processed. You ask synchronously for what you need right now, such as a stock level, and send asynchronously what must not be lost even if the receiver is down: orders, invoices, exports.
-
-</A>
-
-<A short l="m">
-
-The key difference is <T k="temporal-coupling">temporal coupling</T>: in a synchronous call both systems must be up at the same time, so a slow or failed receiver slows down or breaks the caller. A queue or file exchange decouples them: the sender carries on and the receiver works at its own pace. The price is that the result arrives later, and duplicates, ordering and monitoring stuck messages become your problem.
-
-</A>
-
-<A short l="s">
-
-The classic view names four styles — <T k="file-transfer-integration">file transfer</T>, <T k="shared-database">shared database</T>, remote procedure invocation and messaging — and each picks its own coupling: in time, in schema, or in format and latency. A synchronous chain multiplies availability: five services at 99.9% each give about 99.5% together. That is why a long operation is modelled as <T k="async-request-reply">asynchronous request-reply</T>: 202 Accepted plus a status URL. A database shared between systems owned by different teams is the worst option: the schema becomes someone else's contract that you can no longer change.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -58,10 +40,6 @@ The classic view names four styles — <T k="file-transfer-integration">file tra
 Integrating through a shared database: reading and writing another system's tables directly. Renaming a column on their side breaks your code, and their business rules are bypassed.
 
 **Takeaway:** synchronous when you need the answer now, asynchronous when the work must not be lost and must not depend on the receiver being up.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -89,10 +67,6 @@ Integrating through a shared database: reading and writing another system's tabl
 Between systems, default to messages or APIs, never a shared database. Go synchronous only where you cannot proceed without the answer.
 
 **Takeaway:** an integration style is a choice of which coupling to accept: in time, in schema or in latency.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -182,25 +156,7 @@ public class ExportWorker(Channel<string> queue, ILogger<ExportWorker> logger) :
 
 ## REST, gRPC or SOAP: how do they differ and when do you choose each?
 
-<A short l="j">
-
-<T k="rest">REST</T> is resources and HTTP methods, usually with JSON; <T k="grpc">gRPC</T> calls remote methods by a `.proto` contract with binary <T k="protobuf">Protobuf</T> messages over HTTP/2; <T k="soap">SOAP</T> is XML envelopes with a WSDL contract, typical for WCF and enterprise systems. Use REST for public APIs and browsers, gRPC for fast calls between your own services, and SOAP when a partner or legacy system requires it.
-
-</A>
-
-<A short l="m">
-
-The three styles differ in contract and transport: REST's contract is optional (OpenAPI), gRPC requires a `.proto` with generated clients, SOAP uses WSDL and XML schemas. gRPC is faster thanks to Protobuf and HTTP/2 multiplexing and supports streaming in both directions, but a browser cannot call it directly: you need <T k="grpc-web">gRPC-Web</T> or JSON transcoding. SOAP is verbose but gives a strict schema and the WS-* standards, which is why it lives on in banks, government systems and old ERPs.
-
-</A>
-
-<A short l="s">
-
-Choosing a protocol is choosing whom to make life easy for: REST suits external clients and debugging, gRPC suits performance and strictness between your own services, SOAP suits compatibility with what already exists. gRPC costs you human-readable traffic, HTTP/2 requirements on load balancers and proxies, and discipline around `.proto` field numbers. There is no server-side WCF in .NET Core: old services move to <T k="corewcf">CoreWCF</T>, and third-party SOAP services are called with the `System.ServiceModel.*` client packages. For new services Microsoft recommends gRPC over SOAP.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -219,10 +175,6 @@ Choosing a protocol is choosing whom to make life easy for: REST suits external 
 Choosing gRPC for an API called by a browser. Browsers cannot call gRPC directly, so you will need gRPC-Web or a proxy.
 
 **Takeaway:** REST by default and for external clients, gRPC between your own services, SOAP when the other side demands it.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -254,10 +206,6 @@ gRPC has four call types: unary (request-response), server streaming, client str
 External and browser APIs — REST, internal call traffic — gRPC, SOAP — only at the boundary with whoever requires it.
 
 **Takeaway:** pick the protocol by the client: browsers and partners get REST, your services get gRPC, legacy gets SOAP.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -398,25 +346,7 @@ public interface IInvoiceService
 
 ## How do you make a call to an external service resilient?
 
-<A short l="j">
-
-An external service will sometimes be slow or return errors, and that is normal, so every call is protected: by a timeout so you don't wait forever, and by retries on <T k="transient-fault">transient faults</T> with a pause between attempts. In .NET you do this through <T k="http-client-factory">`IHttpClientFactory`</T> and the `Microsoft.Extensions.Http.Resilience` package: a single `AddStandardResilienceHandler()` call adds timeouts, retries and a circuit breaker.
-
-</A>
-
-<A short l="m">
-
-Resilience is assembled from strategies: a timeout per attempt and per call, retries with <T k="exponential-backoff">exponential backoff</T> and <T k="retry-jitter">jitter</T>, a <T k="circuit-breaker">circuit breaker</T> that stops calling a failed service, a bulkhead that caps concurrent calls, and a fallback answer. `AddStandardResilienceHandler` builds a Polly v8 pipeline from them with sensible defaults. Only retry what is safe to run twice: by default the standard handler retries POST too, and without <T k="idempotency">idempotency</T> that means duplicates.
-
-</A>
-
-<A short l="s">
-
-Resilience is about managing a time budget and the load on a sick neighbor, not about "more retries". Retries without jitter and an overall timeout cause a <T k="retry-storm">retry storm</T>: three layers with three attempts each turn one user request into 27. A circuit breaker gives the neighbor room to recover and saves your threads, and a bulkhead stops one dependency from eating the whole connection pool. Retry at a single layer and only idempotent operations, and watch strategy events in Polly's metrics and logs.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -433,10 +363,6 @@ A transient fault is an error that goes away on its own: a network blip, a servi
 Retrying a request in a loop with no pause and no limit. If the neighbor is overloaded, such retries finish it off.
 
 **Takeaway:** every external call gets a timeout and bounded retries with pauses, never "whatever happens".
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -469,10 +395,6 @@ A circuit breaker is a state machine with three states: closed (calls flow), ope
 Always a timeout, retries only for idempotent calls and with jitter, a circuit breaker for every external dependency.
 
 **Takeaway:** the standard handler is a sane baseline; your job is to fit the timeouts to the neighbor and not retry what must not be retried.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -595,25 +517,7 @@ static async Task<string> GetInvoiceStatusAsync(string number, CancellationToken
 
 ## What is idempotency and how do you ensure it in integrations?
 
-<A short l="j">
-
-An operation is idempotent if running it again gives the same result as running it once: "set the price to 49.90" can run twice, "add 10 units to stock" cannot. In integrations, messages and requests get repeated because of failures and retries, so the receiver must recognize a repeat and not apply it a second time.
-
-</A>
-
-<A short l="m">
-
-Repeats are unavoidable: a broker delivers <T k="at-least-once">at least once</T>, and a client retries a request whose response was lost. Idempotency comes in three forms: make the operation naturally idempotent (`SET` instead of `+=`, an <T k="upsert">upsert</T> by <T k="natural-key">business key</T>), apply <T k="message-deduplication">deduplication</T> by message id, or pass an <T k="idempotency-key">idempotency key</T> and store the result of the first run. The "processed" mark is written in the same transaction as the data change, otherwise a crash between them causes a duplicate or a loss.
-
-</A>
-
-<A short l="s">
-
-Idempotency is a property of the whole processing path, not of a method: the key, the check and the effect must be atomic, usually a unique index on the key in the same transaction as the business change. Keys are kept not forever but longer than the sender's retry window: hours for HTTP clients, days for partner exchanges and file reloads. Deduplication does not protect against out-of-order messages, so state changes carry a version and the older one is dropped. External effects that cannot be rolled back — an SMS, a payment, an email — are made idempotent with a key at the provider or a log of what was sent.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -639,10 +543,6 @@ The receiver stores the ids of processed messages. If the id is already there, t
 Assuming repeats "don't happen". They happen on every failure, and a duplicated invoice or stock write-off is found only during reconciliation.
 
 **Takeaway:** a repeat is inevitable, so the receiver must be able to process the same thing twice safely.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -671,10 +571,6 @@ How `Idempotency-Key` works in an HTTP API is covered in [Web API](/sobes/en/asp
 Design every inbound handler as if every message will arrive twice.
 
 **Takeaway:** idempotency is "set" instead of "change", a unique key for what was processed, and atomicity of key and effect.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -758,25 +654,7 @@ public class PriceHandler
 
 ## How do you integrate with external and legacy systems (ERP, accounting systems, EDI providers)?
 
-<A short l="j">
-
-Between your system and the external one you put an adapter — a separate layer that knows the external system's format and protocol and translates its data into your model. Exchange with ERPs and partners often runs as scheduled files and batches, and with trading partners through <T k="edi">EDI</T>: standard electronic documents such as an order, a dispatch advice and an invoice.
-
-</A>
-
-<A short l="m">
-
-The external system is isolated by an <T k="anti-corruption-layer">anti-corruption layer</T>: the adapter translates its model, codes and formats into yours, so the domain knows nothing about ERP fields or EDIFACT segments. The transport can be anything — API, SOAP, SFTP, <T k="as2">AS2</T>, file exports — so the raw inbound document is stored before parsing to allow reprocessing after a bug fix. An exchange without acknowledgements is not reliable: you need receipts and <T k="reconciliation">reconciliation</T> of what was sent against what was received.
-
-</A>
-
-<A short l="s">
-
-Integrating with legacy is mainly about managing distrust: the foreign model is isolated in an adapter, every document has a status and a correlation id, inbound data is stored as-is for reprocessing, and reconciliation catches what got lost silently. The architectural choice is point-to-point versus an <T k="esb">integration bus</T>: a bus like BizTalk gives shared adapters, routing and a <T k="canonical-data-model">canonical model</T>, but becomes a bottleneck and the competence center of a single team. BizTalk Server 2020 is the last version and its support ends in April 2030, so new solutions are built on a broker with small adapter services or on cloud platforms such as Azure Logic Apps.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -794,10 +672,6 @@ Integrating with legacy is mainly about managing distrust: the foreign model is 
 Dragging the foreign model into your code: `DOC_NO`, `RCV_FLAG` fields and ERP codes spread across the whole system, and replacing the ERP turns into a rewrite.
 
 **Takeaway:** an external system is connected through an adapter, and its formats never leave it.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -824,10 +698,6 @@ Dragging the foreign model into your code: `DOC_NO`, `RCV_FLAG` fields and ERP c
 Store the raw input, translate in the adapter, track state, catch discrepancies with reconciliation.
 
 **Takeaway:** the adapter isolates the foreign model, while receipts, idempotent loading and an error queue make the exchange reliable.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 

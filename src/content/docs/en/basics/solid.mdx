@@ -20,25 +20,7 @@ The five SOLID principles and three heuristics — DRY, KISS and YAGNI: what the
 
 ## What do the Single Responsibility Principle (SRP) and the Open/Closed Principle (OCP) mean?
 
-<A short l="j">
-
-<T k="single-responsibility">SRP</T> says a class should have one reason to change, and <T k="open-closed">OCP</T> says new behavior should be added with new code rather than by editing working code. So a report should not calculate, format and save data all at once, and a new export format is a new class, not another `switch` branch.
-
-</A>
-
-<A short l="m">
-
-These are the first two letters of <T k="solid">SOLID</T>. In Robert Martin's wording, SRP means a module is responsible to one actor — one group of people who request changes; OCP is achieved through polymorphism: the part that varies is hidden behind an interface, for example a <T k="strategy-pattern">strategy</T>, and extended with new implementations. The cost is extra types and indirect calls, so you add an extension point where changes have already happened.
-
-</A>
-
-<A short l="s">
-
-Both principles are about managing change, not about class size: SRP groups what changes for one reason, OCP protects finished code from edits when you extend it. No module is fully closed: it is closed only against the changes its author anticipated, and an abstraction along the wrong axis costs more than none at all. So you choose the axis of extension from the change history: make the first change directly in the code, and extract an abstraction on the second similar one.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -60,10 +42,6 @@ Reading SRP as "a class does one action" and splitting code into one-method clas
 
 **Takeaway:** SRP — one reason to change; OCP — extend with new code instead of editing old code.
 
-</A>
-
-<A l="m">
-
 **How it works**
 
 - **SRP according to Martin.** In "Clean Architecture" a module is responsible to one actor — a group of people who request changes. Martin's example: `Employee` with `CalculatePay` (accounting), `ReportHours` (operations) and `Save` (the technical department). If the first two share a helper method, a change for accounting silently alters the report.
@@ -81,10 +59,6 @@ Reading SRP as "a class does one action" and splitting code into one-method clas
 Split code by who requests changes. Add an extension point once a change along that axis has already happened, not "just in case".
 
 **Takeaway:** SRP groups code by sources of change, OCP hides the varying part behind an abstraction.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -193,25 +167,7 @@ public class SalesReport(SalesCalculator calculator)
 
 ## What are DRY, KISS and YAGNI, and how do they relate?
 
-<A short l="j">
-
-<T k="dry">DRY</T> says every piece of knowledge lives in one place in the system, <T k="kiss">KISS</T> says pick the simplest solution that works, and <T k="yagni">YAGNI</T> says do not write code until you need it. DRY is about knowledge, not similar-looking lines, so identical code with different meaning should not be merged.
-
-</A>
-
-<A short l="m">
-
-DRY, per "The Pragmatic Programmer", means every piece of knowledge has a single, unambiguous, authoritative representation, while identical code that expresses different rules is accidental duplication and merging it does harm. KISS and YAGNI cap complexity: the solution is no more complex than the problem, and a feature comes no earlier than the need. DRY pushes toward abstractions and YAGNI postpones them; the <T k="rule-of-three">rule of three</T> is the compromise.
-
-</A>
-
-<A short l="s">
-
-All three are heuristics about the cost of change, not laws. A false abstraction over accidentally similar code couples things that change for different reasons — hence Sandi Metz's line "duplication is far cheaper than the wrong abstraction". YAGNI, as Fowler frames it, counts the cost of a premature feature: building it, delaying valuable work, carrying the complexity and repairing it, but it does not forbid refactoring or tests. In practice: one source of truth for rules, tolerate duplication until the third case, and no extensibility for hypothetical requirements.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -236,10 +192,6 @@ DRY pushes you to merge, KISS and YAGNI push you not to complicate things up fro
 Merging code just because it looks the same. If the fragments express different rules, a shared method couples them.
 
 **Takeaway:** DRY — one place for each piece of knowledge; KISS and YAGNI — no more complexity than needed.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -267,10 +219,6 @@ Merging code just because it looks the same. If the fragments express different 
 Ask "is this one piece of knowledge?" first, not "is this similar code?".
 
 **Takeaway:** DRY removes duplicated knowledge, KISS and YAGNI keep you from paying for complexity up front, and the rule of three reconciles them.
-
-</A>
-
-<A l="s">
 
 **Cost**
 
@@ -346,25 +294,7 @@ public static class OrderRules
 
 ## What are the Liskov Substitution Principle (LSP) and the Interface Segregation Principle (ISP)?
 
-<A short l="j">
-
-<T k="liskov-substitution">LSP</T>: an instance of a subclass must work wherever the base type is expected, with no surprises for the calling code. <T k="interface-segregation">ISP</T>: a client should not depend on methods it does not use, so a large interface is split into several small ones.
-
-</A>
-
-<A short l="m">
-
-LSP is about behavior, not signatures: a subtype honors the base type's <T k="design-by-contract">contract</T> — it does not strengthen preconditions, does not weaken postconditions and preserves invariants. The classic violations are a square inheriting from a mutable rectangle and `NotImplementedException` in an interface implementation. ISP fixes "fat" interfaces with narrow <T k="role-interface">role interfaces</T>, such as `IReadOnlyList<T>` instead of `IList<T>`, at the price of more types.
-
-</A>
-
-<A short l="s">
-
-Formally, LSP is the Liskov and Wing (1994) requirement: any property provable about objects of the base type holds for the subtype too, including the history constraint — a subtype does not change state in ways the base type does not allow. The compiler checks only signatures, so the behavioral contract rests on documentation and tests. .NET itself works around LSP with optional capabilities: `ReadOnlyCollection<T>` implements `ICollection<T>` and throws `NotSupportedException` from `Add`, while the `IReadOnly*` interfaces are ISP added after the fact. ISP's cost is fragmentation, so interfaces are split by client roles, not by methods.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -386,10 +316,6 @@ Formally, LSP is the Liskov and Wing (1994) requirement: any property provable a
 Inheriting by the real-world "is a" relation. In geometry a square is a rectangle, but a mutable `Square` is not a subtype of a mutable `Rectangle`: setting the width changes the height.
 
 **Takeaway:** a subclass replaces the base type without surprises, and an interface contains only what the client needs.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -417,10 +343,6 @@ A "fat" interface, such as an `IRepository` with twenty methods, forces clients 
 Accept the narrowest interface the method needs: `IEnumerable<T>` or `IReadOnlyList<T>`, not `List<T>`.
 
 **Takeaway:** LSP — a subclass honors the base type's contract; ISP — a client sees only its own role.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -531,25 +453,7 @@ static int Sum(IReadOnlyList<int> items)
 
 ## What is the Dependency Inversion Principle (DIP), and how does it differ from dependency injection (DI) and IoC?
 
-<A short l="j">
-
-The <T k="dependency-inversion">Dependency Inversion Principle</T> (DIP) says business logic should not depend on details like the database or email: both sides depend on an abstraction, such as an interface. <T k="dependency-injection">Dependency injection</T> (DI) is a way to supply an implementation of that abstraction from outside, usually through the constructor.
-
-</A>
-
-<A short l="m">
-
-DIP is a rule about the direction of dependencies: high-level modules do not depend on low-level ones, both depend on abstractions, and abstractions do not depend on details. The key is who owns the interface: the client declares it in its own terms and infrastructure implements it, so the source-code dependency runs against the flow of calls. DI merely delivers the implementation, and <T k="inversion-of-control">IoC</T> is the broader principle "the framework calls your code"; DI without DIP is possible if you inject a concrete class.
-
-</A>
-
-<A short l="s">
-
-DIP is an architectural principle, not a technique: it makes business rules independent of details, and <T k="clean-architecture">clean architecture</T> and <T k="ports-and-adapters">ports and adapters</T> are built on it. Ownership is inverted too: the interface lives in the client's module, otherwise you get an "interface for the sake of an interface" that inverts nothing. Martin himself notes that depending on stable concrete types like `string` is fine; what you invert are dependencies on volatile things: databases, external APIs, frameworks. The cost is indirection at every seam, so DIP is applied at module boundaries, not to every class.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -576,10 +480,6 @@ High level means business rules, such as `InvoiceService`. Low level means detai
 Treating DIP and DI as the same thing. DIP is about the direction of dependencies, DI is about how an object gets passed in.
 
 **Takeaway:** rules depend on an abstraction, and details implement it.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -609,10 +509,6 @@ DI helps you follow DIP but does not guarantee it. How the ASP.NET Core containe
 The interface is declared by whoever uses it, with only the methods it needs.
 
 **Takeaway:** DIP decides whose module owns the abstraction, and DI merely delivers the implementation.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -725,25 +621,7 @@ namespace Infrastructure
 
 ## When does following SOLID hurt, and how do you make design decisions?
 
-<A short l="j">
-
-SOLID hurts when it is applied without a reason: an interface for every class, a dozen tiny classes instead of one clear one. A simple solution that is easy to change is usually better than a "flexible" one built in advance.
-
-</A>
-
-<A short l="m">
-
-Every principle buys flexibility at the cost of indirection: extra interfaces, classes and hops when reading code. If the axis of change is not confirmed, that is <T k="speculative-generality">speculative generality</T> — abstractions nobody extends but everybody reads. The working approach is to write simple code and extract an abstraction once a second implementation or real pain during changes appears, backed by tests.
-
-</A>
-
-<A short l="s">
-
-SOLID is a set of heuristics against specific pain — cascading changes, fragile hierarchies, needless rebuilds — and outside that pain it only adds <T k="accidental-complexity">accidental complexity</T>. Dan North boiled his critique down to "write simple code" and proposed <T k="cupid">CUPID</T>: properties code moves toward instead of rules you either comply with or not. A design decision is a bet: the likelihood of change, the cost of the abstraction now and the cost of refactoring later, given tests. That cost is what you explain to the team, rather than quoting a principle.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -766,10 +644,6 @@ SOLID is advice on making code easy to change. It is not free: every interface a
 Justifying complexity with "SOLID requires it". A principle is a means, not a goal: if it does not solve a concrete problem, it creates one.
 
 **Takeaway:** start simple, add abstractions as real needs appear.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -795,10 +669,6 @@ Every abstraction adds indirection. To understand a call you have to find the im
 Start simple and refactor as the pain arrives. Extract an abstraction once you know at least two variants: then you can see what they share.
 
 **Takeaway:** an abstraction pays off only on a real axis of change; without one it is indirection with no benefit.
-
-</A>
-
-<A l="s">
 
 **Where the principles came from**
 

@@ -20,25 +20,7 @@ How React turns state into UI, when effects are needed and where data should liv
 
 ## How does React work: components, props, state and hooks?
 
-<A short l="j">
-
-A React app is built from components — functions that take <T k="props">props</T> and return markup written in <T k="jsx">JSX</T>. When <T k="react-state">state</T> from `useState` changes, React calls the component again and updates only what changed in the DOM.
-
-</A>
-
-<A short l="m">
-
-A component is a pure function of props and state: data flows down, and changes flow back up through callbacks. <T k="react-hooks">Hooks</T> (`useState`, `useEffect` and others) keep component data between renders and are tied to call order, which is why you never call them in conditions or loops. The cost of the model is that a state change re-renders the component and, by default, all its descendants, so state is kept as low in the tree as possible.
-
-</A>
-
-<A short l="s">
-
-React treats UI as a function of state: a render builds a new element tree, and <T k="react-reconciliation">reconciliation</T> diffs it against the previous one and applies the minimum set of DOM changes. A component's identity is its position in the tree plus its `key`, so a wrong `key` loses or mixes up state. State is a snapshot per render: `setState` schedules a new render rather than changing the variable, and updates are batched. Render purity is the contract that StrictMode, concurrent rendering and React Compiler all rely on.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -58,10 +40,6 @@ React treats UI as a function of state: a render builds a new element tree, and 
 Mutating state directly: `todos.push(x)`. The array reference stays the same, so React does not see the change. You need a new array: `setTodos([...todos, x])`.
 
 **Takeaway:** a component is a function of props and state, and new state via `setState` means a new render.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -86,10 +64,6 @@ Mutating state directly: `todos.push(x)`. The array reference stays the same, so
 Keep minimal state and derive the rest during render. Put shared state in the closest common parent.
 
 **Takeaway:** render is a pure function of props and state, and hooks work as long as their call order never changes.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -171,25 +145,7 @@ export function TodoList({ initial }: { initial: Todo[] }) {
 
 ## How do you use useEffect correctly, and when don't you need it?
 
-<A short l="j">
-
-An <T k="react-effect">effect</T> (`useEffect`) is code React runs after painting to synchronize the component with an external system: a subscription, a connection, a third-party widget. The second argument is the <T k="dependency-array">dependency array</T>: the effect re-runs only when those values change.
-
-</A>
-
-<A short l="m">
-
-An effect synchronizes a component with an external system: after commit React runs setup, and before a re-run or on unmount it runs the <T k="effect-cleanup">cleanup</T> that setup returned. Dependencies are all reactive values read inside, otherwise the effect works with a <T k="stale-closure">stale closure</T>. If a value can be computed during render or an action can run in an event handler, you don't need an effect: it adds an extra render and room for bugs.
-
-</A>
-
-<A short l="s">
-
-An effect is a synchronization mechanism, not a "lifecycle": setup and cleanup are symmetric, and in development <T k="strict-mode">StrictMode</T> deliberately runs an extra setup → cleanup → setup cycle to verify that. An object or function in the dependencies re-runs the effect on every render, and non-reactive logic goes into <T k="use-effect-event">`useEffectEvent`</T> (React 19.2). Fetching in an effect causes request waterfalls and races and has no cache, so data loading belongs to TanStack Query or Server Components.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -212,10 +168,6 @@ An effect is a synchronization mechanism, not a "lifecycle": setup and cleanup a
 Syncing derived data with an effect: `useEffect(() => setFullName(first + ' ' + last), [first, last])`. That is an extra render; `const fullName = first + ' ' + last` right in the component is enough.
 
 **Takeaway:** an effect is for talking to an external system; calculations happen during render.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -244,10 +196,6 @@ Syncing derived data with an effect: `useEffect(() => setFullName(first + ' ' + 
 Use an effect when code runs because the component was displayed, not because the user did something.
 
 **Takeaway:** dependencies are everything you read, cleanup mirrors setup, and the rest goes into render and handlers.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -346,25 +294,7 @@ export function Timer() {
 
 ## How do you manage state in a React app?
 
-<A short l="j">
-
-State starts out local, in a component with `useState`. If two siblings need it, you <T k="lifting-state-up">lift it up</T> into their common parent and pass it down via props, and data from the server goes into a library like <T k="tanstack-query">TanStack Query</T> that caches responses.
-
-</A>
-
-<A short l="m">
-
-Split state by owner: client state (UI, forms) lives in `useState`, in a common parent or in a store like <T k="zustand">Zustand</T>, while <T k="server-state">server state</T> — a copy of the server's data — lives in TanStack Query with caching and invalidation. <T k="react-context">Context</T> removes <T k="prop-drilling">prop drilling</T>, but when its value changes it re-renders every consumer. Filters, page and tab go into the URL so a link can be shared.
-
-</A>
-
-<A short l="s">
-
-The main mistake is mixing server and client state in one store: then caching, staleness, refetching and invalidation are all hand-written. Server state goes to TanStack Query or Server Components, navigation state to the URL, and a global store with selectors is for the rare client state that is truly shared. Context is a way to pass a value, not a store: it has no subscription to part of the value, so fast-changing data in it is expensive. In Next.js a module-level store is shared by all requests on the server, so it is created per request.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -382,10 +312,6 @@ State is the data the screen depends on: whether a dialog is open, the text in a
 Copying props into state: `useState(props.user.name)`. The initial value is read once, so when props change the state stays stale.
 
 **Takeaway:** keep state as close as possible to where it is used, and lift it only when several components need it.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -415,10 +341,6 @@ Copying props into state: `useState(props.user.name)`. The initial value is read
 First decide whose data it is: the server's, the URL's or the UI's. That decides where it lives.
 
 **Takeaway:** server state lives in the query cache, navigation state in the URL, client state as locally as possible.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -538,25 +460,7 @@ export function Orders() {
 
 ## How do Next.js and the App Router work?
 
-<A short l="j">
-
-Next.js is a framework on top of React with folder-based routing and server rendering. In the <T k="app-router">App Router</T> a folder inside `app/` is a URL segment, `page.tsx` is a page and `layout.tsx` is a shared shell. Components are <T k="react-server-components">Server Components</T> by default, and interactive ones are marked with the `'use client'` directive.
-
-</A>
-
-<A short l="m">
-
-The App Router builds routes from the `app/` folders and nests layouts inside each other, keeping their state across navigation. Server Components run only on the server and can query the database directly, while <T k="client-component">Client Components</T> (`'use client'`) ship JS to the browser for state and events. HTML is produced at build time or per request (<T k="ssr">SSR</T>), data is changed through <T k="server-action">Server Actions</T>, and since Next.js 16 caching is opted into explicitly with `'use cache'`.
-
-</A>
-
-<A short l="s">
-
-Next.js 16 changed the caching model: with Cache Components all code runs per request by default, and only what is marked with <T k="use-cache">`'use cache'`</T> plus `cacheLife` and `cacheTag` is cached. Static and cached output goes into a static shell, while dynamic parts stream from behind `Suspense` — that is <T k="partial-prerendering">Partial Prerendering</T>, and a page no longer picks SSG or SSR as a whole. Since 16.4 new projects get Cache Components by default, and in Next.js 17 it becomes the model for everyone. The cost is discipline: every access to request data must be cached or wrapped in `Suspense`, or the dev overlay and the build will flag it.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -575,10 +479,6 @@ Next.js adds routing, server rendering, bundling and server-side code to React. 
 Putting `'use client'` on a whole page for the sake of one button. Then all the page's code goes to the browser; only the button should be a Client Component.
 
 **Takeaway:** folders are URLs, components are server ones by default, and `'use client'` is only for the interactive parts.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -611,10 +511,6 @@ Putting `'use client'` on a whole page for the sake of one button. Then all the 
 Read data in Server Components, change it in Server Actions, and use a Route Handler for external consumers.
 
 **Takeaway:** the App Router means Server Components by default, nested layouts and explicit server code for reading and changing data.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -732,25 +628,7 @@ export async function GET() {
 
 ## What's new in React 19, and how do you get fast rendering?
 
-<A short l="j">
-
-React 19 added <T k="react-action">Actions</T> — async functions for forms and mutations where React itself tracks pending state, errors and optimistic updates via `useActionState` and `useOptimistic`. <T k="react-compiler">React Compiler</T> memoizes components automatically, so you write `useMemo` and `useCallback` far less often.
-
-</A>
-
-<A short l="m">
-
-An Action is an async function run inside a <T k="transition">transition</T>: `useActionState` gives its result and a pending flag, `useOptimistic` shows a change before the server responds, and `use` reads a promise or context. A fast first paint comes from server rendering with <T k="streaming-ssr">streaming</T>: HTML is sent in chunks split at <T k="suspense">`Suspense`</T> boundaries, so slow data does not block the page. With React Compiler manual memoization is rarely needed, but the compiler requires you to follow the Rules of React.
-
-</A>
-
-<A short l="s">
-
-In React 19 the server became part of the model: Server Components don't ship their code to the browser, and the `'use client'` boundary is a serialization boundary that only serializable props can cross. Actions and transitions make mutations and pending states declarative, while `Suspense` with streaming and selective <T k="hydration">hydration</T> splits loading into independent pieces. React Compiler 1.0 automatically does the memoization that `memo`, `useMemo` and `useCallback` used to do. The price is a pure render, identical HTML on server and client, and measuring in the Profiler instead of memoizing by guesswork.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -771,10 +649,6 @@ Wrapping every function in `useCallback` "for speed". Without measurements it is
 
 **Takeaway:** Actions remove hand-written loading flags, and the compiler removes most manual memoization.
 
-</A>
-
-<A l="m">
-
 **How it works**
 
 - **Transition.** `startTransition` marks an update as non-urgent: input stays responsive, and the old UI stays visible while the new one is prepared. An Action is an async function inside a transition.
@@ -793,10 +667,6 @@ Wrapping every function in `useCallback` "for speed". Without measurements it is
 Measure in the Profiler first, then optimize: move state down, split the page with `Suspense`, enable the compiler.
 
 **Takeaway:** React 19 makes pending states and mutations declarative, while streaming and selective hydration speed up the first load.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 

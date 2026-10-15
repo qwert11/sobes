@@ -20,25 +20,7 @@ How to write an HTTP service in FastAPI, how asyncio switches coroutines on one 
 
 ## How do you write a simple REST service in FastAPI?
 
-<A short l="j">
-
-<T k="py-fastapi">FastAPI</T> is a web framework where an endpoint is a plain function with a decorator like `@app.get("/items/{item_id}")`, and parameters and the request body are described with <T k="py-type-hint">type hints</T>. FastAPI uses them to parse and validate the request, and answers bad input with a 422 without a single line of validation code.
-
-</A>
-
-<A short l="m">
-
-FastAPI infers where each parameter comes from by looking at the signature: a name from the path template is a path parameter, a simple type is a query parameter, and a <T k="py-pydantic">Pydantic</T> model is the JSON body. The same signature gives you validation, <T k="openapi">OpenAPI</T> docs at `/docs` and a response schema if you declare a return type. The cost is implicit rules: `list[str]` without `Query()` becomes a body, not a query parameter.
-
-</A>
-
-<A short l="s">
-
-FastAPI is a layer over <T k="py-starlette">Starlette</T> and Pydantic where the function signature is the single source of truth for request parsing, validation, response serialization and the OpenAPI schema. In spirit it is Minimal API, except the contract is built from Python annotations at application startup. The upside is that docs and generated clients never drift from the code; the downside is that validation costs CPU on every request. The return type also filters response fields, which protects against data leaks and is also the source of "missing" fields.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -58,10 +40,6 @@ Install with `pip install "fastapi[standard]"`, run with `fastapi dev main.py`, 
 Checking types by hand. If you declare `item_id: int` and get `abc`, FastAPI already answers 422 with an error description.
 
 **Takeaway:** the function signature describes the request, and FastAPI parses, validates and documents it from there.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -90,10 +68,6 @@ Checking types by hand. If you declare `item_id: int` and get `abc`, FastAPI alr
 Describe the contract with types and models, not manual checks: then validation, docs and code stay in sync.
 
 **Takeaway:** FastAPI derives the source, type and checks of every parameter from the function signature.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -180,25 +154,7 @@ async def read_item(item_id: int, currency: str = "UAH") -> dict:  # path and qu
 
 ## How does asyncio work and how is it different from async/await in C#?
 
-<A short l="j">
-
-A <T k="py-coroutine">coroutine</T> is an `async def` function that can suspend at `await`, and the asyncio <T k="py-event-loop">event loop</T> switches between coroutines on one thread while they wait for the network or disk. That is why one program can serve thousands of connections, but any blocking call such as `time.sleep` stalls all of them.
-
-</A>
-
-<A short l="m">
-
-asyncio is cooperative multitasking on one thread: the event loop runs a coroutine until it awaits an unfinished operation, then switches to another one. Unlike C#, where a `Task` starts immediately, a coroutine does nothing until it is awaited or wrapped in a <T k="py-asyncio-task">task</T>, and several operations are run together with `asyncio.gather` or a <T k="py-task-group">`TaskGroup`</T>. The cost is that a blocking call inside `async def` freezes the whole loop, not just one pool thread.
-
-</A>
-
-<A short l="s">
-
-The asyncio model is one thread, explicit switch points and cancellation through an exception: `task.cancel()` throws <T k="py-cancelled-error">`CancelledError`</T> at an `await`, and there is no token to pass around as in C#. That gives the strengths — code between two `await`s is never interleaved with other tasks, and tasks are cheaper than threads — and the weaknesses: CPU work and synchronous libraries block everyone. Since Python 3.11, `TaskGroup` and `asyncio.timeout` provide structured concurrency, and new code prefers them over `gather` and `wait_for`. Mistakes are expensive: a lost task or a swallowed cancellation breaks service shutdown.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -217,10 +173,6 @@ The asyncio model is one thread, explicit switch points and cancellation through
 Calling a blocking function (`time.sleep`, `requests.get`) inside `async def`. There is only one thread, so every coroutine stops.
 
 **Takeaway:** asyncio switches coroutines on one thread at every `await`, so that thread must never block.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -250,10 +202,6 @@ Calling a blocking function (`time.sleep`, `requests.get`) inside `async def`. T
 Concurrency goes through `TaskGroup` and `asyncio.timeout` (3.11+), blocking code through `asyncio.to_thread`.
 
 **Takeaway:** a coroutine is lazy and runs on the loop thread, so tasks must be started explicitly, kept referenced and never blocked.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -366,25 +314,7 @@ asyncio.run(main())
 
 ## How does FastAPI work?
 
-<A short l="j">
-
-FastAPI runs inside the <T k="py-asgi">ASGI</T> server <T k="py-uvicorn">Uvicorn</T>: the server accepts HTTP requests, and FastAPI finds the right function, validates the data and injects <T k="py-depends">dependencies</T> from `Depends`. `async def` functions run on the event loop and plain `def` functions in a <T k="py-threadpool">thread pool</T>, so synchronous code goes into `def`.
-
-</A>
-
-<A short l="m">
-
-Uvicorn calls the application over ASGI for each request; FastAPI matches the route, resolves the `Depends` graph, validates the input and serializes the response. An `async def` endpoint runs directly on the event loop, a `def` one in AnyIO's 40-thread pool, so blocking code is only safe in `def`. Shared resources are created in <T k="py-lifespan">lifespan</T>, and you scale with `--workers` processes, each holding its own copy of those resources.
-
-</A>
-
-<A short l="s">
-
-FastAPI is Starlette plus a layer that builds a dependency graph and Pydantic schemas from signatures. Unlike the ASP.NET Core <T k="dependency-injection">DI</T> container, `Depends` is not type registration but function calls per request with a per-request cache: a "singleton" lives in lifespan, a "scoped" service is a dependency with `yield`. The main production risk is the `async def` versus `def` choice: a blocking call in the former stalls the whole process, while the latter hits the 40-thread limit. You scale with processes, and each one loads its own copy of lifespan resources, which for a GPU model means N copies in video memory.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -402,10 +332,6 @@ A FastAPI application is run by the ASGI server Uvicorn. The server holds connec
 `requests.get` inside `async def`. While the request is in flight, the server answers nobody.
 
 **Takeaway:** Uvicorn accepts requests, FastAPI calls functions and dependencies, and `async def` or `def` decides where they run.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -436,10 +362,6 @@ A FastAPI application is run by the ASGI server Uvicorn. The server holds connec
 `async def` when every call is async, `def` when there are blocking ones, heavy computation outside the web server process.
 
 **Takeaway:** FastAPI calls functions and dependencies based on signatures, and `async def` or `def` decides where they run.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -534,25 +456,7 @@ In a test the model is replaced without touching the code: `app.dependency_overr
 
 ## Threads, processes or asyncio: which one for which job?
 
-<A short l="j">
-
-For work that waits on the network or disk (<T k="io-bound">I/O-bound</T>), asyncio or threads fit, and for computation (<T k="cpu-bound">CPU-bound</T>) you need processes, because the <T k="py-gil">GIL</T> keeps Python threads from computing at the same time. So scraping a thousand pages is asyncio, while crunching a big array in pure Python is `ProcessPoolExecutor`.
-
-</A>
-
-<A short l="m">
-
-The choice depends on what the work waits for: I/O means asyncio if there is an async library, otherwise threads via `asyncio.to_thread`; pure-Python computation means a <T k="py-process-pool">process pool</T>, where each process has its own interpreter and its own GIL. From async code both pools are called through `run_in_executor` so the loop is never blocked. Processes cost startup time, memory and serializing arguments and results with <T k="py-pickle">pickle</T>, so you hand them large chunks of work.
-
-</A>
-
-<A short l="s">
-
-You decide by profile: where the time goes — waiting, Python bytecode, or C code that releases the GIL, like NumPy and PyTorch. For I/O asyncio scales more cheaply than threads, pure Python needs processes, and native computation does fine in threads. Heavy ML inference on a GPU is a special case: one process owns the model per GPU, requests wait in a bounded queue, and a worker groups them into batches — <T k="py-dynamic-batching">dynamic batching</T>. The free-threaded CPython build changes the picture for threads, but for now it is a deliberate choice, not the default.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -574,10 +478,6 @@ Speeding up computation with threads. In the regular CPython build, four threads
 
 **Takeaway:** waiting — asyncio or threads; computing in Python — processes.
 
-</A>
-
-<A l="m">
-
 **How it works**
 
 - A thread waiting on I/O releases the GIL, so threads work well for blocking I/O. The `asyncio.to_thread` pool defaults to `min(32, CPU count + 4)` threads.
@@ -596,10 +496,6 @@ Speeding up computation with threads. In the regular CPython build, four threads
 I/O with an async client — asyncio; I/O with a synchronous client — `to_thread`; pure-Python CPU work — a process pool created once.
 
 **Takeaway:** threads and asyncio share one GIL and suit waiting; processes give real parallelism at the cost of serialization.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 

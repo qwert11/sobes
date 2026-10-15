@@ -20,25 +20,7 @@ How `async`/`await` and `Task` work: how asynchrony differs from parallelism, wh
 
 ## How is asynchrony different from multithreading and parallelism?
 
-<A short l="j">
-
-Asynchrony means waiting without blocking a thread, while parallelism means doing work at the same time on several threads and cores. So <T k="io-bound">I/O-bound</T> operations (network, disk, database) call for `await`, and only parallelism speeds up <T k="cpu-bound">CPU-bound</T> computation.
-
-</A>
-
-<A short l="m">
-
-Asynchrony is a waiting model: an I/O call hands the operation to the OS and immediately returns an incomplete <T k="task">task</T>, and the thread goes back to the <T k="thread-pool">thread pool</T>. The key difference from parallelism is that no thread is busy while waiting, whereas `Parallel.For` and `Task.Run` keep threads busy with work. That is why wrapping I/O in `Task.Run` is pointless: at best it is an extra hop to the pool, at worst a thread blocked on a synchronous call.
-
-</A>
-
-<A short l="s">
-
-<T k="concurrency">Concurrency</T> is several operations in progress at once, parallelism is executing them at the same instant on different cores, and asynchrony is non-blocking waiting. On a server, async buys scalability, not request speed: thousands of waiting requests do not hold thousands of threads. Network waits are served by IOCP on Windows and epoll/kqueue on Linux/macOS, and a thread is needed only to process the result. CPU-bound work does not scale this way: it is capped by the number of cores and moved out of request handling.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -63,10 +45,6 @@ Asynchrony keeps the UI responsive and saves server threads. Parallelism makes c
 Thinking that `async` creates a thread by itself. An async method runs synchronously until the first `await` of an incomplete task, so a heavy loop inside it blocks the calling thread.
 
 **Takeaway:** waiting — `await`, computing — parallelize.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -95,10 +73,6 @@ CPU-bound work needs the processor. You cannot "compute asynchronously" — you 
 I/O — `async`/`await` all the way through the call chain. CPU — an explicit move to another thread, and only if a measurement shows a gain.
 
 **Takeaway:** asynchrony frees a thread while waiting, parallelism uses more threads for speed.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -172,25 +146,7 @@ Console.WriteLine(squares[999]); // 998001
 
 ## Why is `async void` dangerous, and where is it still acceptable?
 
-<A short l="j">
-
-<T k="async-void">`async void`</T> is an asynchronous method that does not return a task. So you cannot await it or catch its exception with `try/catch`, and only event handlers should be written this way.
-
-</A>
-
-<A short l="m">
-
-`async void` is an async method with no task to track it. Its exception is thrown straight into the synchronization context (<T k="synchronization-context">`SynchronizationContext`</T>), for example onto the UI thread, and without a context onto the thread pool. So such a method cannot be awaited or tested, and it is acceptable only in event handlers and `ICommand.Execute`, with a `try/catch` inside.
-
-</A>
-
-<A short l="s">
-
-For `async void` the compiler uses `AsyncVoidMethodBuilder`: there is no task, and an unhandled exception goes to the captured `SynchronizationContext` or, without one, to the thread pool. The key difference in production is that ASP.NET Core and worker services have no context, so a single such exception kills the process. The sneakiest form is an async lambda passed as an `Action`: `list.ForEach(async x => ...)` silently becomes <T k="fire-and-forget">fire-and-forget</T>. Real fire-and-forget is made explicit: a background queue or a wrapper with `try/catch` and logging.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -211,10 +167,6 @@ An event handler's signature is defined by the event's delegate, and it must ret
 Wrapping a call to an `async void` method in `try/catch` and expecting to catch its exception. It is thrown later and somewhere else.
 
 **Takeaway:** `async Task` — always, `async void` — only for event handlers.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -242,10 +194,6 @@ Without a context (console, ASP.NET Core, worker service), an exception on the t
 Pass async lambdas only to parameters of type `Func<Task>`.
 
 **Takeaway:** `async void` breaks error handling and composition, so it belongs only in event handlers.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -324,25 +272,7 @@ await Task.WhenAll(items.Select(SendAsync));  // correct
 
 ## How does async/await work under the hood?
 
-<A short l="j">
-
-The compiler turns an async method into a <T k="state-machine">state machine</T> split at each `await`. If the awaited task is not ready yet, the method returns control, and once the task completes it continues from the next line.
-
-</A>
-
-<A short l="m">
-
-An async method compiles into a type with a `MoveNext` method plus a builder that creates the returned `Task`. At each `await` the code gets an <T k="awaiter">awaiter</T>: if `IsCompleted` is true it carries on synchronously, otherwise it registers a <T k="continuation">continuation</T> and the method exits. The continuation runs in the captured context (the UI thread) or, without one, on the thread pool, so the thread can change after `await`.
-
-</A>
-
-<A short l="s">
-
-In Release the state machine is a struct that stays on the stack as long as every `await` completes synchronously. On the first real suspension it is copied to the heap into an `AsyncStateMachineBox`, which is itself the returned `Task`, and the builder flows the <T k="execution-context">`ExecutionContext`</T> with `AsyncLocal<T>`. The cost of async is that allocation, context capture and an indirect continuation call, so frequently called code gets a synchronous fast path. .NET 11 introduces runtime async, where the runtime itself manages suspension.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -361,10 +291,6 @@ The compiler rewrites an async method into a state machine: the number of the cu
 Assuming code after `await` runs on the same thread. In a UI app it does, but in a console app or ASP.NET Core it can run on any pool thread.
 
 **Takeaway:** `await` does not block the thread — it exits the method and comes back when the result is ready.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -394,10 +320,6 @@ Assuming code after `await` runs on the same thread. In a UI app it does, but in
 Do not rely on a specific thread after `await`: pass state through parameters and local variables.
 
 **Takeaway:** `await` is a check of `IsCompleted`, hooking `MoveNext` up to completion, and exiting the method.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -482,25 +404,7 @@ void MoveNext()
 
 ## What is `SynchronizationContext`, and why use `ConfigureAwait(false)`?
 
-<A short l="j">
-
-`SynchronizationContext` is the mechanism that brings code after `await` back to the right thread, for example the UI thread in WinForms or WPF. <T k="configure-await">`ConfigureAwait(false)`</T> turns that return off, so after it you must not touch UI elements.
-
-</A>
-
-<A short l="m">
-
-`SynchronizationContext` is an abstraction with a `Post` method that schedules a delegate into the right environment: the UI thread or the request context of classic ASP.NET. By default `await` captures the current context, and `ConfigureAwait(false)` opts out of that. ASP.NET Core has no context, so `ConfigureAwait(false)` changes nothing in app code, while libraries put it on every `await`.
-
-</A>
-
-<A short l="s">
-
-A context is needed where code is tied to a thread: UI elements are accessible only from their own thread, and Blazor emulates one logical thread per circuit. `ConfigureAwait(false)` saves hops into the context and protects a library from hanging when the caller blocks on the result. But it does not guarantee leaving the context, and it does not touch `ExecutionContext` or `AsyncLocal<T>`. Since .NET 8 there is <T k="configure-await-options">`ConfigureAwaitOptions`</T>: `SuppressThrowing` waits for a task without throwing, and `ForceYielding` always completes asynchronously.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -521,10 +425,6 @@ Thanks to it, you can update the UI again after `await` in a button click handle
 Adding `ConfigureAwait(false)` in a button click handler and then touching a control. You get an exception about access from another thread.
 
 **Takeaway:** the context brings code back to the UI thread, and `ConfigureAwait(false)` opts out of it.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -552,10 +452,6 @@ The implementations are `WindowsFormsSynchronizationContext`, `DispatcherSynchro
 In app code you don't write `ConfigureAwait(false)`; in a library you write it on every `await`.
 
 **Takeaway:** `ConfigureAwait(false)` is a tool for libraries, not for app code.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -634,25 +530,7 @@ await backgroundTask.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
 
 ## Why do `.Result` and `.Wait()` cause deadlocks, and how do you avoid them?
 
-<A short l="j">
-
-A <T k="deadlock">deadlock</T> is when two parties wait for each other forever. `.Result` blocks the UI thread while the continuation after `await` needs that very thread, so the fix is `await` all the way up the call chain.
-
-</A>
-
-<A short l="m">
-
-This is <T k="sync-over-async">sync-over-async</T> — synchronously waiting on asynchronous code — in a single-threaded context. The blocking call holds the context, the continuation after `await` waits for that same context, and neither can finish. The cure is "async all the way"; `ConfigureAwait(false)` in libraries breaks the cycle only if it is on every `await` in the chain.
-
-</A>
-
-<A short l="s">
-
-A classic deadlock needs a single-threaded context, so ASP.NET Core does not have it. Instead, blocking waits there lead to <T k="thread-pool-starvation">thread pool starvation</T>: threads are busy waiting, and the continuations that would free them sit in the queue. The pool adds threads gradually, so under load latency climbs to seconds. If a synchronous wrapper is unavoidable, `GetAwaiter().GetResult()` rethrows the original exception, and `Task.Run(...).GetAwaiter().GetResult()` moves the work out of the context at the cost of one more busy thread.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -679,10 +557,6 @@ Make the whole chain asynchronous up to the entry point: an event handler, a con
 Testing the code in a console app, where there is no context and everything works, then moving it to a UI app, where it hangs.
 
 **Takeaway:** don't block on tasks — `await` all the way to the top.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -712,10 +586,6 @@ Remove any one condition and there is no deadlock.
 Async all the way: `async Task Main` (since C# 7.1), `async Task` in tests. `.Result` is fine only on a task that has already completed, for example after `await Task.WhenAll`.
 
 **Takeaway:** a deadlock is a single-threaded context, a block inside it, and an `await` that wants to get back in.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -795,25 +665,7 @@ private async void LoadButtonFixed_Click(object sender, EventArgs e)
 
 ## How do you cancel asynchronous operations correctly?
 
-<A short l="j">
-
-A <T k="cancellation-token">`CancellationToken`</T> is a "time to stop" signal passed into async methods, and a <T k="cancellation-token-source">`CancellationTokenSource`</T> is what cancels it. Cancellation is <T k="cooperative-cancellation">cooperative</T>: the method checks the token itself and stops, usually by throwing <T k="operation-canceled-exception">`OperationCanceledException`</T>.
-
-</A>
-
-<A short l="m">
-
-Cancellation in .NET is a request made through a token: the source (`CancellationTokenSource`) cancels, the token only listens. The token is taken as the last parameter and passed to every async API you call, and timeouts are added with `CancelAfter` and <T k="linked-token-source">`CreateLinkedTokenSource`</T>. Catch `OperationCanceledException` rather than its subclass `TaskCanceledException`, and dispose sources with `using`, or timers and registrations stay behind.
-
-</A>
-
-<A short l="s">
-
-Cancellation is a request, not a thread abort: code that never checks the token keeps running. An async method that throws `OperationCanceledException` ends up `Canceled`, not `Faulted`; with `Task.Run` that happens only if the exception's token matches the one passed in. In ASP.NET Core the request token saves resources when the connection drops. The cost is the risk of partial state, so past a commit point cancellation is no longer accepted.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -836,10 +688,6 @@ To stop work nobody needs anymore: the user closed the window, the client droppe
 Accepting a token and never passing it on. Then cancellation cancels nothing.
 
 **Takeaway:** pass the token through the whole chain, or the cancellation never reaches the operation.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -867,10 +715,6 @@ Accepting a token and never passing it on. Then cancellation cancels nothing.
 A public async method takes `CancellationToken cancellationToken = default` as its last parameter and passes it on.
 
 **Takeaway:** a timeout is cancellation too, and a linked source combines external cancellation with your own timeout.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -955,25 +799,7 @@ static long Sum(int[] data, CancellationToken ct)
 
 ## How do you run several tasks in parallel and limit how many run at once?
 
-<A short l="j">
-
-`Task.WhenAll` waits for several tasks at once that are already started and running concurrently. So the total time equals the longest operation rather than the sum; if there are thousands of tasks, you cap how many run at once, for example with `Parallel.ForEachAsync`.
-
-</A>
-
-<A short l="m">
-
-`Task.WhenAll` waits for every task, and on failure `await` rethrows only the first exception, while all of them are in its task's `Exception`. The <T k="degree-of-parallelism">degree of parallelism</T> is limited with `Parallel.ForEachAsync` (.NET 6+, `Environment.ProcessorCount` by default) or <T k="semaphore-slim">`SemaphoreSlim`</T>. The cost of a limit is a longer total time, but the external service and the connection pool are not overloaded.
-
-</A>
-
-<A short l="s">
-
-`WhenAll` does not cancel the remaining tasks on the first failure, so fail-fast needs a shared `CancellationTokenSource`; `Parallel.ForEachAsync` does that itself. The degree of parallelism for I/O is set by the external system's limits — the connection pool, a partner's rate limit — not by the number of cores. For a continuous stream of work a `Channel<T>` with bounded capacity is better: it provides <T k="backpressure">backpressure</T>. `Task.WhenEach` (.NET 9+) lets you process results as they become ready.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -996,10 +822,6 @@ For a collection, `WhenAll` returns an array right away: `int[] r = await Task.W
 Enumerating an `IEnumerable` from `Select` twice: the tasks get created again. Call `ToArray()` right away.
 
 **Takeaway:** start all the tasks first, then wait for them together.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -1027,10 +849,6 @@ Enumerating an `IEnumerable` from `Select` twice: the tasks get created again. C
 To see every error, keep the `WhenAll` task in a variable and read its `Exception` in the `catch`.
 
 **Takeaway:** `WhenAll` is for a small set of tasks; `Parallel.ForEachAsync` and a semaphore are for when the number of concurrent operations must be limited.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -1113,25 +931,7 @@ await foreach (Task<int> done in Task.WhenEach(tasks))
 
 ## When should you use `ValueTask` instead of `Task`, and what are its limitations?
 
-<A short l="j">
-
-<T k="value-task">`ValueTask<T>`</T> is a struct that returns a ready result without creating a `Task` object on the heap. It pays off when a method almost always completes immediately, for example when it reads from a cache, while the default return type is still `Task`.
-
-</A>
-
-<A short l="m">
-
-`ValueTask<T>` holds either a ready value or an ordinary `Task<T>`, so it does not allocate when the method completes synchronously. In return it can be awaited only once, cannot be awaited from several places, and its `Result` cannot be read before completion; for anything more there is `AsTask()`. The docs recommend `Task` by default and `ValueTask` only when profiling has shown a gain.
-
-</A>
-
-<A short l="s">
-
-`ValueTask<T>` holds a `T`, a `Task<T>` or an <T k="value-task-source">`IValueTaskSource<T>`</T> — a reusable operation object that lets `Socket.ReceiveAsync` run without allocations. That is where the limitations come from: after the first `await` the source may go back to a pool, so awaiting again or concurrently is undefined behavior. The struct is bigger than a reference and grows the caller's state machine. So `ValueTask` is justified on library <T k="hot-path">hot paths</T> and in interfaces like `IAsyncEnumerator<T>.MoveNextAsync`, not in business code.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -1154,10 +954,6 @@ A method reads a value from a cache and goes to the database only on a miss. Alm
 Storing a `ValueTask` in a field or passing it to `Task.WhenAll`. For that, first convert it to a task with `AsTask()`.
 
 **Takeaway:** `ValueTask` is an optimization for a frequently synchronous result, not a replacement for `Task`.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -1189,10 +985,6 @@ Breaking these rules gives undefined behavior, not a clear exception.
 One `ValueTask` — one consumption: `await`, or `AsTask()`, or `Result` after checking `IsCompletedSuccessfully`.
 
 **Takeaway:** `ValueTask` saves an allocation at the price of strict rules for every consumer.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 

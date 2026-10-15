@@ -20,25 +20,7 @@ Where an ASP.NET Core app gets its settings, where to keep secrets and how to va
 
 ## How does configuration work: sources, their order and `Section:Key` keys?
 
-<A short l="j">
-
-Configuration is a flat set of key-value pairs that <T k="iconfiguration">`IConfiguration`</T> assembles from several <T k="configuration-provider">sources</T>: `appsettings.json`, `appsettings.{Environment}.json`, environment variables and the command line. If a key exists in several sources, the one added later wins, so an environment variable overrides a value from JSON.
-
-</A>
-
-<A short l="m">
-
-`WebApplication.CreateBuilder` adds sources in order: `appsettings.json`, `appsettings.{Environment}.json`, User Secrets in Development, environment variables, the command line — the last one wins. Nesting is flattened into colon-separated keys (`Payments:TimeoutSeconds`), and environment variables use `__` instead because not every shell accepts `:`. Values are stored as strings and only get a type when read, so a typo in a key silently gives you `null` or a default value.
-
-</A>
-
-<A short l="s">
-
-`ConfigurationManager` (.NET 6+) is a list of providers, each with its own dictionary: a lookup goes from the end of the list to the first match, and `reloadOnChange` rereads the file and signals through a <T k="change-token">change token</T>. That leads to non-obvious effects: a source added after `CreateBuilder` overrides even the command line, and arrays from different files are merged by index. In .NET 10 a JSON `null` binds as `null` rather than an empty string. So the source order is part of the deployment contract, and you check where a value came from with `GetDebugView()`.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -66,10 +48,6 @@ A typo in a key: `config["Payment:Timeout"]` returns `null` without an exception
 
 **Takeaway:** settings are a flat dictionary built from several sources, and the last source wins.
 
-</A>
-
-<A l="m">
-
 **How it works**
 
 1. `builder.Configuration` is a `ConfigurationManager` (.NET 6+): both a builder and the finished configuration, so you can read it right in `Program.cs`.
@@ -96,10 +74,6 @@ A typo in a key: `config["Payment:Timeout"]` returns `null` without an exception
 After your own source, call `AddEnvironmentVariables()` and `AddCommandLine(args)` again so the deployment can still override everything.
 
 **Takeaway:** the last provider wins, so the source order is part of the deployment contract.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -186,25 +160,7 @@ Running `dotnet run --Payments:TimeoutSeconds=90` gives 90 even when the environ
 
 ## How do environments work, and where should you keep secrets?
 
-<A short l="j">
-
-The <T k="hosting-environment">environment</T> is a name such as `Development`, `Staging` or `Production`, set by the `ASPNETCORE_ENVIRONMENT` or `DOTNET_ENVIRONMENT` variable; it decides which `appsettings.{Environment}.json` is loaded and which debugging features are on. Secrets are never committed: locally they live in <T k="user-secrets">User Secrets</T>, and on a server in environment variables or a store like Azure Key Vault.
-
-</A>
-
-<A short l="m">
-
-The environment is chosen once at host startup, and if it isn't set it is `Production`, so debugging features turn on only through an explicit `IsDevelopment()` check. User Secrets is an unencrypted JSON file in the user profile that `CreateBuilder` loads only in Development. In production, secrets come from the environment, mounted files or a <T k="secret-store">secret store</T> that the app accesses with a <T k="managed-identity">managed identity</T>, so no passwords remain in the configuration.
-
-</A>
-
-<A short l="s">
-
-An environment is a branch in behavior and sources, so the fewer `if (IsDevelopment())` checks in code, the smaller the gap between what was tested and what was deployed. A secret in an environment variable shows up in process dumps and in `docker inspect`, while a store gives identity-based access, auditing and rotation. The cost of a store is a network call at startup and a dependency on its availability. A secret that reached git counts as compromised: you revoke it rather than scrub it from history.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -229,10 +185,6 @@ The environment is a string the app reads at startup. The standard values are `D
 Putting a password into `appsettings.Development.json` and committing it. Treat everything in the repository as public.
 
 **Takeaway:** the environment picks the behavior and the settings file, and secrets live outside the repository.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -260,10 +212,6 @@ Putting a password into `appsettings.Development.json` and committing it. Treat 
 The repository holds only non-secret defaults. Everything that differs between environments or is secret comes from outside.
 
 **Takeaway:** the environment sets the behavior and the set of files, and at every stage secrets come from their own source, but never from git.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -353,25 +301,7 @@ export Payments__ApiKey="..."
 
 ## How do `IOptions`, `IOptionsSnapshot` and `IOptionsMonitor` differ, and how do you validate settings?
 
-<A short l="j">
-
-The <T k="options-pattern">options pattern</T> binds a configuration section to a class that services receive through DI as `IOptions<T>`. `IOptions<T>` reads the values once, `IOptionsSnapshot<T>` rereads them on every request, and `IOptionsMonitor<T>` always returns the current ones and notifies you about changes.
-
-</A>
-
-<A short l="m">
-
-All three interfaces build the object with the same factory and differ in lifetime and caching: `IOptions<T>` is a singleton computed once; <T k="ioptions-snapshot">`IOptionsSnapshot<T>`</T> is scoped and recomputed per request; <T k="ioptions-monitor">`IOptionsMonitor<T>`</T> is a singleton with `CurrentValue` and `OnChange`. Validation through `ValidateDataAnnotations`, `Validate` or `IValidateOptions<T>` runs on first access by default, which is why you add <T k="validate-on-start">`ValidateOnStart`</T>. A snapshot costs a new object per request, and with a monitor the value can change in the middle of an operation.
-
-</A>
-
-<A short l="s">
-
-`OptionsFactory` applies all `Configure` actions, then `PostConfigure`, then validators, and `OptionsMonitor` caches the result by name and clears the cache on the configuration change token. `ValidateOnStart` only protects startup: if an invalid file lands on disk, `CurrentValue` doesn't roll back to the old value but starts throwing `OptionsValidationException`. For Native AOT, the <T k="source-generator">source generator</T> `[OptionsValidator]` (.NET 8+) writes a reflection-free validator. Make reloadable only the settings that are safe to change on the fly: log levels, flags, limits.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -396,10 +326,6 @@ The options pattern reads settings through a typed class instead of strings by k
 Expecting `IOptions<T>` to pick up an `appsettings.json` edit without a restart. That takes a snapshot or a monitor.
 
 **Takeaway:** read settings through a typed class, and choose the interface by whether you need changes on the fly.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -433,10 +359,6 @@ Expecting `IOptions<T>` to pick up an `appsettings.json` edit without a restart.
 For every section: `AddOptions<T>().BindConfiguration(...).ValidateDataAnnotations().ValidateOnStart()`.
 
 **Takeaway:** choose the interface by the consumer's lifetime, and run validation at startup.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -547,25 +469,7 @@ public sealed class PaymentsOptions
 
 ## How does logging work in ASP.NET Core, and why are messages written as templates rather than interpolated strings?
 
-<A short l="j">
-
-`ILogger<T>` writes messages with a level from `Trace` to `Critical` and a <T k="log-category">category</T> — the full class name, while <T k="logging-provider">providers</T> decide where they go: the console, a file, Elastic. Messages are written as a template like `"Order {OrderId} created"` with arguments, not interpolation, so that `OrderId` becomes a separate field you can search by.
-
-</A>
-
-<A short l="m">
-
-`ILoggerFactory` creates a logger per category that hands each entry to all providers, and filters from the `Logging` section cut off levels by the longest matching category prefix. A <T k="message-template">message template</T> with named placeholders produces a <T k="structured-logging">structured log</T> — text plus properties to search by in Elastic or Seq, while interpolation loses the properties and formats the string even when the level is off. Serilog adds <T k="serilog-sink">sinks</T>, <T k="serilog-enricher">enrichers</T> and object destructuring, at the cost of a second level configuration.
-
-</A>
-
-<A short l="s">
-
-`Microsoft.Extensions.Logging` is an abstraction: the API, filters and scopes, while the provider decides on format and delivery. A template is also a grouping key: all `Order {OrderId} created` events are one event type with different properties, while interpolated strings are unique and break grouping. The cost of `LogInformation(template, args)` is a `params` array and boxing of value-type arguments even when the level is off, so hot code uses `[LoggerMessage]`. With Serilog, levels from `Logging:LogLevel` stop working and filters move to `Serilog:MinimumLevel` — a common reason for "missing" logs.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -585,10 +489,6 @@ public sealed class PaymentsOptions
 Interpolation like `$"Order {id} created"`. The log gets a finished string with no `OrderId` field, and finding all entries for an order becomes hard.
 
 **Takeaway:** a logger with a category, levels in configuration, messages as templates with named parameters.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -618,10 +518,6 @@ Interpolation like `$"Order {id} created"`. The log gets a finished string with 
 - The CA2254 analyzer warns when a template isn't a constant.
 
 **Takeaway:** filters work by category and provider, and a log only has structure when it uses a template with named parameters.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -764,25 +660,7 @@ finally
 
 ## How do you make logging fast and observable: `LoggerMessage`, scopes, correlation and OpenTelemetry?
 
-<A short l="j">
-
-Frequent messages are written through the `[LoggerMessage]` attribute: a generator creates a method that checks the level first and wastes no memory if the entry isn't needed. Observability means one `TraceId` finds all the logs, traces and metrics of a request across services, and the standard way to get it is <T k="opentelemetry">OpenTelemetry</T>.
-
-</A>
-
-<A short l="m">
-
-`[LoggerMessage]` (.NET 6+) generates a strongly typed method: an `IsEnabled` check, no `params` array or boxing, and a template validated at compile time. A <T k="log-scope">scope</T> adds properties to every entry inside a block, and ASP.NET Core adds `TraceId`, `SpanId` and `RequestId` by itself, so a log links to its trace. OpenTelemetry collects logs, metrics and traces built on <T k="activity">`Activity`</T> and ships them over <T k="otlp">OTLP</T> to any backend, at the cost of another pipeline and more data.
-
-</A>
-
-<A short l="s">
-
-A fast log does no work before the level check (`[LoggerMessage]`), is shipped in the background, and its volume is capped with sampling and buffering. Correlation rests on `Activity`: ASP.NET Core continues the incoming <T k="w3c-trace-context">W3C Trace Context</T> (`traceparent`), `HttpClient` passes it on, and the logger adds `TraceId` to every entry. OpenTelemetry separates instrumentation from the backend: code writes to `ILogger`, `Meter` and `ActivitySource`, and Elastic, Jaeger or an <T k="apm">APM</T> system receive the data over OTLP. The main cost is telemetry volume, so you budget for it like any other infrastructure.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -802,10 +680,6 @@ A fast log does no work before the level check (`[LoggerMessage]`), is shipped i
 Inventing your own `CorrelationId` when a `TraceId` already exists. You end up with two unrelated identifiers.
 
 **Takeaway:** `[LoggerMessage]` for speed, scopes and `TraceId` for connected logs.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -833,10 +707,6 @@ Inventing your own `CorrelationId` when a `TraceId` already exists. You end up w
 Metrics for alerts, traces for finding the bottleneck, logs for details; `TraceId` ties them together.
 
 **Takeaway:** the generator removes the cost of disabled logs, and `Activity` gives logs and traces a shared `TraceId`.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 

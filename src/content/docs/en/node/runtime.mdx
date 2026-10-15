@@ -20,25 +20,7 @@ How Node.js works under a backend: modules and packages, the event loop and libu
 
 ## How do modules and packages work in Node.js?
 
-<A short l="j">
-
-Node.js has two module systems: <T k="node-commonjs">CommonJS</T> with `require` and `module.exports`, and standard <T k="node-esm">ES modules</T> with `import` and `export`; which one applies depends on the file extension (`.cjs`, `.mjs`) or the `"type": "module"` field in `package.json`. Dependencies are listed in `package.json`, npm installs them into `node_modules`, and <T k="node-package-lock">package-lock.json</T> pins the exact versions.
-
-</A>
-
-<A short l="m">
-
-CommonJS loads a module synchronously at the moment `require` is called, while ESM first builds the import graph, loads it asynchronously and therefore supports top-level `await`. Dependency versions in `package.json` are <T k="semver">semver</T> ranges like `^1.2.3`, so without a lockfile and `npm ci` two builds can get different packages. Since Node 22.18 and 23.6, `.ts` files run directly via <T k="node-type-stripping">type stripping</T>, but that only erases types: no type checking and no `enum`.
-
-</A>
-
-<A short l="s">
-
-New code is written as ESM: it is the language standard, with a static graph and top-level `await`, and unflagged `require()` of ES modules since Node 22.12 removed the main interop pain, as long as the module has no top-level `await`. The cost of two systems is the dual package hazard: a package that ships two builds can be loaded twice, as CJS and as ESM, with two separate states. The supply chain is kept in check with a lockfile, `npm ci` and audits, and pnpm's isolated `node_modules` prevents <T k="node-phantom-dependency">phantom dependencies</T>.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -64,10 +46,6 @@ New code is written as ESM: it is the language standard, with a static graph and
 Using `require` in an ES module. The result is `ReferenceError: require is not defined in ES module scope`.
 
 **Takeaway:** modules are loaded with `import` or `require`, packages are described by `package.json`, and exact versions by the lockfile.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -95,10 +73,6 @@ Using `require` in an ES module. The result is `ReferenceError: require is not d
 New project — `"type": "module"`, the lockfile in git, `npm ci` in CI.
 
 **Takeaway:** CommonJS loads synchronously on call, ESM loads the whole graph up front, and versions are pinned by the lockfile, not by ranges.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -190,25 +164,7 @@ console.log(s); // paid
 
 ## How does Node.js handle thousands of connections on one thread?
 
-<A short l="j">
-
-All JavaScript in Node.js runs on one thread, and waiting for the network and disk is handled by the <T k="node-libuv">libuv</T> library: while the database has not answered, the thread serves other requests. When an operation completes, its callback goes into a queue and the <T k="event-loop">event loop</T> runs it, which is why a heavy computation in a handler slows down every request at once.
-
-</A>
-
-<A short l="m">
-
-<T k="node-v8">V8</T> runs JavaScript, and libuv provides the event loop: sockets go to the OS's non-blocking I/O, while files, `dns.lookup`, some crypto and zlib go to libuv's own <T k="node-libuv-threadpool">thread pool</T>, 4 threads by default. The loop goes through phases — timers, poll, check — and between callbacks drains the `process.nextTick` queue and promise <T k="microtask">microtasks</T>. The cost of the model: 100 ms of synchronous work adds 100 ms of latency to every queued request.
-
-</A>
-
-<A short l="s">
-
-Node.js is a single event thread with non-blocking I/O, while ASP.NET Core runs requests on the thread pool and spreads CPU work across cores. Under I/O load the Node model is cheap: a connection costs memory, not a thread, and there are no context switches or locks. The bottlenecks are CPU on the main thread, visible as <T k="node-event-loop-delay">event loop delay</T>, and the libuv pool shared by files, `dns.lookup` and `crypto.pbkdf2`. Cores are used through multiple processes, not threads.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -226,10 +182,6 @@ Node.js is a single event thread with non-blocking I/O, while ASP.NET Core runs 
 Synchronous work in a handler: `fs.readFileSync`, `JSON.parse` of a huge string, a heavy loop. While it runs, the server answers nobody.
 
 **Takeaway:** one thread holds thousands of connections because it never waits for I/O; it only runs callbacks.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -260,10 +212,6 @@ After each callback Node drains the whole `process.nextTick` queue, then all pro
 To defer work, use `setImmediate` — the Node docs recommend it. Heavy computation goes off the main thread.
 
 **Takeaway:** the OS waits on sockets, the libuv pool on files and crypto, and JavaScript runs on one thread through the loop phases.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -365,25 +313,7 @@ With `UV_THREADPOOL_SIZE=6`, all six hashes finish at roughly the same time.
 
 ## How do you work with streams and errors in Node.js?
 
-<A short l="j">
-
-A <T k="node-stream">stream</T> processes data in chunks as it arrives instead of loading everything into memory, so a 5 GB file is copied with constant memory use. Errors in Node.js arrive in three ways — an exception at `await`, the first argument of a callback and an `'error'` event — and an unhandled one crashes the process.
-
-</A>
-
-<A short l="m">
-
-Streams are Readable, Writable, Duplex and Transform, and you connect them with `pipeline`: it respects <T k="backpressure">backpressure</T> and closes every stage on error. An `'error'` event on an <T k="node-event-emitter">`EventEmitter`</T> with no listener throws, and unhandled errors reach `uncaughtException` and `unhandledRejection`, after which the process should exit. Shutdown on <T k="sigterm">SIGTERM</T> is written explicitly: close the server, wait for in-flight requests, release resources.
-
-</A>
-
-<A short l="s">
-
-`pipeline` is the only reliable way to connect streams: `.pipe()` does not propagate errors and leaves open descriptors after a failure. Handlers for <T k="node-uncaught-exception">uncaughtException</T> and `unhandledRejection` exist to log and exit: the process state is unknown after them, and the orchestrator recovers the service by restarting it. <T k="graceful-shutdown">Graceful shutdown</T> means on SIGTERM stop accepting requests, wait for in-flight ones with a timeout and close DB pools. In a container Node is started directly, not through `npm start`, or the signal never reaches it.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -408,10 +338,6 @@ Streams are Readable, Writable, Duplex and Transform, and you connect them with 
 Reading a large file with `fs.readFile`: it lands in memory in full. For large data use `fs.createReadStream` and `pipeline`.
 
 **Takeaway:** data goes through streams and `pipeline`, errors are caught the way the API style dictates.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -439,10 +365,6 @@ Reading a large file with `fs.readFile`: it lands in memory in full. For large d
 Streams only through `pipeline`; every long-lived `EventEmitter` gets an `'error'` handler.
 
 **Takeaway:** `pipeline` gives you backpressure and closes every stage on error, while `'error'` with no listener crashes the process.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -559,25 +481,7 @@ process.once('SIGTERM', () => {                   // docker stop, Kubernetes
 
 ## How do you scale and profile a Node.js service?
 
-<A short l="j">
-
-One Node.js process runs JavaScript on one core, so a service is scaled with several processes behind a load balancer, and heavy computations move to <T k="node-worker-threads">worker_threads</T>. Slow code and leaks are found with a profiler: `node --inspect` and Chrome DevTools.
-
-</A>
-
-<A short l="m">
-
-<T k="node-cluster">cluster</T> starts several processes on one port, worker_threads give threads with their own event loop for CPU tasks, and in Kubernetes you usually run several pods with one process each. Memory leaks are found by comparing <T k="node-heap-snapshot">heap snapshots</T>, hot code with a CPU profile via `--cpu-prof` or the <T k="node-inspector">inspector</T>. In a container the V8 heap limit must leave room for buffers and native memory, or the OOM killer takes the process down.
-
-</A>
-
-<A short l="s">
-
-The container standard is one Node process per container and horizontal scaling: the orchestrator handles restarts, load balancing and resource accounting, and cluster inside a pod adds a second layer of management. worker_threads are only for CPU work, and each worker carries its own V8 isolate with a separate heap. The heap is only part of process memory, so `--max-old-space-size` is set below the cgroups limit with headroom. In production use only <T k="node-lts">LTS</T>: in October 2026 that is Node 24 and 22, and Node 26 becomes LTS on October 28.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -595,10 +499,6 @@ The container standard is one Node process per container and horizontal scaling:
 Keeping sessions or a cache in process memory. With several instances each sees its own, so shared state lives in Redis or the database.
 
 **Takeaway:** processes per core and machine, CPU work in workers, and bottlenecks found with a profiler.
-
-</A>
-
-<A l="m">
 
 **When to choose what**
 
@@ -624,10 +524,6 @@ Keeping sessions or a cache in process memory. With several instances each sees 
 I/O-bound — more instances. CPU-bound — workers or a separate service.
 
 **Takeaway:** processes scale I/O, workers scale computation, and the orchestrator does cluster's job better than cluster.
-
-</A>
-
-<A l="s">
 
 **Under the hood: memory**
 

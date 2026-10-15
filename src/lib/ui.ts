@@ -5,8 +5,7 @@ export const LEVEL_NAMES: Record<Level, string> = { j: 'Junior', m: 'Middle', s:
 
 const STRINGS = {
   ru: {
-    short: 'Коротко',
-    long: 'Подробно',
+    answer: 'Ответ',
     example: 'Пример',
     next: 'Что спросят дальше',
     sources: 'Источники',
@@ -17,8 +16,6 @@ const STRINGS = {
     selfCheck: 'Самопроверка',
     reveal: 'Показать ответ',
     conceal: 'Скрыть ответ',
-    level: 'Уровень ответа',
-    all: 'Все',
     quiz: 'Карточки',
     quizHint: 'Скрыть ответы и проверить себя',
     progress: 'Знаю {k} из {n}',
@@ -30,8 +27,7 @@ const STRINGS = {
     noDef: 'Определения пока нет — поищите по ссылкам ниже.',
   },
   uk: {
-    short: 'Коротко',
-    long: 'Детально',
+    answer: 'Відповідь',
     example: 'Приклад',
     next: 'Що спитають далі',
     sources: 'Джерела',
@@ -42,8 +38,6 @@ const STRINGS = {
     selfCheck: 'Самоперевірка',
     reveal: 'Показати відповідь',
     conceal: 'Сховати відповідь',
-    level: 'Рівень відповіді',
-    all: 'Усі',
     quiz: 'Картки',
     quizHint: 'Сховати відповіді й перевірити себе',
     progress: 'Знаю {k} з {n}',
@@ -55,8 +49,7 @@ const STRINGS = {
     noDef: 'Визначення поки немає — пошукайте за посиланнями нижче.',
   },
   en: {
-    short: 'Short',
-    long: 'In depth',
+    answer: 'Answer',
     example: 'Example',
     next: 'Likely follow-ups',
     sources: 'Sources',
@@ -67,8 +60,6 @@ const STRINGS = {
     selfCheck: 'Self-check',
     reveal: 'Show answer',
     conceal: 'Hide answer',
-    level: 'Answer level',
-    all: 'All',
     quiz: 'Flashcards',
     quizHint: 'Hide answers and test yourself',
     progress: 'Know {k} of {n}',

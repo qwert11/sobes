@@ -20,25 +20,7 @@ How to run work outside an HTTP request and how to cache data and responses: hos
 
 ## What are `IHostedService` and `BackgroundService`, and how do you register them?
 
-<A short l="j">
-
-<T k="hosted-service">`IHostedService`</T> is the interface of a background service: the host calls its `StartAsync` when the app starts and `StopAsync` when it stops, while <T k="background-service">`BackgroundService`</T> is a base class where you only override `ExecuteAsync`. You register the service with `builder.Services.AddHostedService<Worker>()`, and it lives as long as the app.
-
-</A>
-
-<A short l="m">
-
-A hosted service is a singleton whose lifetime the host manages: on startup it calls `StartAsync` on every service in turn, on shutdown it calls `StopAsync` in reverse order. `BackgroundService` runs `ExecuteAsync` as a long-running task and passes it a token that is cancelled on shutdown. So scoped dependencies such as `DbContext` come from a scope you create, and the loop must observe the token.
-
-</A>
-
-<A short l="s">
-
-A hosted service is an extension point of the <T k="generic-host">Generic Host</T>: the same mechanism starts Kestrel and the workers in a <T k="worker-service">Worker Service</T>, while `AddWindowsService()` and `AddSystemd()` only change how the OS manages the process. `StartAsync` of all services runs sequentially and before the server starts, so slow initialization delays startup. Since .NET 10 `BackgroundService` moves the whole of `ExecuteAsync` into `Task.Run`; before that its synchronous part also held up startup. The price of the built-in mechanism is no persistence, no retries and no coordination between instances.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -60,10 +42,6 @@ To do work outside HTTP requests: read a queue, sync data on a timer, warm up a 
 Not passing `stoppingToken` to `Task.Delay` and other calls. Then app shutdown waits for the timeout.
 
 **Takeaway:** `BackgroundService` plus `AddHostedService` is the standard way to run background work.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -91,10 +69,6 @@ Not passing `stoppingToken` to `Task.Delay` and other calls. Then app shutdown w
 Long loop — in `ExecuteAsync`, short initialization — in `StartAsync`, a new scope — per unit of work.
 
 **Takeaway:** a hosted service lives as long as the host and is driven by it through `StartAsync`, `StopAsync` and the stopping token.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -175,25 +149,7 @@ public sealed class HeartbeatWorker(ILogger<HeartbeatWorker> logger) : Backgroun
 
 ## How does `IMemoryCache` differ from `IDistributedCache`, and what are absolute and sliding expiration?
 
-<A short l="j">
-
-<T k="in-memory-cache">`IMemoryCache`</T> stores objects in the memory of the current process, while <T k="distributed-cache">`IDistributedCache`</T> stores byte arrays in external storage such as Redis or SQL Server, shared by all app instances. <T k="absolute-expiration">Absolute expiration</T> removes an entry after a set time no matter what, and <T k="sliding-expiration">sliding expiration</T> removes it if nobody has read it for a set interval.
-
-</A>
-
-<A short l="m">
-
-A local cache is fast and keeps the object as is, but each instance has its own; a distributed cache is shared and survives deploys, but every access costs a network call and serialization. So `IMemoryCache` fits a single server and reference data where nodes may disagree, and `IDistributedCache` fits a farm without <T k="sticky-session">sticky sessions</T>. Sliding expiration only goes together with absolute expiration, otherwise a frequently read entry never goes stale.
-
-</A>
-
-<A short l="s">
-
-It is a choice between latency and consistency: an in-process cache answers in a fraction of a microsecond with no serialization, but every node has its own copy. Redis gives one copy at the price of a network call, serialization and one more dependency. `IMemoryCache` does not react to memory pressure, so growth is bounded with `SizeLimit` and expirations, and keys are never built from user input. The levels are often combined — a short-lived L1 in memory on top of L2 in Redis — and the app must still work with an empty cache.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -216,10 +172,6 @@ It is a choice between latency and consistency: an in-process cache answers in a
 Setting only sliding expiration. A popular entry is read all the time and serves stale data for ages.
 
 **Takeaway:** memory is fast, but every server has its own copy; a distributed cache is shared, but goes over the network.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -246,10 +198,6 @@ Setting only sliding expiration. A popular entry is read all the time and serves
 The code must work without the cache: a cache is an optimization, not a data store.
 
 **Takeaway:** `IMemoryCache` is for data that need not be consistent across nodes, `IDistributedCache` is for data the whole farm shares.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -337,25 +285,7 @@ app.Run();
 
 ## When do you reach for Hangfire or Quartz.NET instead of `BackgroundService`?
 
-<A short l="j">
-
-<T k="hangfire">Hangfire</T> and <T k="quartz-net">Quartz.NET</T> are background job libraries that keep jobs and schedules in a database, so a restart does not lose them. You pick them when you need scheduled runs (<T k="cron-expression">cron</T>), retries on failure or a reliable queue, and keep `BackgroundService` for simple in-process loops.
-
-</A>
-
-<A short l="m">
-
-Hangfire is a job queue: a method call with its arguments is serialized into storage (SQL Server, Redis), any server can execute it, and retries and a dashboard come out of the box. Quartz.NET is a scheduler: jobs with cron and calendar triggers, a policy for missed runs and clustering on a shared database. `BackgroundService` wins on simplicity and zero dependencies, but persistence, retries, scheduling and protection against duplicates across instances are yours to build.
-
-</A>
-
-<A short l="s">
-
-The choice defines the guarantees: through storage and locks an external scheduler gives <T k="at-least-once">at-least-once</T> execution, so jobs must be <T k="idempotency">idempotent</T>. Hangfire suits fire-and-forget and delayed jobs from application code, Quartz suits complex schedules and control over missed runs. Both put constant load on their database and need schema migrations. If jobs move between services, a message broker is the honest choice, not a scheduler on top of SQL.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -379,10 +309,6 @@ The choice defines the guarantees: through storage and locks an external schedul
 Passing an EF entity or a large object to a Hangfire job. Arguments are serialized to JSON and stored in the database, so pass an id.
 
 **Takeaway:** if you need reliability or a schedule, use a scheduler; for a simple loop `BackgroundService` is enough.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -411,10 +337,6 @@ Passing an EF entity or a large object to a Hangfire job. Arguments are serializ
 Persistence, retries or "one executor per farm" — an external scheduler. Everything else — `BackgroundService`.
 
 **Takeaway:** Hangfire is a reliable queue of calls with retries, Quartz is precise scheduling with clustering.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -530,25 +452,7 @@ public sealed class NightlyReportJob : IJob
 
 ## Response caching, output caching and `HybridCache`: which one when?
 
-<A short l="j">
-
-<T k="response-caching">Response caching</T> caches HTTP responses in the browser, proxies and CDNs based on the <T k="cache-control">`Cache-Control`</T> header, while <T k="output-caching">output caching</T> (.NET 7+) stores ready responses on the server by the server's own rules. <T k="hybrid-cache">`HybridCache`</T> (.NET 9+) caches data in code rather than responses, for example the results of database queries.
-
-</A>
-
-<A short l="m">
-
-Response caching follows the HTTP standard: the server only sets headers, and a client sending `Cache-Control: no-cache` always gets a fresh response, so it fits public GETs and CDNs. Output cache stores responses by server policy, evicts them by <T k="cache-tags">tag</T> and lets only one request per key reach the handler on a miss. `HybridCache` caches data in two levels — L1 in memory and L2 in `IDistributedCache` — and protects against <T k="cache-stampede">cache stampede</T>; the price is serialization and L1 freshness that differs between nodes.
-
-</A>
-
-<A short l="s">
-
-These are three layers with different points of control: headers hand the cache to clients and CDNs, output cache manages responses on the server, `HybridCache` manages data. A response cached in a CDN cannot be recalled before `max-age` runs out, while output cache evicts entries by tag from memory or Redis (.NET 8+). `RemoveByTagAsync` in `HybridCache` is a logical operation: old entries count as misses but physically live until they expire. L1 on other nodes is not cleared, which is why `LocalCacheExpiration` is set shorter than `Expiration`.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -569,10 +473,6 @@ These are three layers with different points of control: headers hand the cache 
 Caching responses for authenticated users: one user gets another's data. Output cache does not cache such responses by default — do not turn that rule off without varying the key by user.
 
 **Takeaway:** headers are for clients and CDNs, output cache is for responses on the server, `HybridCache` is for data.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -599,10 +499,6 @@ Caching responses for authenticated users: one user gets another's data. Output 
 First decide what you cache — a response or data — then where the copy lives and who clears it.
 
 **Takeaway:** the server controls output cache and `HybridCache`; the client controls response caching.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -716,25 +612,7 @@ public sealed class PriceService(HybridCache cache)
 
 ## How do you stop background work gracefully, and what happens on an unhandled exception?
 
-<A short l="j">
-
-<T k="graceful-shutdown">Graceful shutdown</T> means that when the app stops, the host cancels `stoppingToken`, and `ExecuteAsync` notices the cancellation, finishes the current step and exits on its own. Since .NET 6 an unhandled exception in `ExecuteAsync` stops the whole app by default, so per-iteration errors are caught inside the loop.
-
-</A>
-
-<A short l="m">
-
-On <T k="sigterm">SIGTERM</T> or Ctrl+C, `BackgroundService` cancels the token and waits for `ExecuteAsync` no longer than <T k="shutdown-timeout">`ShutdownTimeout`</T> (30 seconds since .NET 6, 5 before), after which the process simply exits. The host logs an exception from `ExecuteAsync` and, with `BackgroundServiceExceptionBehavior.StopHost` (the default since .NET 6), stops the app; `Ignore` brings back the old behaviour where the service silently died. So per-iteration errors are caught in the loop, and a failure of the whole service is treated as fatal.
-
-</A>
-
-<A short l="s">
-
-Shutdown is cooperative and has a budget: `ShutdownTimeout` must fit into the orchestrator's window — in Kubernetes that is 30 seconds before SIGKILL by default. `StopHost` stops the host cleanly, and before .NET 11 the process exits with code 0, so a Windows service will not be restarted without an explicit `Environment.Exit(1)`. Startup and shutdown order can be refined with <T k="hosted-lifecycle-service">`IHostedLifecycleService`</T> and the concurrent start flags (.NET 8+). An in-memory queue on <T k="channels">`Channel<T>`</T> loses unprocessed items on shutdown, so guarantees require external storage.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -756,10 +634,6 @@ If `ExecuteAsync` throws, the host logs the exception and stops the app. So the 
 `while (true)` and `Task.Delay` without the token. The app hangs until the timeout, and the work is cut off.
 
 **Takeaway:** pass `stoppingToken` to every call and catch per-iteration errors inside the loop.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -787,10 +661,6 @@ If `ExecuteAsync` throws, the host logs the exception and stops the app. So the 
 Every `await` in background work gets `stoppingToken`, per-iteration errors are caught in the loop, and a failure of the whole service is a signal to stop the host.
 
 **Takeaway:** the host asks for a stop with a token and waits for a limited time; whatever has not finished gets cut off.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -885,25 +755,7 @@ public sealed class EmailSender(Channel<string> queue, ILogger<EmailSender> logg
 
 ## What is a cache stampede, and how do you handle cache invalidation and consistency?
 
-<A short l="j">
-
-A cache stampede is when a popular entry expires and hundreds of requests hit the database for it at the same time. The defence is to let only one request per key reach the source, as `HybridCache` and output cache do, and to delete the key after the data changes so nobody gets stale values.
-
-</A>
-
-<A short l="m">
-
-A stampede happens on a miss for a popular key or when many keys expire at once; the cure is request coalescing — one load while the rest wait for its result — and <T k="ttl-jitter">randomized expiration</T>. The baseline is <T k="cache-aside">cache-aside</T>: read the cache, load and store on a miss, and on a database write delete the key rather than update it. `IMemoryCache.GetOrCreateAsync` does not protect against a stampede: with concurrent misses the factory runs several times.
-
-</A>
-
-<A short l="s">
-
-It is a trade-off between source load, freshness and complexity. In-process coalescing (`HybridCache`) caps loads at the number of nodes, while a <T k="distributed-lock">distributed lock</T> caps them at one but adds latency and a point of failure. <T k="cache-invalidation">Invalidation</T> is a lifetime as a safety net plus deletion by key or tag after commit, and L1 on other nodes is cleared with an event over pub/sub. A cache never gives full consistency: there is a race between the database write and the key deletion, and the lifetime only bounds how long an error lives.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -923,10 +775,6 @@ Changed data in the database — delete the key from the cache (`RemoveAsync`). 
 Assuming `IMemoryCache.GetOrCreateAsync` calls the factory once. With concurrent misses several requests will call it.
 
 **Takeaway:** on a miss one request goes to the source, and after a write the key is deleted.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -953,10 +801,6 @@ Assuming `IMemoryCache.GetOrCreateAsync` calls the factory once. With concurrent
 Always a lifetime, delete the key after commit, coalesce requests for expensive keys.
 
 **Takeaway:** cache-aside with delete-after-write and jittered lifetimes solves most freshness and load problems.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 

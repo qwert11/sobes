@@ -20,25 +20,7 @@ How to package a .NET app into a container and run it next to its dependencies a
 
 ## What is a container and how does it differ from a virtual machine?
 
-<A short l="j">
-
-An <T k="container-image">image</T> is a packaged app with all its dependencies, and a container is an isolated process started from an image. Unlike a virtual machine, a container has no OS of its own: it uses the host kernel, so it starts in seconds and weighs tens of megabytes, not gigabytes.
-
-</A>
-
-<A short l="m">
-
-A container is an ordinary Linux process whose view is restricted by kernel <T k="linux-namespaces">namespaces</T> and whose resources are capped by <T k="cgroups">cgroups</T>, with a file system assembled from read-only image <T k="image-layer">layers</T> plus a thin writable layer. Images are built from a Dockerfile and stored in a <T k="container-registry">registry</T>, so the same artifact goes to test and to production. The cost: isolation is weaker than a VM's, and anything written into the container rather than a <T k="docker-volume">volume</T> is lost when it is recreated.
-
-</A>
-
-<A short l="s">
-
-The isolation boundary is the shared kernel: a VM virtualizes hardware and boots its own kernel, while a container is a host process with its own namespaces, cgroup limits, reduced capabilities and a seccomp filter. That gives density and sub-second startup but weaker protection: a kernel vulnerability or an over-privileged container opens a path to the host, so untrusted code is isolated with VMs or sandboxes such as gVisor and Kata Containers. An immutable image addressed by digest makes deployments reproducible but forces you to move configuration and state outside.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -62,10 +44,6 @@ One artifact behaves the same on a laptop, in CI and on a server: the right runt
 Storing data inside the container: uploaded files, SQLite, logs. After `docker rm` or an image update they are gone.
 
 **Takeaway:** the image is what to run, the container is the running process, and a volume is where to keep what must outlive it.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -94,10 +72,6 @@ Storing data inside the container: uploaded files, SQLite, logs. After `docker r
 A container is disposable: settings go in environment variables, data in volumes or external services, logs to stdout.
 
 **Takeaway:** a container is an isolated process on a shared kernel built from cached layers, not a small VM.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -171,25 +145,7 @@ docker rm shop-api        # container removed, the shop-uploads volume remains
 
 ## How do you build a good image for a .NET app?
 
-<A short l="j">
-
-A .NET image is built with a <T k="multi-stage-build">multi-stage Dockerfile</T>: in the first stage the `sdk` image restores packages and publishes the app, in the second only the `dotnet publish` output is copied into the lightweight `aspnet` image. So the final image contains neither the SDK nor the sources and is several times smaller.
-
-</A>
-
-<A short l="m">
-
-First you copy only the `.csproj` and run `dotnet restore`, then the rest of the code and `dotnet publish --no-restore`: the package layer comes from cache until dependencies change. The base image depends on the publish type — `aspnet:10.0` for a regular app, `runtime-deps` for self-contained and Native AOT — and the <T k="chiseled-image">chiseled</T> variants (`10.0-noble-chiseled`) drop the shell and package manager. Since .NET 8 the images listen on port 8080 and include an <T k="non-root-container">unprivileged user</T> `app`; the cost of chiseled is no shell for debugging and no ICU unless you take the `-extra` variant.
-
-</A>
-
-<A short l="s">
-
-An image is a delivery artifact and part of the attack surface, so there are three goals: minimal contents, reproducibility and fast rebuilds. Chiseled images, non-root and, where possible, Native AOT on `runtime-deps` give the minimum; a base image pinned by digest and updated by a bot gives reproducibility; layer order, the BuildKit cache and `.dockerignore` give speed. Without a Dockerfile, <T k="sdk-container-publish">the .NET SDK itself</T> builds the image via `dotnet publish /t:PublishContainer`, but it cannot run `RUN` steps. The trade-off is size and security versus ease of debugging and compatibility: globalization, time zones, native libraries.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -212,10 +168,6 @@ The SDK is needed only to build; in production it is hundreds of extra megabytes
 Mapping port 80 out of habit. Since .NET 8 the app in the official image listens on 8080 (`ASPNETCORE_HTTP_PORTS=8080`), and `-p 5000:80` does not work.
 
 **Takeaway:** build in `sdk`, run in `aspnet`, and copy only the publish output between stages.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -245,10 +197,6 @@ Mapping port 80 out of habit. Since .NET 8 the app in the official image listens
 Order layers from rarely changing to frequently changing; keep the final image minimal, non-root and explicitly versioned.
 
 **Takeaway:** multi-stage, restore as its own layer, `aspnet` or chiseled at runtime and non-root are the basic hygiene of a .NET image.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -348,25 +296,7 @@ docker run -p 5000:8080 shop-api:1.4.2
 
 ## How do you run an app with its dependencies using docker compose?
 
-<A short l="j">
-
-<T k="docker-compose">Docker Compose</T> describes all of an app's containers — API, database, cache — in one `compose.yaml` file and starts them with a single `docker compose up`. Services see each other by name, so the connection string says `Host=db`, and the database data lives in a named volume.
-
-</A>
-
-<A short l="m">
-
-Compose creates a shared project network with DNS by service name, the volumes, and the containers in `depends_on` order. The short `depends_on` only waits for the container to start, so the database gets a <T k="container-healthcheck">healthcheck</T> and `condition: service_healthy`, and the API should still retry its connection. Settings go through `environment` and `.env`, passwords through `secrets`, and auxiliary services are switched on with <T k="compose-profiles">profiles</T>.
-
-</A>
-
-<A short l="s">
-
-Compose is declarative orchestration on a single host: a great stack for development and integration runs but a weak production platform — no spreading across nodes, no autoscaling and no zero-downtime rollout. So the base file describes what is shared, environment differences go into override files and profiles, and secrets go into `secrets`, not `environment`. For .NET solutions the alternative for local orchestration is <T k="aspire">Aspire</T>: the topology is described in code, connection strings are wired automatically, there is a dashboard for logs and traces, and the same model can generate a compose file. The cost of Aspire is one more abstraction layer and coupling to its model and releases.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -388,10 +318,6 @@ A developer gets the API, PostgreSQL and Redis at the right versions with one co
 Writing `localhost` in the connection string from a container to the database. Inside a container `localhost` is the container itself; the database is reachable as `db`.
 
 **Takeaway:** compose describes the whole stack in one file, and services talk by name inside a shared network.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -421,10 +347,6 @@ Writing `localhost` in the connection string from a container to the database. I
 The base file is shared by all environments; ports, source bind mounts and debugging services go into an override or profiles.
 
 **Takeaway:** compose gives you a network with names, healthcheck-based startup order and separation of settings and secrets — enough for a local stack.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -523,25 +445,7 @@ secrets:
 
 ## What does a .NET developer need to know about running on Kubernetes?
 
-<A short l="j">
-
-Kubernetes is an orchestrator: it runs containers on a cluster of servers, restarts failed ones and spreads traffic across replicas. The app lives in <T k="pod">pods</T> that can be deleted and recreated at any moment, so .NET code needs health endpoints for the checks and must not keep data inside the pod.
-
-</A>
-
-<A short l="m">
-
-Kubernetes polls the app with three probes: <T k="startup-probe">startup</T> waits for startup to finish, <T k="liveness-probe">liveness</T> restarts a hung container, <T k="readiness-probe">readiness</T> takes the pod out of load balancing until it is ready; in ASP.NET Core these are separate `MapHealthChecks` endpoints. <T k="resource-limits">Requests and limits</T> set the reservation and the ceiling, and .NET reads the limits: `Environment.ProcessorCount` equals the CPU limit rounded up, and the <T k="heap-hard-limit">GC heap limit</T> defaults to 75% of the memory limit. Configuration comes from ConfigMaps and Secrets, and after SIGTERM the pod gets `terminationGracePeriodSeconds` to stop — 30 seconds by default.
-
-</A>
-
-<A short l="s">
-
-A pod is disposable: it is killed on deploys, scaling, node eviction and OOM, so the service must be <T k="stateless-service">stateless</T> — sessions, cache, files and Data Protection keys live outside. The main risks are wrong probes (a liveness probe that checks the database restarts every pod at once when the database fails) and a runtime that disagrees with the limits: without a CPU limit .NET sees all the node's cores, with one you get throttling. Removal from load balancing runs in parallel with SIGTERM, so you need a <T k="prestop-hook">preStop</T> pause, and the pause plus `ShutdownTimeout` must fit within `terminationGracePeriodSeconds`. You verify all of this with throttling, OOMKilled and restart metrics, not by eye.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -567,10 +471,6 @@ Keeping anything important in the pod: files on disk, sessions in memory. On the
 
 **Takeaway:** a Deployment keeps the right number of pods, a Service gives them an address, and the app helps with probes and by holding no state.
 
-</A>
-
-<A l="m">
-
 **How it works**
 
 | Probe | On failure | What to check |
@@ -595,10 +495,6 @@ Keeping anything important in the pod: files on disk, sessions in memory. On the
 Liveness is cheap and dependency-free, readiness is about accepting traffic, startup is for slow starts.
 
 **Takeaway:** probes, resources and configuration are three contracts between the app and Kubernetes, each with its own rules.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 

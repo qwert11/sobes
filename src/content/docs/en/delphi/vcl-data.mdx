@@ -20,25 +20,7 @@ How a VCL application with a database is built: forms and .dfm files, datasets a
 
 ## How do VCL forms and components work?
 
-<A short l="j">
-
-A VCL form is a class derived from `TForm`, and the components on it with their property values are stored in a <T k="dfm-file">.dfm file</T> that is read when the form is created. The form's code is mostly event handlers: methods the VCL calls when the user clicks a button, opens or closes a window.
-
-</A>
-
-<A short l="m">
-
-The designer saves the components' published properties to the .dfm, and when the form is created, <T k="component-streaming">component streaming</T> creates components by class name and assigns their properties and handlers. A component has two different "parents": the <T k="component-owner">Owner</T> is responsible for freeing memory, and the <T k="parent-control">Parent</T> is the windowed control it is drawn inside. That gives the lifecycle rule: the calling code creates and frees a <T k="modal-form">modal form</T>, while a modeless form frees itself with `Action := caFree` in `OnClose`.
-
-</A>
-
-<A short l="s">
-
-A form is an ordinary class, and the .dfm is a serialized component tree that the form constructor reads with `TReader`, binding it to published fields by name. Ownership (Owner) and visual nesting (Parent) are two independent trees, and mixing them up leads to leaks or access to a freed object. In a large application the main cost is auto-creating every form in the .dpr plus global form variables: startup is slower and forms implicitly depend on each other. So forms are created on demand, and repeated UI pieces move into <T k="vcl-frame">frames</T> or form inheritance.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -60,10 +42,6 @@ A form is an ordinary class, and the .dfm is a serialized component tree that th
 Calling `Free` on a form inside its own event handler: the handler has not finished yet and will touch freed memory. That is what `Release` and `Action := caFree` are for.
 
 **Takeaway:** a form is a class plus a .dfm, and event handlers define its behavior.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -93,10 +71,6 @@ A Parent also frees its child controls, but its main role is visual.
 A modal dialog: `Create(nil)` and `ShowModal` inside `try..finally Free`. A modeless window: `Action := caFree` in `OnClose`.
 
 **Takeaway:** the .dfm restores objects via RTTI, the Owner handles memory, the Parent handles display.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -201,25 +175,7 @@ end
 
 ## How does working with data through TDataSet work?
 
-<A short l="j">
-
-<T k="tdataset">`TDataSet`</T> is the base class of all Delphi datasets: result rows with a current record, which you walk with `First` and `Next` and whose fields you read via `FieldByName`. <T k="data-aware-control">Data-aware controls</T> (`TDBGrid`, `TDBEdit`) connect to it through `TDataSource` and display and edit the current record by themselves.
-
-</A>
-
-<A short l="m">
-
-`TDataSet` is a <T k="dataset-state">state</T> machine: an open dataset is in `dsBrowse`, `Edit` and `Insert` move it to `dsEdit` and `dsInsert`, and `Post` or `Cancel` bring it back, firing events such as `BeforePost`. Fields are `TField` objects: <T k="persistent-fields">persistent</T> ones are created in the designer and give typed access, while calculated and <T k="lookup-field">lookup fields</T> are computed on the client. The cost is that every move notifies all linked controls, so bulk record loops are wrapped in `DisableControls` and `EnableControls`.
-
-</A>
-
-<A short l="s">
-
-`TDataSet` is a shared cursor contract with a record buffer, states and events, so a form works the same way with ADO, FireDAC and `TClientDataSet`. Dataset events are convenient for business logic but easily turn into hidden side effects: a server query in `AfterScroll` runs on every move through the grid. <T k="cached-updates">Cached updates</T> accumulate changes on the client and apply them as a batch in a short transaction. The cost is that conflicts with other users' changes surface only in `ApplyUpdates`, and they have to be handled explicitly.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -242,10 +198,6 @@ end
 Assigning a field value without `Edit`: the dataset is in `dsBrowse`, and you get "Dataset not in edit or insert mode". Another classic is forgetting `Next` in a `while not Eof` loop and getting an infinite loop.
 
 **Takeaway:** `TDataSet` is a cursor over rows, and `TDataSource` connects controls to it.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -275,10 +227,6 @@ Assigning a field value without `Edit`: the dataset is in `dsBrowse`, and you ge
 Validation goes in `BeforePost`. Bulk loops go between `DisableControls` and `EnableControls` in `try..finally`. Heavy work does not belong in `AfterScroll`.
 
 **Takeaway:** a dataset is a state machine with events, and most bugs are a wrong state or an extra event.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -371,25 +319,7 @@ end;
 
 ## ADO, dbExpress and FireDAC: how do they differ and how do you call stored procedures?
 
-<A short l="j">
-
-These are three data access libraries sharing the `TDataSet` model: <T k="ado-dbgo">ADO (dbGo)</T> wraps the Microsoft ADO COM library, <T k="dbexpress">dbExpress</T> offers lightweight unidirectional datasets, and <T k="firedac">FireDAC</T> is the main library for new projects. You call a <T k="stored-procedure">stored procedure</T> with `TADOStoredProc` or `TFDStoredProc`: set the name, fill in the parameters and call `ExecProc`, or `Open` if the procedure returns rows.
-
-</A>
-
-<A short l="m">
-
-ADO talks to SQL Server through COM and an OLE DB provider, dbExpress is deprecated and gives only forward-only read-only datasets, and FireDAC works through Microsoft's ODBC driver and adds fetch control, <T k="array-dml">Array DML</T>, <T k="firedac-macro">macros</T> and tracing. `TFDStoredProc` asks the server for the parameter list by procedure name, and with SQL Server the parameter names start with `@`. The cost is an extra metadata round trip: in hot code the component is prepared once, and parameters can be described manually.
-
-</A>
-
-<A short l="s">
-
-Choosing a library means choosing the layer under `TDataSet`: ADO depends on COM and an OLE DB provider, dbExpress is officially deprecated, and FireDAC gives one API, fetch tuning, connection pooling and tracing. For an application with thousands of procedure calls three things matter: the cost of fetching parameter metadata, the fetch mode (`FetchOptions.Mode`, `RowsetSize`) and batching through Array DML instead of an `ExecProc` loop. Moving from ADO to FireDAC changes behavior in the details — parameter names, field types, cursors — so it is verified with tracing and result comparison, not by swapping components by name.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -412,10 +342,6 @@ Choosing a library means choosing the layer under `TDataSet`: ADO depends on COM
 Calling `Open` for a procedure that returns no rows, or `ExecProc` for one that does. FireDAC reports an error in both cases.
 
 **Takeaway:** to a form all three libraries are a `TDataSet`, and a procedure is called through its name, parameters and `ExecProc` or `Open`.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -441,10 +367,6 @@ Calling `Open` for a procedure that returns no rows, or `ExecProc` for one that 
 New code on FireDAC, values only through parameters, bulk writes through Array DML.
 
 **Takeaway:** all three libraries give you a `TDataSet`, but only FireDAC is still developed, and only it controls fetching, batching and tracing.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -528,25 +450,7 @@ FDQuery1.Execute(FDQuery1.Params.ArraySize, 0);
 
 ## How do you work with threads in a VCL application without breaking the UI?
 
-<A short l="j">
-
-In the VCL the whole UI runs on the <T k="vcl-main-thread">main thread</T>, which runs the <T k="message-loop">message loop</T>: while it executes a long query, the window does not repaint and is "not responding". Long work moves to a <T k="tthread">`TThread`</T> or a `TTask`, and results are shown through `TThread.Synchronize` or `TThread.Queue`, because controls must not be touched from another thread.
-
-</A>
-
-<A short l="m">
-
-The VCL is not thread-safe, so controls are changed only from the main thread: `Synchronize` runs code there and waits for it to finish, while `Queue` puts code in a queue and returns immediately. For database work each thread has its own connection: a FireDAC connection and its datasets can be used by only one thread at a time. `Application.ProcessMessages` in a long loop is not a substitute for a thread: the window comes alive, but it opens the door to <T k="reentrancy">reentrancy</T> into event handlers.
-
-</A>
-
-<A short l="s">
-
-The main thread only takes input and paints, while database work runs in the background on its own pooled connection, and results come back to the UI through `Queue`. The hard part is lifetime: a form can close before the thread finishes, so you need cooperative cancellation (`Terminate`, `ITask.Cancel`) and waiting for the thread before the form is destroyed. `Synchronize` from a thread the main thread is waiting for on a lock gives a deadlock, and `ProcessMessages` gives reentrancy and access to freed objects. The <T k="parallel-programming-library">PPL</T> makes starting tasks easier but does not change these rules.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -568,10 +472,6 @@ A 10-second query in a button handler freezes the window for 10 seconds. Windows
 Changing `Label1.Caption` or `ProgressBar1.Position` directly from a background thread. Sometimes it "works", and then the application hangs or crashes in a random place.
 
 **Takeaway:** UI on the main thread, long work in the background, results through `Synchronize` or `Queue`.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -600,10 +500,6 @@ Called from the main thread, `Queue` runs the code immediately; `ForceQueue` alw
 UI only from the main thread, a background thread has its own connection, progress goes through `Queue`.
 
 **Takeaway:** `Synchronize` waits for the main thread, `Queue` does not, and each thread has its own database connection.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 

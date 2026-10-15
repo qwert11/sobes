@@ -20,25 +20,7 @@ What the browser does with a page regardless of the framework: how it lays out b
 
 ## How does CSS layout work: the box model, flexbox and grid?
 
-<A short l="j">
-
-Every element in CSS is a rectangle made of content, padding, border and margin; that is the <T k="box-model">box model</T>, and the `display` property decides how the element sits among its siblings. For a single line you use <T k="flexbox">flexbox</T>, for rows and columns at once — <T k="css-grid">grid</T>, and you adapt to the screen width with <T k="media-query">media queries</T>.
-
-</A>
-
-<A short l="m">
-
-The box model sets an element's size, and `box-sizing: border-box` includes padding and border in `width`, which is why it is set globally. Flexbox distributes space along one axis starting from the content, grid defines rows and columns starting from the container, and conflicts between styles are settled by the cascade: `!important`, layers, <T k="css-specificity">specificity</T>, source order. Responsive design is built mobile-first with `min-width`, and components that live in columns of different widths adapt via <T k="container-query">container queries</T>.
-
-</A>
-
-<A short l="s">
-
-Layout is a question of who sets the size: in flexbox it comes from the content, in grid from the container, so grid goes to the page skeleton and flex to components. A specificity war with `!important` is the main source of brittle styles; `@layer` and `:where()` make priorities explicit. A media query only knows the viewport width, while a component should respond to its own container, so design systems move to container queries and fluid sizes with `clamp()`. The cost: a container with `container-type` can no longer take its width from its content.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -57,10 +39,6 @@ Layout is a question of who sets the size: in flexbox it comes from the content,
 Laying out blocks with `float` and `position: absolute` where flex or grid would do. That layout breaks on the first long piece of text.
 
 **Takeaway:** the box model sets an element's size, flex lays out along one axis, grid along two.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -87,10 +65,6 @@ Laying out blocks with `float` and `position: absolute` where flex or grid would
 Grid for the skeleton, flex for components, `gap` instead of margins between siblings, media queries mobile-first.
 
 **Takeaway:** you choose the layout by the number of axes, and style conflicts are settled by the cascade, not by shuffling file order.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -172,25 +146,7 @@ h1 { font-size: clamp(1.5rem, 1rem + 2vw, 2.5rem); }
 
 ## How do you make a UI accessible?
 
-<A short l="j">
-
-Accessibility (a11y) means people can use the interface without a mouse, with a <T k="screen-reader">screen reader</T> or with low vision. The foundation is <T k="semantic-html">semantic HTML</T>: `<button>`, `<label>` and `<nav>` instead of `div` already work with the keyboard and screen readers, and images get `alt`.
-
-</A>
-
-<A short l="m">
-
-The browser builds an <T k="accessibility-tree">accessibility tree</T> from the DOM — the role, name and state of each element — and that is what the screen reader reads. So native elements come first, and <T k="wai-aria">ARIA</T> only where HTML falls short: the first rule of ARIA says exactly that. Then come keyboard operation and a visible focus, 4.5:1 text contrast, field labels and errors tied to their fields; the target is <T k="wcag">WCAG 2.2</T> level AA.
-
-</A>
-
-<A short l="s">
-
-Accessibility is a non-functional requirement with legal weight: in the EU the <T k="european-accessibility-act">European Accessibility Act</T> has applied since 28 June 2025, and for online shops and banks it is now an obligation. Technically it all comes down to a correct accessibility tree: a native element gives you role, name, state and keyboard support for free, while a custom ARIA widget has to rebuild all of that by hand, and bad ARIA is worse than none. Automated checks catch only part of the problems, so the process also needs manual keyboard and screen reader testing and accessible components in the design system.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -209,10 +165,6 @@ Accessibility means people with visual, hearing and motor impairments can use th
 Removing the focus ring with `outline: none` because it "looks ugly". Keyboard users lose track of where they are. Style it with `:focus-visible` instead of removing it.
 
 **Takeaway:** the right HTML element gives you accessibility almost for free.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -242,10 +194,6 @@ Removing the focus ring with `outline: none` because it "looks ugly". Keyboard u
 Semantic HTML first, then ARIA for what is missing; walk every flow with the keyboard: Tab, Enter, Space, Esc, arrows.
 
 **Takeaway:** accessibility is a correct accessibility tree plus keyboard operation, and ARIA only fills in what HTML lacks.
-
-</A>
-
-<A l="s">
 
 **Standards and law**
 
@@ -333,25 +281,7 @@ a:focus-visible {
 
 ## How does the browser turn HTML into pixels?
 
-<A short l="j">
-
-The browser parses HTML into the DOM and CSS into the <T k="cssom">CSSOM</T>, combines them into a render tree, computes element sizes and positions (layout), paints pixels (paint) and assembles layers into a frame (composite). This chain is the <T k="critical-rendering-path">critical rendering path</T>: while CSS is not loaded or a synchronous script is running, the page is not shown.
-
-</A>
-
-<A short l="m">
-
-The critical path is the steps from HTML bytes to the first frame, and <T k="render-blocking-resource">render-blocking resources</T> slow it down: CSS blocks rendering, and a plain `<script>` stops HTML parsing. So scripts are loaded with `defer` or `type="module"`, and critical CSS is kept small. Changes after load go through the same pipeline: geometry triggers a <T k="reflow">reflow</T>, colour only a repaint, and `transform` and `opacity` only composite, which is why you animate them.
-
-</A>
-
-<A short l="s">
-
-Rendering runs on the main thread together with JavaScript, so any long task delays both the frame and the response to input. The costliest mistakes are <T k="layout-thrashing">layout thrashing</T>, where code interleaves style writes with `offsetHeight` reads and forces the browser to recompute layout synchronously, and animating geometry properties. `transform` and `opacity` on a separate layer are handled by the <T k="compositing">compositor</T> on its own thread, so the animation stays smooth while the main thread is busy. The cost is GPU memory per layer, so `will-change` is applied sparingly.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -374,10 +304,6 @@ The path from HTML to pixels:
 Adding a large script to the `<head>` without `defer`. While it downloads and runs, HTML is not parsed and the screen stays blank.
 
 **Takeaway:** DOM and CSSOM → render tree → layout → paint → composite; anything that delays these steps delays the first frame.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -412,10 +338,6 @@ Adding a large script to the `<head>` without `defer`. While it downloads and ru
 Scripts — `defer` or modules, layout reads — batched before writes, animations — on `transform` and `opacity`.
 
 **Takeaway:** CSS blocks display, synchronous JS blocks parsing, and after load the cost of a change depends on which pipeline stage it restarts from.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -512,25 +434,7 @@ requestAnimationFrame(() => {
 
 ## How do you measure and speed up a web app's loading?
 
-<A short l="j">
-
-Page speed is measured with <T k="core-web-vitals">Core Web Vitals</T>: <T k="lcp">LCP</T> — when the main content appeared, <T k="inp">INP</T> — how quickly the page responds to clicks, <T k="cls">CLS</T> — how much the layout jumps. You speed up loading by sending less code and fewer images, caching static files and loading the rest lazily.
-
-</A>
-
-<A short l="m">
-
-Core Web Vitals are assessed at the 75th percentile of real visits: LCP up to 2.5 s, INP up to 200 ms, CLS up to 0.1. Lighthouse gives lab numbers for debugging, while decisions are made on field data — CrUX or your own <T k="real-user-monitoring">RUM</T>. The main levers are <T k="code-splitting">code splitting</T> by route, images in the right format and size, priority for the LCP resource and long-lived caching of static files; the cost is a more complex build and more small requests.
-
-</A>
-
-<A short l="s">
-
-Performance is a budget and monitoring, not a one-off optimisation: field data at the 75th percentile shows what users on slow phones see, and the lab explains why. Each metric breaks down into parts, and you fix the longest one: for LCP that is server response time, resource load delay and duration, and render delay. SSR speeds up the first paint, but hydration moves the cost of JavaScript onto the main thread and hurts INP, so the main lever is less JS on the client. Bundle size budgets in CI keep gains from eroding within a couple of releases.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -552,10 +456,6 @@ Performance is a budget and monitoring, not a one-off optimisation: field data a
 Putting `loading="lazy"` on the main image of the first screen. It starts loading later and LCP gets worse.
 
 **Takeaway:** three metrics — loading speed, responsiveness and stability; you improve them by sending less, and sending what the first screen needs sooner.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -587,10 +487,6 @@ Lighthouse does not measure INP during a page load: in the lab, Total Blocking T
 LCP — the image in the HTML with `fetchpriority="high"`, INP — less JS and shorter tasks, CLS — dimensions for everything that loads later. Find the problem in the field, the cause in the lab.
 
 **Takeaway:** metrics are assessed in the field, debugged in the lab, and each one is fixed with its own lever.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 

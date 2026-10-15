@@ -20,25 +20,7 @@ How an Angular app is put together, how the framework learns about changes, how 
 
 ## What is an Angular app made of?
 
-<A short l="j">
-
-An Angular app is a tree of <T k="angular-component">components</T>: each component is a TypeScript class with the `@Component` decorator plus an HTML template, connected by <T k="data-binding">data binding</T>. Shared logic and API calls live in services, which a component receives through <T k="dependency-injection">dependency injection</T>, and the router decides which component to show for a URL.
-
-</A>
-
-<A short l="m">
-
-A component is a class, a template and styles; the template is tied to the class by interpolation, property bindings and event bindings, while <T k="angular-directive">directives</T> change how elements behave. Services with `providedIn: 'root'` are singletons, obtained with `inject()` or a constructor parameter. Since v19 components are <T k="standalone-component">standalone</T> by default: they list their dependencies in `imports`, and no NgModule is needed. As in ASP.NET Core, DI wiring is checked at runtime: a missing provider throws `NullInjectorError` when the component is created.
-
-</A>
-
-<A short l="s">
-
-Templates are compiled ahead of time (AOT), so the compiler catches binding errors. DI in Angular is a <T k="hierarchical-injector">hierarchy of injectors</T>: the root and route injectors give a shared instance, while a component's `providers` give one instance per component and its subtree. ASP.NET Core scopes are not hierarchical, so the latter has no direct equivalent. Standalone made a component's dependencies explicit and made the component the unit of lazy loading; the cost of the hierarchy is how easy it is to get a second instance of a "singleton" by also declaring it in a component.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -59,10 +41,6 @@ An Angular app is a tree of components. The root component is bootstrapped in `m
 Forgetting to add a child component to `imports`. The build fails with `'app-x' is not a known element`.
 
 **Takeaway:** the component displays data, the service fetches it, and DI wires one to the other.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -94,10 +72,6 @@ Forgetting to add a child component to `imports`. The build fails with `'app-x' 
 New components are standalone, services use `providedIn: 'root'`, dependencies come through `inject()`.
 
 **Takeaway:** bindings tie the template to the class, and the component lists its dependencies in `imports` and gets them through `inject()`.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -187,25 +161,7 @@ export class Greeting {
 
 ## How does change detection work: zone.js, OnPush, signals and zoneless?
 
-<A short l="j">
-
-<T k="change-detection">Change detection</T> is the check in which Angular compares the values in templates with component data and updates the parts of the DOM that changed. In Angular 13 the check was triggered by <T k="zone-js">zone.js</T> after any click, timer or HTTP response; today state lives in <T k="angular-signal">signals</T>, which report exactly what changed.
-
-</A>
-
-<A short l="m">
-
-zone.js patches the browser's async APIs and after every task runs a check of the whole tree from the top down. The <T k="onpush">OnPush</T> strategy (the default since v22) skips a subtree unless it got a new input by reference, an event happened inside it, `markForCheck()` was called or a signal read in its template changed. <T k="zoneless">Zoneless</T> mode is built on the `signal`, `computed` and `effect` primitives: stable since v20.2 and the default for new apps since v21. The cost is that changes without a notification — mutating an object or setting a field in `setTimeout` — never reach the screen.
-
-</A>
-
-<A short l="s">
-
-zone.js knows that something happened but not what changed, so it checks the whole tree — even on `mousemove` or a third-party library's timer. Signals form a dependency graph: a template subscribes to specific signals, and a change marks only the views that read them for refresh. Zoneless removes the weight of zone.js, redundant cycles and noisy stack traces, but requires every change to go through a notification. For an older app that is work on component code, not flipping a flag: OnPush compatibility, dropping `NgZone.onStable`, checking third-party libraries.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -222,10 +178,6 @@ Change detection is the check of whether what's on screen matches component data
 Mutating an array inside a signal: `items().push(x)`. The reference is the same, so the signal reports nothing. Use `items.update(list => [...list, x])`.
 
 **Takeaway:** Angular updates the screen when it learns about a change, and signals tell it precisely.
-
-</A>
-
-<A l="m">
 
 **How it works with zone.js**
 
@@ -256,10 +208,6 @@ Mutating an array inside a signal: `items().push(x)`. The reference is the same,
 State in signals, immutable inputs, derived values through `computed`.
 
 **Takeaway:** zone.js says "something happened", signals say "this is what changed".
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -365,25 +313,7 @@ bootstrapApplication(App, { providers: [provideZonelessChangeDetection()] });
 
 ## How do you work with RxJS in Angular?
 
-<A short l="j">
-
-An <T k="rxjs-observable">Observable</T> is a stream of values over time from the RxJS library: you subscribe with `subscribe` and receive values, an error or completion. `HttpClient` returns an Observable, and the request is sent only when you subscribe. Subscriptions that outlive a component must be closed — the easiest way is the `async` pipe or `takeUntilDestroyed()`.
-
-</A>
-
-<A short l="m">
-
-An Observable differs from a Promise in three ways: it is lazy, it can emit many values, and it is cancelled by unsubscribing. <T k="higher-order-mapping">Higher-order mapping operators</T> decide what to do with a new value while the previous request is still running: `switchMap` cancels it, `mergeMap` runs in parallel, `concatMap` queues, `exhaustMap` ignores the new one. Subscriptions to endless streams are closed declaratively — the <T k="async-pipe">`async` pipe</T>, `toSignal` or <T k="take-until-destroyed">`takeUntilDestroyed()`</T> — otherwise you get a <T k="memory-leak">memory leak</T> and extra requests.
-
-</A>
-
-<A short l="s">
-
-Choosing a higher-order operator means choosing a concurrency policy. `mergeMap` in a search box creates a race where a stale response overwrites a fresh one, while `switchMap` on a save cancels the request only on the client — the server may have already processed it. Manual subscriptions are where leaks come from, so you tie them to the component's lifetime with `toSignal` or the `async` pipe. Since v22 the stable `resource` and `httpResource` cover loading data by parameters, and RxJS stays for real streams: events, WebSocket, debounce, retry.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -406,10 +336,6 @@ An Observable is a source that, once subscribed to, emits values — zero, one o
 Subscribing to a stream that never completes on its own (`interval`, `router.events`, a `Subject` in a service) and not unsubscribing. The component is destroyed, but the subscription lives on and keeps it in memory.
 
 **Takeaway:** an Observable is lazy, multi-valued and cancellable, and every long-lived subscription has to be closed.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -442,10 +368,6 @@ Subscribing to a stream that never completes on its own (`interval`, `router.eve
 Let the template or `toSignal` create the subscription; a manual `subscribe` only with `takeUntilDestroyed()`.
 
 **Takeaway:** the higher-order operator defines what happens in a race, and the way you subscribe defines how long the subscription lives.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -541,25 +463,7 @@ export class ProductSearch {
 
 ## What has changed in Angular from version 13 to the current one?
 
-<A short l="j">
-
-From Angular 13 (November 2021) to the current 22 (June 2026) the coding style changed: components without NgModule, new template syntax with `@if` and `@for`, signals instead of part of RxJS and zone.js, builds on esbuild. Old code mostly still works, and `ng update` migrates a lot of it automatically.
-
-</A>
-
-<A short l="m">
-
-Key milestones: standalone components (stable in v15, default in v19), <T k="control-flow-blocks">built-in control flow</T> and <T k="defer-block">`@defer`</T> (v17), signals (v17) and the <T k="signal-input">signal-based</T> `input()`, `output()` and `model()` (stable in v19), zoneless (stable in v20.2, default in v21), OnPush by default (v22). An older app is updated with <T k="ng-update">`ng update`</T> one major version at a time and modernized with separate migrations. The cost is nine upgrade steps, and at each one third-party libraries like Kendo UI must support the new version.
-
-</A>
-
-<A short l="s">
-
-The direction is consistent: from "the framework checks and bundles everything for you" (zone.js, NgModule, Webpack) to explicit reactivity and smaller units of loading (signals, standalone, `@defer`, the esbuild-based <T k="application-builder">application builder</T>). Since v22 a major release ships every 12 months, each supported for 24 months. When migrating, separate the version upgrades, where migrations preserve behavior (`provideZoneChangeDetection`, `ChangeDetectionStrategy.Eager`), from modernization: moving to OnPush and zoneless changes logic and needs tests.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -581,10 +485,6 @@ Angular 13 shipped in November 2021; the current version is 22 (June 2026). In t
 Thinking old code stopped working. NgModule, `@Input()` and `*ngIf` (deprecated since v20) are still supported, and `ng update` fixes what breaks.
 
 **Takeaway:** modern Angular means standalone components, signals and the new template syntax; the old style works but is on its way out.
-
-</A>
-
-<A l="m">
 
 **What arrived when**
 
@@ -609,10 +509,6 @@ Thinking old code stopped working. NgModule, `@Input()` and `*ngIf` (deprecated 
 First bring the versions up to date while preserving behavior, then modernize the code with `ng generate @angular/core:...` migrations — one at a time.
 
 **Takeaway:** since v13 Angular has moved from NgModule and zone.js to standalone and signals, and upgrades go one major at a time.
-
-</A>
-
-<A l="s">
 
 **Why it changed**
 
@@ -714,25 +610,7 @@ export class UserCard {
 
 ## How do you structure a large Angular app and manage state?
 
-<A short l="j">
-
-A large app is split into features — folders with the routes, pages and state of one section — and each is wired in as a <T k="lazy-route">lazy route</T>, so its code loads on first navigation. State lives in services with signals, and NgRx is used for the complex cases.
-
-</A>
-
-<A short l="m">
-
-The structure is `core`, `shared` and a folder per feature with lazy routes and route-level `providers`. State by default is a service with signals; <T k="signal-store">NgRx SignalStore</T> when you want a uniform shape for stores; <T k="ngrx-store">NgRx Store</T> for shared state with complex event flows. Performance comes from OnPush, `track` in `@for`, <T k="virtual-scroll">virtual scrolling</T> and `@defer`. The cost of Store is a lot of boilerplate per operation.
-
-</A>
-
-<A short l="s">
-
-Scale is held together by boundaries: a feature doesn't import another feature's internals, and shared code goes to `shared` or `core`. The key question about state is who owns it: server data is a cache (`httpResource`, a service), page state is a store scoped to the route, and only truly shared state goes into a global store. Bundle size is controlled by build budgets and `@defer` for heavy widgets such as Kendo charts. Auth in an SPA is handled by an <T k="http-interceptor">interceptor</T> and guards, but the API still enforces permissions.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -751,10 +629,6 @@ A feature is wired in as a lazy route: `loadChildren: () => import('./orders/ord
 Statically importing a lazy feature's component somewhere else, for example in `app.ts`. It then lands in the main bundle, and lazy loading is gone.
 
 **Takeaway:** a folder per feature and a lazy route per feature are the backbone of a large app.
-
-</A>
-
-<A l="m">
 
 **When to choose what**
 
@@ -782,10 +656,6 @@ Statically importing a lazy feature's component somewhere else, for example in `
 Start with a signal-based service. SignalStore when there are many stores and you want one shape; NgRx Store when the state is truly shared and complex.
 
 **Takeaway:** feature-based structure, lazy routes and state kept next to the feature that owns it.
-
-</A>
-
-<A l="s">
 
 **Trade-offs in state**
 

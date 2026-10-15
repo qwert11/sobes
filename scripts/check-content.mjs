@@ -2,7 +2,7 @@
 //   npm run check:content                 — все страницы
 //   npm run check:content -- dotnet/async — только страницы, чей путь (без префикса языка) начинается так
 //
-// Ошибки: синтаксис MDX и YAML, неполный набор ответов J/M/S, термин без записи в глоссарии,
+// Ошибки: синтаксис MDX и YAML, не один цельный ответ, термин без записи в глоссарии,
 // разные вопросы в разных языках, повтор id. Предупреждения: нет <Ex>/<Next>/<Src>, повтор ключа глоссария.
 
 import fs from 'node:fs';
@@ -119,13 +119,10 @@ for (const page of pages) {
     if (headings.length !== 1) e(`${at}: в карточке должен быть ровно один заголовок «## вопрос», найдено ${headings.length}`);
     if (/^## .*<T\s/m.test(body)) e(`${at}: <T> в заголовке вопроса не используется`);
 
-    const shorts = [...body.matchAll(/<A\s+short\s+l="([^"]+)"\s*>/g)].map((x) => x[1]);
-    const longs = [...body.matchAll(/<A\s+l="([^"]+)"\s*>/g)].map((x) => x[1]);
-    const strayA = [...body.matchAll(/<A\b[^>]*>/g)].length - shorts.length - longs.length;
-    if (strayA) e(`${at}: ${strayA} тегов <A> в неверном формате (нужно <A short l="j"> или <A l="j">)`);
-    for (const [name, got] of [['коротких', shorts], ['подробных', longs]]) {
-      const sorted = [...got].sort().join(',');
-      if (sorted !== 'j,m,s') e(`${at}: ${name} ответов должно быть по одному на j, m, s — найдено [${got.join(', ')}]`);
+    const answers = [...body.matchAll(/<A\s*>/g)];
+    const allAnswerTags = [...body.matchAll(/<A\b[^>]*>/g)];
+    if (answers.length !== 1 || allAnswerTags.length !== 1) {
+      e(`${at}: должен быть ровно один цельный ответ <A> — найдено ${allAnswerTags.length}`);
     }
     if (!/<Ex[\s>]/.test(body)) w(`${at}: нет <Ex>`);
     if (!/<Next>/.test(body)) w(`${at}: нет <Next>`);

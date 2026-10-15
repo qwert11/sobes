@@ -20,25 +20,7 @@ How to estimate the complexity of code, which data structures and algorithms to 
 
 ## What is Big O notation and how do you estimate the complexity of code?
 
-<A short l="j">
-
-<T k="big-o">Big O notation</T> describes how an algorithm's running time or memory grows as the input size n grows, ignoring constants. So one pass over an array is O(n), two nested loops over it are O(n²), and a search that halves the range each step is O(log n).
-
-</A>
-
-<A short l="m">
-
-Big O is an upper bound on how work grows with n; time and <T k="space-complexity">space</T> are estimated separately, and you state which case you mean: <T k="worst-case">worst</T>, average or <T k="amortized-complexity">amortized</T>. The rules are simple: sequential blocks add up and the dominant term wins, nested loops multiply, constants are dropped. The cost is that Big O hides constants, so for small n an asymptotically worse solution can be faster.
-
-</A>
-
-<A short l="s">
-
-Formally, f(n) = O(g(n)) if f(n) ≤ c·g(n) from some n onwards; in interviews people usually mean a tight bound, that is Θ. The complexity of recursion comes from a recurrence, for example via the <T k="master-theorem">master theorem</T>: T(n) = 2T(n/2) + O(n) gives O(n log n). You also look for the hidden cost of calls: `string +=` in a loop, `List<T>.Insert(0, x)`, LINQ inside a loop. Asymptotics is the first filter; choosing between good options is a job for measurement.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -69,10 +51,6 @@ Assuming code without nested loops is linear. `list.Insert(0, x)` or `s += x` in
 
 **Takeaway:** Big O shows how work grows with the input, not how many milliseconds it takes.
 
-</A>
-
-<A l="m">
-
 **How it works**
 
 Time and space are estimated separately. Space means extra memory, not counting the input: a pass with a `HashSet<T>` costs O(n) space, a double loop costs O(1).
@@ -97,10 +75,6 @@ Amortized analysis is not about probability. It is a guarantee for any series: t
 For every solution, give two estimates — time and space — and say which case you mean.
 
 **Takeaway:** complexity is a pair of time and space plus the case: worst, average or amortized.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -192,25 +166,7 @@ Three solutions to one problem — three different time/space trade-offs. Sortin
 
 ## Which data structures should you know and what is each one for?
 
-<A short l="j">
-
-A data structure is a way to organise data around the operations you need: an array gives you an element by index, a <T k="hash-table">hash table</T> a value by key, a stack and a queue a processing order, a tree ordered keys, a heap a fast minimum, and a graph relationships between objects. Most of them have a ready-made type in .NET, so in an interview you name both the structure and the class.
-
-</A>
-
-<A short l="m">
-
-Structures differ in which operations are fast: a <T k="linked-list">linked list</T> inserts in O(1) at a known node but searches in O(n), a <T k="binary-search-tree">search tree</T> keeps keys ordered with O(log n) operations, and a <T k="binary-heap">heap</T> gives you the minimum in O(log n) — that's `PriorityQueue<TElement, TPriority>` since .NET 6. The choice starts with "which operation is the most frequent". The cost is memory and slower other operations.
-
-</A>
-
-<A short l="s">
-
-A data structure is a set of operation guarantees plus a memory layout, and in production the layout matters just as much: arrays are contiguous, while node-based structures allocate an object per element. The BCL has no <T k="graph">graph</T> type — you store one as an <T k="adjacency-list">adjacency list</T> on top of `Dictionary`. `PriorityQueue` can't update a priority, and its `Remove` (.NET 9) is linear, so Dijkstra's algorithm pushes duplicates and skips stale entries. For top-k, a heap of size k gives O(n log k) instead of O(n log n) for a full sort.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -234,10 +190,6 @@ A data structure is a set of operation guarantees plus a memory layout, and in p
 Writing your own structure in an interview when a ready-made one exists. Unless asked otherwise, the interviewer usually expects `Stack<T>` or `PriorityQueue`, not a hand-rolled class.
 
 **Takeaway:** pick the structure by the operation that has to be fast.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -266,10 +218,6 @@ Writing your own structure in an interview when a ready-made one exists. Unless 
 Name the dominant operation of the task, and the structure follows from it: lookup by key — hash table, order — tree, minimum — heap, processing order — stack or queue.
 
 **Takeaway:** every structure speeds up some operations at the expense of others, and choosing one answers the question "what do we do most often".
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -358,25 +306,7 @@ static char Opening(char close) => close switch { ')' => '(', ']' => '[', _ => '
 
 ## Which sorting and searching algorithms should you know?
 
-<A short l="j">
-
-<T k="binary-search">Binary search</T> finds an element in a sorted array in O(log n) by discarding half of the range at each step; linear search works on any array but takes O(n). Comparison sorts are at best O(n log n), and in .NET you don't write your own: `Array.Sort` and `List<T>.Sort` sort in place, while `OrderBy` returns a new sequence.
-
-</A>
-
-<A short l="m">
-
-The core sorts are <T k="quicksort">quicksort</T> (O(n log n) on average, O(n²) in the worst case, in place), <T k="merge-sort">merge sort</T> (always O(n log n), <T k="stable-sort">stable</T>, but O(n) extra memory) and <T k="heapsort">heapsort</T> (O(n log n) with no extra memory, unstable). `Array.Sort` and `List<T>.Sort` use the hybrid <T k="introsort">introsort</T> and are unstable, while `OrderBy` is stable. So sorting by several keys is done with `OrderBy(...).ThenBy(...)` or a comparer with a tie-breaking key.
-
-</A>
-
-<A short l="s">
-
-Introsort is a quicksort that switches to insertion sort for partitions of up to 16 elements and to heapsort when partitioning gets too deep; that keeps the worst case at O(n log n) without an extra buffer. The price is instability, and the stable `OrderBy` pays in memory: a buffer of elements, an array of keys and an index map. Binary search looks trivial, but off-by-one errors and the overflow in `(lo + hi) / 2` lived for years even in standard libraries. That's why in an interview you write one proven template and run it through the edge cases.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -401,10 +331,6 @@ Introsort is a quicksort that switches to insertion sort for partitions of up to
 Running binary search on an unsorted array. There's no exception — just a wrong answer.
 
 **Takeaway:** binary search is O(log n), but only on sorted data; take sorting from the library.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -435,10 +361,6 @@ A stable sort preserves the original order of equal elements. It matters when th
 Don't write your own sort in production code. Need stability — use `OrderBy` or a comparer with a tie-breaker. Test binary search on an empty array, a single element and elements at both ends.
 
 **Takeaway:** `Array.Sort` is fast and unstable, `OrderBy` is stable and costs more memory, and binary search breaks at the boundaries.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -545,25 +467,7 @@ With four elements `Array.Sort` uses insertion sort and happens to keep the orde
 
 ## Recursion and dynamic programming: how do you recognise and solve the problem?
 
-<A short l="j">
-
-<T k="recursion">Recursion</T> is when a function calls itself on a smaller subproblem and stops at a base case. <T k="dynamic-programming">Dynamic programming</T> is used when the same subproblems repeat: you remember each answer, and an exponential search becomes fast, as with Fibonacci numbers.
-
-</A>
-
-<A short l="m">
-
-Recursion needs a base case and a step that moves towards it; every call takes a frame on the <T k="call-stack">call stack</T>, so depth is limited. DP fits when a problem is built from optimal answers to subproblems and those subproblems overlap. <T k="memoization">Memoization</T> caches top-down recursion, <T k="tabulation">tabulation</T> fills a table bottom-up without recursion; both cost memory for the answers, but time drops from O(2^n) to O(n) or O(n·m).
-
-</A>
-
-<A short l="s">
-
-You recognise DP by the wording: "how many ways", "minimum or maximum", "is it possible" over prefixes, sums or pairs of indexes. The solution is to define the state and the transition; the complexity is the number of states times the cost of a transition. In .NET deep recursion is dangerous: `StackOverflowException` can't be caught and kills the process, and C# doesn't guarantee <T k="tail-call">tail call optimization</T>. So recursion over user-supplied data is replaced with an explicit stack or tabulation, which also lets you keep only the last rows of the table.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -585,10 +489,6 @@ Store each subproblem's answer in a dictionary or an array, and check for it bef
 Forgetting the base case or writing a step that doesn't shrink the problem. The recursion becomes infinite, and `StackOverflowException` kills the process — `try`/`catch` won't catch it.
 
 **Takeaway:** recursion is a base case plus a step towards it, and DP is recursion that never computes the same thing twice.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -620,10 +520,6 @@ Every call pushes a frame with arguments and local variables onto the stack. Dep
 Greedy isn't always optimal. Coins 1, 3 and 4, sum 6: greedy gives 4 + 1 + 1 — three coins, while the optimum is 3 + 3 — two.
 
 **Takeaway:** a DP problem is solved by defining the state, the transition and the base, and memoization and tabulation are two ways to walk the same states.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -722,25 +618,7 @@ static int MinCoins(int[] coins, int amount)
 
 ## How do you approach a live coding task and which techniques come up most often?
 
-<A short l="j">
-
-Live coding tests not only the answer but also your thinking: clarify the problem, walk through an example, write a simple solution, improve it and check edge cases, reasoning out loud the whole time. Most tasks are solved with a handful of techniques: a hash table, <T k="two-pointers">two pointers</T>, a <T k="sliding-window">sliding window</T>, graph traversal.
-
-</A>
-
-<A short l="m">
-
-The order is: clarify input and constraints, walk through an example, name the brute-force solution and its complexity, optimise, write the code and run tests out loud. Optimising usually means recognising a technique: a pair with a given sum — hash table, a sorted array — two pointers, a subarray — sliding window or <T k="prefix-sum">prefix sums</T>, a shortest path — <T k="bfs">BFS</T>, dependencies — <T k="topological-sort">topological sort</T>. Each speed-up usually costs memory, and you say so.
-
-</A>
-
-<A short l="s">
-
-The interviewer judges communication, how you handle ambiguity and how you verify your own code as much as the final algorithm. A strong candidate names the trade-offs unprompted: O(n) memory for O(n) time, sorting in place mutates the input, recursive <T k="dfs">DFS</T> on a deep graph will overflow the stack. A working O(n²) with an honest estimate beats an unfinished O(n), so you finish the simple solution first and propose improvements afterwards.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -760,10 +638,6 @@ Live coding means solving a problem in front of the interviewer in an editor or 
 Silently writing code right after reading the problem. If the solution hits a dead end, the interviewer has no way to help you and nothing to assess.
 
 **Takeaway:** in live coding the solution is a process out loud: problem, example, simple solution, improvement, testing.
-
-</A>
-
-<A l="m">
 
 **When to choose what**
 
@@ -797,10 +671,6 @@ The window `[left, right]` grows to the right. If a character is already in the 
 Recognise the technique from the signal in the problem first, then write code.
 
 **Takeaway:** most tasks boil down to about ten techniques, and recognising the technique is half the solution.
-
-</A>
-
-<A l="s">
 
 **How to talk while solving**
 

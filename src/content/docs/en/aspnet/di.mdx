@@ -20,25 +20,7 @@ How ASP.NET Core creates objects and hands them their dependencies: why you need
 
 ## What is dependency injection and why do you need a container?
 
-<A short l="j">
-
-<T k="dependency-injection">Dependency injection</T> (DI) is a technique where a class receives the objects it needs from outside, usually through its constructor, instead of creating them itself with `new`. That makes the implementation easy to swap, for example for a stub in a test, while a <T k="di-container">container</T> creates and wires the objects.
-
-</A>
-
-<A short l="m">
-
-DI is a way to apply the <T k="dependency-inversion">dependency inversion principle</T> (DIP): a class depends on an abstraction, and the startup code picks the concrete implementation. The ASP.NET Core container uses the registrations in `builder.Services` to build the object graph through <T k="constructor-injection">constructor injection</T> and manages object lifetimes. The cost is that the wiring is checked only at run time: a missing registration shows up as an exception at startup or on a request, not as a compile error.
-
-</A>
-
-<A short l="s">
-
-DI is a special case of <T k="inversion-of-control">inversion of control</T> (IoC): objects neither create nor look up their dependencies; they are composed in one place, `Program.cs`. The constructor honestly lists everything the class needs, so the graph is easy to verify and the class is easy to test without a container. The opposite is the <T k="service-locator">Service Locator</T>: calls to `GetService` inside methods hide dependencies and push errors to run time. The price of DI is indirection, and a very long constructor signals that the class does too much.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -60,10 +42,6 @@ With dependency injection a class does not create its dependencies; it receives 
 Creating a dependency with `new` inside the class. Then you cannot replace it in a test, and the container will not dispose of it on time.
 
 **Takeaway:** the class asks for dependencies in its constructor; the container creates and wires them.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -89,10 +67,6 @@ Creating a dependency with `new` inside the class. Then you cannot replace it in
 Dependencies go into the constructor, implementations into registrations in `Program.cs`. `GetService` in business code is a reason to refactor.
 
 **Takeaway:** the container builds the object graph from registrations; the class only lists what it needs in its constructor.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -178,25 +152,7 @@ public class BadOrderService(IServiceProvider services)
 
 ## What is the difference between Singleton, Scoped and Transient?
 
-<A short l="j">
-
-A <T k="service-lifetime">service lifetime</T> defines how often the container creates a new object: Transient on every injection, Scoped once per <T k="di-scope">scope</T>, that is per HTTP request, and Singleton once for the whole app. That is why `DbContext` is scoped and a shared in-memory cache is a singleton.
-
-</A>
-
-<A short l="m">
-
-A lifetime is the rule for when the container creates an instance and when it disposes of it. A scope is the area inside which scoped services are shared: ASP.NET Core opens a scope for each request and at the end disposes of it together with the scoped and transient objects created in it. A singleton lives in the <T k="root-provider">root provider</T> until the app stops, so it must be thread-safe and must not hold services with a shorter lifetime.
-
-</A>
-
-<A short l="s">
-
-Choosing a lifetime is choosing between shared state and isolation. A singleton saves object creation but shares state across all requests and keeps its graph in memory until shutdown; Scoped gives you a unit of work per request, as with `DbContext`; Transient is cheap for lightweight stateless objects but adds allocations on every resolution. What counts as a scope is decided by the host, not the container: a request in Web API, the user's connection in Blazor Server, a manually created scope in background work.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -221,10 +177,6 @@ A scope is the area inside which a scoped service exists as a single instance. A
 Storing request data in a singleton, for example in a `CurrentUser` field. Every concurrent request will see it.
 
 **Takeaway:** Transient is new every time, Scoped is one per request, Singleton is one per app.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -251,10 +203,6 @@ Storing request data in a singleton, for example in a `CurrentUser` field. Every
 Services with data access — Scoped. Singleton — only for state that is expensive to create or truly global, and then it must be thread-safe. Transient — for lightweight stateless objects.
 
 **Takeaway:** the lifetime decides who shares an instance: the request, the app or nobody.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -340,25 +288,7 @@ On the next request `Scoped.Id` will be different, while `Singleton.Id` stays th
 
 ## What is a captive dependency and how do you catch it?
 
-<A short l="j">
-
-A <T k="captive-dependency">captive dependency</T> is when a long-lived service, such as a singleton, receives a service with a shorter lifetime in its constructor and holds on to it forever. That is how one `DbContext` ends up serving every request, and in Development ASP.NET Core catches it with an exception at startup.
-
-</A>
-
-<A short l="m">
-
-A captive dependency is a configuration error: a service captures a dependency with a shorter lifetime, and the dependency then lives as long as its owner. The built-in container catches only a scoped service inside a singleton: <T k="scope-validation">`ValidateScopes`</T> checks it at resolution time and <T k="validate-on-build">`ValidateOnBuild`</T> checks it up front, during `Build()`. Both checks are on by default only in Development, so for other environments you enable them explicitly or verify the configuration in a test.
-
-</A>
-
-<A short l="s">
-
-A captive dependency breaks the rule "a dependency lives at least as long as its consumer". The container sees only scoped-in-singleton, while transient-in-singleton is legal from its point of view — that is how typed `HttpClient`s get captured and stop seeing DNS changes. `ValidateOnBuild` does not check open generic registrations and does not see dependencies an <T k="implementation-factory">implementation factory</T> resolves from the provider itself. So the validation is enabled for all environments in an integration test, and the rest is covered by code review and the rule "a singleton depends only on singletons".
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -381,10 +311,6 @@ In Development ASP.NET Core checks registrations at startup and fails with `Cann
 
 **Takeaway:** a service must not depend on services that live shorter than it does.
 
-</A>
-
-<A l="m">
-
 **How it works**
 
 | Option | What it checks | When |
@@ -406,10 +332,6 @@ Together they catch scoped-in-singleton already at startup. `WebApplication.Crea
 A dependency lives at least as long as its consumer: a singleton accepts only singletons. A singleton gets scoped services through its own scope.
 
 **Takeaway:** the container catches scoped-in-singleton; transient captures, factories and open generics are up to you.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -496,25 +418,7 @@ public class PriceService(CartRepository repository)
 
 ## How do you use a scoped service from a singleton or a background task?
 
-<A short l="j">
-
-You create your own scope through <T k="service-scope-factory">`IServiceScopeFactory`</T>, get the service from `scope.ServiceProvider` and dispose of the scope when the work is done. That way a `DbContext` in a <T k="background-service">background service</T> lives for one iteration, not for the whole lifetime of the app.
-
-</A>
-
-<A short l="m">
-
-Singletons and `BackgroundService` are created in the root provider, where there is no request scope, so scoped services are not injected into them directly but obtained through `IServiceScopeFactory`. For each <T k="unit-of-work">unit of work</T> — a message, an iteration, a job — you create `await using var scope = factory.CreateAsyncScope()` and resolve services from it. The cost is that services are recreated for every unit of work, but the `DbContext` does not accumulate tracked entities and is disposed of on time.
-
-</A>
-
-<A short l="s">
-
-A scope is the boundary of a unit of work: everything resolved from it is disposed of with it, and `CreateAsyncScope` (.NET 6+) correctly calls `DisposeAsync` on <T k="iasyncdisposable">`IAsyncDisposable`</T> services. The key decision is granularity: a scope per message isolates failures and keeps the `DbContext` small, while a scope for the whole loop turns scoped into a hidden singleton. A scope does not make services thread-safe, so each parallel task gets its own. If all you need is a `DbContext`, `IDbContextFactory<T>` is simpler, but you dispose of the contexts it creates yourself.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -532,10 +436,6 @@ A background service and a singleton are created once, outside any HTTP request.
 Creating one scope before an infinite loop. Then the `DbContext` lives for the whole lifetime of the app, like a singleton.
 
 **Takeaway:** outside a request you create scopes manually — one per unit of work.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -563,10 +463,6 @@ Creating one scope before an infinite loop. Then the `DbContext` lives for the w
 One scope — one unit of work: a message from a queue, a timer tick, a job.
 
 **Takeaway:** `IServiceScopeFactory` and `CreateAsyncScope` per unit of work is the standard way to use a scoped service outside a request.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -659,25 +555,7 @@ public sealed class OrderStore : IAsyncDisposable
 
 ## How do you register several implementations of one interface and pick the right one?
 
-<A short l="j">
-
-Every `Add...` call for the same interface adds one more registration: injecting `IEnumerable<T>` gives you all implementations in registration order, and injecting `T` gives you the last one. To pick a specific implementation by name, .NET 8 added <T k="keyed-services">keyed services</T> and the `[FromKeyedServices]` attribute.
-
-</A>
-
-<A short l="m">
-
-`IServiceCollection` is a list of registrations, so registering again does not replace the previous registration but adds to it: `T` resolves to the last one, `IEnumerable<T>` to all of them. <T k="try-add">`TryAdd`</T> registers only if the service is not registered yet, and `TryAddEnumerable` only if the same service-and-implementation pair is not there; that is how libraries set defaults and avoid duplicate handlers. Keyed services (.NET 8+) pick an implementation by key, while <T k="decorator-pattern">decorators</T> are not supported by the built-in container — you write them with a factory or use <T k="scrutor">Scrutor</T>.
-
-</A>
-
-<A short l="s">
-
-Registration order is part of the contract: "last one wins" lets you override implementations, and `TryAdd` lets you set defaults that the app can replace. Keyed services cover the "strategy by key" scenario without a hand-written factory, but the key is not checked by the compiler and the choice of implementation moves to the consumer. A decorator in the built-in container is either a hand-written factory or Scrutor, which rewrites a registration that is already there. All registrations are gathered in the <T k="composition-root">composition root</T> through `Add{Feature}` extension methods; otherwise ordering and overrides become unmanageable.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -694,10 +572,6 @@ An interface can have several implementations: `EmailNotifier` and `SmsNotifier`
 Expecting the second registration to replace the first. It is added to the list, and `IEnumerable<T>` will contain both.
 
 **Takeaway:** `IEnumerable<T>` gives all implementations, `T` the last one, a key a specific one.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -728,10 +602,6 @@ Expecting the second registration to replace the first. It is added to the list,
 Equal implementations — `IEnumerable<T>`; a choice by value — a key or a strategy factory; a wrapper — a decorator.
 
 **Takeaway:** registrations are an ordered list: `Add` appends, `TryAdd` respects what is already there, a key picks a specific implementation.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -854,25 +724,7 @@ public class LoggingOrderRepository(IOrderRepository inner, ILogger<LoggingOrder
 
 ## Who disposes of services, why are factories risky and when do you need a third-party container?
 
-<A short l="j">
-
-The container calls `Dispose` on the objects it created: scoped and transient ones at the end of the scope, singletons when the app stops, while an object passed in ready-made through `AddSingleton(instance)` is not disposed of. So you must not call `Dispose` on an injected service, and a third-party container such as <T k="autofac">Autofac</T> is needed only when the built-in one lacks a feature.
-
-</A>
-
-<A short l="m">
-
-The container disposes of everything it created itself, including factory results, in reverse order of creation, while ready-made instances remain the developer's responsibility. <T k="disposable-transient">Disposable transients</T> are dangerous: the container keeps a reference to each one until the end of the scope, and those resolved from the root live until the app stops. Teams pick Autofac for modules, decorators, <T k="property-injection">property injection</T> and tagged nested scopes, while for assembly scanning and decorators Scrutor on top of the built-in container is often enough.
-
-</A>
-
-<A short l="s">
-
-An object's owner is whoever created it: the container disposes of what it created when a scope or the root closes and leaves instances handed to it alone. Factories are opaque: they hide dependencies from validation, and the container will dispose of the object they return even if someone else owns it. A disposable transient resolved from the root is a classic <T k="memory-leak">memory leak</T>, so such objects are created through <T k="activator-utilities">`ActivatorUtilities`</T> and disposed of by the caller. A third-party container pays off for modules, interceptors or tagged scopes, but with it you lose `ValidateScopes` and `ValidateOnBuild`.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -896,10 +748,6 @@ A service often holds a resource: a connection, a file, a socket. Releasing it i
 Wrapping an injected `DbContext` in `using`. After the block other services in the same request get a disposed context and `ObjectDisposedException`.
 
 **Takeaway:** whoever creates an object disposes of it: what the container created, the container disposes of.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -926,10 +774,6 @@ Wrapping an injected `DbContext` in `using`. After the block other services in t
 Do not register an `IDisposable` as transient if it will be resolved outside a short-lived scope.
 
 **Takeaway:** the container disposes of everything it created, so disposable transients in the root and factories returning someone else's objects break ownership.
-
-</A>
-
-<A l="s">
 
 **What the built-in container lacks**
 

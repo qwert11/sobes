@@ -18,25 +18,7 @@ How the language itself works: names and objects instead of variables as storage
 
 ## What built-in types does Python have, and how do mutable types differ from immutable ones?
 
-<A short l="j">
-
-The main built-in types are numbers (`int`, `float`), `bool`, `str`, `None` and the collections `list`, `tuple`, `dict` and `set`. <T k="py-mutable">Mutable</T> types (`list`, `dict`, `set`) change in place, while immutable ones (`int`, `str`, `tuple`) do not: every "edit" creates a new object, which is why a tuple can be a `dict` key but a list cannot.
-
-</A>
-
-<A short l="m">
-
-A variable in Python is a <T k="py-name-binding">name bound to an object</T>, not a slot holding a value: assignment copies the reference, not the object. Arguments are passed <T k="py-call-by-sharing">by object reference</T>: a function can mutate the list you pass in but cannot rebind the caller's name. So copies are made explicitly (`copy.copy`, `copy.deepcopy`), `is` checks whether it is the same object, and `==` checks whether the values are equal.
-
-</A>
-
-<A short l="s">
-
-Mutability is a property of the type, not of the variable: every value in Python is an object, and the only difference is whether the type has operations that change it in place. <T k="py-hashable">Hashability</T> depends on it: only an object whose hash never changes during its lifetime can be a `dict` key or a `set` element. That explains the classic bugs — a mutable default argument, a shared nested list after a shallow copy, `is` instead of `==` — and the rule: prefer immutable types for defaults and shared data. The cost of immutability is a new object for every change.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -62,10 +44,6 @@ Mutability is a property of the type, not of the variable: every value in Python
 A mutable default argument: `def add(item, items=[])`. The list is created once and accumulates elements across calls. The right way is `items=None` and then `if items is None: items = []` inside.
 
 **Takeaway:** mutable types change in place, immutable ones produce a new object on every "edit".
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -94,10 +72,6 @@ A mutable default argument: `def add(item, items=[])`. The list is created once 
 Defaults are immutable or `None`. If a function mutates an argument, its name should say so; otherwise it works on a copy.
 
 **Takeaway:** assignment and passing to a function never copy an object — copies are made explicitly.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -182,25 +156,7 @@ print(bad(1), bad(2))  # [1, 2] [1, 2]
 
 ## How do functions work in Python?
 
-<A short l="j">
-
-A function is declared with `def` and is itself an object: you can pass it as an argument, return it or store it, like a delegate in C#. `*args` collects extra positional arguments into a tuple, and `**kwargs` collects keyword arguments into a dict.
-
-</A>
-
-<A short l="m">
-
-A function is a first-class object, and <T k="py-closure">closures</T> and <T k="py-decorator">decorators</T> are built on that: a decorator takes a function and returns a wrapper, and `functools.wraps` keeps the original's name. Parameters before `/` are positional-only, parameters after `*` are <T k="py-keyword-only">keyword-only</T>. A function with `yield` becomes a <T k="py-generator">generator</T> and produces values lazily, while `with` and a <T k="py-context-manager">context manager</T> guarantee that a resource is released, like `using` in C#.
-
-</A>
-
-<A short l="s">
-
-Almost all the "magic" of functions is sugar over objects and protocols: `@d` is `f = d(f)`, `with` is calls to `__enter__` and `__exit__`, a generator is an object with a suspended execution frame. A closure holds cells for outer variables, not their values, which is why lambdas created in a loop all see the last value. The price of this flexibility is expensive calls: every decorator layer is one more Python function call, which shows on a hot path. Generators save memory in streaming processing but are single-use: a second pass over an exhausted generator silently yields nothing.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -219,10 +175,6 @@ A function is declared with `def` and returns a value with `return`; without it,
 Assigning to a global variable inside a function without `global`. The assignment makes the name local to the whole function, and reading it before that fails with `UnboundLocalError`.
 
 **Takeaway:** a function is an object, and `*args` and `**kwargs` make its signature flexible.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -244,10 +196,6 @@ Assigning to a global variable inside a function without `global`. The assignmen
 Resources go through `with`, large data streams through generators, cross-cutting logic through decorators with `functools.wraps`.
 
 **Takeaway:** decorators, generators and `with` are sugar over function objects and protocols.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -362,25 +310,7 @@ with connection("db") as conn:
 
 ## How do classes and typing work in Python?
 
-<A short l="j">
-
-A class is declared with `class`: the constructor is `__init__`, `self` is an explicit reference to the instance, and <T k="py-dataclass">`@dataclass`</T> generates `__init__`, `__repr__` and `__eq__` for data classes. The interpreter does not check type annotations like `x: int` — IDEs and <T k="py-type-checker">type checkers</T> such as mypy read them.
-
-</A>
-
-<A short l="m">
-
-An object's behaviour is defined by <T k="py-dunder-method">dunder methods</T>: `__eq__` for `==`, `__len__` for `len()`, `__iter__` for `for`, so your own class plugs into the language without interfaces. Python relies on <T k="py-duck-typing">duck typing</T>, and <T k="py-protocol">`typing.Protocol`</T> describes it for the type checker: a class fits if it has the required methods, without inheritance. Annotations do not affect execution, so their value lies in mypy or pyright in CI, not at runtime.
-
-</A>
-
-<A short l="s">
-
-Python's object model is dynamic: attributes live in `__dict__`, methods are looked up along the <T k="py-mro">MRO</T> on every access, and multiple inheritance is resolved by C3 linearization and cooperative `super()`. Typing is gradual and external: the runtime does not check annotations, but mypy or pyright in strict mode give guarantees close to C#, with nominal classes and structural `Protocol`s. Since 3.12 generics are written right in the signature: `def first[T](items: list[T]) -> T`. A trade-off of the same kind is `@dataclass(slots=True)`: less memory and faster access, but no dynamic attributes.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -400,10 +330,6 @@ Python's object model is dynamic: attributes live in `__dict__`, methods are loo
 Declaring a mutable attribute at class level: `class Cart: items = []`. That list is shared by all instances; instance fields are set in `__init__`.
 
 **Takeaway:** a Python class looks like a C# class, but access relies on conventions and types are hints for tools.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -432,10 +358,6 @@ Declaring a mutable attribute at class level: `class Cart: items = []`. That lis
 Annotate public functions fully and run mypy or pyright in CI. Data goes into `@dataclass`, contracts into `Protocol`.
 
 **Takeaway:** a class plugs into the language through dunder methods, and typing is an external layer checked by tools.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -556,25 +478,7 @@ print([c.__name__ for c in Repo.__mro__])  # ['Repo', 'Audit', 'Cache', 'Base', 
 
 ## How does Python manage memory, and what is the GIL?
 
-<A short l="j">
-
-Python frees memory by itself: every object has a <T k="py-reference-counting">reference count</T>, and the object is deleted as soon as no references remain. The <T k="py-gil">GIL</T> is CPython's global interpreter lock: only one thread runs Python code at any moment, so threads do not speed up computation.
-
-</A>
-
-<A short l="m">
-
-CPython deletes an object the moment its reference count drops to zero, and a separate generational <T k="py-cyclic-gc">cycle collector</T> finds reference cycles. The GIL lets only one thread execute bytecode, so threads help while waiting on I/O, which releases the GIL, but not with computation. CPU-bound work is sped up with processes, NumPy or <T k="py-c-extension">C extensions</T> that release the GIL while they run.
-
-</A>
-
-<A short l="s">
-
-Reference counting gives deterministic deallocation but needs the counts protected from races — that is exactly the GIL's job, one lock for the whole interpreter. The <T k="py-free-threading">free-threaded build</T> (PEP 703) removes the GIL: experimental in 3.13, officially supported since 3.14, but still a separate build rather than the default in 3.15. The cost is a few percent on single-threaded code and the requirement that C extensions be marked as compatible, otherwise the GIL is turned back on. So the standard approach to CPU-bound work is still to move the hot loop into NumPy, a native extension or separate processes.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -591,10 +495,6 @@ Reference counting gives deterministic deallocation but needs the counts protect
 Running heavy computation in a `ThreadPoolExecutor` and expecting a speed-up proportional to the number of cores. With the GIL the time stays the same or even grows.
 
 **Takeaway:** reference counting frees memory, and the GIL lets only one thread at a time run Python code.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -623,10 +523,6 @@ Running heavy computation in a `ThreadPoolExecutor` and expecting a speed-up pro
 First find out what the task is bound by — waiting or CPU. A detailed comparison of threads, processes and asyncio is in [asyncio and FastAPI](/sobes/en/python/async-fastapi/).
 
 **Takeaway:** reference counting frees almost everything immediately, `gc` cleans up cycles, and the GIL limits the parallelism of Python code but not of I/O.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 

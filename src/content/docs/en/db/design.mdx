@@ -20,25 +20,7 @@ How to design a schema that survives years of growth and how to run a database u
 
 ## What is normalization, and when is denormalization justified?
 
-<A short l="j">
-
-<T k="normalization">Normalization</T> means splitting data into tables so that every fact is stored in exactly one place. So changing a store's address touches one row in the stores table, not thousands of sales rows; denormalization is deliberate duplication for faster reads.
-
-</A>
-
-<A short l="m">
-
-Normal forms are steps: 1NF requires atomic values, 2NF requires non-key columns to depend on the whole composite key, 3NF requires no dependencies between non-key columns. They remove <T k="update-anomaly">update anomalies</T> that appear when one fact lives in several rows. <T k="denormalization">Denormalization</T> speeds up reads, but keeping the copies consistent becomes the job of code, a trigger or a data load.
-
-</A>
-
-<A short l="s">
-
-Normal forms are defined through <T k="functional-dependency">functional dependencies</T>; BCNF requires every determinant to be a candidate key and closes rare cases that 3NF lets through. A transactional schema stays in 3NF: writes are cheap and consistent, and indexes speed up reads. Denormalize selectively and with a sync mechanism: computed columns, <T k="indexed-view">indexed views</T>, aggregates, reporting tables. The cost is more expensive writes and the risk of drift, so every copy needs a single owner and a way to recompute it.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -55,10 +37,6 @@ Normalization is designing tables so that one fact is stored in one place. The s
 Storing a comma-separated list in one column: `'A12,B7,C3'`. You cannot index such a list, and searching turns into `LIKE '%B7%'`.
 
 **Takeaway:** normalization puts every fact in one place, so a change is made once.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -90,10 +68,6 @@ Normal forms remove three anomalies:
 Start with 3NF; denormalize based on measurements and with an explicit sync mechanism.
 
 **Takeaway:** normal forms remove anomalies, and denormalization is a conscious trade of consistency for read speed.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -180,25 +154,7 @@ UPDATE dbo.Store SET Address = N'New address' WHERE StoreId = 42;
 
 ## Which primary key should you choose: identity, GUID or a natural key?
 
-<A short l="j">
-
-A <T k="surrogate-key">surrogate key</T> is an artificial identifier with no business meaning, such as a number from `IDENTITY` or a GUID, while a <T k="natural-key">natural key</T> comes from the domain: a product code, a tax ID. The usual primary key is `bigint IDENTITY` — short, increasing and immutable — and the natural key is protected by a `UNIQUE` constraint.
-
-</A>
-
-<A short l="m">
-
-In SQL Server the primary key becomes the <T k="clustered-index">clustered index</T> key by default and is copied into every nonclustered index, so its size and insert order matter. `bigint IDENTITY` is 8 bytes and inserts at the end; a random `NEWID()` is 16 bytes and inserts in the middle, causing <T k="page-split">page splits</T>. A GUID makes sense when the application or several databases create the ID without asking the server, and then it should be sequential.
-
-</A>
-
-<A short l="s">
-
-A key is a trade-off between size, insert locality and who generates the value. `IDENTITY` is compact but known only after the insert, and on a hot table inserting into the last page hits latch contention — SQL Server 2019 added `OPTIMIZE_FOR_SEQUENTIAL_KEY` for that. A <T k="uuid-v7">UUIDv7</T> from `Guid.CreateVersion7()` (.NET 9+) grows over time, but SQL Server compares `uniqueidentifier` starting from the last 6 bytes, so in its index v7 lands almost randomly. Ordering that matches SQL Server comes from `NEWSEQUENTIALID()` and the EF Core generator, and the natural key stays a unique constraint.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -219,10 +175,6 @@ A key is a trade-off between size, insert locality and who generates the value. 
 Making a barcode or a tax ID the primary key. Barcodes get reused, tax IDs get mistyped, and then you have to change the key in every referencing table.
 
 **Takeaway:** a surrogate key is for relationships, a natural key goes under a unique constraint.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -250,10 +202,6 @@ Making a barcode or a tax ID the primary key. Barcodes get reused, tax IDs get m
 `bigint IDENTITY` by default; a GUID when the application creates the ID, and then one that is sequential in SQL Server's order.
 
 **Takeaway:** the key is part of every index, so it should be short, immutable and increasing.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -360,25 +308,7 @@ Console.WriteLine(ids.SequenceEqual(asBinary));    // True
 
 ## How does ETL work, and how are loads built in SSIS?
 
-<A short l="j">
-
-<T k="etl">ETL</T> (extract, transform, load) is a process that pulls data from sources, reshapes it and loads it into a target database, for example from store databases into a central one. SSIS is Microsoft's tool for such loads: you build a package in Visual Studio and run it on a schedule through SQL Server Agent.
-
-</A>
-
-<A short l="m">
-
-An SSIS package is a control flow — the order of tasks with precedence constraints — and data flows, which stream rows from a source through transformations into a destination. Loads are made incremental: by a <T k="watermark">watermark</T> (`rowversion`, modified date), through <T k="change-tracking">change tracking</T> or <T k="change-data-capture">CDC</T>. Data first goes into a <T k="staging-table">staging table</T> and then moves to the target in one set-based statement, so that a rerun after a failure is <T k="idempotency">idempotent</T>.
-
-</A>
-
-<A short l="s">
-
-A reliable load is incremental and idempotent: every run knows where to read from, and a rerun creates no duplicates. A `rowversion` watermark is capped with `MIN_ACTIVE_ROWVERSION()`, otherwise rows from in-flight transactions slip through. Change tracking is cheap but returns only the keys of changed rows, while CDC keeps values from the log and blocks log truncation while the capture job lags. Packages live in the SSISDB catalog, and new loads are increasingly built in Azure Data Factory or in .NET with `SqlBulkCopy`.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -402,10 +332,6 @@ You develop a package in Visual Studio, deploy it to the SSISDB catalog on the s
 Reloading the whole table every time. It works while the data is small, and a year later the load no longer fits in the nightly window.
 
 **Takeaway:** ETL is extract, transform, load; in SSIS the control flow sets the order, and rows go through the data flow.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -435,10 +361,6 @@ An incremental load step by step:
 A run is safe to repeat: staging is truncated at the start, rows move by business key, and the watermark advances only on success.
 
 **Takeaway:** the increment finds the changes, and staging plus a set-based move make reruns safe.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -520,25 +442,7 @@ If you take `@@DBTS` instead of `MIN_ACTIVE_ROWVERSION()`, a row from a transact
 
 ## How do you build reporting so that reports don't take down the production database?
 
-<A short l="j">
-
-An <T k="oltp">OLTP</T> database serves many short transactions — sales, orders — while <T k="olap">OLAP</T> means heavy analytical queries over large volumes. A heavy report on the production database reads millions of rows and slows down the checkouts, so such reports move to a copy of the database or to a separate store.
-
-</A>
-
-<A short l="m">
-
-A report hurts the production database in three ways: it takes CPU, memory and disk, evicts hot data from the cache, and under READ COMMITTED conflicts with writes through locks. The fixes, in increasing order: RCSI and SSRS report caching, an Always On <T k="readable-secondary">readable secondary</T>, a separate <T k="data-mart">data mart</T> with a <T k="star-schema">star schema</T> fed by ETL. Each step costs data latency and one more system to maintain.
-
-</A>
-
-<A short l="s">
-
-Split the load by acceptable latency: operational reports need data "now", analytics can live with yesterday's. Operational reports read from an Always On replica (Enterprise, seconds of lag, snapshot isolation) or from a <T k="columnstore-index">columnstore index</T> on the production table; analytics reads from a data mart whose schema is built for aggregates. Choose the report server with the future in mind: SSRS 2022 is the last version, and since SQL Server 2025 its place is taken by Power BI Report Server, which runs the same RDL reports.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -562,10 +466,6 @@ A heavy report takes the production database's CPU and disk and can block writes
 Fixing report blocking with the `NOLOCK` hint. The report starts reading uncommitted data and can skip rows or count them twice.
 
 **Takeaway:** OLTP is for transactions, OLAP is for analysis; heavy reports move off the production database.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -595,10 +495,6 @@ A report hurts the production database in three ways:
 First find the heavy reports, then move them by acceptable latency: operational ones to a replica, analytics to a data mart.
 
 **Takeaway:** separate reports from transactions by resources and locking, and pick the approach by acceptable data latency.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -691,25 +587,7 @@ GROUP BY StoreId;
 
 ## How do you scale a database: partitioning, replicas, sharding and archiving?
 
-<A short l="j">
-
-<T k="table-partitioning">Partitioning</T> splits a large table into partitions by range, for example by month; read replicas take over part of the queries; and <T k="sharding">sharding</T> spreads data across several servers. Old data is moved to an archive so that the working table stays small.
-
-</A>
-
-<A short l="m">
-
-Partitioning in SQL Server is one logical table made of partitions defined by a partition function. It speeds up maintenance and archiving through <T k="partition-switching">partition switching</T>, and speeds up queries only with <T k="partition-elimination">partition elimination</T> on the key. Reads scale with <T k="availability-group">Always On</T> replicas and writes with sharding, for example by store; the further down that list, the higher the cost: shards break joins, transactions and uniqueness.
-
-</A>
-
-<A short l="s">
-
-First squeeze one server: indexes, archiving history, columnstore, then partitioning for maintenance — `SWITCH` moves a month to the archive as a metadata operation. Reads go to replicas, keeping lag and row versions in mind. Sharding scales writes, but cross-shard queries, distributed transactions, global keys and rebalancing become your code. So the shard key follows a business boundary — store, region, customer — so that almost every transaction lives in one shard.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -727,10 +605,6 @@ A large table takes longer to maintain, back up and clean. Deleting last year wi
 Expecting partitioning to speed up queries by itself. If the filter does not include the partitioning column, the query reads every partition and can get slower.
 
 **Takeaway:** partitioning makes a large table easier to manage, replicas offload reads, sharding splits data across servers.
-
-</A>
-
-<A l="m">
 
 **How partitioning works**
 
@@ -759,10 +633,6 @@ Expecting partitioning to speed up queries by itself. If the filter does not inc
 - `SPLIT` and `MERGE` on a non-empty partition move rows and write log, so the edge partitions are kept empty.
 
 **Takeaway:** partitioning is a maintenance and archiving tool; read and write scale come from replicas and shards.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -854,25 +724,7 @@ ALTER PARTITION FUNCTION pfMonth() MERGE RANGE ('2026-08-01');
 
 ## How do you change a database schema without downtime?
 
-<A short l="j">
-
-You change the schema so that the running version of the application keeps working: first you only add new things, then you switch the code, and only at the end you remove the old. Large tables are updated in small batches so users are not blocked.
-
-</A>
-
-<A short l="m">
-
-The core technique is <T k="expand-contract">expand/contract</T>: expand the schema compatibly, move the application over, fill the data in batches (<T k="backfill">backfill</T>), switch reads, and only then remove the old parts. Every `ALTER TABLE` takes a <T k="schema-modification-lock">Sch-M lock</T>, so what matters is how long it holds it: a metadata change takes milliseconds, rewriting every row means downtime. The cost is several releases per change and temporary code that writes to both columns.
-
-</A>
-
-<A short l="s">
-
-At every moment the schema is compatible with two adjacent versions of the application — that is what enables rolling deployments and rolling back code without rolling back the database. Long operations are replaced with metadata-only or online variants (Enterprise), and the rest with a new column and a batched backfill that watches the log and replica lag. The hidden risk is the Sch-M queue: DDL waiting on a long query blocks everyone who comes after it. So DDL runs with `LOCK_TIMEOUT` or `WAIT_AT_LOW_PRIORITY` and a retry.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -893,10 +745,6 @@ Renaming the `Phone` column to `PhoneNumber` step by step:
 Renaming or dropping a column in the same release as the code. Until every server is updated, the old version queries a column that no longer exists and fails.
 
 **Takeaway:** add first, then switch, and remove at the very end.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -926,10 +774,6 @@ Expand/contract has three phases:
 Every migration is compatible with the current and the previous application version.
 
 **Takeaway:** expand/contract keeps every step compatible, and batches plus online operations keep locks short.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 

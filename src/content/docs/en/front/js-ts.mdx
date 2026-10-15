@@ -18,25 +18,7 @@ The front-end language from the inside: types and equality, scope and `this`, th
 
 ## What types does JavaScript have, and how is `==` different from `===`?
 
-<A short l="j">
-
-JavaScript has seven <T k="js-primitive">primitive types</T> (`string`, `number`, `bigint`, `boolean`, `undefined`, `null`, `symbol`) plus objects: primitives are compared by value, objects by reference. <T k="strict-equality">`===`</T> compares without converting types, while `==` first converts the operands to a common type, so `0 == ''` is `true` — which is why code almost always uses `===`.
-
-</A>
-
-<A short l="m">
-
-In JavaScript a value has a type, a variable does not: primitives are immutable and compared by value, and everything else — including arrays and functions — is an object compared by reference. `==` triggers <T k="type-coercion">type coercion</T> with non-obvious rules (`[] == false` is `true`); `===` does not, though it still treats `NaN` as unequal to itself. For defaults use <T k="nullish-coalescing">`??`</T> rather than `||`: `||` replaces any <T k="truthy-falsy">falsy</T> value, including `0` and the empty string.
-
-</A>
-
-<A short l="s">
-
-Equality in JavaScript is four algorithms: `==` with coercion via `ToPrimitive`, `===`, `Object.is`, where `NaN` equals itself and `+0` does not equal `-0`, and SameValueZero in `includes`, `Map` and `Set`. Hence the `eqeqeq` rule with a single exception, `x == null`, which checks for `null` and `undefined` at once. At the boundary with .NET the bigger issue is `number`: it is a double, integers are exact only up to 2^53 − 1, so C# `long` IDs silently lose precision in `JSON.parse` and are sent as strings.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -54,10 +36,6 @@ Equality in JavaScript is four algorithms: `==` with coercion via `ToPrimitive`,
 Writing `count || 10` for a default. With `count = 0` you get `10`; you need `count ?? 10`.
 
 **Takeaway:** primitives are compared by value, objects by reference, and you compare with `===`.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -87,10 +65,6 @@ Writing `count || 10` for a default. With `count = 0` you get `10`; you need `co
 Always `===`, except `x == null`; for defaults, `??`. The ESLint `eqeqeq` rule enforces this in code.
 
 **Takeaway:** `==` hides type coercion, so compare with `===` and set defaults with `??`.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -172,25 +146,7 @@ console.log(a === { id: 1 });     // false: a different object
 
 ## How do scope, closures and `this` work?
 
-<A short l="j">
-
-<T k="lexical-scope">Scope</T> is the part of the code where a variable is visible: `let` and `const` are visible inside a block, `var` across the whole function. A <T k="js-closure">closure</T> is a function that remembers the variables of the place where it was created, and `this` is the object the function was called on: in `user.hello()` it is `user`.
-
-</A>
-
-<A short l="m">
-
-`var` is hoisted (<T k="hoisting">hoisting</T>) and visible across the whole function with the value `undefined`, while `let` and `const` live in a block and sit in the <T k="temporal-dead-zone">temporal dead zone</T> (TDZ) until declared. A closure captures the variable, not its value, just like a C# lambda, so callbacks in a `var` loop all see the last value. <T k="this-binding">`this`</T> is determined at call time, not at declaration: a method passed as a callback loses its object, and the fix is an <T k="arrow-function">arrow function</T> or `bind`.
-
-</A>
-
-<A short l="s">
-
-Scope is lexical: a function keeps a reference to the environment where it was created, and the engine keeps captured variables on the heap for as long as the function lives. `this`, by contrast, is dynamic: the call form sets it — `new`, `call`/`apply`/`bind`, a call through an object, or a plain call, where in strict mode it is `undefined`. An arrow function has no `this` of its own and takes it from the surrounding scope, which is why it is used for callbacks. The cost of closures is memory: a forgotten event handler keeps its whole environment alive.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -209,10 +165,6 @@ Scope is lexical: a function keeps a reference to the environment where it was c
 Passing a method as a callback: `setTimeout(user.hello, 100)`. The function is not called through `user`, so `this` no longer points to it. The fix is `setTimeout(() => user.hello(), 100)`.
 
 **Takeaway:** scope decides where a variable is visible, a closure decides how long it lives, and `this` is the object the function was called on.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -242,10 +194,6 @@ Arrow functions are outside these rules: they take `this` from the surrounding s
 `const` by default, `let` when you need to reassign. Callbacks as arrow functions; a method you hand out is an arrow field or bound with `bind`.
 
 **Takeaway:** scope and closures are lexical — the place in the code decides — while `this` is dynamic — the call site decides.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -353,25 +301,7 @@ console.log(inc.apply(c, []));         // 4: like call, arguments as an array
 
 ## How do the event loop, promises and async/await work in JavaScript?
 
-<A short l="j">
-
-JavaScript runs code on a single thread: the <T k="event-loop">event loop</T> takes tasks from a queue and runs them one at a time, while long operations such as timers and network calls are waited on by the environment — the browser or Node.js. A <T k="js-promise">promise</T> is an object holding a future result, and `async`/`await` lets you wait for it without callbacks and without blocking the thread.
-
-</A>
-
-<A short l="m">
-
-Synchronous code runs on the <T k="js-call-stack">call stack</T> to completion; when the stack is empty, the event loop runs all <T k="microtask">microtasks</T> — promise callbacks and continuations after `await` — and then takes the next task from the <T k="task-queue">task queue</T>: a timer, an event, a network response. That is why `Promise.then` fires before `setTimeout(fn, 0)`. Unlike C#, continuations do not go to a thread pool: all JavaScript code runs on one thread, so no locks are needed, but a heavy computation freezes the page.
-
-</A>
-
-<A short l="s">
-
-The model is run-to-completion: a task runs in full, then the microtask queue is drained completely, and only then can the browser render a frame, so an endless chain of microtasks hangs the page just like `while (true)`. Unlike a C# `Task`, `await` always yields, even for an already fulfilled promise, and promises have no cancellation — it is passed via `AbortController`. A rejected promise without a handler is an <T k="unhandled-rejection">unhandled rejection</T>: since Node.js 15 it terminates the process by default.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -391,10 +321,6 @@ The model is run-to-completion: a task runs in full, then the microtask queue is
 Calling an `async` function without `await` and without `.catch`. An error inside it will not reach your `try`/`catch` and becomes unhandled.
 
 **Takeaway:** one thread plus a task queue, and promises with `await` let you wait without blocking that thread.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -425,10 +351,6 @@ The code of an `async` function up to the first `await` runs synchronously; the 
 Every promise is either awaited, returned, or explicitly handled with `.catch`. Independent operations go through `Promise.all`.
 
 **Takeaway:** microtasks run before the next task, and the promise combinators differ in how they react to errors.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -532,25 +454,7 @@ try {
 
 ## What does TypeScript give you, and how do you use it properly?
 
-<A short l="j">
-
-TypeScript is JavaScript with types: the compiler checks them at build time and <T k="type-erasure">erases</T> them, so the browser gets plain JavaScript. That is why a typo in a property name or `undefined` instead of an object is caught before the code runs, and the IDE suggests fields and methods.
-
-</A>
-
-<A short l="m">
-
-Unlike C#, typing is <T k="structural-typing">structural</T>: a type fits if it has the required members, regardless of its name or inheritance. Inside a function the type is refined by <T k="type-narrowing">narrowing</T> — `typeof`, `in`, `instanceof`, a `null` check — and external data is typed as `unknown` rather than `any`, which switches checking off. The basis of proper use is <T k="ts-strict">`strict`</T>; since TypeScript 6.0 it is on by default.
-
-</A>
-
-<A short l="s">
-
-TypeScript checks code at build time, not data at runtime: the JavaScript that runs has no types, so `as User` on a server response is a promise, not a check. Data at the boundary — HTTP, `localStorage`, messages — is validated with a schema, for example <T k="zod">Zod</T>, and the type is inferred from that same schema. Structural typing is convenient but cannot tell apart IDs of the same shape, so branded types are used for them. The cost is type-checking time on large projects: it runs as a separate CI step, and TypeScript 7, rewritten in Go, made it roughly 10 times faster.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -572,10 +476,6 @@ TypeScript is a layer on top of JavaScript: the same language plus type annotati
 Reaching for `any` when the compiler complains. `any` switches checking off, and the error moves to runtime. For a value of unknown type there is `unknown`.
 
 **Takeaway:** TypeScript catches errors before the code runs, but at runtime the types are gone.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -603,10 +503,6 @@ Reaching for `any` when the compiler complains. `any` switches checking off, and
 `strict` always, `unknown` instead of `any`, and `as` only where you know more than the compiler — with a comment saying why.
 
 **Takeaway:** TypeScript compares types by shape and refines them from checks in the code, while `strict` and `unknown` keep those checks from being bypassed.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -711,25 +607,7 @@ if (result.success) {
 
 ## Advanced TypeScript types: discriminated unions, utility, mapped and conditional types — when do you need them?
 
-<A short l="j">
-
-A <T k="discriminated-union">discriminated union</T> is a set of variants with a shared tag field, such as `status`, from which the compiler knows which variant it is looking at. <T k="utility-types">Utility types</T> like `Partial<User>` and `Pick<User, 'id'>` derive a new type from `User` — "all fields optional" or "only `id`" — without copying its definition.
-
-</A>
-
-<A short l="m">
-
-A discriminated union models states such as "draft, paid, shipped": a `switch` on the tag narrows the type, and assigning to <T k="never-type">`never`</T> in the `default` branch catches an unhandled variant at compile time. Utility types are ready-made <T k="mapped-type">mapped types</T> that iterate over keys via `keyof`, while <T k="conditional-type">conditional types</T> (`T extends U ? X : Y`) with `infer` select and extract types by condition. `satisfies` checks a value against a type without losing its precise inferred type.
-
-</A>
-
-<A short l="s">
-
-These types pay off at boundaries — states, API contracts, library code — and in application code their goal is to make invalid states unrepresentable. API types are not written by hand but generated from the back end's <T k="openapi">OpenAPI</T> document, and CI fails if the contract drifts. The cost of type-level programming is compile time and unreadable errors: deep recursive types produce TS2589 and slow down the IDE. So complex types are kept to a few places and covered with type tests.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -748,10 +626,6 @@ These types pay off at boundaries — states, API contracts, library code — an
 Describing state with optional fields: `{ status: string; paidAt?: string }`. The compiler does not know when `paidAt` is set, and checks spread across the code.
 
 **Takeaway:** a discriminated union describes the variants, and utility types derive new types from existing ones without copying.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -772,10 +646,6 @@ Describing state with optional fields: `{ status: string; paidAt?: string }`. Th
 States — a discriminated union with a `never` check; derived shapes — utility types from one source type; your own mapped and conditional types — only when the built-in ones fall short.
 
 **Takeaway:** `keyof`, mapped and conditional types are the parts utility types are built from, and `never` turns a forgotten variant into a compile error.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 

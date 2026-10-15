@@ -20,25 +20,7 @@ Server-rendered UI in ASP.NET Core and real-time updates: the path of a request 
 
 ## How does MVC work in ASP.NET Core, and what path does a request take to `View()`?
 
-<A short l="j">
-
-<T k="mvc-pattern">MVC</T> splits an app into a controller that accepts the request, a model with data and logic, and a view that turns data into HTML. Routing picks a controller <T k="action-method">action</T>, which builds a <T k="view-model">ViewModel</T> and returns `View(vm)`, and Razor renders the page from it.
-
-</A>
-
-<A short l="m">
-
-Routing matches the request to an action by a template like `{controller}/{action}/{id?}` or by an attribute, and MVC creates the controller, binds parameters, runs filters and calls the method. The action returns an <T k="action-result">`IActionResult`</T>, not HTML: a `ViewResult` only describes which view to render with which model, and rendering happens after the action has returned. That is why you pass a ready ViewModel to the view, not an `IQueryable` or EF entities with lazy loading — otherwise database queries run during rendering.
-
-</A>
-
-<A short l="s">
-
-At startup MVC builds an application model: it discovers controllers, applies conventions and turns every action into a routing endpoint. Per request, `ControllerActionInvoker` runs filters, model binding and the action, and `ViewResultExecutor` finds the compiled view via <T k="view-discovery">view discovery</T> and writes HTML into a response buffer. The cost is more layers and allocations than Minimal APIs; in return, filters, conventions and layouts give structure to a large server-rendered UI. Microsoft recommends Blazor for new projects, but MVC is fully supported and remains a sound choice for existing apps.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -59,10 +41,6 @@ At startup MVC builds an application model: it discovers controllers, applies co
 Putting business logic straight into the controller. Then you can't reuse it or test it without HTTP. A controller should only connect the request, a service and a view.
 
 **Takeaway:** the controller accepts the request, the model supplies data, the view displays it, and `View(vm)` ties them together by the action name.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -91,10 +69,6 @@ Putting business logic straight into the controller. Then you can't reuse it or 
 Keep actions thin: data from a service, a materialized ViewModel, `View`. After a successful POST, `RedirectToAction` (Post/Redirect/Get) so that F5 doesn't resubmit the form.
 
 **Takeaway:** `View()` returns a description of the result, and the HTML appears later, when the `ViewResult` executes.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -188,25 +162,7 @@ public record OrderDetailsViewModel(int Id, string Customer, decimal Total);
 
 ## What is Razor, how is a page put together, and how do Razor Pages differ?
 
-<A short l="j">
-
-<T k="razor">Razor</T> is a template syntax that embeds C# in HTML with `@`, and its output is HTML-encoded automatically to prevent <T k="xss">XSS</T>. A <T k="layout">layout</T> provides the common page shell, repeated fragments go into <T k="partial-view">partial views</T>, and <T k="razor-pages">Razor Pages</T> use the same technique with page handlers instead of a controller.
-
-</A>
-
-<A short l="m">
-
-Razor files are compiled at build time, and a page is assembled from parts: a layout, partial views and <T k="view-component">view components</T> — blocks with their own logic and data. <T k="tag-helper">Tag helpers</T> give HTML elements server-side behavior (`asp-for`, `asp-action`) and have replaced most HTML helpers. Razor Pages keep markup and the `OnGet`/`OnPost` handlers together: for forms and CRUD that's simpler than controllers, while MVC fits better when one controller serves many views.
-
-</A>
-
-<A short l="s">
-
-Every view is a build-time generated class deriving from `RazorPage<TModel>`, and tag helpers and view components become calls during its rendering. The cost is objects per element: heavy tag helpers and view components inside loops multiply the work, and the synchronous `Html.Partial` risks blocking a thread. Razor Pages run on the same MVC infrastructure, so choosing between them is about code organization, not speed. For interactivity without a JavaScript framework Microsoft now points to Blazor, whose components can be embedded into existing views.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -231,10 +187,6 @@ The file `Pages/Contact.cshtml` with the `@page` directive answers `/Contact` by
 Writing HTML from the database through `@Html.Raw` "so the tags render". That's how someone else's script gets into the page.
 
 **Takeaway:** Razor is HTML plus C# with automatic encoding, and layouts, partials and view components remove repetition.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -263,10 +215,6 @@ Writing HTML from the database through `@Html.Raw` "so the tags render". That's 
 Data access belongs in an action or a view component, not in `@{ }` blocks of a view.
 
 **Takeaway:** a partial is for markup, a view component is for markup with logic, a tag helper is for element behavior.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -374,25 +322,7 @@ public class ContactModel : PageModel
 
 ## What is SignalR, and which transports does it use?
 
-<A short l="j">
-
-<T k="signalr">SignalR</T> is an ASP.NET Core library that lets the server push data to clients in real time, while clients call server methods through a <T k="signalr-hub">hub</T>. The best transport is <T k="websocket">WebSockets</T>; if it isn't available, SignalR falls back to <T k="server-sent-events">Server-Sent Events</T> or <T k="long-polling">Long Polling</T> on its own.
-
-</A>
-
-<A short l="m">
-
-SignalR is RPC over a persistent connection: the server calls client methods by name, the client calls hub methods, and messages are encoded as JSON or MessagePack. A connection starts with <T k="signalr-negotiation">negotiate</T>: the client sends `POST /hub/negotiate`, gets a connection token and a list of transports, and tries them in order WebSockets → SSE → Long Polling. SSE and Long Polling are "half-transports": client-to-server messages go as separate POSTs, so they are slower and more expensive than WebSockets.
-
-</A>
-
-<A short l="s">
-
-The transport depends on the client, the server and everything in between: a proxy without Upgrade support or IIS without the WebSocket Protocol feature silently pushes clients to SSE or Long Polling. Only WebSockets is full duplex over one TCP connection; SSE carries text only and isn't used with MessagePack, and Long Polling pays an HTTP request per message. Negotiate ties the connection to a process, which behind a load balancer requires sticky sessions. So in production you measure the actual transport instead of trusting "it picks the best one".
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -417,10 +347,6 @@ SignalR keeps a persistent connection between the browser and the server. The se
 Assuming `withAutomaticReconnect()` retries forever. Without arguments it makes four attempts — after 0, 2, 10 and 30 seconds — and gives up.
 
 **Takeaway:** SignalR is a persistent connection with calls in both directions, and the transport is chosen automatically.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -449,10 +375,6 @@ Assuming `withAutomaticReconnect()` retries forever. Without arguments it makes 
 SignalR is for notifications and live updates. For heavy data, the client fetches it over plain HTTP after a notification.
 
 **Takeaway:** negotiate picks the transport and issues the connection token, then method calls flow in both directions.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -539,25 +461,7 @@ await connection.invoke("Ping", "hello");
 
 ## What is CSRF, and how does antiforgery work in MVC and Razor Pages?
 
-<A short l="j">
-
-<T k="csrf">CSRF</T> is an attack where another site makes the user's browser send a request to your site, and the browser attaches the login cookie by itself. An <T k="antiforgery-token">antiforgery token</T> defends against it: the form carries a hidden field with a token the other site doesn't have, and `[ValidateAntiForgeryToken]` checks it on the server.
-
-</A>
-
-<A short l="m">
-
-ASP.NET Core implements the <T k="synchronizer-token-pattern">synchronizer token pattern</T>: a cookie token and a token in a form field or header are issued as a pair, tied to the user and validated together. FormTagHelper adds a `__RequestVerificationToken` field to POST forms, Razor Pages validate the token automatically, and in MVC a global `AutoValidateAntiforgeryToken` is convenient — it skips only GET, HEAD, OPTIONS and TRACE. The cost is that AJAX requests need the token added by hand; an API using a bearer token in a header isn't exposed to CSRF and doesn't need antiforgery.
-
-</A>
-
-<A short l="s">
-
-CSRF is possible wherever the browser sends credentials automatically: cookies, Basic and Windows authentication. Defense is layered: tokens built on Data Protection, the <T k="samesite-cookie">SameSite</T> cookie attribute (ASP.NET Core's auth cookie defaults to `Lax`, the antiforgery cookie to `Strict`) and never changing state on GET. Since .NET 8, Minimal APIs with `[FromForm]` require `app.UseAntiforgery()`, while MVC and Razor Pages still validate tokens through filters. In a server farm the <T k="data-protection">Data Protection</T> keys must be shared, or a token issued by one node fails validation on another.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -578,10 +482,6 @@ A `<form method="post">` with tag helpers gets the token automatically — you o
 Changing data with a GET request. An `<img src="/orders/delete/5">` on someone else's page performs the delete, and GET isn't checked for a token.
 
 **Takeaway:** CSRF exploits automatic cookie sending, and the token in the form proves the request came from your own page.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -611,10 +511,6 @@ The docs recommend `AutoValidateAntiforgeryToken` globally and `IgnoreAntiforger
 Cookie authentication plus a form or AJAX — you need a token. A bearer token that JavaScript puts in a header — CSRF doesn't apply.
 
 **Takeaway:** a global `AutoValidateAntiforgeryToken` protects every state-changing request by default.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -716,25 +612,7 @@ public class ProfileController : Controller
 
 ## How do hubs, groups and sending to specific users work in SignalR?
 
-<A short l="j">
-
-A hub is a server class whose public methods clients call, and through `Clients` the hub calls client methods: everyone (`All`), the caller (`Caller`), a <T k="signalr-group">group</T> (`Group`) or all of a user's connections (`User`). To send a message from a controller or a background job, you use <T k="hub-context">`IHubContext`</T>.
-
-</A>
-
-<A short l="m">
-
-A hub instance is created per call, so it holds no state, and messages are addressed through groups and users. A group is a named set of connections in memory, and `Clients.User(id)` sends to every connection of a user; the id comes from the `NameIdentifier` claim by default and is changed with an <T k="user-id-provider">`IUserIdProvider`</T>. Authentication happens at connect time: the browser sends cookies by itself, while a <T k="bearer-token">bearer token</T> for WebSockets and SSE goes in the `access_token` query string, because browser APIs can't set headers.
-
-</A>
-
-<A short l="s">
-
-A hub is a facade over `HubLifetimeManager`, which knows the process's connections and fans out messages; groups and users are indexes inside it, not persisted entities. Hence the limits: group membership is lost on reconnect, you can't count a group's members, and multiple servers need a backplane. The user is cached at connect time and not re-validated: a revoked role keeps working until the connection drops, unless `CloseOnAuthenticationExpiration` is on. A <T k="strongly-typed-hub">strongly typed hub</T> `Hub<T>` removes string method names, but the compiler still can't check the contract with a JS client.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -754,10 +632,6 @@ A hub is a facade over `HubLifetimeManager`, which knows the process's connectio
 Keeping data in hub fields. A new instance is created for every call, so the field is always empty.
 
 **Takeaway:** the hub accepts calls, `Clients` addresses messages, and `IHubContext` sends them from anywhere in the app.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -788,10 +662,6 @@ On the server, the token is read from the query string in `JwtBearerEvents.OnMes
 Address messages through users and groups, not stored `connectionId` values: those change on every reconnect.
 
 **Takeaway:** the hub is stateless, addressing goes through groups and users, and the token for browser WebSockets goes in the query string.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -903,25 +773,7 @@ await connection.invoke("Watch", currentOrderId);
 
 ## How do you scale SignalR across several servers, and what breaks behind a load balancer?
 
-<A short l="j">
-
-Each server knows only its own connections, so a message to "everyone" from one server won't reach clients of another. This is solved with a Redis <T k="signalr-backplane">backplane</T> that relays messages between servers, or with <T k="azure-signalr-service">Azure SignalR Service</T>, and the load balancer is configured for <T k="sticky-session">sticky sessions</T>.
-
-</A>
-
-<A short l="m">
-
-A Redis backplane relays messages between servers via <T k="pub-sub">pub/sub</T>, but it doesn't remove the need for sticky sessions: negotiate and the SSE and Long Polling requests must reach the same process. You can skip affinity only if clients use WebSockets with `skipNegotiation`. Azure SignalR Service takes over client connections, so the app doesn't need sticky sessions, and servers scale by message volume rather than connection count.
-
-</A>
-
-<A short l="s">
-
-SignalR keeps a connection in process memory, so scaling it means routing to the right process and relaying between processes. A Redis backplane is simple, but if Redis goes down messages are lost without buffering, and Redis must sit in the same data center. Azure SignalR Service removes sticky sessions and the connection load, but adds a network hop, a cloud dependency and per-unit pricing. Neither guarantees delivery: after a reconnect the client re-reads any missed state itself.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -942,10 +794,6 @@ Sticky sessions are needed almost always. You can do without them with Azure Sig
 Adding a Redis backplane and forgetting sticky sessions. SSE and Long Polling connections break as soon as the load balancer sends the next request to a different server.
 
 **Takeaway:** multiple servers need a shared message channel and client-to-server affinity.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -974,10 +822,6 @@ Adding a Redis backplane and forgetting sticky sessions. SSE and Long Polling co
 Your own infrastructure — a Redis backplane in the same data center plus sticky sessions. Hosting in Azure — Azure SignalR Service.
 
 **Takeaway:** the backplane solves delivery between servers, sticky sessions solve tying a connection to a process.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 

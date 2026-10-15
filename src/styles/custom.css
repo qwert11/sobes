@@ -60,7 +60,7 @@
   border-color: var(--sl-color-gray-3);
 }
 
-/* ---------- панель уровней ---------- */
+/* ---------- панель карточек ---------- */
 /* Закреплена под шапкой (и под строкой «На этой странице» на узких экранах). */
 .tb {
   position: sticky;
@@ -81,20 +81,6 @@ body:not(:has(.q)) .tb {
 /* Якоря вопросов не должны прятаться под закреплённой панелью. */
 html:has(.tb) {
   scroll-padding-top: calc(1.5rem + var(--sl-nav-height) + var(--sl-mobile-toc-height) + 3rem);
-}
-.tb-lv {
-  display: inline-flex;
-  border: 1px solid var(--q-border);
-  border-radius: 999px;
-  overflow: hidden;
-}
-.tb .tb-lv button {
-  border: 0;
-  border-radius: 0;
-  padding-inline: 0.75rem;
-}
-.tb .tb-lv button + button {
-  border-inline-start: 1px solid var(--q-border);
 }
 .tb button[aria-pressed='true'] {
   background: var(--sl-color-accent-low);
@@ -123,9 +109,6 @@ html:has(.tb) {
     font-size: 0.75rem;
     min-height: 2rem;
     padding: 0.25rem 0.6rem;
-  }
-  .tb .tb-lv button {
-    padding-inline: 0.5rem;
   }
   .tb-prog .p-long {
     display: none;
@@ -181,32 +164,14 @@ html:has(.tb) {
   color: var(--sl-color-gray-3);
   margin-bottom: 0.15rem;
 }
-.ans-tag b,
-.blk-tag b,
-.ans-long > summary b {
+.blk-tag b {
   color: var(--lv);
   font-weight: 600;
 }
 
-.sl-markdown-content .ans-short {
-  border-inline-start: 3px solid var(--lv);
+.sl-markdown-content .ans-unified {
+  border-inline-start: 3px solid var(--sl-color-accent);
   padding: 0.15rem 0 0.15rem 0.85rem;
-}
-
-.sl-markdown-content details.ans-long {
-  border: 1px solid var(--q-border);
-  border-radius: 0.5rem;
-  padding: 0.45rem 0.85rem;
-  background: none;
-}
-.sl-markdown-content details.ans-long > summary {
-  cursor: pointer;
-  font-size: var(--sl-text-sm);
-  color: var(--sl-color-gray-2);
-  padding-block: 0.2rem;
-}
-.sl-markdown-content details.ans-long[open] > summary {
-  margin-bottom: 0.5rem;
 }
 .ans-body > :first-child {
   margin-top: 0;
@@ -237,19 +202,9 @@ html:has(.tb) {
   .sl-markdown-content .q {
     padding: 0.75rem 0.7rem 0.6rem;
   }
-  .sl-markdown-content details.ans-long {
-    padding: 0.4rem 0.6rem;
-  }
-  .sl-markdown-content .ans-short {
+  .sl-markdown-content .ans-unified {
     padding-inline-start: 0.65rem;
   }
-}
-
-/* Выбранный уровень: остальные ответы скрыты. Без JS видно всё. */
-html[data-lv='j'] .q .ans:not([data-l='j']),
-html[data-lv='m'] .q .ans:not([data-l='m']),
-html[data-lv='s'] .q .ans:not([data-l='s']) {
-  display: none;
 }
 
 .sl-markdown-content :is(.next, .src) {

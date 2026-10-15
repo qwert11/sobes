@@ -20,25 +20,7 @@ What changes for a developer who wrote T-SQL for years and has moved to PostgreS
 
 ## How does PostgreSQL differ from SQL Server in practice?
 
-<A short l="j">
-
-PostgreSQL speaks the same SQL but with its own dialect: unquoted names fold to lower case, you write `LIMIT` instead of `TOP`, <T k="identity-column">`GENERATED AS IDENTITY`</T> instead of `IDENTITY(1,1)`, and insert-or-update is done with <T k="upsert">`INSERT ... ON CONFLICT`</T>. So a query from SQL Server almost never ports without edits.
-
-</A>
-
-<A short l="m">
-
-The differences come at three levels: names, types and syntax. PostgreSQL folds unquoted names to lower case, compares strings case-sensitively, and has richer types: `text`, a real `boolean`, <T k="timestamptz">`timestamptz`</T>, `uuid`, arrays. Upserts use `ON CONFLICT`, which is atomic without locking hints, whereas `MERGE` in SQL Server needs `HOLDLOCK` for the same job.
-
-</A>
-
-<A short l="s">
-
-The syntax ports mechanically; the semantic differences are what cost you. String comparison is case-sensitive, `timestamptz` stores an instant without the original offset, a unique index allows multiple `NULL`s, and an identity <T k="sequence">sequence</T> does not move when you insert explicit ids. A procedure does not return a `SELECT` result the way it does in SQL Server, there are no cross-database queries, and schemas play the role of databases within a server, so a migration from SQL Server is planned as a change of semantics, not a keyword swap.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -60,10 +42,6 @@ PostgreSQL and SQL Server both speak standard SQL, but each has its own dialect.
 Creating a table `"Users"` in quotes and then writing `SELECT * FROM Users`. Without quotes the name becomes `users`, and PostgreSQL reports that the table does not exist. This happens with EF Core and Prisma tables: by default they create capitalized names in quotes.
 
 **Takeaway:** the SQL core is shared, but names, types and utility constructs have to be relearned.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -92,10 +70,6 @@ Creating a table `"Users"` in quotes and then writing `SELECT * FROM Users`. Wit
 Names in `snake_case` without quotes, strings as `text`, time as `timestamptz`, keys as identity, upserts with `ON CONFLICT`.
 
 **Takeaway:** what breaks in a move is not the syntax but the case of names and strings, time zones and sequences.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -198,25 +172,7 @@ OFFSET 40 ROWS FETCH NEXT 20 ROWS ONLY;
 
 ## How does MVCC work in PostgreSQL and why do you need VACUUM?
 
-<A short l="j">
-
-<T k="mvcc">MVCC</T> (multi-version concurrency control) means that `UPDATE` does not overwrite a row but creates a new version of it, so readers don't wait for writers. Old versions become <T k="dead-tuple">dead</T> and stay in the table until <T k="vacuum">VACUUM</T> removes them — usually it is run by the background autovacuum.
-
-</A>
-
-<A short l="m">
-
-Every row version stores `xmin`, the transaction that created it, and `xmax`, the transaction that deleted or replaced it; using these and its snapshot, a transaction decides which version to see. SQL Server with RCSI moves old versions to a separate store, while PostgreSQL keeps them right in the table, so without VACUUM tables and indexes grow (<T k="table-bloat">bloat</T>). The cost is autovacuum's background work, which has to be tuned on large hot tables.
-
-</A>
-
-<A short l="s">
-
-In PostgreSQL versions live in the table itself: `UPDATE` is an insert of a new version plus marking the old one, so rollback is instant and VACUUM pays for the cleanup. It removes dead versions, updates the visibility map for index-only scans and freezes old rows, protecting the 32-bit transaction counter from <T k="xid-wraparound">wraparound</T>. <T k="hot-update">HOT updates</T> spare indexes from extra entries when no indexed column changed and the page has room. The main enemy is a long transaction or a forgotten replication slot: while they hold the visibility horizon, VACUUM cannot remove anything newer.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -234,10 +190,6 @@ MVCC (multi-version concurrency control) is a concurrency approach in which the 
 Turning autovacuum off "so it doesn't get in the way". Tables start to grow, queries slow down, and eventually the database stops accepting writes to protect itself from transaction counter overflow.
 
 **Takeaway:** in PostgreSQL every change leaves garbage behind, and VACUUM is routine cleanup, not optional maintenance.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -264,10 +216,6 @@ Turning autovacuum off "so it doesn't get in the way". Tables start to grow, que
 Don't turn autovacuum off, tune it; keep transactions short.
 
 **Takeaway:** MVCC in PostgreSQL pays for non-blocking reads with garbage in the table, and VACUUM is part of that price.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -342,25 +290,7 @@ ALTER TABLE orders SET (autovacuum_vacuum_scale_factor = 0.02);
 
 ## What index types does PostgreSQL have and when do you use each?
 
-<A short l="j">
-
-By default `CREATE INDEX` creates a B-tree, which handles equality, ranges and sorting like a regular SQL Server index. Arrays, JSONB and full-text search need <T k="gin-index">GIN</T>, geodata and range overlap need <T k="gist-index">GiST</T>, and huge tables that grow over time benefit from <T k="brin-index">BRIN</T>.
-
-</A>
-
-<A short l="m">
-
-You pick the index type by the operator in the query: B-tree for `=`, `<`, `BETWEEN`, `ORDER BY`; GIN for "contains" (`@>`, `&&`, `?`) on arrays, JSONB and full-text search; GiST for overlap and nearest-neighbor search; BRIN for ranges over physically ordered data. SQL Server's filtered index is called a <T k="partial-index">partial index</T> here, and instead of indexing a computed column you build an <T k="expression-index">expression index</T>. There is no clustered index: a table is a <T k="heap-table">heap</T>, and every index, the primary key included, points to the physical location of the row.
-
-</A>
-
-<A short l="s">
-
-All PostgreSQL tables are heaps and indexes store the address of a row version, so you choose an index type for the operator, not for physical order. GIN is fast to search and expensive to write, BRIN is many times smaller than a B-tree but only useful when values correlate with row order, and `CLUSTER` orders a table once and under an exclusive lock. Index-only scans depend on VACUUM, and `CREATE INDEX` without `CONCURRENTLY` blocks writes for the whole build. That is why production indexes are created only `CONCURRENTLY`, and you check that a failed build did not leave an invalid index behind.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -383,10 +313,6 @@ The type is set with `USING`: `CREATE INDEX ON orders USING gin (tags);`.
 Expecting a B-tree to speed up `LIKE '%abc%'` or a search inside JSONB. Substrings need a GIN index from the `pg_trgm` extension, JSONB needs a GIN index on the column.
 
 **Takeaway:** B-tree is the default; the other types serve special operators: "contains", "overlaps", "nearest".
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -416,10 +342,6 @@ Expecting a B-tree to speed up `LIKE '%abc%'` or a search inside JSONB. Substrin
 Start with a B-tree; reach for another type when the query has an operator a B-tree can't handle.
 
 **Takeaway:** you choose an index by its operator, and partial and expression indexes replace SQL Server's filtered indexes and computed columns.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -498,25 +420,7 @@ SELECT indexrelid::regclass FROM pg_index WHERE NOT indisvalid;
 
 ## JSONB: when should you store JSON in a relational database and how do you index it?
 
-<A short l="j">
-
-<T k="jsonb">`jsonb`</T> is the PostgreSQL type for JSON in parsed binary form: you search inside it with the `->`, `->>` and `@>` operators and can index it. JSON in a table is good for data with a varying shape — product attributes, settings, a response from an external API — while whatever you filter or join on belongs in regular columns.
-
-</A>
-
-<A short l="m">
-
-`json` stores the original text and parses it on every access, while `jsonb` stores a parsed tree: no duplicate keys and no original order, but with operators and indexes. For `@>` and <T k="jsonpath">jsonpath</T> you build a GIN index — `jsonb_path_ops` is smaller than the default but can't check key existence with `?` — and for a single field a B-tree on the expression `(attrs ->> 'brand')` is enough. JSONB fits sparse and changing attributes, but it gives you no schema, no constraints and no statistics on keys.
-
-</A>
-
-<A short l="s">
-
-JSONB is a trade-off between schema and flexibility: it replaces <T k="eav">EAV</T> tables and "just in case" columns but moves structure control into the application. The document is stored whole and a large one goes to <T k="toast">TOAST</T>, so changing one key rewrites the entire value, creates a new row version and inflates WAL. The planner knows nothing about value distribution inside the document: an expression index or `CREATE STATISTICS` on an expression gives it statistics. SQL Server got something similar only in 2025 — the binary `json` type and `CREATE JSON INDEX`; before that it was `nvarchar` and an index on a computed column.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -537,10 +441,6 @@ For data whose shape varies from row to row: product characteristics, user setti
 Putting everything into JSONB, foreign keys and filter fields included. The database stops checking types and relationships, and queries lose indexes and statistics.
 
 **Takeaway:** JSONB is for the flexible part of the data; whatever you search or join on goes into regular columns.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -567,10 +467,6 @@ Putting everything into JSONB, foreign keys and filter fields included. The data
 Columns first, JSONB for the truly variable part; match the index to the operator in `WHERE`.
 
 **Takeaway:** `jsonb` by default, GIN for content search, an expression B-tree for one hot field.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -666,25 +562,7 @@ SELECT Id FROM dbo.Items WHERE JSON_VALUE(Attrs, '$.color') = 'red';
 
 ## How do you diagnose PostgreSQL performance?
 
-<A short l="j">
-
-A slow query is analyzed with <T k="explain-analyze">`EXPLAIN ANALYZE`</T>: it runs the query and shows the plan with actual time and row counts at every step. The heaviest queries of the whole application are shown by the <T k="pg-stat-statements">`pg_stat_statements`</T> extension, the closest thing to Query Store.
-
-</A>
-
-<A short l="m">
-
-Diagnostics go top-down: `pg_stat_statements` finds the queries with the highest total time, `EXPLAIN (ANALYZE, BUFFERS)` shows where time and reads go in the plan, and a gap between estimated and actual rows points to stale statistics, which `ANALYZE` refreshes. Sorts and hashes spilling to disk are fixed with <T k="work-mem">`work_mem`</T>, but it is allocated per operation in every connection. Slow plans in production are caught by <T k="auto-explain">`auto_explain`</T>, not by running queries by hand.
-
-</A>
-
-<A short l="s">
-
-PostgreSQL performance depends not only on plans but also on the process model and MVCC. Every connection is a separate process, so hundreds of connections from pods are funneled through the Npgsql pool and <T k="pgbouncer">PgBouncer</T> in transaction mode, giving up session features. A long transaction or an `idle in transaction` session holds the VACUUM <T k="xmin-horizon">horizon</T>, and bloat slows down the whole database. There is no shared plan cache, and a prepared statement may switch to a generic plan after five executions — the local flavor of parameter sniffing, fixed with `plan_cache_mode`.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -702,10 +580,6 @@ PostgreSQL performance depends not only on plans but also on the process model a
 Running `EXPLAIN ANALYZE` on an `UPDATE` or `DELETE` in production. The query really executes, so wrap it in `BEGIN` and `ROLLBACK`.
 
 **Takeaway:** `EXPLAIN ANALYZE` is the actual plan with real timings and row counts, the main tool for analyzing a single query.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -732,10 +606,6 @@ Running `EXPLAIN ANALYZE` on an `UPDATE` or `DELETE` in production. The query re
 Start with `pg_stat_statements` sorted by `total_exec_time`, then `EXPLAIN (ANALYZE, BUFFERS)` for the top of the list.
 
 **Takeaway:** `pg_stat_statements` tells you what to fix, `EXPLAIN ANALYZE` tells you why it's slow.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 

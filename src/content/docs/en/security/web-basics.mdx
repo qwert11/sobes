@@ -20,25 +20,7 @@ How an ASP.NET Core web app recognizes the user and decides what they may do, wh
 
 ## How does authentication differ from authorization, and how does an app "remember" the user: a cookie session or a token?
 
-<A short l="j">
-
-<T k="authentication">Authentication</T> answers "who are you?", while <T k="authorization">authorization</T> answers "what are you allowed to do?": without signing in the server returns 401, without permission — 403. Between requests the app recognizes the user by an <T k="authentication-cookie">authentication cookie</T> that the browser attaches itself, or by a token in the `Authorization` header.
-
-</A>
-
-<A short l="m">
-
-In ASP.NET Core an <T k="authentication-scheme">authentication scheme</T> identifies the user from the request and puts them into `HttpContext.User` as a `ClaimsPrincipal`. When authorization refuses, it asks the scheme to Challenge — 401 or a login page — or to Forbid with a 403. A cookie suits a browser on its own domain, a <T k="bearer-token">bearer token</T> suits APIs and mobile clients; the cookie's cost is <T k="csrf">CSRF</T> protection, the token's is storage and revocation.
-
-</A>
-
-<A short l="s">
-
-Authentication turns the request's credentials into a `ClaimsPrincipal`, and authorization decides based on it and the endpoint metadata, which is why `UseAuthorization` comes after `UseRouting`. The ASP.NET Core cookie scheme keeps no session on the server: the cookie carries the whole ticket, encrypted with Data Protection. So instant revocation needs a check on every request or a server-side ticket store, which brings state back. A token is stateless too, but in the browser it has no `HttpOnly` protection, so browsers usually get a cookie and tokens are left to APIs and services.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -63,10 +45,6 @@ HTTP keeps no state between requests, so after sign-in the server hands out a "p
 Mixing up the status codes. 401 means "I don't know who you are, sign in", 403 means "I know you, but no".
 
 **Takeaway:** authentication identifies the user, authorization decides their rights, and a cookie or token carries the sign-in result between requests.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -93,10 +71,6 @@ Mixing up the status codes. 401 means "I don't know who you are, sign in", 403 m
 - Authentication alone protects nothing: without `[Authorize]` or a global policy the endpoint is open.
 
 **Takeaway:** the scheme identifies the user and shapes the refusal, while authorization decides when to refuse.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -185,25 +159,7 @@ app.Run();
 
 ## What is the OWASP Top 10, and which vulnerabilities in it matter most?
 
-<A short l="j">
-
-The <T k="owasp-top-10">OWASP Top 10</T> is the OWASP community's list of the ten main risk categories for web applications; the current edition is from 2025. First place goes to <T k="broken-access-control">broken access control</T>, not injection, so checking access to resources comes first in reviews.
-
-</A>
-
-<A short l="m">
-
-The Top 10 is built from data on discovered vulnerabilities plus a practitioner survey: eight categories come from data, two from the survey. In the 2025 edition <T k="ssrf">SSRF</T> was folded into access control, <T k="xss">XSS</T> remains part of injection, and the new categories are the <T k="software-supply-chain">software supply chain</T> and mishandling of exceptional conditions. In .NET, injection is mostly closed by defaults — EF Core parameters and Razor encoding — while access, configuration and dependencies are on you.
-
-</A>
-
-<A short l="s">
-
-The Top 10 is an awareness and prioritization document, not a standard: for verifiable requirements OWASP recommends ASVS. The 2025 shift is from code defects to process: misconfiguration rose to second place and the supply chain to third. The framework removes whole classes of bugs but doesn't know who owns an order, so <T k="idor">IDOR</T>, the default policy and package auditing stay with the team. The cost is ongoing work: access tests, `NuGetAudit` in CI and reviews of environment settings.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -222,10 +178,6 @@ OWASP (Open Worldwide Application Security Project) is an open application secur
 Assuming the framework protects against everything. An ORM closes SQL injection but won't check that an order belongs to the current user.
 
 **Takeaway:** the Top 10 is a map of the most common risks, and access control comes first.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -252,10 +204,6 @@ A category is a group of weaknesses from the CWE catalog. Its rank depends on fr
 - `[Authorize]` checks that the user signed in, not that the resource is theirs. A01 is closed by a check in code.
 
 **Takeaway:** almost every category has a framework defense, but access control and design are closed only by your own code.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -340,25 +288,7 @@ public class OrderStore
 
 ## How do XSS and CORS work, and how do you defend against them?
 
-<A short l="j">
-
-XSS is an attack in which someone else's script ends up on your page and runs in the user's browser; output encoding protects against it, and Razor does it for you. <T k="cors">CORS</T> is how a server allows a script from another site to read its responses: without it the browser won't hand them to the script.
-
-</A>
-
-<A short l="m">
-
-XSS comes in stored, reflected and DOM-based forms; the main defense is context-aware encoding, while <T k="content-security-policy">CSP</T> and `HttpOnly` limit the damage when encoding is missed. CORS relaxes the <T k="same-origin-policy">same-origin policy</T>: `Access-Control-Allow-*` headers tell the browser which origins may get the response, and "non-simple" requests are preceded by a <T k="preflight-request">preflight</T>. CORS doesn't protect the server: a simple cross-site request still arrives and runs, so CSRF is stopped by antiforgery tokens and <T k="samesite-cookie">`SameSite`</T>, not CORS.
-
-</A>
-
-<A short l="s">
-
-Both topics are about the origin boundary in the browser. XSS gets around it from inside: the attacker's script runs as your origin and can do anything your JavaScript can, including reading tokens from `localStorage`. CORS is a controlled hole in that boundary: `Access-Control-Allow-Credentials: true` with a reflected `Origin` hands the user's data to any site. So a strict CSP `script-src` and an exact origin list are defense in depth, not a replacement for encoding and server-side checks.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -376,10 +306,6 @@ Both topics are about the origin boundary in the browser. XSS gets around it fro
 Treating CORS as API protection. It restricts only the browser; `curl` or an attacker's server calls the API with no CORS at all.
 
 **Takeaway:** output encoding protects against XSS, while CORS merely lets the browser hand responses to other sites.
-
-</A>
-
-<A l="m">
 
 **How it works: XSS**
 
@@ -404,10 +330,6 @@ Encoding depends on context: HTML — `HtmlEncoder`, JavaScript — `JavaScriptE
 - CORS doesn't stop CSRF: a form from another site is a simple request. Antiforgery is covered in [MVC, Razor and SignalR](/sobes/en/aspnet/mvc-signalr/).
 
 **Takeaway:** XSS is closed by context-aware encoding, while CORS is a browser access setting that doesn't protect the server.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -512,25 +434,7 @@ If the `Origin` isn't on the list, the server still returns 204 but without the 
 
 ## How do you defend against injection, and how should passwords and secrets be stored?
 
-<A short l="j">
-
-Injection is when user data spliced into SQL or an OS command changes its meaning, as in <T k="sql-injection">SQL injection</T>; the defense is to pass values as parameters. Passwords are stored neither in plain text nor encrypted: you store a slow <T k="password-hashing">hash</T> with a <T k="password-salt">salt</T>, and in ASP.NET Core that's done by Identity's `PasswordHasher`.
-
-</A>
-
-<A short l="m">
-
-The general rule against injection is to keep code and data apart: parameters in SQL, `ArgumentList` instead of a command line, allowlists for column names and paths. Passwords are hashed with a slow function — PBKDF2, bcrypt or Argon2 — and a unique salt, because a GPU tries billions of SHA-256 hashes per second. Secrets live outside code and the repository, and your own sensitive data is encrypted with <T k="data-protection">Data Protection</T>, which manages the keys itself.
-
-</A>
-
-<A short l="s">
-
-Injection is code and data getting mixed, and only structural separation closes it reliably, not escaping: parameters, processes without a shell, serializers without arbitrary types. In .NET 10 `PasswordHasher` is PBKDF2-HMAC-SHA512 with 100,000 iterations while OWASP recommends 220,000; the iteration count is stored in the hash, so you raise it without resetting passwords. The cost of a slow hash is CPU on every sign-in, and an unthrottled login form becomes a DoS target. Data Protection suits data the app will decrypt later, but its keys must not be deleted while that data lives.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -549,10 +453,6 @@ Injection is code and data getting mixed, and only structural separation closes 
 Storing `SHA256(password)`. The hash is fast and unsalted: identical passwords give identical hashes, and a dictionary attack takes minutes.
 
 **Takeaway:** data goes in as parameters, passwords are stored as a slow salted hash, secrets live outside the code.
-
-</A>
-
-<A l="m">
 
 **How it works: injection**
 
@@ -578,10 +478,6 @@ Storing `SHA256(password)`. The hash is fast and unsalted: identical passwords g
 - Encrypting passwords instead of hashing them: if the key leaks, every password leaks.
 
 **Takeaway:** code and data are separated with parameters and allowlists, and a password becomes a slow salted hash.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -698,25 +594,7 @@ public record UserRow(int Id, string Name);
 
 ## How do HTTPS and TLS work, and what do you configure in production?
 
-<A short l="j">
-
-HTTPS is HTTP over <T k="tls">TLS</T>: the protocol encrypts traffic and uses a certificate to prove you're talking to the real server. In ASP.NET Core `UseHttpsRedirection` moves requests from HTTP to HTTPS, and `UseHsts` tells the browser to stop using HTTP for the site.
-
-</A>
-
-<A short l="m">
-
-In the TLS 1.3 handshake the client and server agree on a cipher and derive a shared key in one round trip, and the server signs the handshake with the certificate key. The client validates the <T k="certificate-chain">certificate chain</T> up to a trusted root, the validity period and the host name. In production you add <T k="hsts">HSTS</T>, an HTTPS redirect and correct scheme forwarding from the proxy, otherwise the redirect loops.
-
-</A>
-
-<A short l="s">
-
-TLS 1.3 removed static RSA key exchange, so every connection has <T k="forward-secrecy">forward secrecy</T>, and a full handshake takes one round trip. The production decisions are where to <T k="tls-termination">terminate TLS</T>, how to rotate certificates automatically and how hard to enforce HSTS: preload is close to irreversible. With termination at the proxy the internal hop is unencrypted, so sensitive zones re-encrypt or move to <T k="mtls">mTLS</T>. Leave versions and ciphers to the OS: .NET uses its settings, and Windows Server 2019 won't do TLS 1.3 at all.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -739,10 +617,6 @@ Relying on the redirect without HSTS. The first HTTP request can be intercepted 
 
 **Takeaway:** TLS encrypts and proves the server, the redirect leads to HTTPS, and HSTS stops the browser from going back to HTTP.
 
-</A>
-
-<A l="m">
-
 **How it works: the TLS 1.3 handshake**
 
 1. **ClientHello**: versions, ciphers, a key share for the Diffie-Hellman exchange and the site name (SNI).
@@ -761,10 +635,6 @@ The site's certificate is signed by an intermediate CA, which is signed by a roo
 - Under IIS, IIS itself decrypts TLS and the app sees `https` with no extra setup. Redirect and HSTS can be enabled in IIS too (IIS 10 version 1709 and later) — then don't duplicate them in code.
 
 **Takeaway:** TLS 1.3 gives encryption in one round trip, and the app's job is to learn the request's real scheme behind a proxy.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 

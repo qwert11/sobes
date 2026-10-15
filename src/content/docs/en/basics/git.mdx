@@ -18,25 +18,7 @@ How Git stores history and syncs it with the server, how merge differs from reba
 
 ## How does Git work and which commands do you need every day?
 
-<A short l="j">
-
-Git is a <T k="distributed-vcs">distributed version control system</T>: every developer has a full copy of the repository with all its history, so committing, browsing history and switching branches work without a server. A change travels from the working tree to the <T k="staging-area">index</T> to a <T k="git-commit">commit</T>, and `git push` and `git fetch` exchange commits with a <T k="git-remote">remote repository</T>.
-
-</A>
-
-<A short l="m">
-
-Unlike SVN, where a commit goes straight to the central server, a Git commit is local, and talking to the server is a separate step: `push` and `fetch`. A <T k="git-branch">branch</T> is a movable pointer to a commit, so creating and merging branches is cheap and routine. `git pull` is `fetch` plus a merge or rebase, so it is safer to `fetch` first, look at the incoming commits and then decide how to integrate them.
-
-</A>
-
-<A short l="s">
-
-The distributed model gives you two histories, local and server-side, and you have to sync them explicitly: <T k="remote-tracking-branch">`origin/main`</T> is only a snapshot of the server as of the last `fetch`. The upside is offline work, cheap branches and full history in every clone. The cost is that a clone pulls the whole history, which is why shallow and partial clones exist for large repositories and CI. The team should set the `git pull` strategy explicitly: without `pull.rebase` or `pull.ff` configured, modern Git refuses to reconcile diverged branches.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -65,10 +47,6 @@ Assuming, as in SVN, that your colleagues already have the commit. Until `git pu
 
 **Takeaway:** a commit saves a snapshot locally, and `push` and `fetch` sync it with the server.
 
-</A>
-
-<A l="m">
-
 **How it works**
 
 | Aspect | SVN | Git |
@@ -94,10 +72,6 @@ Assuming, as in SVN, that your colleagues already have the commit. Until `git pu
 First `git fetch` and `git log main..origin/main`, then a deliberate `merge` or `rebase`. Configure the `pull` strategy explicitly.
 
 **Takeaway:** `fetch` safely shows what changed on the server, while `pull` immediately pulls it into your branch.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -166,25 +140,7 @@ git push -u origin feature/discount          # publish the branch and remember t
 
 ## How is merge different from rebase, and when do you use each?
 
-<A short l="j">
-
-`git merge` combines branches and keeps history as it is: if the branches diverged, you get a merge commit with two parents. `git rebase` moves your commits on top of another branch by creating copies of them, so history becomes linear, but you must not do this to commits that are already published.
-
-</A>
-
-<A short l="m">
-
-If the target branch has not moved on, merge does a <T k="fast-forward">fast-forward</T> — it just moves the pointer; otherwise it creates a merge commit. <T k="git-rebase">Rebase</T> recreates commits with new hashes, so you only rewrite your own branch that nobody else works on, and push it with <T k="force-with-lease">`--force-with-lease`</T>. When merging a <T k="pull-request">pull request</T>, the repository settings decide: merge commit, <T k="squash-merge">squash</T> or rebase — a trade-off between detailed and readable history.
-
-</A>
-
-<A short l="s">
-
-Merge preserves what actually happened: you can see when a branch landed, and the whole merge can be undone with a single `git revert -m 1`. Rebase gives a linear history that is easier to read and to search for the commit that introduced a bug, but it changes hashes and breaks everyone who built on the old commits. A common agreement: locally, <T k="interactive-rebase">interactive rebase</T> to tidy your own commits and rebase onto a fresh `main`; into the shared branch, only via a PR with squash or a merge commit. Recurring conflicts from frequent rebases are handled by `rerere`.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -205,10 +161,6 @@ Two ways to bring the changes of one branch into another.
 Rebasing a branch your colleagues have already pulled and running `git push --force`: their history diverges from the server.
 
 **Takeaway:** merge keeps history as it is, rebase rewrites your commits on top of another branch.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -236,10 +188,6 @@ Rebasing a branch your colleagues have already pulled and running `git push --fo
 Your own branch — rebase and `--force-with-lease`; a shared one — merge only.
 
 **Takeaway:** rebase is for tidying your own commits, merge is for joining shared history.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -342,25 +290,7 @@ After the rebase the branch commits have new hashes (`19aa729` → `e677de9`), a
 
 ## What branching models exist and how do you choose one?
 
-<A short l="j">
-
-A branching model is a team agreement on which branches exist and how changes reach `main`. The best known are <T k="git-flow">Git Flow</T> with long-lived `develop` and `main` branches, <T k="github-flow">GitHub Flow</T> with short branches off `main` merged through PRs, and <T k="trunk-based-development">trunk-based development</T>, where everyone merges small changes into one branch often.
-
-</A>
-
-<A short l="m">
-
-The models differ in how many long-lived branches they have and how long a task branch lives. Git Flow suits versioned products with several supported releases, but long branches pile up conflicts, while GitHub Flow and trunk-based keep `main` always releasable and hide unfinished work behind <T k="feature-toggle">feature flags</T>. `main` itself is locked down with <T k="branch-protection">branch protection rules</T>: changes only via PR, with review and green checks.
-
-</A>
-
-<A short l="s">
-
-The model follows from delivery cadence and the number of supported versions, not taste: with continuous delivery a long branch is deferred integration, and since 2020 the author of Git Flow himself recommends a simpler model to such teams. Trunk-based with one- or two-day branches and feature flags minimises conflicts but needs fast CI, fast review and discipline in removing flags. Release branches are needed when you must fix an already shipped version. The rule is to fix in `main` first and cherry-pick the fix into the release, not the other way round.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -378,10 +308,6 @@ A branching model answers three questions: which branch you branch from, where y
 Keeping a branch for weeks. The PR grows to hundreds of files, review becomes a formality and conflicts pile up at merge time.
 
 **Takeaway:** a short branch from `main`, a PR with review and checks, merge, delete the branch.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -408,10 +334,6 @@ Keeping a branch for weeks. The PR grows to hundreds of files, review becomes a 
 The more often you deploy, the shorter your branches should live.
 
 **Takeaway:** pick the model with the fewest long-lived branches that still lets you support the versions you need.
-
-</A>
-
-<A l="s">
 
 **Cost of long branches**
 
@@ -498,25 +420,7 @@ $ git log --oneline --graph --all --decorate
 
 ## How does Git store data and how do you recover from mistakes?
 
-<A short l="j">
-
-Git stores snapshots of files, and branches are just pointers to commits, so a "lost" commit can almost always be found in the <T k="reflog">reflog</T> — the log of where HEAD and branches have been. A published commit is undone with `git revert`, a new commit with the inverse changes, while `git reset` moves the branch back and is only for local commits.
-
-</A>
-
-<A short l="m">
-
-A repository holds four kinds of <T k="git-object">objects</T>: blob — file contents, tree — a directory, commit — a snapshot with parents and author, and annotated tag; branches and HEAD are <T k="git-ref">refs</T> to commits. `git reset` moves the branch and, in `--soft`, `--mixed` and `--hard` modes, resets nothing, the index, or the index plus the working tree, while `git revert` is safe for shared history. <T k="git-bisect">git bisect</T> uses binary search to find the commit that introduced a bug.
-
-</A>
-
-<A short l="s">
-
-Objects are immutable and addressed by the hash of their contents, and a commit disappears only when nothing references it, its reflog entry has expired and `git gc` has removed it — so after `reset --hard` or a deleted branch you can usually get it back. Published history is not rewritten, except when a secret ends up in it. Then you revoke and rotate the secret first, and only then clean history with <T k="git-filter-repo">git filter-repo</T>, because clones, forks and platform caches already contain it. Large binaries go to <T k="git-lfs">Git LFS</T>; otherwise every clone pulls all their versions.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -537,10 +441,6 @@ A commit does not vanish when you reset or delete a branch. Git remembers every 
 `git reset --hard` with uncommitted edits. The reflog only tracks commits, so unsaved changes are gone for good.
 
 **Takeaway:** anything committed can almost always be recovered through the reflog; anything uncommitted cannot.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -572,10 +472,6 @@ A commit does not vanish when you reset or delete a branch. Git remembers every 
 Shared history — `revert`; your own local history — `reset`.
 
 **Takeaway:** reset moves a pointer, revert adds a commit, and the reflog remembers where the pointer used to be.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 

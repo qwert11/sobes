@@ -20,25 +20,7 @@ The tooling around Python code: tests with pytest, environments and dependencies
 
 ## How do you write tests with pytest?
 
-<A short l="j">
-
-pytest is a test framework where a test is a plain `test_...` function with a bare `assert`, and on failure pytest itself shows which values did not match. Shared setup goes into <T k="py-pytest-fixture">fixtures</T> — functions whose result the test receives as a parameter with the same name.
-
-</A>
-
-<A short l="m">
-
-pytest collects `test_*.py` files and `test_*` functions, rewrites `assert` at import time (<T k="py-assert-rewriting">assertion rewriting</T>) and injects fixtures by parameter name — it is DI for tests. A fixture's lifetime is set by `scope`: `function` by default, `module`, `session`; shared fixtures live in <T k="py-conftest">conftest.py</T> and are visible without imports. The cost is implicitness: the only link to a fixture is the parameter name, and a wide scope shares state between tests.
-
-</A>
-
-<A short l="s">
-
-pytest builds a fixture graph from parameter names, caches each fixture within its scope and tears them down in reverse order through the code after `yield`, so a fixture replaces both a constructor with `Dispose` and xUnit's `IClassFixture`. Expensive resources such as the engine and schema become `session` fixtures, while data is isolated by a transaction rolled back after each test. Substitution goes through <T k="py-monkeypatch">monkeypatch</T> or `unittest.mock` with `autospec`, and you patch a name where the code under test looks it up. Tests run sequentially in one process by default; the pytest-xdist plugin adds parallelism.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -57,10 +39,6 @@ pytest is the most widely used test framework in Python. A test is a function na
 Naming the file `prices_tests.py` or the function `check_price`. pytest will not collect them and reports `no tests ran` — the test silently does not run.
 
 **Takeaway:** a pytest test is a `test_*` function with `assert`, and setup arrives as fixtures matched by parameter name.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -90,10 +68,6 @@ Naming the file `prices_tests.py` or the function `check_price`. pytest will not
 Default to `function` scope. Go wider only for expensive and immutable things.
 
 **Takeaway:** pytest is DI for tests: fixtures are matched by name, and `scope` sets their lifetime.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -235,25 +209,7 @@ def test_with_mock():
 
 ## How do you manage environments and dependencies in a Python project?
 
-<A short l="j">
-
-A <T k="py-venv">virtual environment</T> (venv) is a separate folder with an interpreter and the packages of one project, so library versions of different projects do not conflict. Dependencies are declared in <T k="py-pyproject-toml">pyproject.toml</T> and today are most often installed with <T k="py-uv">uv</T>: `uv add sqlalchemy`, then `uv run pytest`.
-
-</A>
-
-<A short l="m">
-
-Unlike NuGet, Python packages are installed into the environment itself and the interpreter sees everything there, so each project gets its own `.venv`. Direct dependencies with version ranges go into the `[project]` table of `pyproject.toml` (PEP 621), while the exact versions of the whole graph are pinned by a <T k="py-lock-file">lock file</T>: `uv.lock`, `poetry.lock` or a pip-tools `requirements.txt`. There is no compiler, so in CI its job is done by <T k="py-ruff">ruff</T> and a <T k="py-type-checker">type checker</T> — mypy or pyright.
-
-</A>
-
-<A short l="s">
-
-The goal is reproducibility: the same package graph on a developer machine, in CI and in the Docker image. For an application that means a committed lock and `uv sync --locked` in CI, which fails if the lock has drifted from `pyproject.toml`; a library ships only broad ranges. In 2026 uv is the most common choice for new projects, but it is still 0.x, and in March 2026 OpenAI announced it was acquiring Astral, the company behind it. So teams lean on standards — PEP 621, PEP 735, `pylock.toml` from PEP 751 — to keep the tool replaceable.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -276,10 +232,6 @@ A global `pip install` puts the package into the whole system, and two projects 
 Installing a package with `pip install` without adding it to `pyproject.toml`. The project will not run for a colleague or in CI.
 
 **Takeaway:** one environment per project, dependencies in `pyproject.toml`, exact versions in the lock file.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -313,10 +265,6 @@ Installing a package with `pip install` without adding it to `pyproject.toml`. T
 For an application: ranges in `pyproject.toml`, the lock in git, `uv sync --locked` in CI.
 
 **Takeaway:** `pyproject.toml` is the `.csproj`, the lock file is `packages.lock.json`, and uv is `dotnet restore` plus `dotnet run` in one.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -421,25 +369,7 @@ uv export --format pylock.toml -o pylock.toml  # the standard lock (PEP 751)
 
 ## How do you work with a database through SQLAlchemy 2?
 
-<A short l="j">
-
-SQLAlchemy is Python's database library and the counterpart of EF Core: tables are described as classes with `Mapped[...]`, queries are built with `select()`, and objects are read and saved through a <T k="py-sa-session">`Session`</T>. The session accumulates changes and sends them to the database on `commit()`, like `SaveChanges`.
-
-</A>
-
-<A short l="m">
-
-An <T k="py-sa-engine">`Engine`</T> is a per-process connection pool, and a `Session` is a <T k="unit-of-work">unit of work</T> with an <T k="py-identity-map">identity map</T>: it tracks loaded objects and builds `INSERT` and `UPDATE` itself. Relationships are loaded <T k="lazy-loading">lazily</T> by default, with a separate query on first access, which is where <T k="n-plus-one">N+1</T> comes from; the fix is a `selectinload` or `joinedload` option in the query. The price of ORM convenience is per-object overhead, so bulk inserts and upserts are written in <T k="py-sa-core">Core</T>.
-
-</A>
-
-<A short l="s">
-
-SQLAlchemy 2 has two layers: Core generates SQL and works with connections, and the ORM on top of it adds the unit of work and the identity map. Unlike EF Core, lazy loading is on by default, and after `commit()` object attributes expire and are reloaded on next access. In async code such an implicit query fails with `MissingGreenlet`, so relationships are loaded <T k="eager-loading">eagerly</T>, and `lazy="raise"` turns N+1 from a silent slowdown into an error. The price of flexibility is more explicit decisions: transaction boundaries, loading strategy, when to drop down to Core.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -458,10 +388,6 @@ SQLAlchemy is an <T k="orm">ORM</T> for Python. Version 2.0 came out in 2023 and
 Writing queries in the old `session.query(Ad).filter(...)` style. It still works but is considered legacy; new code uses `select()`.
 
 **Takeaway:** `Engine` is the connection, a model is a class with `Mapped`, `Session` works with objects, and `select()` builds queries.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -492,10 +418,6 @@ Writing queries in the old `session.query(Ad).filter(...)` style. It still works
 One `Engine` per process, one `Session` per unit of work, `session.begin()` for an explicit transaction boundary, and the loading strategy in the query itself.
 
 **Takeaway:** a `Session` is a `DbContext` with an identity map, except that lazy loading is on by default.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -637,25 +559,7 @@ asyncio.run(main())
 
 ## How do you handle migrations and configuration in production with Alembic and pydantic-settings?
 
-<A short l="j">
-
-<T k="py-alembic">Alembic</T> is the migration tool for SQLAlchemy, the counterpart of EF migrations: `alembic revision --autogenerate` creates a migration file from the difference between models and database, and `alembic upgrade head` applies it. Settings such as the connection string are read from environment variables and a `.env` file through <T k="py-pydantic-settings">pydantic-settings</T> rather than kept in code.
-
-</A>
-
-<A short l="m">
-
-An Alembic migration is a <T k="py-alembic-revision">revision</T>: a Python file with `upgrade()`, `downgrade()` and a link to the previous revision, while the database stores the applied version in the `alembic_version` table. <T k="py-autogenerate">Autogenerate</T> compares the models with the database but sees a column rename as a drop plus an add, so every migration is read in review. pydantic-settings assembles settings from the environment, `.env` and defaults, validates types at startup and keeps secrets in `SecretStr`.
-
-</A>
-
-<A short l="s">
-
-A migration is code that runs against production data, so autogenerate is only a draft: review it, name constraints via a <T k="py-naming-convention">naming convention</T>, and change data through an `sa.table()` snapshot rather than ORM models. Two development branches produce two head revisions, and `upgrade head` fails until a <T k="py-merge-revision">merge revision</T> joins them; CI checks for a single head and an empty `alembic check`. Schema changes follow <T k="expand-contract">expand/contract</T>, and settings are validated once at startup so a broken environment kills the process immediately rather than halfway through a crawl.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -676,10 +580,6 @@ A migration is code that runs against production data, so autogenerate is only a
 Committing a `.env` with a password. The repository gets a `.env.example` without secrets, and `.env` goes into `.gitignore`.
 
 **Takeaway:** the schema changes through Alembic migrations, and settings and secrets come from the environment.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -710,10 +610,6 @@ Sources by descending priority: constructor arguments, environment variables, `.
 Read every generated migration and run `upgrade`, `downgrade` and `upgrade` again in CI.
 
 **Takeaway:** autogenerate writes a draft for a human to read, and settings are a typed class validated at startup.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 

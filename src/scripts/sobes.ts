@@ -1,4 +1,4 @@
-// Поведение страниц с вопросами: уровень ответа, режим карточек, самопроверка, панель терминов.
+// Поведение страниц с вопросами: режим карточек, самопроверка, панель терминов.
 // Всё состояние — в localStorage этого браузера.
 
 interface Term {
@@ -9,7 +9,6 @@ interface Term {
   wiki?: string;
 }
 
-const KEY_LEVEL = 'sobes:lv';
 const KEY_QUIZ = 'sobes:quiz';
 const KEY_STATUS = 'sobes:st';
 
@@ -40,21 +39,12 @@ function readStatus(): Record<string, string> {
   }
 }
 
-/* ---------- уровень и карточки ---------- */
+/* ---------- карточки ---------- */
 
 function syncToolbar(): void {
-  document.querySelectorAll<HTMLButtonElement>('.tb-lv button').forEach((b) => {
-    b.setAttribute('aria-pressed', String(b.dataset.lv === root.dataset.lv));
-  });
   document.querySelectorAll<HTMLButtonElement>('.tb-quiz').forEach((b) => {
     b.setAttribute('aria-pressed', String(root.dataset.quiz === '1'));
   });
-}
-
-function setLevel(level: string): void {
-  root.dataset.lv = level;
-  write(KEY_LEVEL, level);
-  syncToolbar();
 }
 
 function setQuiz(on: boolean): void {
@@ -177,8 +167,7 @@ document.addEventListener('click', (event) => {
   }
   const button = target.closest<HTMLElement>('button');
 
-  if (button?.matches('.tb-lv button')) setLevel(button.dataset.lv ?? 'm');
-  else if (button?.matches('.tb-quiz')) setQuiz(root.dataset.quiz !== '1');
+  if (button?.matches('.tb-quiz')) setQuiz(root.dataset.quiz !== '1');
   else if (button?.matches('.q-reveal')) button.closest('.q')?.classList.toggle('revealed');
   else if (button?.matches('.q-check button')) {
     const card = button.closest<HTMLElement>('.q');
@@ -196,6 +185,5 @@ document.addEventListener('keydown', (event) => {
   }
 });
 
-if (!root.dataset.lv) root.dataset.lv = read(KEY_LEVEL) ?? 'm';
 syncToolbar();
 renderStatus();

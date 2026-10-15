@@ -20,25 +20,7 @@ How services exchange messages asynchronously: how a queue differs from an event
 
 ## How does a message queue (RabbitMQ, Azure Service Bus) differ from an event log (Kafka)?
 
-<A short l="j">
-
-A <T k="message-broker">message broker</T> holds messages until the receiver picks them up: in a queue (RabbitMQ, Azure Service Bus) a message is deleted once processing is acknowledged, while in an <T k="event-log">event log</T> (Kafka) it stays for a configured period. That's why you can re-read old events from a log but not from a queue.
-
-</A>
-
-<A short l="m">
-
-A queue follows the <T k="point-to-point">point-to-point</T> model: the broker hands messages to competing consumers, waits for acknowledgements and deletes what was processed, and fan-out (<T k="pub-sub">pub/sub</T>) is done by copying the message into each subscriber's queue. A log is append-only and deletes nothing on read: each consumer group tracks its own position, so new readers can be added without touching the sender. The price of a log is that parallelism is capped by the number of <T k="topic-partition">partitions</T>, and per-message retries and delayed delivery, which a queue gives you out of the box, have to be built yourself.
-
-</A>
-
-<A short l="s">
-
-The difference is who owns delivery state. A queue tracks every message — who has it, how many times it was delivered, when the lock expires — which makes it a good fit for commands and jobs with competing workers. A log stores only data and a <T k="retention">retention</T> policy, and reader progress is one number per partition; that buys high throughput, replay, and the ability to plug new systems into history. The lines are blurring (RabbitMQ Streams, share groups in Kafka 4.2), but you still choose by model: commands and work go to a queue, facts for many consumers go to a log.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -62,10 +44,6 @@ It decouples services: the sender doesn't wait for the receiver, and messages ar
 Thinking Kafka deletes a message once it's read. It stays in the topic; "read" is just the saved position of a particular reader.
 
 **Takeaway:** a queue hands out and deletes messages; a log keeps events, and readers remember where they stopped.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -92,10 +70,6 @@ Thinking Kafka deletes a message once it's read. It stays in the topic; "read" i
 Commands and jobs go to a queue; fact events for many consumers go to a log.
 
 **Takeaway:** a queue manages delivery of each message; a log keeps an event stream for any number of independent readers.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -181,25 +155,7 @@ You can't do this with a queue: a processed message is already deleted, and a ne
 
 ## How does Kafka work?
 
-<A short l="j">
-
-Kafka stores events in topics split into partitions — separate logs spread across brokers — and records with the same key always land in the same partition. So ordering is guaranteed only per key, for example per order, and service instances in one <T k="consumer-group">consumer group</T> split the partitions among themselves.
-
-</A>
-
-<A short l="m">
-
-A partition is the unit of ordering, parallelism and replication: within a group each partition is read by exactly one consumer, and the group stores its read position — the <T k="consumer-offset">offset</T> — in Kafka. When a member joins or leaves, the group goes through a <T k="rebalance">rebalance</T> and resumes from the last committed offset, so anything processed but not committed is delivered again. Write durability comes from replicas: with `acks=all` the leader acknowledges a write once all <T k="in-sync-replicas">in-sync replicas</T> have it, and `min.insync.replicas` sets how many must exist.
-
-</A>
-
-<A short l="s">
-
-A Kafka broker only stores and replicates append-only segments, while the key, partitioning and offset commits are up to the client — the source of both its speed and its bugs. The key design decisions are the key (ordering vs. skewed load), the partition count (it can't be reduced, and increasing it breaks the key → partition mapping) and `replication.factor=3` with `min.insync.replicas=2`. Since Kafka 4.0 the cluster stores its own metadata via <T k="kraft">KRaft</T>, ZooKeeper is gone, and the new KIP-848 group protocol makes rebalancing incremental, with no group-wide pause.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -219,10 +175,6 @@ A Kafka broker only stores and replicates append-only segments, while the key, p
 Expecting ordering across the whole topic. Order exists only within a partition; records from different partitions are read interleaved.
 
 **Takeaway:** a topic is split into partitions, the key decides the partition and the order, and a group splits partitions among instances.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -250,10 +202,6 @@ Long processing between `Consume` calls kicks the consumer out of the group: its
 Key by the entity whose ordering matters; provision partitions with headroom for future parallelism.
 
 **Takeaway:** a partition is the unit of ordering and parallelism, the offset is the group's progress, and replicas plus `acks` give write durability.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -360,25 +308,7 @@ Start a second instance with the same `GroupId` — the first prints `Revoked` a
 
 ## What delivery guarantees exist, and how do you handle failures?
 
-<A short l="j">
-
-A delivery guarantee says how many times a message gets processed when things fail: <T k="at-most-once">at-most-once</T> — no more than once, but it may be lost; <T k="at-least-once">at-least-once</T> — never lost, but it may arrive again; <T k="exactly-once">exactly-once</T> — exactly one time. In practice you pick at-least-once and make the handler <T k="idempotency">idempotent</T> so a repeat breaks nothing.
-
-</A>
-
-<A short l="m">
-
-The guarantee comes from the order of two consumer actions: acknowledge before processing — at-most-once, after — at-least-once. The <T k="idempotent-producer">idempotent producer</T> and Kafka transactions give exactly-once only inside Kafka; a database write or HTTP call stays at-least-once. Transient failures are retried with a delay, while a poison message that will never succeed goes to a <T k="dead-letter-queue">dead letter queue</T> after a few attempts so it doesn't block the stream.
-
-</A>
-
-<A short l="s">
-
-Exactly-once between a broker and the outside world is impossible without a shared transaction, so production systems build "effectively once": at-least-once plus an idempotent consumer. Queues give you retries and DLQs from the broker (Service Bus `MaxDeliveryCount` 10, RabbitMQ 4.x quorum queues `delivery-limit` 20); in Kafka you build them yourself with retry topics and a DLQ topic. The price of retries is ordering: later events for the same key overtake a delayed message, so for ordered streams you either retry in place and hold the partition, or park all subsequent events for that key.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -406,10 +336,6 @@ Acknowledging a message as soon as it's received. If processing fails, the messa
 
 **Takeaway:** pick at-least-once with an idempotent handler: a duplicate is harmless, a loss can't be undone.
 
-</A>
-
-<A l="m">
-
 **How it works**
 
 - **At-most-once.** Acknowledge or commit the offset before processing. A crash mid-processing loses the message.
@@ -432,10 +358,6 @@ Acknowledging a message as soon as it's received. If processing fails, the messa
 At-least-once, an idempotent handler, a bounded number of retries and a DLQ with an alert.
 
 **Takeaway:** the guarantee is set by when you acknowledge, and for external side effects exactly-once is replaced by idempotency.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -535,25 +457,7 @@ If the process dies before `StoreOffset`, the message comes back: that's at-leas
 
 ## How do you reliably publish an event after a database change?
 
-<A short l="j">
-
-If you save an order to the database and separately send an event to the broker, one of the two can fail — that's the <T k="dual-write">dual write</T> problem. The <T k="transactional-outbox">transactional outbox</T> solves it: the event is saved to an outbox table in the same transaction as the order, and a separate process later reads the table and sends the events to the broker.
-
-</A>
-
-<A short l="m">
-
-Dual write can't be fixed by reordering calls: sending before the commit publishes an event about a change that may roll back, sending after it loses the event if the process crashes. The outbox makes the event part of the local transaction, a background relay publishes it at-least-once, and an <T k="inbox-pattern">inbox</T> on the consumer side filters duplicates by message id. The cost is extra tables, publishing latency and a background process you have to monitor.
-
-</A>
-
-<A short l="s">
-
-The outbox replaces distributed atomicity with local atomicity: everything is atomic in the database, and from there it's at-least-once plus deduplication at the receiver. There are two kinds of relay: polling the table (simple, but it loads the database and adds latency) and <T k="change-data-capture">CDC</T> — tailing the transaction log, for example <T k="debezium">Debezium</T> with the Outbox Event Router (lower latency, but you need Kafka Connect and access to the log). Per-aggregate ordering holds only if the relay publishes sequentially with the aggregate id as the key. MassTransit, NServiceBus and Wolverine ship outbox and inbox implementations; rolling your own is easy, but cleanup, monitoring and a parallel relay are then on you.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -575,10 +479,6 @@ A service saves an order and publishes an `OrderCreated` event. That's two write
 Sending the event inside the database transaction and expecting a rollback to cancel it. The broker isn't part of the transaction.
 
 **Takeaway:** the event is first saved in your own database along with the data, and goes to the broker afterwards.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -608,10 +508,6 @@ In one transaction, the consumer inserts the message id into an `InboxMessages` 
 Outbox on the sender side; inbox or an idempotent handler on the receiver side.
 
 **Takeaway:** the outbox removes lost events, the inbox removes duplicates, and together they give you "effectively once".
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -751,25 +647,7 @@ ORDER BY Id;
 
 ## How do you run a business operation across several services without a distributed transaction?
 
-<A short l="j">
-
-A <T k="saga">saga</T> runs an operation across several services as a chain of local transactions: each service does its step in its own database and reports the result. If a step fails, the completed steps are undone with <T k="compensating-transaction">compensating actions</T>, such as a refund instead of a rollback.
-
-</A>
-
-<A short l="m">
-
-A saga replaces one distributed transaction with a sequence of local ones, each with its own compensation. There are two ways to coordinate it: <T k="choreography">choreography</T>, where services react to each other's events with no central controller, and <T k="orchestration">orchestration</T>, where an orchestrator stores the saga state and sends commands. The cost is no isolation: other operations see intermediate states, and compensations and timeouts have to be designed as ordinary business logic.
-
-</A>
-
-<A short l="s">
-
-A saga gives you eventual atomicity without isolation, so you design it as a business process: compensable steps up to the <T k="pivot-transaction">pivot</T>, and only retryable, idempotent steps after it. <T k="two-phase-commit">Two-phase commit</T> and MSDTC are avoided because the coordinator holds locks in every participant, its failure leaves them in doubt, and brokers and HTTP services don't take part in it anyway. Orchestration suits long processes with branching and timeouts; choreography suits two or three steps.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -791,10 +669,6 @@ Out of stock — step 3 fails. Compensations then run in reverse order: payments
 Treating compensation as a rollback that "erases" a step. The charge did happen and the customer may have received an SMS — compensation is a new business action with its own consequences.
 
 **Takeaway:** a saga is a chain of local transactions where compensating actions replace rollback.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -823,10 +697,6 @@ Treating compensation as a rollback that "erases" a step. The charge did happen 
 Every step before the pivot has a compensation; every wait has a timeout.
 
 **Takeaway:** choreography is simpler for short chains, orchestration is easier to manage for long ones; either way, steps are idempotent and compensations are retryable.
-
-</A>
-
-<A l="s">
 
 **Why not 2PC**
 

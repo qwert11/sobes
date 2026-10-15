@@ -4,9 +4,8 @@ import starlight from '@astrojs/starlight';
 import { satteri } from '@astrojs/markdown-satteri';
 import glossaryAutolink from './src/plugins/glossary-autolink.mjs';
 
-// Уровень ответа и режим карточек выставляются до первой отрисовки,
-// чтобы при загрузке страницы не мигали чужие уровни.
-const bootScript = `try{var d=document.documentElement,s=localStorage;d.dataset.lv=s.getItem('sobes:lv')||'m';if(s.getItem('sobes:quiz')==='1')d.dataset.quiz='1'}catch(e){document.documentElement.dataset.lv='m'}`;
+// Режим карточек выставляется до первой отрисовки, чтобы ответы не мигали при загрузке.
+const bootScript = `try{var d=document.documentElement,s=localStorage;if(s.getItem('sobes:quiz')==='1')d.dataset.quiz='1'}catch(e){}`;
 
 export default defineConfig({
   site: 'https://qwert11.github.io',

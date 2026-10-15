@@ -20,25 +20,7 @@ How to verify .NET code automatically: unit tests and test doubles, ASP.NET Core
 
 ## What is a unit test and how do you write a good one?
 
-<A short l="j">
-
-A <T k="unit-test">unit test</T> is a small automated test that checks one behavior of the code in isolation from the database, the network and files. It follows the <T k="arrange-act-assert">Arrange-Act-Assert</T> pattern — set up the data, call the method, check the result — so it runs in milliseconds and immediately shows what broke.
-
-</A>
-
-<A short l="m">
-
-A unit test checks the behavior of one unit of code through its public API, without external resources, and it must be fast, isolated and repeatable. A good test checks one behavior: a name like `Method_Scenario_Expected`, a single act, a <T k="parameterized-test">parameterized test</T> instead of a loop — `[Fact]` and `[Theory]` in xUnit, `[Test]` and `[TestCase]` in NUnit. The cost of a badly designed test is coupling to implementation details: such tests break on every refactoring.
-
-</A>
-
-<A short l="s">
-
-A unit test is an executable specification of behavior: it is valuable as long as it catches regressions and does not get in the way of refactoring. So you test observable behavior through the public API, not private methods or call order. Everything non-deterministic — time, random numbers, environment — moves behind dependencies such as <T k="time-provider">`TimeProvider`</T>. The choice between <T k="xunit">xUnit</T>, NUnit and MSTest is secondary: what matters more is how the framework instantiates the test class and what it runs in parallel.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -61,10 +43,6 @@ Logic with branches: calculations, validation, edge values — zero, an empty st
 A test that depends on `DateTime.Now` or on run order: green today, red tomorrow.
 
 **Takeaway:** one test, one behavior: arrange, act, assert.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -89,10 +67,6 @@ A test that depends on `DateTime.Now` or on run order: green today, red tomorrow
 One behavior per test, verified through the public API. A private method is tested through the public method that calls it.
 
 **Takeaway:** a good unit test is fast, isolated and repeatable, and frameworks differ mainly in the test class lifecycle.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -216,25 +190,7 @@ public class DiscountCalculatorTests
 
 ## What are mocks, stubs and fakes, and when should you use them?
 
-<A short l="j">
-
-A <T k="test-double">test double</T> is an object that replaces a real dependency in a test: a <T k="test-stub">stub</T> returns canned data, a <T k="mock-object">mock</T> lets you verify that it was called, and a <T k="test-fake">fake</T> is a simplified working implementation, such as a repository backed by a dictionary. You write them by hand or generate them with a library like NSubstitute or Moq, so you can test a class without a database or network.
-
-</A>
-
-<A short l="m">
-
-Gerard Meszaros names five kinds of test doubles — dummy, stub, spy, mock and fake — but in practice the key distinction is between a stub, which controls inputs, and a mock, which verifies outgoing interactions. A mock is justified when the call is the outcome: sending an email, publishing an event; for query methods a stub is enough, and verifying those calls couples the test to the implementation. NSubstitute and Moq solve the same problem, NSubstitute with terser syntax, and <T k="autofixture">AutoFixture</T> helps generate test data.
-
-</A>
-
-<A short l="s">
-
-Test doubles replace what is slow, non-deterministic or has side effects; everything else is better left real. Too many mocks is a smell: the test restates the implementation, breaks on refactoring and misses integration bugs. Types you do not own — `HttpClient`, `DbContext`, SDKs — are not mocked directly: you wrap them in your own adapter, substitute the adapter in unit tests and cover the adapter itself with an integration test. Choosing libraries is also a licensing question: SponsorLink in Moq (2023) and the paid <T k="fluent-assertions">FluentAssertions</T> 8 (2025) made many teams review their dependencies.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -258,10 +214,6 @@ A test double replaces a real dependency in a test. `OrderService` receives `IEm
 Verifying every call to every dependency. If a method only reads data, check the result, not the fact that it was called.
 
 **Takeaway:** a stub provides data, a mock verifies a call, a fake is a simplified working implementation.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -296,10 +248,6 @@ AutoFixture creates objects filled with arbitrary data (`fixture.Create<Order>()
 Stubs for incoming data, mocks only for outgoing commands with side effects.
 
 **Takeaway:** the test decides the role of a double; mocks belong where the call itself is the expected outcome.
-
-</A>
-
-<A l="s">
 
 **Trade-offs**
 
@@ -427,25 +375,7 @@ public class OrderService(IStockService stock, IEmailSender email)
 
 ## How do you write integration tests for ASP.NET Core?
 
-<A short l="j">
-
-An <T k="integration-test">integration test</T> checks several parts of the application together: routing, middleware, DI, serialization and the database. ASP.NET Core provides <T k="web-application-factory">`WebApplicationFactory`</T> in the `Microsoft.AspNetCore.Mvc.Testing` package: it starts the app in memory and gives you an `HttpClient` the test uses to send real HTTP requests.
-
-</A>
-
-<A short l="m">
-
-`WebApplicationFactory<Program>` runs the real `Program.cs` on `TestServer` without a network, and in `ConfigureTestServices` the test substitutes external dependencies: the payment gateway, email, HTTP clients. The database is better left real: Microsoft does not recommend the EF Core InMemory provider for testing, SQLite behaves differently from SQL Server, and <T k="testcontainers">Testcontainers</T> starts a real database engine in Docker. The cost is container start-up time and the need to isolate test data, for example by resetting it with <T k="respawn">Respawn</T>.
-
-</A>
-
-<A short l="s">
-
-An integration test is valuable because it checks the seams unit tests cannot see: DI configuration, filters, serialization, LINQ-to-SQL translation and migrations. So you substitute only what is external and outside your control, and use a real database through Testcontainers — one container per test collection, schema applied once, data reset between tests. The main costs are start-up time and parallelism, so the factory and the container are shared through fixtures. External HTTP services are emulated at the protocol level, for example with <T k="wiremock-net">WireMock.Net</T>, to test timeouts, retries and response parsing.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -465,10 +395,6 @@ Before .NET 10 you added `public partial class Program { }` to `Program.cs` so t
 Running tests against a shared development database. Tests corrupt each other's data and fail at random.
 
 **Takeaway:** `WebApplicationFactory` starts the app in memory, and the test talks to it over HTTP.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -494,10 +420,6 @@ Running tests against a shared development database. Tests corrupt each other's 
 Substitute only what is external and outside your control: payments, email, third-party APIs. The database, serialization and DI stay real.
 
 **Takeaway:** the factory runs the real pipeline, the test replaces only external dependencies, and the database is the same engine in a container.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -656,25 +578,7 @@ public class StubHandler(HttpResponseMessage response) : HttpMessageHandler
 
 ## How do you build a testing strategy for a project?
 
-<A short l="j">
-
-A testing strategy is the decision about which tests to write and in what proportion. The classic <T k="test-pyramid">test pyramid</T>: many fast unit tests, fewer integration tests and very few end-to-end tests, because the higher the level, the slower and more expensive the test.
-
-</A>
-
-<A short l="m">
-
-The pyramid sets proportions by speed and cost, while Kent C. Dodds's "testing trophy" shifts the weight toward integration tests because they catch more real bugs per line of test code. <T k="code-coverage">Code coverage</T> shows which code no test executed, but it does not prove the executed code is verified — <T k="mutation-testing">mutation testing</T> (Stryker.NET) checks that. Every strategy pays in CI run time and in <T k="flaky-test">flaky tests</T>, which undermine trust in the whole suite.
-
-</A>
-
-<A short l="s">
-
-A strategy is built from risks, not percentages: where a bug costs most and what the cheapest test is that catches it. That gives a portfolio: unit tests for complex logic, integration tests with a real database for the main scenarios, a few end-to-end tests, plus <T k="architecture-test">architecture tests</T> and <T k="contract-test">contract tests</T> at service boundaries. Metrics are feedback, not goals: coverage finds untested code, the mutation score finds empty tests, and flaky tests get fixed, not rerun. Legacy code without tests starts with <T k="characterization-test">characterization tests</T> through <T k="seam">seams</T> — places where behavior can be swapped without editing the logic.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -702,10 +606,6 @@ Chasing 100% coverage. A test without assertions raises the percentage too.
 
 **Takeaway:** many fast tests, few slow ones, and all of them run automatically.
 
-</A>
-
-<A l="m">
-
 **How it works**
 
 - **Pyramid** (Mike Cohn): unit tests at the base, integration tests in the middle, UI and E2E at the top.
@@ -732,10 +632,6 @@ Stryker.NET (`dotnet stryker`) makes small changes to the code — mutants: `>` 
 Coverage to find untested code, the mutation score to judge test quality on critical logic.
 
 **Takeaway:** pick test proportions by speed and value, and measure test quality with mutations, not with a coverage percentage.
-
-</A>
-
-<A l="s">
 
 **Trade-offs**
 

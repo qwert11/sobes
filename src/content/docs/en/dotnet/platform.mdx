@@ -18,25 +18,7 @@ What the .NET platform is made of and how C# code becomes a running program: ver
 
 ## How does .NET Framework differ from .NET Core and modern .NET?
 
-<A short l="j">
-
-<T k="dotnet-framework">.NET Framework</T> is the original Windows-only .NET platform, and <T k="dotnet-core">.NET Core</T> is its cross-platform replacement, which since version 5 is simply called .NET. Framework is no longer evolving (the last version is 4.8.1), so new projects are written on modern .NET.
-
-</A>
-
-<A short l="m">
-
-.NET Framework is a Windows component, while modern .NET is a separate cross-platform runtime: versions install side by side or ship with the app (<T k="self-contained">self-contained</T>). The key difference is the evolution model: Framework updates in place and must not break installed apps, while .NET ships every November and can change behavior in major versions. The cost of moving is the technologies .NET does not have: <T k="app-domain">AppDomain</T> isolation, Remoting, Web Forms, Workflow Foundation.
-
-</A>
-
-<A short l="s">
-
-These are two different runtimes sharing a language and most of the base library: the Framework runtime built into Windows, and a separate .NET runtime whose versions sit side by side. Framework froze because in-place updates leave no room to change behavior, while .NET gets a new JIT, GC and APIs every year. There is no binary compatibility between them, so migration hinges not on C# but on dependencies and the app model — Web Forms, WCF server, `web.config` — and goes step by step.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -56,10 +38,6 @@ These are two different runtimes sharing a language and most of the base library
 Thinking .NET 8 is a new version of .NET Framework. They are different products: version 4 was skipped to avoid confusion, and "Core" was dropped because this is now the main line.
 
 **Takeaway:** .NET Framework is Windows legacy; modern .NET is the platform for all new code.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -87,10 +65,6 @@ Thinking .NET 8 is a new version of .NET Framework. They are different products:
 New code goes on modern .NET only. Framework stays for legacy built on Web Forms, a WCF server or WF that costs more to rewrite than to maintain.
 
 **Takeaway:** moving to .NET is mostly a change of app model and dependencies, not of syntax.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -165,25 +139,7 @@ Console.WriteLine("Compiled for .NET 5+");
 
 ## What are LTS and STS, and how do you choose a .NET version for a project?
 
-<A short l="j">
-
-<T k="lts">LTS</T> and <T k="sts">STS</T> are two kinds of .NET releases with different support periods: even versions (LTS) get three years, odd versions (STS) get two. So as of October 2026 a new project usually starts on .NET 10, the current LTS, supported until November 2028.
-
-</A>
-
-<A short l="m">
-
-A major .NET version ships every November, and the tracks alternate: LTS is supported for three years, STS for 24 months (since .NET 9; it used to be 18). They differ only in support length, not quality, which is why .NET 8 (LTS) and .NET 9 (STS) reach end of support on the same day — November 10, 2026. Within a version, patches ship almost monthly, and by default an app <T k="roll-forward">rolls forward</T> to the latest installed patch, but not to the next major version.
-
-</A>
-
-<A short l="s">
-
-Choosing a version is choosing an upgrade cadence, not "stability": STS and LTS are equally production-ready. A service with regular releases is best kept on the latest version and upgraded yearly, while a product that updates rarely belongs on LTS. The cost of falling behind is a runtime with no vulnerability fixes after end of support, so upgrades are planned ahead and the SDK version is pinned in <T k="global-json">`global.json`</T>.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -210,10 +166,6 @@ Staying on an unsupported version "because it works".
 
 **Takeaway:** for a new project today the default choice is .NET 10 LTS.
 
-</A>
-
-<A l="m">
-
 **How it works**
 
 1. A major version ships every November; the LTS and STS tracks alternate.
@@ -239,10 +191,6 @@ Staying on an unsupported version "because it works".
 Upgrade once a year to the nearest supported version, without waiting for end of support.
 
 **Takeaway:** LTS and STS differ only in support length, and choosing between them means choosing how often you upgrade.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -313,25 +261,7 @@ dotnet sdk check        # what is outdated and what is out of support
 
 ## How does C# code run: IL, CLR, JIT?
 
-<A short l="j">
-
-<T k="il">IL</T> is the intermediate language the <T k="roslyn">Roslyn</T> compiler turns C# into, and the <T k="clr">CLR</T> is the runtime that, at startup, translates IL into machine code with the <T k="jit">JIT compiler</T>, method by method. That is why the same `.dll` runs on any OS and CPU that has .NET.
-
-</A>
-
-<A short l="m">
-
-The CLR is the runtime that loads assemblies with IL and metadata and gives code garbage collection, exceptions, threads and type checking. The core of the mechanism is lazy compilation: the first call to a method goes through a stub that invokes the JIT and patches itself with the address of the compiled code. The cost is time and CPU spent compiling at startup, which is why a service's first requests are slower than later ones.
-
-</A>
-
-<A short l="s">
-
-The CLR executes IL — a stack-based, type-safe, CPU-independent format that becomes machine code only on the target machine. So the JIT knows the actual CPU and program state: it uses AVX2 or Arm64 instructions and folds values of initialized `static readonly` fields into constants. The cost is startup time, CPU and memory for compilation; tiered compilation, ReadyToRun and Native AOT reduce it, and the JIT's work is visible through `dotnet-counters`, `dotnet-trace` and `DOTNET_JitDisasm`.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -351,10 +281,6 @@ The CLR executes IL — a stack-based, type-safe, CPU-independent format that be
 Thinking C# is interpreted like Python. The CPU always runs machine code; that code is just produced while the program runs.
 
 **Takeaway:** C# becomes IL at build time, and IL becomes machine code on a method's first call.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -379,10 +305,6 @@ Thinking C# is interpreted like Python. The CPU always runs machine code; that c
 Do not confuse slow startup with slow code: measure performance after warm-up.
 
 **Takeaway:** the CLR compiles lazily, one method at a time, and you pay for it with the time of the first calls.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -460,25 +382,7 @@ static int Add(int a, int b) => a + b;
 
 ## What is .NET Standard, and why multi-target (TargetFrameworks)?
 
-<A short l="j">
-
-<T k="net-standard">.NET Standard</T> is a specification of a set of APIs shared by different .NET implementations. A `netstandard2.0` library can be referenced from both .NET Framework and modern .NET, but you cannot build an app for .NET Standard — only a library.
-
-</A>
-
-<A short l="m">
-
-.NET Standard is a contract, not a runtime: version 2.0 is implemented by .NET Framework 4.6.1+ and .NET Core 2.0+, version 2.1 only by .NET Core 3.0+, and no new versions will ship. Since .NET 5 the shared API is defined by the <T k="tfm">TFM</T> itself (`net8.0`), so `netstandard2.0` is needed mostly for .NET Framework. <T k="multi-targeting">Multi-targeting</T> (`<TargetFrameworks>`) builds a library for several TFMs at once, at the cost of `#if` branches and tests on every target.
-
-</A>
-
-<A short l="s">
-
-.NET Standard was a compromise from the era of many .NET implementations and lagged them by years, so since .NET 5 a single TFM has replaced it. For a public library the typical setup is `netstandard2.0;net8.0`: .NET Framework reach plus a build with newer APIs and Native AOT compatibility analyzers. The cost is `#if` branches, a doubled test matrix, polyfills for the old target and the obligation to keep the same public API on every target.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -500,10 +404,6 @@ There used to be .NET Framework, .NET Core, Xamarin, Mono and UWP, each with dif
 Picking `netstandard` for new code that does not need .NET Framework: you lose newer APIs and gain nothing.
 
 **Takeaway:** today .NET Standard is needed in one case — to make a library work on .NET Framework too.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -529,10 +429,6 @@ A `netstandard2.0` project can reference a .NET Framework assembly (compatibilit
 One target until there are real consumers on another platform.
 
 **Takeaway:** `netstandard2.0` is a bridge to .NET Framework; a library's main target is a modern TFM.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -614,25 +510,7 @@ public static class Guard
 
 ## What is an assembly, and how does NuGet resolve dependency version conflicts?
 
-<A short l="j">
-
-An <T k="assembly">assembly</T> is a `.dll` or `.exe` with IL code, metadata and a manifest that records its name, version and dependencies. <T k="nuget">NuGet</T> is the package manager that downloads assemblies together with their dependencies, so third-party `.dll` files are not copied into the repository but referenced via `PackageReference`.
-
-</A>
-
-<A short l="m">
-
-An assembly is the unit of deployment and versioning, identified by name, version, culture and public key token. When packages require different versions of the same <T k="transitive-dependency">transitive dependency</T>, NuGet picks one version for the whole project: the lowest that satisfies all constraints, and a version referenced directly in the project wins. The price of this determinism is that outdated transitive versions do not update themselves; you lift them with an explicit reference.
-
-</A>
-
-<A short l="s">
-
-NuGet resolves conflicts at restore time, not at run time: the lowest applicable version, direct dependency wins and cousin dependencies rules produce a reproducible graph, and a downgrade triggers error NU1605. In .NET Framework, version mismatches at load time are patched with <T k="binding-redirect">binding redirects</T>; in .NET, one <T k="assembly-load-context">`AssemblyLoadContext`</T> holds one version of an assembly and accepts it only if it is not lower than requested. NuGet does not check binary compatibility, so a dependency "diamond" with a breaking change shows up as `MissingMethodException` in production.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -650,10 +528,6 @@ NuGet resolves conflicts at restore time, not at run time: the lowest applicable
 Copying a `.dll` into the repository and referencing the file. You lose its dependencies, updates and vulnerability checks.
 
 **Takeaway:** an assembly is the unit of .NET code, and NuGet is how you get other people's assemblies together with their dependencies.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -679,10 +553,6 @@ The result is written to `obj/project.assets.json`.
 Resolve a conflict with a direct reference to the chosen version, usually the higher one. `dotnet nuget why <package>` (SDK 8.0.4xx+) and `dotnet list package --include-transitive` show who pulled a package in.
 
 **Takeaway:** NuGet picks one package version per project — the lowest that fits — and a direct reference overrides it.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -760,25 +630,7 @@ dotnet nuget why System.Text.Json         # who pulled the package into the proj
 
 ## What's new in .NET 8–10 and C# 12–14?
 
-<A short l="j">
-
-Each .NET release ships with its own C# version: .NET 8 with C# 12, .NET 9 with C# 13, .NET 10 with C# 14. The most visible additions are primary constructors and collection expressions (C# 12) and the `field` keyword (C# 14), and to use them you move the project to the matching .NET.
-
-</A>
-
-<A short l="m">
-
-The .NET 8–10 releases bring new language and runtime versions, and interviewers ask about what changes everyday code. From the language: <T k="primary-constructor">primary constructors</T>, <T k="collection-expression">collection expressions</T>, the <T k="field-keyword">`field` keyword</T> and <T k="extension-members">extension members</T>; from the platform: keyed DI and `TimeProvider` (.NET 8), `Task.WhenEach` and the removal of `BinaryFormatter` (.NET 9), <T k="file-based-app">file-based apps</T> (.NET 10). The cost is breaking changes in every major release, so an upgrade starts with reading their list.
-
-</A>
-
-<A short l="s">
-
-The .NET 8–10 releases speed up code without changing it: profile-guided optimization at run time (Dynamic PGO), the adaptive GC mode DATAS, stack allocation of some objects. But they change the CPU and memory profile and add language pitfalls: primary constructor parameters are not `readonly`, and `field` shadows a member with the same name. So an upgrade means benchmarks and load tests before and after, and reading breaking changes up front, as with `BinaryFormatter` in .NET 9.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -798,10 +650,6 @@ Each .NET release ships with its own C# version, and the TFM sets the default: `
 Bumping `LangVersion` in an old project instead of moving to the new .NET. Some features need types from the newer BCL, and this setup is not officially supported.
 
 **Takeaway:** new C# features arrive together with a new .NET.
-
-</A>
-
-<A l="m">
 
 **What's new**
 
@@ -828,10 +676,6 @@ Bumping `LangVersion` in an old project instead of moving to the new .NET. Some 
 Read the breaking changes list before upgrading, and move from one LTS to the next no later than end of support.
 
 **Takeaway:** interviewers want not a feature list but what problem each feature solves and what it risks.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -915,25 +759,7 @@ public static class StringExtensions
 
 ## What are tiered compilation, ReadyToRun and Native AOT, and when do you use each?
 
-<A short l="j">
-
-<T k="tiered-compilation">Tiered compilation</T>, <T k="ready-to-run">ReadyToRun</T> and <T k="native-aot">Native AOT</T> are three ways to get machine code from IL: in stages at run time, partly ahead of time, and fully ahead of time. The more you compile ahead of time, the faster the startup, but Native AOT removes the JIT entirely and forbids generating code at run time.
-
-</A>
-
-<A short l="m">
-
-Tiered compilation is the JIT's default mode: fast unoptimized code first, then a method called 30 times is recompiled in the background with optimizations and a run-time profile (<T k="dynamic-pgo">Dynamic PGO</T>), and long-running loops switch to optimized code on the fly (<T k="osr">OSR</T>). ReadyToRun only speeds up startup and restricts nothing, because the JIT stays. Native AOT gives the fastest startup and less memory but requires <T k="trimming">trimming</T> — removing unused code — and forbids `Reflection.Emit` and dynamic assembly loading.
-
-</A>
-
-<A short l="s">
-
-It is a trade-off between startup and peak performance: the JIT with Dynamic PGO optimizes for the real load profile, while AOT code is static and cannot be re-optimized. ReadyToRun is a nearly free startup win at the cost of assemblies 2–3 times larger. Native AOT pays off where startup and memory matter most — serverless, CLI tools, dense containers — but it needs AOT-compatible dependencies. Confirm the choice with measurements: time to first response, working set, RPS after warm-up.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -951,10 +777,6 @@ It is a trade-off between startup and peak performance: the JIT with Dynamic PGO
 Ignoring warnings during an AOT publish: code that uses reflection builds fine but fails at run time.
 
 **Takeaway:** the JIT by default, ReadyToRun when startup matters, Native AOT when startup and memory matter and the code has no dynamic parts.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -981,10 +803,6 @@ Ignoring warnings during an AOT publish: code that uses reflection builds fine b
 Do not touch tiering settings without measurements: the defaults suit almost everyone.
 
 **Takeaway:** tiering gives fast startup and optimized hot code; compile ahead of time when startup matters most.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 

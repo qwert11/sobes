@@ -20,25 +20,7 @@ Questions about the language itself that come up at every level: inheritance and
 
 ## How is an interface different from an abstract class?
 
-<A short l="j">
-
-An interface is a contract — a list of members a type must implement — while an <T k="abstract-class">abstract class</T> is an unfinished base class with fields, constructors and ready-made logic. A class can implement any number of interfaces but inherit from only one class, so you use an interface for "can do" and an abstract class for shared implementation.
-
-</A>
-
-<A short l="m">
-
-An abstract class models an "is a" relationship and shared implementation with state, while an interface models a capability that many types, including structs, can implement. Since C# 8 an interface can have <T k="default-interface-method">default implementations</T>, and since C# 11 <T k="static-abstract-member">`static abstract` members</T>, but it still has no instance fields or constructors. So a contract for DI, tests and structs is an interface, and shared code with invariants is an abstract class — which takes your only inheritance slot.
-
-</A>
-
-<A short l="s">
-
-It is a choice between a stateless contract and a stateful base implementation, and above all it is about API evolution. Before C# 8 a new interface member broke every implementer; default interface methods soften that, but they need the .NET Core 3.0+ runtime and bring diamond inheritance. An abstract class is easier to evolve, but it imposes a hierarchy and structs cannot use it. `static abstract` members (C# 11) are polymorphism over types, not objects: the call is resolved for the generic type argument without virtual dispatch, which is what generic math is built on.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -63,10 +45,6 @@ It is a choice between a stateless contract and a stateful base implementation, 
 Making an abstract class where only a contract is needed. Later a derived class needs a different base class, but the slot is already taken.
 
 **Takeaway:** an interface describes what a type can do, an abstract class is a shared foundation for derived classes.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -95,10 +73,6 @@ Making an abstract class where only a contract is needed. Later a derived class 
 Start with an interface. Add an abstract base class when implementations start duplicating the same code.
 
 **Takeaway:** an interface is a stateless contract with multiple implementation, an abstract class is a stateful foundation with single inheritance.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -196,25 +170,7 @@ Console.WriteLine(Sum(new[] { 1.5, 2.5 }));  // 4
 
 ## What is the difference between `virtual`/`override`, `new` and `sealed`?
 
-<A short l="j">
-
-<T k="virtual-method">`virtual`</T> and `override` let a derived class replace a method's implementation, `new` <T k="method-hiding">hides</T> the base class method, and `sealed` forbids further inheritance or overriding. The difference is who picks the version: with `override` it is the actual type of the object, with `new` it is the type of the variable, so a hidden method is not called through a base class reference.
-
-</A>
-
-<A short l="m">
-
-`override` replaces the implementation in the virtual method's slot, while `new` declares an independent method with the same name. So `override` is chosen at run time by the object's type, and `new` at compile time by the static type of the expression. In practice `new` is almost always a smell: behavior depends on which variable you call the method through; without `new` or `override` the compiler warns (CS0108, CS0114).
-
-</A>
-
-<A short l="s">
-
-A virtual call is an indirect jump through the type's <T k="vtable">method table</T> — an array of addresses of its virtual methods — and `sealed` tells the JIT there will be no other implementations. So for `sealed` classes and methods the JIT does <T k="devirtualization">devirtualization</T> — a direct call and inlining; dynamic PGO can do this without `sealed`, but behind a type check. `new` exists for versioning: a method with the same name added later to the base class does not silently change the meaning of the derived class's code. The cost of an open class is a contract for derived classes that is hard to change, which is why classes should be sealed by default.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -240,10 +196,6 @@ A virtual call is an indirect jump through the type's <T k="vtable">method table
 Forgetting `virtual` in the base class and writing a method with the same name in the derived class. You get hiding, not overriding, and the compiler issues a warning.
 
 **Takeaway:** `override` picks the method by the object, `new` by the variable.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -272,10 +224,6 @@ Forgetting `virtual` in the base class and writing a method with the same name i
 Make only extension points virtual, and mark classes without derived classes `sealed`.
 
 **Takeaway:** `override` is late binding by the object's type, `new` is early binding by the variable's type.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -356,25 +304,7 @@ class Puppy : Dog
 
 ## How should you handle exceptions?
 
-<A short l="j">
-
-An exception is an object that interrupts normal execution and travels up the call stack to a matching `catch`. You catch it only where you can handle it meaningfully, and rethrow with `throw;`, not `throw ex;` — the latter loses the original <T k="stack-trace">stack trace</T>.
-
-</A>
-
-<A short l="m">
-
-Handling an exception means searching up the stack for a matching `catch` and running every `finally` on the way to it. You catch specific types from most to least derived, and only where you have a strategy: retry, roll back, or wrap in your own exception with an `innerException`. An <T k="exception-filter">exception filter</T> `when` (C# 6) catches by condition, and `throw;` keeps the stack trace while `throw ex;` restarts it.
-
-</A>
-
-<A short l="s">
-
-An exception is a two-pass runtime mechanism: first a search for a handler that runs the filters, then <T k="stack-unwinding">stack unwinding</T> that runs `finally` blocks. A `when` filter runs before unwinding, so a dump shows the original stack, and a filter that logs and returns `false` records the error without catching it. Throwing costs orders of magnitude more than a normal return, even after .NET 9 sped it up with the NativeAOT model. So exceptions are for exceptional situations, and expected errors go through `Try` methods or a result type.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -396,10 +326,6 @@ You cannot ignore an exception by accident the way you can ignore an error code:
 `throw ex;` instead of `throw;`. The stack trace then starts at the current method, and the place of the error is lost.
 
 **Takeaway:** catch where you can fix the situation, rethrow with `throw;`, and release resources in `finally` or `using`.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -428,10 +354,6 @@ You cannot ignore an exception by accident the way you can ignore an error code:
 First look for a suitable built-in type: `ArgumentException`, `InvalidOperationException`. A custom exception derives from `Exception`, ends with `Exception` and has three constructors: parameterless, with a message, and with a message and an `innerException`. For argument checks use `ArgumentNullException.ThrowIfNull(x)` (.NET 6+).
 
 **Takeaway:** catch only what you can handle, and do not lose the cause — neither the stack nor the `InnerException`.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -518,25 +440,7 @@ public sealed class OrderNotFoundException : Exception
 
 ## How do extension methods work, and what did extension members change in C# 14?
 
-<A short l="j">
-
-An <T k="extension-method">extension method</T> is a static method you call as if it were an instance method: `text.WordCount()` instead of `StringExtensions.WordCount(text)`. That is how you add behavior to a type you do not own: LINQ adds `Where` to every `IEnumerable<T>`, and C# 14 added `extension(...)` blocks with properties, static members and operators.
-
-</A>
-
-<A short l="m">
-
-It is syntactic sugar: the compiler turns `x.Foo()` into `Ext.Foo(x)` and picks the method at compile time by the static type. The type's own member always wins, an extension is visible only after a `using`, and it cannot access `private` members. In C# 14 an <T k="extension-members">`extension` block</T> groups members for one <T k="extension-receiver">receiver</T> and adds properties, static members of the type (`IEnumerable<int>.Identity`) and operators — all still static methods.
-
-</A>
-
-<A short l="s">
-
-Extensions are static binding with no polymorphism and no state: you cannot override them, and an "added property" cannot store data. C# 14 extended the syntax, not the model: a method in an `extension` block compiles to the same static method as a classic one, so switching is binary compatible. For properties and static members the compiler generates implementation methods and helper types in metadata. The cost is readability: the member looks native but lives in another assembly, and a clash between two libraries is resolved only by an explicit call through the static class.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -559,10 +463,6 @@ In C# 14 you can write the same with an `extension(string s)` block and also dec
 Thinking an extension can override a class method or see its private fields. If the signatures match, the type's own method is called.
 
 **Takeaway:** an extension is a static method with convenient call syntax, not a real member of the type.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -592,10 +492,6 @@ An `extension` block is declared in a non-nested, non-generic static class. The 
 If the type is yours, add the method to it. Extensions are for types and interfaces you do not own, in a separate namespace.
 
 **Takeaway:** an extension is chosen at compile time, and only if the type has no suitable member of its own.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -676,25 +572,7 @@ public static class StringExtensions
 
 ## What are generic constraints, covariance and contravariance?
 
-<A short l="j">
-
-A <T k="generic-constraint">constraint</T> `where T : ...` says what a type parameter may be, and variance says whether you can substitute a generic type with a different argument. <T k="covariance">Covariance</T> lets you pass `IEnumerable<string>` where `IEnumerable<object>` is expected, and <T k="contravariance">contravariance</T> lets you pass `Action<object>` where `Action<string>` is expected.
-
-</A>
-
-<A short l="m">
-
-Constraints tell the compiler what it knows about `T` (`class`, `struct`, `new()`, an interface), and variance is declared with `out T` — the type is only returned — and `in T` — the type is only accepted. Only interfaces and delegates can be variant, and only for reference types. That is why `List<T>` is <T k="invariance">invariant</T>: it both accepts and returns `T`, and if `List<string>` were a `List<object>`, you could put a number into it.
-
-</A>
-
-<A short l="s">
-
-Variance is substitution safety checked by the compiler: `out` appears only in output positions, `in` only in input positions. So a variant conversion is the same reference with no run-time checks, and it works only for reference types: `int` to `object` is already boxing. Array covariance (`object[] a = new string[1]`) is a historical exception: the runtime checks every store into such an array and may throw `ArrayTypeMismatchException`. Constraints also affect code generation: the JIT specializes code for value types, so `where T : IComparable<T>` calls the method without boxing.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -717,10 +595,6 @@ Without constraints nothing is known about `T` — only `object` members are ava
 Expecting `List<string>` to convert to `List<object>`. It does not: otherwise you could add a number to a list of strings.
 
 **Takeaway:** constraints say what you can do with `T`, variance says what you can substitute for `T`.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -752,10 +626,6 @@ Expecting `List<string>` to convert to `List<object>`. It does not: otherwise yo
 Accept the most general variant interface you actually need, not `List<T>`.
 
 **Takeaway:** `out` is for producers, `in` is for consumers, and anything that both reads and writes is invariant.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -829,25 +699,7 @@ static T Max<T>(T a, T b) where T : IComparable<T> =>
 
 ## How is a delegate different from an event, and what is a closure?
 
-<A short l="j">
-
-A <T k="delegate">delegate</T> is an object that references a method — you can call it, pass it and assign it — while an <T k="event">event</T> is a delegate that outside code can only subscribe to (`+=`) or unsubscribe from (`-=`). A <T k="closure">closure</T> is a lambda together with the outer variables it captures, and those variables live as long as the lambda does.
-
-</A>
-
-<A short l="m">
-
-An event is to a delegate what a property is to a field: the compiler generates `add`/`remove`, and outside code can neither raise the event nor wipe out the subscribers with `=`. Delegates are <T k="multicast-delegate">multicast</T> and immutable, and a lambda captures the variable, not its value. That is why lambdas that capture a `for` counter all see its last value, while in `foreach` since C# 5 each iteration has its own variable.
-
-</A>
-
-<A short l="s">
-
-A closure is a hidden class (a <T k="display-class">display class</T>) whose fields hold the captured variables, and an event is a list of delegates, each holding a reference to its subscriber. The key consequence is lifetime: a long-lived publisher (a static event, a singleton) keeps subscribers in memory until they unsubscribe. The cost of a closure is allocating the display class and the delegate, sometimes on every method call; `static` lambdas (C# 9) forbid capture and rule it out. Multicast has two traps: an exception in one handler stops the rest, and only the last handler's result is returned.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -866,10 +718,6 @@ A closure is a hidden class (a <T k="display-class">display class</T>) whose fie
 Subscribing to an event of a long-lived object and never unsubscribing. The publisher holds a reference to the subscriber, and the garbage collector cannot collect it.
 
 **Takeaway:** a delegate is a reference to a method, an event is a delegate that outside code can only subscribe to and unsubscribe from.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -896,10 +744,6 @@ Subscribing to an event of a long-lived object and never unsubscribing. The publ
 Raise an event with `Changed?.Invoke(...)`: the field is read once, so unsubscribing from another thread cannot cause a `NullReferenceException`.
 
 **Takeaway:** an event protects the subscriber list, and a closure holds the variable, not its value.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -982,25 +826,7 @@ class Counter
 
 ## How does equality work in C#: `==`, `Equals`, `ReferenceEquals`, records?
 
-<A short l="j">
-
-<T k="reference-equality">Reference equality</T> means it is the same object, and <T k="value-equality">value equality</T> means the objects have the same contents. For classes, `==` and `Equals` compare references by default, while `string` and records compare values, so two instances of your own class with the same fields are not equal.
-
-</A>
-
-<A short l="m">
-
-`Equals` is a virtual method chosen at run time by the object's type, while `==` is a static operator chosen at compile time by the variables' types. So for two `object` variables holding strings, `==` compares references and `Equals` compares the text. When you override `Equals`, you must also override <T k="hash-code">`GetHashCode`</T> and implement `IEquatable<T>`, and records generate all of that for you — with an exact-type check through `EqualityContract`.
-
-</A>
-
-<A short l="s">
-
-Equality is a contract that `Dictionary`, `HashSet` and `Distinct` rely on: reflexivity, symmetry, transitivity and a stable hash while the object is in a collection. So keys are made immutable, and in hierarchies you either seal the type or compare the exact type, as records do through `EqualityContract`. Traps: records compare collections by reference, `double.NaN == double.NaN` is `false` while `Equals` returns `true`, and `==` through `object` silently compares references. The price of a mistake is "lost" dictionary keys, and a different comparison rule (case-insensitive, by `Id`) belongs in an `IEqualityComparer<T>`, not in `Equals`.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -1021,10 +847,6 @@ Equality is a contract that `Dictionary`, `HashSet` and `Distinct` rely on: refl
 Comparing instances of your own class with `==` and expecting a field-by-field comparison.
 
 **Takeaway:** by default classes compare by reference, records and `string` by value.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -1050,10 +872,6 @@ Comparing instances of your own class with `==` and expecting a field-by-field c
 Write `null` checks as `x is null`: it does not call an overloaded `==`.
 
 **Takeaway:** `Equals` and `GetHashCode` are overridden only together, and `==` consistently with them.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -1135,25 +953,7 @@ public sealed class Money(decimal amount, string currency) : IEquatable<Money>
 
 ## What can pattern matching do in modern C#?
 
-<A short l="j">
-
-<T k="pattern-matching">Pattern matching</T> tests a value against a pattern and extracts data at the same time: `if (obj is string s)` checks the type and gives you a variable at once. It replaces chains of `if` with casts, and a `switch` expression picks a result by pattern: `size switch { < 10 => "small", _ => "large" }`.
-
-</A>
-
-<A short l="m">
-
-A pattern describes the shape of a value: a type (`is Order o`), properties (`{ Total: > 100 }`), positions via `Deconstruct`, a relation (`>= 18`), combinations with `and`, `or`, `not`, and a <T k="list-pattern">list</T> (`[first, .., last]`, C# 11). A <T k="switch-expression">`switch` expression</T> returns a value, and the compiler warns if its arms are not <T k="exhaustiveness">exhaustive</T>. The price of a missed case is a `SwitchExpressionException` at run time, which is why the last arm is usually `_`.
-
-</A>
-
-<A short l="s">
-
-The compiler folds all arms into a decision tree and does not repeat identical tests, and the evaluation order of subpatterns is not guaranteed. It checks exhaustiveness for finite sets of values but not for open hierarchies, so you need `_`, and C# 15 (.NET 11) brings union types; `closed` hierarchies are still a proposal not tied to a release. `is null` does not call an overloaded `==`, which makes it a reliable `null` check. The trade-off is the expression problem: a `switch` over data is easy to extend with new operations, but every new case means editing every `switch`, while polymorphism is the other way round.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -1175,10 +975,6 @@ Without patterns you write `as`, a `null` check and a cast. A pattern does it in
 Forgetting the `_` arm. The compiler warns, and an unexpected value crashes the program with an exception.
 
 **Takeaway:** a pattern checks the shape of a value and pulls data out of it at the same time.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -1209,10 +1005,6 @@ A positional pattern calls `Deconstruct`. A list pattern works with arrays, `Lis
 Check for `null` with `is null` and `is not null`: a pattern does not call a user-defined `operator ==`.
 
 **Takeaway:** a `switch` expression is a compact "shape → result" table, and a trailing `_` protects you from unhandled values.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 

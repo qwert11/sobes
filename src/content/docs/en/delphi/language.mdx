@@ -20,25 +20,7 @@ How the Delphi language works: units and classes, manual memory management, refe
 
 ## What is an Object Pascal program made of?
 
-<A short l="j">
-
-A Delphi program is a `.dpr` project file plus a set of <T k="delphi-unit">units</T>: each unit has a public `interface` part and a hidden `implementation` part, and units pull each other in through `uses`. Classes inside units combine fields, methods and <T k="delphi-property">properties</T> (`property`), and the `private`, `protected`, `public` and `published` sections control access to them.
-
-</A>
-
-<A short l="m">
-
-A unit is a compilation unit: `interface` declares what other units can see, `implementation` holds the code, and `initialization` and `finalization` run at program start-up and shutdown. Two units cannot reference each other from their `interface` sections, but a cycle is fine if at least one of the references goes through the `implementation` `uses` clause. Polymorphism comes from `virtual` and `dynamic` methods with `override`, and since `private` in Delphi is visible to the whole unit, real encapsulation needs <T k="delphi-visibility">`strict private`</T>.
-
-</A>
-
-<A short l="s">
-
-The `interface`/`implementation` boundary drives dependencies and rebuilds: changing only `implementation` does not force client units to recompile. Virtual methods are called through the <T k="delphi-vmt">VMT</T> — fast, but every class's table holds slots for all its ancestors; <T k="delphi-dynamic-method">dynamic methods</T> save memory at the cost of a lookup on each call. A method with the same signature but no `override` hides the ancestor method instead of overriding it, and <T k="delphi-reintroduce">`reintroduce`</T> makes that hiding explicit. `published` is not just "even more public": the compiler emits RTTI for it, and that RTTI is what loads `.dfm` files.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -61,10 +43,6 @@ The project (`.dpr`) is the main program; a unit (`.pas`) is a file with types a
 Declaring a method in a descendant with the same signature but without `override`. The compiler warns, and a call through an ancestor-typed variable still runs the ancestor's method.
 
 **Takeaway:** a program is a set of units with a public `interface` and a hidden `implementation`, and classes expose their data through properties.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -91,10 +69,6 @@ Declaring a method in a descendant with the same signature but without `override
 Fields go in `strict private`, access goes through properties, polymorphism goes through `virtual` and `override`.
 
 **Takeaway:** a unit is the boundary of visibility and compilation, and `strict private` plus `override` keep classes predictable.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -197,25 +171,7 @@ A `TDocument` variable that points to a `TInvoice` returns `'Invoice'` from `Kin
 
 ## How is memory managed in Delphi?
 
-<A short l="j">
-
-A class instance is created on the heap with `Create` and freed manually with `Free`, so the code in between is wrapped in `try..finally`. There is no garbage collector, but strings, dynamic arrays and interfaces free themselves through <T k="delphi-reference-counting">reference counting</T>, and VCL components are freed by their <T k="delphi-owner">Owner</T>.
-
-</A>
-
-<A short l="m">
-
-Delphi has three memory models: objects are freed manually (`Create` and `Free` in `try..finally`), components are freed by their owner's destructor, and <T k="delphi-managed-type">managed types</T> — strings, dynamic arrays, interfaces — are freed by a reference count the compiler maintains. Local records and numbers live on the stack and disappear when the routine returns. The price of the manual model is leaks and use-after-free, which is why debug builds turn on `ReportMemoryLeaksOnShutdown`.
-
-</A>
-
-<A short l="s">
-
-Memory in Delphi is deterministic: an object lives exactly until `Free`, a managed type until its count drops to zero, with no <T k="garbage-collector">garbage collector</T> pauses and no finalizers. Mobile platforms and Linux once managed objects with <T k="delphi-arc">ARC</T>, but 10.4 Sydney dropped that model for the sake of code compatibility. Determinism costs developer responsibility: leaks, double frees and dangling references are caught with `try..finally` discipline and <T k="delphi-fastmm">FastMM</T> in debug mode. Unlike the .NET GC, reference counting never reclaims cycles.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -239,10 +195,6 @@ Delphi has no garbage collector for objects. Whoever creates an object frees it.
 Calling `Create` inside `try`. If the constructor fails, `finally` calls `Free` on an uninitialized variable — an access violation.
 
 **Takeaway:** objects are freed manually in `try..finally`, while strings, arrays and interfaces are freed by the compiler.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -270,10 +222,6 @@ Calling `Create` inside `try`. If the constructor fails, `finally` calls `Free` 
 Every `Create` without an owner gets its own `try..finally` with `Free`. In debug builds, set `ReportMemoryLeaksOnShutdown := True`.
 
 **Takeaway:** objects are freed manually, components through their owner, managed types through reference counting.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -362,25 +310,7 @@ end.
 
 ## How do interfaces and reference counting work, and what are the pitfalls?
 
-<A short l="j">
-
-An interface is a set of methods without an implementation that a class promises to implement. Interface references are counted: the compiler calls `_AddRef` on assignment and `_Release` when a reference goes away, and an object based on <T k="delphi-tinterfacedobject">`TInterfacedObject`</T> destroys itself when no references are left. That is why you never call `Free` on such an object.
-
-</A>
-
-<A short l="m">
-
-Every interface inherits from <T k="delphi-iinterface">`IInterface`</T> with `QueryInterface`, `_AddRef` and `_Release`, and the class decides what counting does: `TInterfacedObject` destroys itself at zero, `TComponent` does not count at all. The main pitfalls are mixing an object reference and an interface reference to the same object, so it gets destroyed while the object reference is still in use, and cycles whose counts never reach zero. For `as` and `Supports` to work, the interface needs a <T k="delphi-interface-guid">GUID</T>.
-
-</A>
-
-<A short l="s">
-
-Reference counting is deterministic but local: it cannot see cycles and knows nothing about object references. So each object gets exactly one ownership model: either interfaces only, or `Free` with a non-counting class such as `TComponent` or `TNoRefCountObject`. Back references are marked <T k="delphi-weak-reference">`[weak]`</T>, which is cleared when the object dies but needs runtime tracking, or <T k="delphi-unsafe-reference">`[unsafe]`</T>, which is free but can dangle. Two more traps: a `const` parameter that receives a freshly created object, and `Supports` on an object whose count is still zero.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -402,10 +332,6 @@ An interface describes what an object can do, not how: `ILogger = interface proc
 Storing the object in a `TFileLogger` variable, passing it on as `ILogger` and then calling `Free`. By then the count has already destroyed the object, and `Free` frees it a second time.
 
 **Takeaway:** a reference-counted object is held only through interfaces, and it frees itself.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -434,10 +360,6 @@ Storing the object in a `TFileLogger` variable, passing it on as `ILogger` and t
 One ownership model per object. Check for an interface with `Supports(Intf, IFoo, Foo)` and its out parameter, not with a hard cast.
 
 **Takeaway:** reference counting works as long as only interfaces point to the object and the graph has no cycles.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
@@ -545,25 +467,7 @@ end.
 
 ## What has modern Delphi added, and how do you use it in legacy code?
 
-<A short l="j">
-
-Modern Delphi added <T k="delphi-generics">generics</T> (`TList<T>`, `TDictionary<TKey, TValue>`), <T k="delphi-anonymous-method">anonymous methods</T>, <T k="delphi-inline-variable">inline variables</T> with type inference (10.3) and a ternary `if ... then ... else` operator inside expressions (Delphi 13). In old code they replace `TList` with type casts and long `var` blocks at the top of a routine.
-
-</A>
-
-<A short l="m">
-
-Generics give type-safe collections without casting to `TObject`, and anonymous methods are closures that capture variables, not values, and extend their lifetime. Inline variables (10.3) are declared where they are needed, with type inference and block scope, and <T k="delphi-managed-record">managed records</T> (10.4) call `Initialize` and `Finalize` automatically, RAII-style. Bring them into old code as you touch it: every feature raises the minimum compiler version.
-
-</A>
-
-<A short l="s">
-
-The language has moved step by step towards C#: generics and closures (2009), attributes and <T k="delphi-extended-rtti">extended RTTI</T> (2010), inline variables (10.3), managed records (10.4), multiline strings (12) and the <T k="delphi-conditional-operator">conditional `if` operator</T> (13). In legacy code the main risk is semantics, not syntax: a closure captures a variable by reference, and every generic instantiation adds code to the exe. So new features go in at the edges — new units and tests — rather than through a mass rewrite of working code.
-
-</A>
-
-<A l="j">
+<A>
 
 **What it is**
 
@@ -587,10 +491,6 @@ The language has moved step by step towards C#: generics and closures (2009), at
 Adding new syntax to a unit that is still built with an old compiler. Delphi 7 knows neither generics nor inline variables.
 
 **Takeaway:** modern Delphi means generics, closures, inline variables and managed records; use them where the code is built with a new compiler.
-
-</A>
-
-<A l="m">
 
 **How it works**
 
@@ -617,10 +517,6 @@ Adding new syntax to a unit that is still built with an old compiler. Delphi 7 k
 New syntax goes into new units and into functions you are rewriting anyway, not into a mass replacement.
 
 **Takeaway:** generics and closures remove type casts and throwaway methods, but a closure captures the variable, not the value.
-
-</A>
-
-<A l="s">
 
 **Under the hood**
 
