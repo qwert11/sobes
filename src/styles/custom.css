@@ -240,6 +240,19 @@ html:has(.tb) {
   background: var(--sl-color-red-low); border-color: var(--sl-color-red); color: var(--sl-color-red-high);
 }
 
+/* В длинном открытом ответе кнопка скрытия остаётся доступной на телефоне. */
+@media (max-width: 50rem) {
+  html[data-quiz='1'] .q.revealed .q-foot {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    margin-inline: -0.7rem;
+    padding-inline: 0.7rem;
+    padding-bottom: calc(0.6rem + env(safe-area-inset-bottom));
+    background: var(--sl-color-bg);
+  }
+}
+
 .q-reveal,
 .q .r-hide,
 .q.revealed .r-show {
