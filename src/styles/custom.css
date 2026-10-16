@@ -242,6 +242,7 @@ html:has(.tb) {
 
 /* В длинном открытом ответе кнопка скрытия остаётся доступной на телефоне. */
 @media (max-width: 50rem) {
+  html:not([data-quiz='1']) .q:not(.concealed) .q-foot,
   html[data-quiz='1'] .q.revealed .q-foot {
     position: sticky;
     bottom: 0;
@@ -251,21 +252,31 @@ html:has(.tb) {
     padding-bottom: calc(0.6rem + env(safe-area-inset-bottom));
     background: var(--sl-color-bg);
   }
+  html:not([data-quiz='1']) .q-foot .q-reveal {
+    display: inline-flex;
+  }
+  html:not([data-quiz='1']) .q.concealed :is(.ans, .ex, .next, .src) {
+    display: none;
+  }
 }
 
-.q-reveal,
-.q .r-hide,
-.q.revealed .r-show {
+.q .r-show,
+html[data-quiz='1'] .q:not(.revealed) .r-hide,
+.q.concealed .r-hide {
   display: none;
 }
-.q.revealed .r-hide {
+html[data-quiz='1'] .q:not(.revealed) .r-show,
+.q.concealed .r-show {
   display: inline;
 }
-html[data-quiz='1'] .q-foot .q-reveal {
-  display: inline-flex;
+.q-foot .q-reveal {
+  display: none;
   align-items: center;
   border-color: var(--sl-color-accent);
   color: var(--sl-color-text-accent);
+}
+html[data-quiz='1'] .q-foot .q-reveal {
+  display: inline-flex;
 }
 html[data-quiz='1'] .q:not(.revealed) :is(.ans, .ex, .next, .src) {
   display: none;

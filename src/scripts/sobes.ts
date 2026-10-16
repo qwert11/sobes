@@ -47,12 +47,27 @@ function syncToolbar(): void {
   });
 }
 
+function syncAnswerToggle(card: HTMLElement): void {
+  const expanded = root.dataset.quiz === '1'
+    ? card.classList.contains('revealed')
+    : !card.classList.contains('concealed');
+  card.querySelector<HTMLButtonElement>('.q-reveal')?.setAttribute('aria-expanded', String(expanded));
+}
+
 function setQuiz(on: boolean): void {
   if (on) root.dataset.quiz = '1';
   else delete root.dataset.quiz;
   write(KEY_QUIZ, on ? '1' : null);
-  document.querySelectorAll('.q.revealed').forEach((q) => q.classList.remove('revealed'));
+  document.querySelectorAll<HTMLElement>('.q').forEach((card) => {
+    card.classList.remove('revealed', 'concealed');
+    syncAnswerToggle(card);
+  });
   syncToolbar();
+}
+
+function toggleAnswer(card: HTMLElement): void {
+  card.classList.toggle(root.dataset.quiz === '1' ? 'revealed' : 'concealed');
+  syncAnswerToggle(card);
 }
 
 /* ---------- самопроверка ---------- */
@@ -168,7 +183,10 @@ document.addEventListener('click', (event) => {
   const button = target.closest<HTMLElement>('button');
 
   if (button?.matches('.tb-quiz')) setQuiz(root.dataset.quiz !== '1');
-  else if (button?.matches('.q-reveal')) button.closest('.q')?.classList.toggle('revealed');
+  else if (button?.matches('.q-reveal')) {
+    const card = button.closest<HTMLElement>('.q');
+    if (card) toggleAnswer(card);
+  }
   else if (button?.matches('.q-check button')) {
     const card = button.closest<HTMLElement>('.q');
     if (card) setStatus(card, button.dataset.s ?? '');
@@ -186,4 +204,5 @@ document.addEventListener('keydown', (event) => {
 });
 
 syncToolbar();
+document.querySelectorAll<HTMLElement>('.q').forEach(syncAnswerToggle);
 renderStatus();
